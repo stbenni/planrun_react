@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 vendor/
+.venv/
+venv/
+env/
+ENV/
 
 # Build outputs
 dist/
@@ -27,6 +31,16 @@ Thumbs.db
 composer.phar
 composer.lock
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+*.egg
+
 # Logs
 logs/
 *.log
@@ -35,8 +49,9 @@ logs/
 cache/
 *.cache
 
-# Uploads (но можно закомментировать если нужны для бэкапа)
-# uploads/
+# Uploads (файлы пользователей - обычно не коммитятся)
+uploads/
+!uploads/.gitkeep
 
 # Temporary files
 tmp/
@@ -57,3 +72,11 @@ coverage/
 # Lock files (можно включить если нужны)
 # package-lock.json
 # yarn.lock
+
+# AI models and large files
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+models/
+weights/
