@@ -1,0 +1,99 @@
+/* Используем классы из оригинального calendar_v2.css */
+.day {
+  aspect-ratio: 1;
+  min-height: 80px;
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--gray-200);
+  position: relative;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  background: var(--gray-50);
+  display: flex;
+  flex-direction: column;
+}
+
+.day:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-300);
+}
+
+.day.rest-day {
+  background: var(--gray-100);
+  border-color: var(--gray-300);
+}
+
+.day.easy {
+  background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%);
+  border-color: var(--info-500);
+}
+
+.day.long-run {
+  background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%);
+  border-color: var(--success-600);
+}
+
+.day.tempo {
+  background: linear-gradient(135deg, #DBEAFE 0%, #93C5FD 100%);
+  border-color: var(--info-600);
+}
+
+.day.interval {
+  background: linear-gradient(135deg, #FED7AA 0%, #FDBA74 100%);
+  border-color: var(--warning-600);
+}
+
+.day.key-session {
+  background: linear-gradient(135deg, #E9D5FF 0%, #C4B5FD 100%);
+  border-color: #8B5CF6;
+  border-width: 2px;
+}
+
+.day.other {
+  background: var(--gray-100);
+  border-color: var(--gray-400);
+}
+
+.day.free-training {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  border-color: var(--primary-500);
+}
+
+.day.completed {
+  opacity: 0.7;
+}
+
+.date-cell {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.training-content {
+  font-size: 10px;
+  color: #1f2937;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.completed-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background-color: #10b981;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

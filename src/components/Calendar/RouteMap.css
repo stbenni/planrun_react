@@ -1,0 +1,135 @@
+/**
+ * Стили для RouteMap компонента
+ */
+
+.route-map-container {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  margin-top: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.route-map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.route-map-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.route-distance {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary-500);
+}
+
+.route-map {
+  width: 100%;
+  height: 300px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--gray-100);
+  position: relative;
+}
+
+.map-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--gray-600);
+}
+
+.map-loading .spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--gray-200);
+  border-top-color: var(--primary-500);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.map-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--gray-500);
+  font-size: 14px;
+}
+
+.route-stats {
+  display: flex;
+  gap: 24px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.route-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-icon {
+  font-size: 20px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.stat-unit {
+  font-size: 14px;
+  color: var(--gray-600);
+}
+
+/* Темная тема */
+[data-theme="dark"] .route-map-container {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .route-map-title {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .route-map {
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .route-stats {
+  border-top-color: var(--card-border);
+}
+
+[data-theme="dark"] .stat-value {
+  color: var(--text-primary);
+}
+
+/* Мобильная адаптация */
+@media (max-width: 640px) {
+  .route-map-container {
+    padding: 16px;
+  }
+
+  .route-map {
+    height: 250px;
+  }
+
+  .route-stats {
+    flex-direction: column;
+    gap: 12px;
+  }
+}

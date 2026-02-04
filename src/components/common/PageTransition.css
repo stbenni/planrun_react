@@ -1,0 +1,45 @@
+/**
+ * Стили для плавных переходов между страницами
+ */
+
+.page-transition {
+  animation: fadeIn 0.2s ease-in-out;
+  width: 100%;
+  min-height: 100%;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Плавное появление контента */
+.page-transition > * {
+  animation: slideIn 0.25s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Уважаем настройки пользователя для уменьшения движения */
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    animation: none;
+  }
+  
+  .page-transition > * {
+    animation: none;
+  }
+}

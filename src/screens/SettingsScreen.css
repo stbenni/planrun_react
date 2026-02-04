@@ -1,0 +1,33 @@
+/**
+ * Стили для SettingsScreen
+ * Импортируем основные стили из assets/css/settings.css
+ */
+
+@import '../assets/css/settings.css';
+
+/* Дополнительные стили для React компонента */
+.settings-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0;
+  background: var(--bg-secondary);
+  min-height: 100vh;
+}
+
+[data-theme="dark"] .settings-container {
+  background: var(--bg-primary);
+}
+
+/* Отступ сверху для десктопов с header */
+@media (min-width: 1024px) {
+  .settings-container {
+    padding-top: 88px; /* 64px header + 24px отступ */
+  }
+}
+
+/* Отступ снизу для мобильных с BottomNav */
+@media (max-width: 1023px) {
+  .settings-container {
+    padding-bottom: 80px;
+  }
+}

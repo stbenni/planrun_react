@@ -1,0 +1,197 @@
+/**
+ * Dark Mode Theme - Темная тема для PlanRun
+ * В стиле Nike Run Club (темная тема по умолчанию)
+ */
+
+/* 
+ * Темная тема теперь определена в sports-colors.css
+ * Этот файл содержит только дополнительные стили для компонентов
+ */
+
+/* Применение темной темы к body и основным элементам */
+body[data-theme="dark"],
+body:not([data-theme])[data-theme="dark"],
+[data-theme="dark"] body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Основные элементы в темной теме */
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] h5,
+[data-theme="dark"] h6 {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] p,
+[data-theme="dark"] span,
+[data-theme="dark"] div {
+  color: inherit;
+}
+
+/* Компоненты в темной теме */
+[data-theme="dark"] .workout-card,
+[data-theme="dark"] .stat-metric-card,
+[data-theme="dark"] .week-calendar-container,
+[data-theme="dark"] .progress-card,
+[data-theme="dark"] .achievement-card {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .workout-title,
+[data-theme="dark"] .metric-value,
+[data-theme="dark"] .section-title {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .workout-date,
+[data-theme="dark"] .metric-label,
+[data-theme="dark"] .workout-description {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .dashboard,
+[data-theme="dark"] .stats-screen {
+  background: var(--bg-primary);
+}
+
+[data-theme="dark"] .bottom-nav {
+  background: var(--card-bg);
+  border-top-color: var(--card-border);
+}
+
+[data-theme="dark"] .modal-modern-content {
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .modal-modern-header {
+  background: var(--gradient-primary);
+}
+
+[data-theme="dark"] .week-day-cell {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .week-day-cell.today {
+  background: rgba(252, 76, 2, 0.2);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .week-day-cell.completed {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: var(--success-500);
+}
+
+[data-theme="dark"] .week-day-cell.planned {
+  background: rgba(252, 76, 2, 0.2);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .btn-workout,
+[data-theme="dark"] .btn-dashboard {
+  background: var(--primary-500);
+  color: white;
+}
+
+[data-theme="dark"] .btn-dashboard.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .stats-tab {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .stats-tab.active {
+  background: var(--primary-500);
+  color: white;
+}
+
+[data-theme="dark"] .time-range-btn {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .time-range-btn.active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: white;
+}
+
+[data-theme="dark"] .chart-bar {
+  background: var(--gradient-primary);
+}
+
+[data-theme="dark"] .progress-bar,
+[data-theme="dark"] .week-bar {
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .workout-item {
+  background: var(--card-bg);
+}
+
+[data-theme="dark"] .workout-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Переключатель темы */
+.theme-toggle {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary-500);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  z-index: 999;
+  transition: all 200ms ease;
+}
+
+.theme-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.theme-toggle:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 1024px) {
+  .theme-toggle {
+    bottom: 90px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
+}
+
+/* Плавный переход между темами */
+* {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+/* Исключения для элементов, которые не должны иметь transition */
+.theme-toggle,
+.spinner,
+.chart-bar,
+.progress-bar-fill {
+  transition: none;
+}

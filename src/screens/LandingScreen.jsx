@@ -1,0 +1,153 @@
+/**
+ * Лендинг страница PlanRun
+ */
+
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import './LandingScreen.css';
+
+const LandingScreen = () => {
+  const navigate = useNavigate();
+
+  return (
+    <div className="landing-container">
+      <div className="landing-header">
+        <div className="landing-logo">
+          🏃‍♂️ planRUN
+        </div>
+        <div className="landing-nav">
+          <button 
+            className="btn btn-landing-secondary"
+            onClick={() => navigate('/login')}
+          >
+            Вход
+          </button>
+        </div>
+      </div>
+      
+      <div className="landing-hero">
+        <div className="landing-hero-inner">
+          <div className="hero-grid">
+            <div className="hero-text">
+              <h1>planRUN <br /> найди своего тренера<br />или создай план с AI</h1>
+              <div className="subtitle">
+                Личный беговой тренер с обратной связью — или AI‑план за минуту. 
+                Индивидуальный подход, учёт пульса, темпа, здоровья и доступных дней. От 5 км до марафона.
+              </div>
+              
+              <div className="landing-badges">
+                <span className="badge">AI‑план за 1 минуту</span>
+                <span className="badge">Тренер с правками плана</span>
+                <span className="badge">Импорт GPX/TCX из часов и бота</span>
+                <span className="badge">Пульс, темп, каденс, высота</span>
+              </div>
+              
+              <div className="landing-cta">
+                <button 
+                  className="btn-landing btn-landing-primary"
+                  onClick={() => navigate('/register')}
+                >
+                  🚀 Сгенерировать AI‑план
+                </button>
+              </div>
+            </div>
+            
+            <div className="hero-image">
+              <div className="hero-image-placeholder">
+                🏃‍♂️
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Две карточки выбора пути */}
+      <div className="feature-section">
+        <div className="features-wrap">
+          <div className="landing-features" style={{ maxWidth: '900px', margin: '0 auto' }}>
+            <div className="feature-card">
+              <div className="feature-icon">🤖</div>
+              <div>
+                <div className="feature-title">AI‑план за 1 минуту</div>
+                <div className="feature-text">
+                  Учитываем дистанцию, цель по времени, доступные дни, пульс и базовый объём. 
+                  Автоадаптация каждую неделю по вашим фактическим тренировкам.
+                </div>
+              </div>
+            </div>
+            <div className="feature-card">
+              <div className="feature-icon">🧑‍🏫</div>
+              <div>
+                <div className="feature-title">Тренер с обратной связью</div>
+                <div className="feature-text">
+                  Живое ведение, корректировки плана, ответы на вопросы. 
+                  Совместный разбор прогресса и слабых мест.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Ключевые преимущества */}
+      <div className="feature-section" style={{ marginTop: '8px' }}>
+        <div className="features-wrap">
+          <div className="landing-features">
+            <div className="feature-card">
+              <div className="feature-icon">📈</div>
+              <div>
+                <div className="feature-title">План vs факт каждую неделю</div>
+                <div className="feature-text">
+                  Сравниваем выполненные тренировки с планом, анализируем пульс, темп, каденс, высоту и калории. 
+                  Рекомендации по нагрузке и ключевым дням.
+                </div>
+              </div>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">🎯</div>
+              <div>
+                <div className="feature-title">Планы 12–30 недель</div>
+                <div className="feature-text">
+                  5/10/21/42 км, темповые, интервалы, ОФП, taper перед стартом. 
+                  Подгоняем объём и темп под ваш график и самочувствие.
+                </div>
+              </div>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">🫀</div>
+              <div>
+                <div className="feature-title">Глубокие метрики</div>
+                <div className="feature-text">
+                  Пульс, каденс, высота, калории, темп. 
+                  Еженедельные отчёты и готовые данные для AI‑анализа или тренера.
+                </div>
+              </div>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">👥</div>
+              <div>
+                <div className="feature-title">Командная работа</div>
+                <div className="feature-text">
+                  Доступ для тренера, совместные корректировки, комментарии к ключевым тренировкам. 
+                  Человечность в паре с данными.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div className="landing-footer">
+        <p>&copy; 2025 PlanRun. Умные тренировки для бегунов.</p>
+        <p style={{ marginTop: '8px', opacity: 0.7 }}>
+          🏃 Бегите умно. Выберите: живой тренер или AI — и достигайте цели.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default LandingScreen;

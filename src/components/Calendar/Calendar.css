@@ -1,0 +1,37 @@
+.calendar {
+  width: 100%;
+}
+
+.calendar-phase {
+  margin-bottom: 32px;
+}
+
+.phase-header {
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.phase-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.phase-goal {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.phase-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.calendar-empty {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}

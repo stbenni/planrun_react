@@ -1,0 +1,20 @@
+[Unit]
+Description=PlanRun React (s-vladimirov) — dev-сервер
+After=network.target
+
+[Service]
+Type=simple
+User=st_benni
+Group=www-data
+WorkingDirectory={{PROJECT_ROOT}}
+Environment="NODE_ENV=production"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/home/st_benni/.nvm/versions/node/v20.20.0/bin"
+Environment="NVM_DIR=/home/st_benni/.nvm"
+ExecStart=/usr/bin/bash {{PROJECT_ROOT}}/start-react-service.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

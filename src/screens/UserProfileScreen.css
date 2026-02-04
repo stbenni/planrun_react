@@ -1,0 +1,224 @@
+/**
+ * Стили для экрана профиля пользователя
+ */
+
+.user-profile-screen {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  padding: 24px;
+  padding-top: 88px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.profile-loading,
+.profile-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  text-align: center;
+}
+
+.profile-error h2 {
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.profile-error p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding: 24px;
+  background: var(--card-bg);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.profile-avatar {
+  flex-shrink: 0;
+}
+
+.avatar-large {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid var(--primary-500);
+}
+
+.avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-500);
+  color: white;
+  font-size: 48px;
+  font-weight: 800;
+}
+
+.profile-info {
+  flex: 1;
+}
+
+.profile-username {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.profile-email {
+  color: var(--text-secondary);
+  font-size: 16px;
+  margin: 0 0 16px 0;
+}
+
+.coach-badge {
+  display: inline-block;
+  padding: 8px 16px;
+  background: var(--primary-100);
+  color: var(--primary-700);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.profile-calendar {
+  margin-top: 24px;
+}
+
+.profile-access-denied {
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--card-bg);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.profile-access-denied h2 {
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.profile-access-denied p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Секция последних тренировок */
+.recent-workouts-section {
+  margin-top: 48px;
+  padding: 24px;
+  background: var(--card-bg);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.recent-workouts-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 24px 0;
+}
+
+.recent-workouts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recent-workout-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  transition: all 200ms ease;
+}
+
+.recent-workout-item:hover {
+  background: var(--gray-100);
+  transform: translateX(4px);
+}
+
+[data-theme="dark"] .recent-workout-item {
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .recent-workout-item:hover {
+  background: var(--bg-secondary);
+}
+
+.recent-workout-date {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recent-workout-metrics {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.workout-metric {
+  font-size: 14px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Темная тема */
+[data-theme="dark"] .profile-header,
+[data-theme="dark"] .profile-access-denied,
+[data-theme="dark"] .recent-workouts-section {
+  background: var(--card-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .coach-badge {
+  background: var(--primary-900);
+  color: var(--primary-200);
+}
+
+/* Адаптивность */
+@media (max-width: 640px) {
+  .user-profile-screen {
+    padding: 16px;
+    padding-top: 80px;
+  }
+
+  .profile-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .profile-username {
+    font-size: 24px;
+  }
+
+  .recent-workout-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .recent-workout-metrics {
+    width: 100%;
+  }
+}

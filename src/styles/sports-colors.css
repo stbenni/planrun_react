@@ -1,0 +1,279 @@
+/**
+ * SPORTS APP COLOR SYSTEM - Спортивная цветовая система
+ * Вдохновлено: Strava (оранжевый/красный), Nike Run Club (черный/яркие акценты)
+ * 
+ * Текущая проблема: голубой (#00A8E8) слишком "корпоративный" для спортивного приложения
+ * Решение: использовать более энергичные, спортивные цвета
+ */
+
+:root {
+  /* ========================================
+     PRIMARY - Спортивный оранжево-красный (Strava style)
+     ======================================== */
+  --primary-50: #FFF4F0;
+  --primary-100: #FFE5D9;
+  --primary-200: #FFC7B3;
+  --primary-300: #FF9D7A;
+  --primary-400: #FF6B3D;
+  --primary-500: #FC4C02;  /* Strava Orange - основной цвет */
+  --primary-600: #E03D00;
+  --primary-700: #C03000;
+  --primary-800: #9A2500;
+  --primary-900: #7A1D00;
+  
+  /* ========================================
+     ACCENT - Энергичный красный для акцентов
+     ======================================== */
+  --accent-50: #FEF2F2;
+  --accent-100: #FEE2E2;
+  --accent-500: #EF4444;
+  --accent-600: #DC2626;
+  
+  /* ========================================
+     SUCCESS - Яркий зеленый для достижений
+     ======================================== */
+  --success-50: #F0FDF4;
+  --success-100: #DCFCE7;
+  --success-500: #22C55E;  /* Более яркий зеленый */
+  --success-600: #16A34A;
+  --success-700: #15803D;
+  
+  /* ========================================
+     WARNING - Желтый для предупреждений
+     ======================================== */
+  --warning-50: #FEFCE8;
+  --warning-100: #FEF9C3;
+  --warning-500: #EAB308;
+  --warning-600: #CA8A04;
+  
+  /* ========================================
+     INFO - Синий для информации (вторичный)
+     ======================================== */
+  --info-50: #EFF6FF;
+  --info-100: #DBEAFE;
+  --info-500: #3B82F6;
+  --info-600: #2563EB;
+  
+  /* ========================================
+     NEUTRALS - Современная серая шкала
+     ======================================== */
+  --gray-50: #FAFAFA;
+  --gray-100: #F5F5F5;
+  --gray-200: #E5E5E5;
+  --gray-300: #D4D4D4;
+  --gray-400: #A3A3A3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
+  
+  /* ========================================
+     BACKGROUNDS - Фоны для светлой темы
+     ======================================== */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FAFAFA;
+  --bg-tertiary: #F5F5F5;
+  
+  /* ========================================
+     TEXT COLORS - Цвета текста для светлой темы
+     ======================================== */
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  
+  /* ========================================
+     CARDS - Карточки для светлой темы
+     ======================================== */
+  --card-bg: #FFFFFF;
+  --card-border: #E5E5E5;
+  
+  /* ========================================
+     GRADIENTS - Спортивные градиенты
+     ======================================== */
+  --gradient-primary: linear-gradient(135deg, #FC4C02 0%, #E03D00 100%);
+  --gradient-success: linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
+  --gradient-hero: linear-gradient(135deg, #FC4C02 0%, #EF4444 100%);
+  --gradient-energy: linear-gradient(135deg, #FC4C02 0%, #EAB308 50%, #22C55E 100%);
+  
+  /* ========================================
+     SPORTS SPECIFIC COLORS
+     ======================================== */
+  /* Типы тренировок */
+  --workout-easy: #22C55E;      /* Легкий бег - зеленый */
+  --workout-tempo: #EAB308;     /* Темп - желтый */
+  --workout-interval: #EF4444;   /* Интервалы - красный */
+  --workout-long: #3B82F6;      /* Длительный - синий */
+  --workout-rest: #A3A3A3;      /* Отдых - серый */
+  
+  /* Статусы */
+  --status-completed: #22C55E;
+  --status-planned: #FC4C02;
+  --status-missed: #EF4444;
+  --status-rest: #A3A3A3;
+  
+  /* ========================================
+     SPACING SYSTEM (8px base)
+     ======================================== */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.25rem;  /* 20px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-10: 2.5rem;  /* 40px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+  
+  /* ========================================
+     TYPOGRAPHY SCALE
+     ======================================== */
+  --text-xs: 0.75rem;   /* 12px */
+  --text-sm: 0.875rem;  /* 14px */
+  --text-base: 1rem;    /* 16px */
+  --text-lg: 1.125rem;  /* 18px */
+  --text-xl: 1.25rem;   /* 20px */
+  --text-2xl: 1.5rem;   /* 24px */
+  --text-3xl: 1.875rem; /* 30px */
+  --text-4xl: 2.25rem;  /* 36px */
+  --text-5xl: 3rem;     /* 48px */
+  
+  /* ========================================
+     FONT WEIGHTS
+     ======================================== */
+  --font-light: 300;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+  
+  /* ========================================
+     BORDER RADIUS
+     ======================================== */
+  --radius-sm: 0.375rem;  /* 6px */
+  --radius-md: 0.5rem;    /* 8px */
+  --radius-lg: 0.75rem;   /* 12px */
+  --radius-xl: 1rem;      /* 16px */
+  --radius-2xl: 1.5rem;   /* 24px */
+  --radius-full: 9999px;
+  
+  /* ========================================
+     SHADOWS - Более выразительные тени
+     ======================================== */
+  --shadow-sm: 0 1px 2px 0 rgba(252, 76, 2, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(252, 76, 2, 0.1), 0 2px 4px -1px rgba(252, 76, 2, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(252, 76, 2, 0.1), 0 4px 6px -2px rgba(252, 76, 2, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(252, 76, 2, 0.1), 0 10px 10px -5px rgba(252, 76, 2, 0.04);
+  --shadow-2xl: 0 25px 50px -12px rgba(252, 76, 2, 0.25);
+  
+  /* ========================================
+     TRANSITIONS
+     ======================================== */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================================
+   DARK MODE - Nike Run Club style
+   ======================================== */
+[data-theme="dark"],
+:root[data-theme="dark"] {
+  /* Backgrounds - Более светлые, менее контрастные */
+  --bg-primary: #1A1A1A;  /* Вместо #0A0A0A - более светлый */
+  --bg-secondary: #252525;  /* Вместо #141414 - более светлый */
+  --bg-tertiary: #2F2F2F;  /* Вместо #1F1F1F - более светлый */
+  
+  /* Text - Мягче, менее контрастный */
+  --text-primary: #F5F5F5;  /* Вместо #FFFFFF - чуть мягче */
+  --text-secondary: #D4D4D4;  /* Вместо #E5E5E5 - чуть мягче */
+  --text-tertiary: #A3A3A3;
+  
+  /* Override grays for dark mode - более светлые */
+  --gray-50: #2F2F2F;
+  --gray-100: #3A3A3A;
+  --gray-200: #4A4A4A;
+  --gray-300: #5A5A5A;
+  --gray-400: #737373;
+  --gray-500: #9CA3AF;
+  --gray-600: #C4C4C4;
+  --gray-700: #D4D4D4;
+  --gray-800: #E5E5E5;
+  --gray-900: #F5F5F5;
+  
+  /* Cards - Более светлые */
+  --card-bg: #252525;  /* Вместо #141414 - более светлый */
+  --card-border: #3A3A3A;  /* Вместо #262626 - более светлый */
+  
+  /* Primary - Более яркие оттенки для темной темы */
+  --primary-50: rgba(255, 107, 61, 0.1);
+  --primary-100: rgba(255, 107, 61, 0.15);
+  --primary-200: rgba(255, 107, 61, 0.25);
+  --primary-300: rgba(255, 107, 61, 0.4);
+  --primary-400: #FF8C5A;  /* Более яркий */
+  --primary-500: #FF6B3D;  /* Более яркий для темной темы */
+  --primary-600: #FF4D1A;  /* Более яркий */
+  --primary-700: #FF3D0A;
+  --primary-800: #E03000;
+  --primary-900: #C02800;
+  
+  /* Градиенты для темной темы - более яркие */
+  --gradient-primary: linear-gradient(135deg, #FF6B3D 0%, #FF4D1A 100%);
+  --gradient-hero: linear-gradient(135deg, #FF6B3D 0%, #FF8C5A 100%);
+  
+  /* Success - более яркий зеленый для темной темы */
+  --success-500: #2ED573;
+  --success-600: #22C55E;
+  
+  /* Accent - более яркий красный */
+  --accent-500: #FF5252;
+  --accent-600: #EF4444;
+  
+  /* Shadows для темной темы - более мягкие */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
+}
+
+/* Автоматическое определение системной темы */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-primary: #1A1A1A;
+    --bg-secondary: #252525;
+    --bg-tertiary: #2F2F2F;
+    --text-primary: #F5F5F5;
+    --text-secondary: #D4D4D4;
+    --text-tertiary: #A3A3A3;
+    --gray-50: #2F2F2F;
+    --gray-100: #3A3A3A;
+    --gray-200: #4A4A4A;
+    --gray-300: #5A5A5A;
+    --gray-400: #737373;
+    --gray-500: #9CA3AF;
+    --gray-600: #C4C4C4;
+    --gray-700: #D4D4D4;
+    --gray-800: #E5E5E5;
+    --gray-900: #F5F5F5;
+    --card-bg: #252525;
+    --card-border: #3A3A3A;
+    --primary-50: rgba(255, 107, 61, 0.1);
+    --primary-100: rgba(255, 107, 61, 0.15);
+    --primary-200: rgba(255, 107, 61, 0.25);
+    --primary-300: rgba(255, 107, 61, 0.4);
+    --primary-400: #FF8C5A;
+    --primary-500: #FF6B3D;
+    --primary-600: #FF4D1A;
+    --primary-700: #FF3D0A;
+    --primary-800: #E03000;
+    --primary-900: #C02800;
+    --gradient-primary: linear-gradient(135deg, #FF6B3D 0%, #FF4D1A 100%);
+    --gradient-hero: linear-gradient(135deg, #FF6B3D 0%, #FF8C5A 100%);
+    --success-500: #2ED573;
+    --success-600: #22C55E;
+    --accent-500: #FF5252;
+    --accent-600: #EF4444;
+  }
+}

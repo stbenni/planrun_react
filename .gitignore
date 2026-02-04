@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP
+composer.phar
+composer.lock
+
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+*.cache
+
+# Uploads (но можно закомментировать если нужны для бэкапа)
+# uploads/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database (если есть локальные дампы)
+*.sql
+*.sqlite
+
+# Coverage reports
+coverage/
+
+# Package files
+*.tgz
+*.tar.gz
+
+# Lock files (можно включить если нужны)
+# package-lock.json
+# yarn.lock

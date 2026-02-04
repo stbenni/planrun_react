@@ -1,0 +1,9 @@
+{
+  "appId": "com.planrun.app",
+  "appName": "PlanRun",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
+}

@@ -1,0 +1,380 @@
+<?php
+/**
+ * API v2 - Рефакторинг api.php на контроллеры
+ * 
+ * ОСНОВНОЙ API - полностью заменил старый api.php
+ * Все действия мигрированы на контроллеры
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+
+// CORS: при вызове через api_wrapper CORS уже отправлен (cors.php)
+if (!defined('API_WRAPPER_CORS_SENT') || !API_WRAPPER_CORS_SENT) {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $currentHost = $_SERVER['HTTP_HOST'] ?? '';
+    $originHost = parse_url($origin, PHP_URL_HOST);
+    $currentHostClean = preg_replace('/^www\./', '', $currentHost);
+    $originHostClean = preg_replace('/^www\./', '', $originHost ?? '');
+    $isSameDomain = $originHost && $currentHostClean && (
+        $originHostClean === $currentHostClean
+        || strpos($originHostClean, '.' . $currentHostClean) !== false
+        || strpos($currentHostClean, '.' . $originHostClean) !== false
+        || strpos($origin, 'localhost') !== false
+        || strpos($origin, '127.0.0.1') !== false
+        || strpos($origin, '192.168.') !== false
+    );
+    if ($isSameDomain) {
+        header("Access-Control-Allow-Origin: {$origin}");
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Max-Age: 86400');
+    }
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+        if ($isSameDomain) {
+            header("Access-Control-Allow-Origin: {$origin}");
+            header('Access-Control-Allow-Credentials: true');
+        }
+        if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_METHOD'])) {
+            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+        }
+        if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'])) {
+            header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
+        }
+        header('Access-Control-Max-Age: 86400');
+        http_response_code(204);
+        exit(0);
+    }
+}
+
+// Загружаем зависимости
+require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/config/Logger.php';
+require_once __DIR__ . '/config/error_handler.php';
+require_once __DIR__ . '/config/RateLimiter.php';
+require_once __DIR__ . '/cache_config.php';
+
+// Регистрируем обработчики ошибок
+ErrorHandler::register();
+
+// Подключаем контроллеры
+require_once __DIR__ . '/controllers/BaseController.php';
+require_once __DIR__ . '/controllers/TrainingPlanController.php';
+require_once __DIR__ . '/controllers/WorkoutController.php';
+require_once __DIR__ . '/controllers/StatsController.php';
+require_once __DIR__ . '/controllers/ExerciseController.php';
+require_once __DIR__ . '/controllers/WeekController.php';
+require_once __DIR__ . '/controllers/AdaptationController.php';
+require_once __DIR__ . '/controllers/UserController.php';
+require_once __DIR__ . '/controllers/AuthController.php';
+
+try {
+    $db = getDBConnection();
+    if (!$db) {
+        ErrorHandler::returnJsonError('Ошибка подключения к базе данных', 500);
+    }
+    
+    // Получаем действие и метод
+    $action = $_GET['action'] ?? '';
+    $method = $_SERVER['REQUEST_METHOD'];
+    
+    // Rate limiting (для авторизованных пользователей)
+    if (isAuthenticated()) {
+        $currentUserId = getCurrentUserId();
+        if ($currentUserId) {
+            try {
+                $rateLimitAction = 'default';
+                if (strpos($action, 'plan') !== false) {
+                    $rateLimitAction = 'plan_generation';
+                }
+                RateLimiter::checkApiLimit($currentUserId, $rateLimitAction);
+            } catch (Exception $e) {
+                if (strpos($e->getMessage(), 'Превышен лимит') !== false) {
+                    Logger::warning('Rate limit exceeded', [
+                        'user_id' => $currentUserId,
+                        'action' => $action
+                    ]);
+                    ErrorHandler::returnJsonError($e->getMessage(), 429);
+                }
+            }
+        }
+    }
+    
+    // Маршрутизация на контроллеры
+    switch ($action) {
+        // TrainingPlanController
+        case 'load':
+            $controller = new TrainingPlanController($db);
+            $controller->load();
+            break;
+            
+        case 'check_plan_status':
+            $controller = new TrainingPlanController($db);
+            $controller->checkStatus();
+            break;
+            
+        case 'regenerate_plan':
+            $controller = new TrainingPlanController($db);
+            $controller->regeneratePlan();
+            break;
+            
+        case 'regenerate_plan_with_progress':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new TrainingPlanController($db);
+            $controller->regeneratePlanWithProgress();
+            break;
+            
+        case 'clear_plan_generation_message':
+            $controller = new TrainingPlanController($db);
+            $controller->clearPlanGenerationMessage();
+            break;
+            
+        // WorkoutController
+        case 'get_day':
+            $controller = new WorkoutController($db);
+            $controller->getDay();
+            break;
+            
+        case 'get_workout_timeline':
+            $controller = new WorkoutController($db);
+            $controller->getWorkoutTimeline();
+            break;
+            
+        case 'save_result':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WorkoutController($db);
+            $controller->saveResult();
+            break;
+            
+        case 'get_result':
+            $controller = new WorkoutController($db);
+            $controller->getResult();
+            break;
+            
+        case 'get_all_results':
+            $controller = new WorkoutController($db);
+            $controller->getAllResults();
+            break;
+            
+        case 'delete_workout':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WorkoutController($db);
+            $controller->deleteWorkout();
+            break;
+            
+        case 'save':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WorkoutController($db);
+            $controller->save();
+            break;
+            
+        case 'reset':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WorkoutController($db);
+            $controller->reset();
+            break;
+            
+        // StatsController
+        case 'stats':
+            $controller = new StatsController($db);
+            $controller->stats();
+            break;
+            
+        case 'get_all_workouts_summary':
+            $controller = new StatsController($db);
+            $controller->getAllWorkoutsSummary();
+            break;
+            
+        case 'prepare_weekly_analysis':
+            $controller = new StatsController($db);
+            $controller->prepareWeeklyAnalysis();
+            break;
+            
+        // ExerciseController
+        case 'add_day_exercise':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ExerciseController($db);
+            $controller->addDayExercise();
+            break;
+            
+        case 'update_day_exercise':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ExerciseController($db);
+            $controller->updateDayExercise();
+            break;
+            
+        case 'delete_day_exercise':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ExerciseController($db);
+            $controller->deleteDayExercise();
+            break;
+            
+        case 'reorder_day_exercises':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ExerciseController($db);
+            $controller->reorderDayExercises();
+            break;
+            
+        case 'list_exercise_library':
+            $controller = new ExerciseController($db);
+            $controller->listExerciseLibrary();
+            break;
+            
+        // WeekController
+        case 'add_week':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->addWeek();
+            break;
+            
+        case 'delete_week':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->deleteWeek();
+            break;
+            
+        case 'add_training_day':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->addTrainingDay();
+            break;
+            
+        // AdaptationController
+        case 'run_weekly_adaptation':
+            $controller = new AdaptationController($db);
+            $controller->runWeeklyAdaptation();
+            break;
+            
+        // UserController
+        case 'get_profile':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->getProfile();
+            break;
+            
+        case 'update_profile':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->updateProfile();
+            break;
+            
+        case 'delete_user':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->deleteUser();
+            break;
+            
+        case 'upload_avatar':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->uploadAvatar();
+            break;
+            
+        case 'remove_avatar':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->removeAvatar();
+            break;
+            
+        case 'update_privacy':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->updatePrivacy();
+            break;
+            
+        case 'unlink_telegram':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->unlinkTelegram();
+            break;
+            
+        // AuthController
+        case 'get_csrf_token':
+            // Генерируем CSRF токен для текущей сессии
+            if (!isset($_SESSION['csrf_token'])) {
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            }
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'csrf_token' => $_SESSION['csrf_token']
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+            break;
+            
+        case 'login':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AuthController($db);
+            $controller->login();
+            break;
+            
+        case 'logout':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AuthController($db);
+            $controller->logout();
+            break;
+            
+        case 'refresh_token':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AuthController($db);
+            $controller->refreshToken();
+            break;
+            
+        case 'check_auth':
+            $controller = new AuthController($db);
+            $controller->checkAuth();
+            break;
+            
+        default:
+            // Действие не найдено в новом API
+            ErrorHandler::returnJsonError('Действие не найдено: ' . htmlspecialchars($action), 404);
+            break;
+    }
+    
+} catch (Exception $e) {
+    Logger::exception($e);
+    ErrorHandler::returnJsonError('Внутренняя ошибка сервера', 500);
+}

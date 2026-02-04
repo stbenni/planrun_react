@@ -1,0 +1,75 @@
+.week {
+  background: white;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.week.current-week {
+  border-color: #3b82f6;
+  border-width: 2px;
+}
+
+.week-header {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.week-header:hover {
+  background-color: #f9fafb;
+}
+
+.week-toggle {
+  font-size: 16px;
+  color: #6b7280;
+  margin-right: 12px;
+  width: 20px;
+  text-align: center;
+}
+
+.week-info {
+  flex: 1;
+}
+
+.week-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.week-stats {
+  font-size: 14px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.week-content {
+  padding: 16px;
+  padding-top: 0;
+}
+
+.days-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.day-header {
+  text-align: center;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
