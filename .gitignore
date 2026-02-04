@@ -80,3 +80,6 @@ coverage/
 *.bin
 models/
 weights/
+
+# AI directory (not part of PlanRun project)
+ai/
