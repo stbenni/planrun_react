@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import './RegisterScreen.css';
 
-const RegisterScreen = ({ onRegister }) => {
+const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
   const navigate = useNavigate();
   const { api } = useAuthStore();
   const [step, setStep] = useState(0);
@@ -290,14 +290,13 @@ const RegisterScreen = ({ onRegister }) => {
   const progress = ((step + 1) / totalSteps) * 100;
   const dayLabels = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
 
-  return (
-    <div className="register-container">
-      <div className="register-content">
+  const formContent = (
+      <div className={embedInModal ? 'register-content register-content--modal' : 'register-content'}>
         <h1 className="register-title">🏃 Начните свой путь</h1>
         <p className="register-subtitle">Создайте персональный план тренировок</p>
         
-        <div className="progress-bar">
-          <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+        <div className="register-step-progress">
+          <div className="register-step-progress-fill" style={{ width: `${progress}%` }}></div>
         </div>
         
         <div className="step-indicator">
@@ -1013,11 +1012,12 @@ const RegisterScreen = ({ onRegister }) => {
         </form>
 
         <div className="register-footer">
-          <p>Уже есть аккаунт? <a href="/login" onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Войти</a></p>
+          <p>Уже есть аккаунт? <a href="/landing" onClick={(e) => { e.preventDefault(); if (embedInModal && onClose) onClose(); navigate('/landing', { state: embedInModal ? undefined : { openLogin: true } }); }}>Войти</a></p>
         </div>
       </div>
-    </div>
-  );
+    );
+
+  return embedInModal ? formContent : <div className="register-container">{formContent}</div>;
 };
 
 export default RegisterScreen;

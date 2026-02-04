@@ -5,9 +5,24 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PlanRun - Календарь тренировок</title>
+    <script>
+      (function() {
+        var theme = localStorage.getItem('theme');
+        if (theme === 'dark' || theme === 'light') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      })();
+    </script>
   </head>
   <body>
+    <script>
+      (function() {
+        var t = document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme');
+        if (t === 'dark' || t === 'light') document.body.setAttribute('data-theme', t);
+      })();
+    </script>
     <div id="root"></div>
+    <div id="modal-root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

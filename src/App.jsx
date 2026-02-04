@@ -6,13 +6,12 @@
 import React, { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
-import LoginScreen from './screens/LoginScreen';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import BottomNav from './components/common/BottomNav';
 import TopHeader from './components/common/TopHeader';
-import ThemeToggle from './components/common/ThemeToggle';
 import PageTransition from './components/common/PageTransition';
+import ThemeToggle from './components/common/ThemeToggle';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
@@ -82,7 +81,7 @@ function App() {
           <Routes>
         <Route
           path="/landing"
-          element={<LandingScreen />}
+          element={<LandingScreen onRegister={handleRegister} />}
         />
         <Route
           path="/register"
@@ -98,7 +97,7 @@ function App() {
           path="/login"
           element={
             !isAuthenticated ? (
-              <LoginScreen onLogin={handleLogin} />
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
             ) : (
               <Navigate to="/" replace />
             )
@@ -123,7 +122,7 @@ function App() {
                 <BottomNav />
               </>
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
             )
           }
         />
@@ -136,7 +135,7 @@ function App() {
                 <BottomNav />
               </>
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
             )
           }
         />
@@ -149,7 +148,7 @@ function App() {
                 <BottomNav />
               </>
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
             )
           }
         />

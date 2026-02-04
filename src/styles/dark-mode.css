@@ -143,46 +143,6 @@ body:not([data-theme])[data-theme="dark"],
   background: var(--bg-tertiary);
 }
 
-/* Переключатель темы */
-.theme-toggle {
-  position: fixed;
-  bottom: 100px;
-  right: 20px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--primary-500);
-  color: white;
-  border: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  z-index: 999;
-  transition: all 200ms ease;
-}
-
-.theme-toggle:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-}
-
-.theme-toggle:active {
-  transform: scale(0.95);
-}
-
-@media (max-width: 1024px) {
-  .theme-toggle {
-    bottom: 90px;
-    right: 16px;
-    width: 48px;
-    height: 48px;
-    font-size: 20px;
-  }
-}
-
 /* Плавный переход между темами */
 * {
   transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;

@@ -595,20 +595,6 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
         </div>
       )}
 
-      <div className="dashboard-actions">
-        <button 
-          className="btn-dashboard btn-primary"
-          onClick={() => onNavigate?.('calendar')}
-        >
-          📅 Открыть календарь
-        </button>
-        <button 
-          className="btn-dashboard btn-secondary"
-          onClick={() => onNavigate?.('stats')}
-        >
-          📊 Статистика
-        </button>
-      </div>
     </div>
   );
 };

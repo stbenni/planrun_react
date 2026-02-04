@@ -2,12 +2,24 @@
  * Лендинг страница PlanRun
  */
 
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import LoginModal from '../components/LoginModal';
+import RegisterModal from '../components/RegisterModal';
 import './LandingScreen.css';
 
-const LandingScreen = () => {
+const LandingScreen = ({ onRegister }) => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
+
+  useEffect(() => {
+    if (location.state?.openLogin) {
+      setLoginOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state?.openLogin, location.pathname, navigate]);
 
   return (
     <div className="landing-container">
@@ -16,15 +28,38 @@ const LandingScreen = () => {
           🏃‍♂️ planRUN
         </div>
         <div className="landing-nav">
-          <button 
+          <button
+            type="button"
             className="btn btn-landing-secondary"
-            onClick={() => navigate('/login')}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setTimeout(() => setRegisterOpen(true), 0);
+            }}
+          >
+            Регистрация
+          </button>
+          <button
+            type="button"
+            className="btn btn-landing-secondary"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setTimeout(() => setLoginOpen(true), 0);
+            }}
           >
             Вход
           </button>
         </div>
       </div>
-      
+
+      <LoginModal isOpen={loginOpen} onClose={() => setLoginOpen(false)} />
+      <RegisterModal
+        isOpen={registerOpen}
+        onClose={() => setRegisterOpen(false)}
+        onRegister={onRegister}
+      />
+
       <div className="landing-hero">
         <div className="landing-hero-inner">
           <div className="hero-grid">
@@ -47,15 +82,16 @@ const LandingScreen = () => {
                   className="btn-landing btn-landing-primary"
                   onClick={() => navigate('/register')}
                 >
-                  🚀 Сгенерировать AI‑план
+                  🔥 Сгенерировать AI‑план
                 </button>
               </div>
             </div>
             
             <div className="hero-image">
-              <div className="hero-image-placeholder">
-                🏃‍♂️
-              </div>
+              <img
+                src="/hero.png"
+                alt="Бегун на тренировке"
+              />
             </div>
           </div>
         </div>

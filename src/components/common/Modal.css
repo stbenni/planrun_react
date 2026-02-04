@@ -1,20 +1,25 @@
-/* Модальное окно - стили из calendar_v2.css */
+/* Модальное окно приложения (.app-modal — не конфликтует с .modal из calendar.css) */
 
-.modal {
-  display: flex;
+.app-modal {
+  display: flex !important;
   position: fixed;
-  z-index: 1000;
+  z-index: 10000;
   left: 0;
   top: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
   overflow: auto;
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
-  animation: fadeIn 0.2s ease;
+  animation: appModalFadeIn 0.2s ease;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
 }
 
-@keyframes fadeIn {
+@keyframes appModalFadeIn {
   from {
     opacity: 0;
   }
@@ -23,9 +28,10 @@
   }
 }
 
-.modal-content {
+.app-modal-content {
+  position: relative;
   background-color: white;
-  margin: 5% auto;
+  margin: auto;
   padding: 0;
   border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-2xl);
@@ -35,10 +41,24 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: modalSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: appModalSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes modalSlideIn {
+.app-modal-content.modal-large {
+  max-width: 900px;
+}
+
+.app-modal-content.modal-small {
+  max-width: 400px;
+}
+
+.app-modal-content.modal-xlarge {
+  max-width: min(1200px, 96vw);
+  width: 96vw;
+  max-height: 90vh;
+}
+
+@keyframes appModalSlideIn {
   from {
     transform: translateY(-40px) scale(0.95);
     opacity: 0;
@@ -49,15 +69,7 @@
   }
 }
 
-.modal-large {
-  max-width: 900px;
-}
-
-.modal-small {
-  max-width: 400px;
-}
-
-.modal-header {
+.app-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -66,14 +78,14 @@
   background: linear-gradient(135deg, var(--gray-50) 0%, white 100%);
 }
 
-.modal-header h2 {
+.app-modal-header h2 {
   margin: 0;
   font-size: var(--text-2xl);
   font-weight: var(--font-bold);
   color: var(--gray-900);
 }
 
-.close {
+.app-modal-close {
   color: var(--gray-400);
   font-size: 28px;
   font-weight: var(--font-bold);
@@ -82,16 +94,67 @@
   transition: color var(--transition-base);
 }
 
-.close:hover,
-.close:focus {
+.app-modal-close:hover,
+.app-modal-close:focus {
   color: var(--gray-900);
 }
 
-.modal-body {
+.app-modal-close--float {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 1;
+}
+
+.app-modal-body {
   padding: var(--space-6);
+  padding-right: var(--space-2);
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   background: white;
+  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+}
+
+/* Скроллбар под закруглённое окно: без стрелок, закруглённый ползунок */
+.app-modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-modal-body::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+}
+
+.app-modal-body::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: 4px;
+}
+
+.app-modal-body::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+  border-radius: 4px;
+}
+
+.app-modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+}
+
+/* Firefox */
+.app-modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-400) var(--gray-100);
+}
+
+/* Центрирование контента (окно логина): одинаковые отступы слева и справа */
+.app-modal-body--center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: var(--space-8);
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
 }
 
 /* Формы в модальных окнах */

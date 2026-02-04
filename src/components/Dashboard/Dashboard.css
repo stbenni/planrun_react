@@ -244,23 +244,23 @@
   gap: 14px;
 }
 
-/* Десктоп: убеждаемся, что все 3 метрики помещаются в одну строку */
-@media (min-width: 1025px) {
+/* Десктоп: все 3 метрики в одну строку уже с 900px */
+@media (min-width: 900px) {
   .metrics-grid {
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
   }
 }
 
-/* Адаптация метрик для планшетов - 2 колонки */
-@media (max-width: 1024px) and (min-width: 641px) {
+/* Планшет: 2 колонки */
+@media (max-width: 899px) and (min-width: 641px) {
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 14px;
   }
 }
 
-/* Адаптация метрик для мобильных - 1 колонка */
+/* Мобильные: 1 колонка */
 @media (max-width: 640px) {
   .metrics-grid {
     grid-template-columns: 1fr;
@@ -269,6 +269,7 @@
 }
 
 .metric-card {
+  min-width: 0;
   background: white;
   border-radius: 20px;
   padding: 20px 16px;
@@ -388,12 +389,6 @@
   color: var(--text-secondary);
 }
 
-.dashboard-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 32px;
-}
-
 .btn-dashboard {
   flex: 1;
   padding: 14px 24px;
@@ -467,9 +462,5 @@
   .metric-card .metric-icon {
     margin-right: 16px;
     margin-bottom: 0;
-  }
-
-  .dashboard-actions {
-    flex-direction: column;
   }
 }

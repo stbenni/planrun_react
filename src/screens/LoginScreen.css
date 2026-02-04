@@ -1,23 +1,35 @@
+/**
+ * Стили экрана входа
+ * Единый стандарт: sports-colors.css (--gradient-primary, --primary-500, --card-bg)
+ */
+
 .login-container {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+  background: var(--gradient-primary);
+  padding: var(--space-5);
 }
 
 .login-content {
   width: 100%;
   max-width: 400px;
-  padding: 40px;
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideIn 0.3s ease;
+  padding: var(--space-10);
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  animation: loginSlideIn var(--transition-base) ease;
 }
 
-@keyframes slideIn {
+/* В модалке — без своей тени и анимации, контейнер уже у модала */
+.login-content--inline {
+  box-shadow: none;
+  animation: none;
+  max-width: none;
+}
+
+@keyframes loginSlideIn {
   from {
     transform: translateY(-30px);
     opacity: 0;
@@ -29,21 +41,18 @@
 }
 
 .login-title {
-  font-size: 2em;
+  font-size: var(--text-3xl);
   text-align: center;
-  color: #2c3e50;
-  margin-bottom: 10px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  font-weight: var(--font-extrabold);
 }
 
 .login-subtitle {
-  font-size: 18px;
-  color: #6b7280;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: var(--space-8);
 }
 
 .login-form {
@@ -53,19 +62,21 @@
 
 .login-input {
   width: 100%;
-  padding: 14px 16px;
-  font-size: 15px;
-  border: 2px solid #e0e0e0;
-  border-radius: 10px;
-  margin-bottom: 20px;
-  transition: all 0.3s;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-5);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
   font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text-primary);
 }
 
 .login-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px var(--primary-50);
 }
 
 .login-input:disabled {
@@ -74,32 +85,33 @@
 }
 
 .login-error {
-  background: #fee;
-  color: #c33;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  border: 1px solid #fcc;
-  font-size: 0.9em;
+  background: var(--danger-50);
+  color: var(--danger-600);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--danger-500);
+  font-size: var(--text-sm);
 }
 
 .login-button {
   width: 100%;
-  padding: 14px;
-  font-size: 16px;
-  font-weight: 600;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
   color: white;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--gradient-primary);
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  font-family: inherit;
+  box-shadow: var(--shadow-md);
 }
 
 .login-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+  box-shadow: var(--shadow-lg);
 }
 
 .login-button:active:not(:disabled) {
@@ -113,50 +125,51 @@
 
 /* Биометрическая аутентификация */
 .biometric-section {
-  margin-top: 24px;
+  margin-top: var(--space-6);
 }
 
 .biometric-divider {
   display: flex;
   align-items: center;
   text-align: center;
-  margin: 20px 0;
-  color: #9ca3af;
-  font-size: 14px;
+  margin: var(--space-5) 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .biometric-divider::before,
 .biometric-divider::after {
   content: '';
   flex: 1;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
 }
 
 .biometric-divider span {
-  padding: 0 12px;
+  padding: 0 var(--space-3);
 }
 
 .biometric-button {
   width: 100%;
-  padding: 14px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #667eea;
-  background: white;
-  border: 2px solid #667eea;
-  border-radius: 10px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--primary-500);
+  background: var(--card-bg);
+  border: 2px solid var(--primary-500);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: background var(--transition-base), transform var(--transition-base);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
+  font-family: inherit;
 }
 
 .biometric-button:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--primary-50);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .biometric-button:active:not(:disabled) {
@@ -169,5 +182,5 @@
 }
 
 .biometric-icon {
-  font-size: 20px;
+  font-size: var(--text-xl);
 }

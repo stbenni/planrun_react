@@ -1,0 +1,185 @@
+/**
+ * Общие стили экранов авторизации (логин, регистрация)
+ * Использует токены из sports-colors.css — единый вид с приложением
+ */
+
+/* Контейнер полноэкранный с градиентом */
+.auth-screen-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--gradient-primary);
+}
+
+/* Карточка формы */
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-10);
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  animation: authSlideIn var(--transition-slow) ease;
+}
+
+@keyframes authSlideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.auth-title {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-extrabold);
+  text-align: center;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.auth-subtitle {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+/* Поля ввода */
+.auth-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-5);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px var(--primary-50);
+}
+
+.auth-input::placeholder {
+  color: var(--gray-400);
+}
+
+.auth-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Кнопка основная */
+.auth-btn-primary {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: white;
+  background: var(--gradient-primary);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  font-family: inherit;
+  box-shadow: var(--shadow-md);
+}
+
+.auth-btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.auth-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.auth-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Кнопка вторичная (outline) */
+.auth-btn-secondary {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--primary-500);
+  background: transparent;
+  border: 2px solid var(--primary-500);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--transition-base), transform var(--transition-base);
+  font-family: inherit;
+}
+
+.auth-btn-secondary:hover:not(:disabled) {
+  background: var(--primary-50);
+  transform: translateY(-2px);
+}
+
+.auth-btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Блок ошибки */
+.auth-error {
+  background: var(--danger-50);
+  color: var(--danger-600);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--danger-500);
+  font-size: var(--text-sm);
+}
+
+/* Разделитель (или текст) */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: var(--space-5) 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.auth-divider span {
+  padding: 0 var(--space-3);
+}
+
+/* Футер ссылка */
+.auth-footer {
+  text-align: center;
+  margin-top: var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.auth-footer a {
+  color: var(--primary-500);
+  text-decoration: none;
+  font-weight: var(--font-semibold);
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}

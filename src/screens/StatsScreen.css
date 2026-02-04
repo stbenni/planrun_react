@@ -63,7 +63,7 @@
 
 [data-theme="dark"] .stats-time-range {
   background: var(--card-bg);
-  box-shadow: var(--shadow-dark-md);
+  box-shadow: var(--shadow-md);
 }
 
 .time-range-btn {
@@ -474,7 +474,7 @@
 
 [data-theme="dark"] .heatmap-tooltip {
   background: var(--card-bg);
-  box-shadow: var(--shadow-dark-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .tooltip-header {
@@ -609,7 +609,7 @@
 
 [data-theme="dark"] .chart-tooltip {
   background: var(--card-bg);
-  box-shadow: var(--shadow-dark-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .tooltip-date {
