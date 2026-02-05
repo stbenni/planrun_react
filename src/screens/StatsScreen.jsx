@@ -201,10 +201,6 @@ const StatsScreen = () => {
 
   return (
     <div className="stats-screen">
-      <div className="stats-header">
-        <h1 className="stats-title">Статистика</h1>
-      </div>
-
       <div className="stats-tabs">
         <button 
           className={`stats-tab ${activeTab === 'overview' ? 'active' : ''}`}

@@ -17,8 +17,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
   
   // Данные формы - все поля
   const [formData, setFormData] = useState({
-    // Шаг 0: Режим
-    training_mode: 'ai',
+    // Шаг 0: Режим (без выбора по умолчанию — пользователь выбирает карточкой)
+    training_mode: '',
     
     // Шаг 1: Аккаунт
     username: '',
@@ -166,6 +166,10 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         setError('Пароль должен быть не менее 6 символов');
         return;
       }
+      if (!formData.email || !String(formData.email).trim()) {
+        setError('Введите email');
+        return;
+      }
       
       const usernameValid = await validateField('username', formData.username);
       if (!usernameValid) {
@@ -173,11 +177,17 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         return;
       }
       
-      if (formData.email) {
-        await validateField('email', formData.email);
+      const emailValid = await validateField('email', formData.email.trim());
+      if (!emailValid) {
+        setError(validationErrors.email || 'Некорректный email или уже используется');
+        return;
       }
       
-      setStep(2);
+      if (formData.training_mode === 'self') {
+        setStep(3);
+      } else {
+        setStep(2);
+      }
     } else if (step === 2) {
       // Шаг 2: Цель - валидация в зависимости от типа цели
       if (formData.goal_type === 'race' || formData.goal_type === 'time_improvement') {
@@ -308,7 +318,11 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
 
         {error && <div className="register-error">{error}</div>}
 
-        <form onSubmit={(e) => { e.preventDefault(); handleNext(); }} className="register-form">
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleNext(); }}
+          onFocusCapture={() => error && setError('')}
+          className="register-form"
+        >
           {/* Шаг 0: Выбор режима */}
           {step === 0 && (
             <div className="form-step">
@@ -318,13 +332,20 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               </p>
               
               <div className="training-mode-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-                <label className={`training-mode-option ${formData.training_mode === 'ai' ? 'selected' : ''}`}>
+                <label
+                  className="training-mode-option"
+                  onClick={() => {
+                    handleChange('training_mode', 'ai');
+                    setStep(1);
+                  }}
+                >
                   <input
                     type="radio"
                     name="training_mode"
                     value="ai"
                     checked={formData.training_mode === 'ai'}
-                    onChange={(e) => handleChange('training_mode', e.target.value)}
+                    onChange={() => {}}
+                    readOnly
                   />
                   <div style={{ fontSize: '3em', marginBottom: '15px' }}>🤖</div>
                   <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>AI-ТРЕНЕР</div>
@@ -334,16 +355,23 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                     <li style={{ margin: '8px 0' }}>✓ Адаптирует его каждую неделю</li>
                     <li style={{ margin: '8px 0' }}>✓ Анализирует твой прогресс</li>
                   </ul>
-                  <div style={{ marginTop: '20px', padding: '10px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', borderRadius: '8px', fontWeight: 600 }}>👈 Рекомендуем</div>
+                  <div className="training-mode-option-badge training-mode-option-badge--recommend">👈 Рекомендуем</div>
                 </label>
                 
-                <label className={`training-mode-option ${formData.training_mode === 'self' ? 'selected' : ''}`}>
+                <label
+                  className="training-mode-option"
+                  onClick={() => {
+                    handleChange('training_mode', 'self');
+                    setStep(1);
+                  }}
+                >
                   <input
                     type="radio"
                     name="training_mode"
                     value="self"
                     checked={formData.training_mode === 'self'}
-                    onChange={(e) => handleChange('training_mode', e.target.value)}
+                    onChange={() => {}}
+                    readOnly
                   />
                   <div style={{ fontSize: '3em', marginBottom: '15px' }}>📝</div>
                   <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>САМОСТОЯТЕЛЬНО</div>
@@ -355,17 +383,18 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                   </ul>
                 </label>
                 
-                <label style={{ opacity: 0.6, cursor: 'not-allowed', background: '#f9fafb' }}>
+                <label className="training-mode-option training-mode-option--soon">
                   <input type="radio" name="training_mode" value="coach" disabled />
                   <div style={{ fontSize: '3em', marginBottom: '15px' }}>👤</div>
                   <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>ЖИВОЙ ТРЕНЕР</div>
                   <div style={{ color: '#6b7280', fontSize: '0.95em', marginBottom: '15px' }}>(от 1000₽/мес)</div>
-                  <div style={{ position: 'absolute', top: '10px', right: '10px', background: '#fbbf24', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75em', fontWeight: 600 }}>Скоро</div>
+                  <ul style={{ textAlign: 'left', listStyle: 'none', padding: 0, margin: 0 }}>
+                    <li style={{ margin: '8px 0' }}>✓ Персональный тренер</li>
+                    <li style={{ margin: '8px 0' }}>✓ Корректировки плана в реальном времени</li>
+                    <li style={{ margin: '8px 0' }}>✓ Поддержка и мотивация</li>
+                  </ul>
+                  <div className="training-mode-option-badge training-mode-option-badge--soon">Скоро</div>
                 </label>
-              </div>
-              
-              <div style={{ textAlign: 'center', padding: '15px', background: '#f3f4f6', borderRadius: '10px', color: '#6b7280', fontSize: '0.9em', marginBottom: '20px' }}>
-                💡 Функция "Живой тренер" появится в ближайшее время. Пока доступен только AI-тренер.
               </div>
             </div>
           )}
@@ -403,14 +432,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               </div>
               
               <div className="form-group">
-                <label>Email</label>
+                <label>Email <span className="required">*</span></label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
                   placeholder="your@email.com"
+                  required
                 />
-                <small>Для восстановления пароля и уведомлений (необязательно)</small>
+                <small>Для восстановления пароля и уведомлений</small>
                 {validationErrors.email && (
                   <small className="error-text">{validationErrors.email}</small>
                 )}
@@ -983,13 +1013,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
             </div>
           )}
 
-          <div className="form-actions">
-            {step > 0 && (
+          {step > 0 && (
+            <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-8)' }}>
               <button
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => {
-                  // Для режима self при возврате с шага 3 нужно вернуться на шаг 1
                   if (step === 3 && formData.training_mode === 'self') {
                     setStep(1);
                   } else {
@@ -1000,20 +1029,16 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               >
                 ← Назад
               </button>
-            )}
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={loading}
-            >
-              {loading ? 'Обработка...' : step === 3 ? 'Создать аккаунт' : 'Далее →'}
-            </button>
-          </div>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+              >
+                {loading ? 'Обработка...' : step === 3 ? 'Создать аккаунт' : 'Далее →'}
+              </button>
+            </div>
+          )}
         </form>
-
-        <div className="register-footer">
-          <p>Уже есть аккаунт? <a href="/landing" onClick={(e) => { e.preventDefault(); if (embedInModal && onClose) onClose(); navigate('/landing', { state: embedInModal ? undefined : { openLogin: true } }); }}>Войти</a></p>
-        </div>
       </div>
     );
 

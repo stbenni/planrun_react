@@ -53,7 +53,6 @@ export const preloadAllModulesImmediate = () => {
   Promise.all([
     import('../components/common/BottomNav'),
     import('../components/common/TopHeader'),
-    import('../components/common/ThemeToggle'),
     import('../components/common/PageTransition'),
     import('../components/common/SkeletonScreen')
   ]).catch(err => {

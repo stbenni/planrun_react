@@ -89,21 +89,23 @@ const useAuthStore = create(
           
           if (result.success) {
             const user = result.user || { authenticated: true };
-            
-            // Если это мобильное приложение и биометрия доступна, сохраняем токены
             if (useJwt && result.access_token && result.refresh_token) {
               const availability = await BiometricService.checkAvailability();
               if (availability.available) {
                 await BiometricService.saveTokens(result.access_token, result.refresh_token);
               }
             }
-            
-            set({ 
-              user, 
-              isAuthenticated: true 
-            });
-            
-            return { 
+            set({ user, isAuthenticated: true });
+            // Подтягиваем полного пользователя (в т.ч. avatar_path) — ответ login его не содержит
+            try {
+              const fullUser = await get().api.getCurrentUser();
+              if (fullUser && fullUser.authenticated) {
+                set({ user: fullUser });
+              }
+            } catch (_) {
+              // не блокируем вход
+            }
+            return {
               success: true,
               access_token: result.access_token,
               refresh_token: result.refresh_token

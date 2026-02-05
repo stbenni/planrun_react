@@ -4,18 +4,39 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { getAvatarSrc } from '../utils/avatarUrl';
 import './SettingsScreen.css';
+
+function getSystemTheme() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function getThemePreference() {
+  const saved = localStorage.getItem('theme');
+  return (saved === 'dark' || saved === 'light') ? saved : 'system';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.body.setAttribute('data-theme', theme);
+}
+
+const VALID_TABS = ['profile', 'training', 'social', 'integrations'];
 
 const SettingsScreen = ({ onLogout }) => {
   const navigate = useNavigate();
-  const { api } = useAuthStore();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { api, updateUser } = useAuthStore();
+  const tabFromUrl = searchParams.get('tab');
+  const initialTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'profile';
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [csrfToken, setCsrfToken] = useState('');
+  const [themePreference, setThemePreference] = useState(getThemePreference);
 
   // Вспомогательная функция для нормализации значений
   const normalizeValue = (value) => {
@@ -83,6 +104,12 @@ const SettingsScreen = ({ onLogout }) => {
     telegram_id: '',
   });
 
+  // Синхронизация вкладки с URL (при переходе по ссылке с ?tab=)
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl && VALID_TABS.includes(tabFromUrl)) setActiveTab(tabFromUrl);
+  }, [searchParams]);
+
   // Загрузка профиля
   useEffect(() => {
     const loadProfileData = async () => {
@@ -107,30 +134,6 @@ const SettingsScreen = ({ onLogout }) => {
     
     loadProfileData();
   }, [api]);
-  
-  // Отладочный useEffect для проверки formData после обновления
-  useEffect(() => {
-    if (!loading) {
-      console.log('FormData state:', {
-        weekly_base_km: formData.weekly_base_km,
-        sessions_per_week: formData.sessions_per_week,
-        preferred_days: formData.preferred_days,
-        preferred_ofp_days: formData.preferred_ofp_days,
-        preferred_days_length: formData.preferred_days?.length,
-        preferred_ofp_days_length: formData.preferred_ofp_days?.length,
-        goal_type: formData.goal_type,
-        race_date: formData.race_date,
-        race_target_time: formData.race_target_time,
-        race_distance: formData.race_distance,
-        experience_level: formData.experience_level,
-        training_mode: formData.training_mode,
-        ofp_preference: formData.ofp_preference,
-        training_time_pref: formData.training_time_pref,
-        health_program: formData.health_program,
-        last_race_distance: formData.last_race_distance,
-      });
-    }
-  }, [formData, loading]);
   
   // Отдельный useEffect для принудительного обновления select'ов после загрузки данных
   useEffect(() => {
@@ -189,10 +192,6 @@ const SettingsScreen = ({ onLogout }) => {
       
       // Получаем профиль
       const userData = await currentApi.request('get_profile', {}, 'GET');
-      
-      console.log('=== LOADING PROFILE ===');
-      console.log('Raw userData:', userData);
-      
       if (userData && typeof userData === 'object') {
         // Парсим preferred_days - может быть объект {run: [...], ofp: [...]} или массив
         let preferredDays = [];
@@ -322,32 +321,7 @@ const SettingsScreen = ({ onLogout }) => {
           privacy_level: String(userData.privacy_level || 'public'),
           telegram_id: userData.telegram_id ? String(userData.telegram_id) : '',
         };
-        
-        console.log('=== SETTING FORMDATA ===');
-        console.log('Key select fields:', {
-          race_distance: newFormData.race_distance,
-          experience_level: newFormData.experience_level,
-          training_mode: newFormData.training_mode,
-          ofp_preference: newFormData.ofp_preference,
-          training_time_pref: newFormData.training_time_pref,
-          health_program: newFormData.health_program,
-          last_race_distance: newFormData.last_race_distance,
-        });
-        
-        console.log('Raw userData for select fields:', {
-          race_distance: userData.race_distance,
-          experience_level: userData.experience_level,
-          training_mode: userData.training_mode,
-          ofp_preference: userData.ofp_preference,
-          training_time_pref: userData.training_time_pref,
-          health_program: userData.health_program,
-          last_race_distance: userData.last_race_distance,
-        });
-        
-        // Устанавливаем данные напрямую - используем функцию для гарантии обновления
         setFormData(newFormData);
-        
-        console.log('FormData set complete');
       } else {
         console.error('Invalid user data:', userData);
         setMessage({ type: 'error', text: 'Неверный формат данных профиля' });
@@ -372,6 +346,17 @@ const SettingsScreen = ({ onLogout }) => {
     
     if (!currentApi) {
       setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
+      return;
+    }
+
+    const emailVal = String(formData.email || '').trim();
+    if (!emailVal) {
+      setMessage({ type: 'error', text: 'Email обязателен' });
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailVal)) {
+      setMessage({ type: 'error', text: 'Некорректный формат email' });
       return;
     }
 
@@ -500,25 +485,34 @@ const SettingsScreen = ({ onLogout }) => {
 
       // Получаем токен авторизации
       const token = await currentApi.getToken();
-      
-      // Отправляем файл
-      const response = await fetch('/api_v2.php?action=upload_avatar', {
+      // Тот же endpoint, что и у остального API (api_wrapper → api_v2), иначе 405 и HTML вместо JSON
+      const uploadUrl = `${currentApi.baseUrl}/api_wrapper.php?action=upload_avatar`;
+
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         credentials: 'include',
         body: formData,
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(response.status === 405 ? 'Метод не разрешён. Проверьте настройки сервера.' : (text.slice(0, 100) || 'Ошибка загрузки аватара'));
+      }
       
       if (data.success && data.data) {
         const userData = data.data.user || data.data;
-        setFormData(prev => ({
-          ...prev,
-          avatar_path: userData.avatar_path || data.data.avatar_path
-        }));
+        const newAvatarPath = userData.avatar_path || data.data.avatar_path;
+        setFormData(prev => ({ ...prev, avatar_path: newAvatarPath }));
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser && typeof updateUser === 'function') {
+          updateUser({ ...currentUser, avatar_path: newAvatarPath });
+        }
         setMessage({ type: 'success', text: 'Аватар успешно загружен' });
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
       } else {
@@ -549,10 +543,11 @@ const SettingsScreen = ({ onLogout }) => {
       const response = await currentApi.request('remove_avatar', { csrf_token: csrfToken }, 'POST');
       
       if (response && response.success !== false) {
-        setFormData(prev => ({
-          ...prev,
-          avatar_path: null
-        }));
+        setFormData(prev => ({ ...prev, avatar_path: null }));
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser && typeof updateUser === 'function') {
+          updateUser({ ...currentUser, avatar_path: null });
+        }
         setMessage({ type: 'success', text: 'Аватар успешно удален' });
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
       } else {
@@ -642,12 +637,6 @@ const SettingsScreen = ({ onLogout }) => {
 
   return (
     <div className="settings-container settings-page">
-      <div className="settings-header">
-        <div className="settings-header-content">
-          <h1>⚙️ Настройки профиля</h1>
-        </div>
-      </div>
-
       <div className="settings-content">
         {message.text && (
           <div className={`alert ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}>
@@ -658,33 +647,37 @@ const SettingsScreen = ({ onLogout }) => {
         <div className="settings-tabs">
           <button
             className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveTab('profile')}
+            onClick={() => { setActiveTab('profile'); setSearchParams({ tab: 'profile' }); }}
           >
             👤 Профиль
           </button>
           <button
             className={`tab-button ${activeTab === 'training' ? 'active' : ''}`}
-            onClick={() => setActiveTab('training')}
+            onClick={() => { setActiveTab('training'); setSearchParams({ tab: 'training' }); }}
           >
             🏃 Тренировки
           </button>
           <button
             className={`tab-button ${activeTab === 'social' ? 'active' : ''}`}
-            onClick={() => setActiveTab('social')}
+            onClick={() => { setActiveTab('social'); setSearchParams({ tab: 'social' }); }}
           >
-            👥 Социальное
+            🔒 Конфиденциальность
           </button>
           <button
             className={`tab-button ${activeTab === 'integrations' ? 'active' : ''}`}
-            onClick={() => setActiveTab('integrations')}
+            onClick={() => { setActiveTab('integrations'); setSearchParams({ tab: 'integrations' }); }}
           >
             🔗 Интеграции
           </button>
+        </div>
+
+        <div className="settings-save-row">
           <button
-            className={`tab-button ${activeTab === 'account' ? 'active' : ''}`}
-            onClick={() => setActiveTab('account')}
+            className="btn btn-primary settings-save-btn"
+            onClick={handleSave}
+            disabled={saving}
           >
-            ⚙️ Аккаунт
+            {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
         </div>
 
@@ -702,7 +695,7 @@ const SettingsScreen = ({ onLogout }) => {
                   {formData.avatar_path ? (
                     <div className="avatar-preview-container">
                       <img
-                        src={formData.avatar_path.startsWith('/') ? formData.avatar_path : `/uploads/avatars/${formData.avatar_path}`}
+                        src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api')}
                         alt="Аватар"
                         className="avatar-preview"
                         style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--primary-500)' }}
@@ -755,7 +748,7 @@ const SettingsScreen = ({ onLogout }) => {
               </div>
 
               <div className="form-group">
-                <label>Email</label>
+                <label>Email <span className="required">*</span></label>
                 <input
                   type="email"
                   value={formData.email || ''}
@@ -830,6 +823,41 @@ const SettingsScreen = ({ onLogout }) => {
                   <option value="Europe/London">Лондон (UTC+0)</option>
                   <option value="America/New_York">Нью-Йорк (UTC-5)</option>
                 </select>
+              </div>
+            </div>
+            <div className="settings-section">
+              <h2>🎨 Внешний вид</h2>
+              <p>Тема оформления приложения</p>
+              <div className="form-group">
+                <label>Тема</label>
+                <div className="theme-options" role="radiogroup" aria-label="Выбор темы">
+                  {[
+                    { value: 'system', label: 'Как в системе', desc: 'Светлая или тёмная по настройкам устройства' },
+                    { value: 'light', label: 'Светлая', desc: 'Всегда светлая тема' },
+                    { value: 'dark', label: 'Тёмная', desc: 'Всегда тёмная тема' },
+                  ].map(({ value, label, desc }) => (
+                    <label key={value} className={`theme-option ${themePreference === value ? 'selected' : ''}`}>
+                      <input
+                        type="radio"
+                        name="theme"
+                        value={value}
+                        checked={themePreference === value}
+                        onChange={() => {
+                          setThemePreference(value);
+                          if (value === 'system') {
+                            localStorage.removeItem('theme');
+                            applyTheme(getSystemTheme());
+                          } else {
+                            localStorage.setItem('theme', value);
+                            applyTheme(value);
+                          }
+                        }}
+                      />
+                      <span className="theme-option-label">{label}</span>
+                      <span className="theme-option-desc">{desc}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -1293,21 +1321,21 @@ const SettingsScreen = ({ onLogout }) => {
                   value={formData.easy_pace_min || ''}
                   onChange={(e) => {
                     const value = e.target.value;
-                    // Разрешаем формат MM:SS или M:SS
-                    if (value === '' || /^\d{1,2}:\d{2}$/.test(value)) {
-                      handleInputChange('easy_pace_min', value);
-                      // Конвертируем в секунды для сохранения
-                      if (value) {
-                        const [min, sec] = value.split(':').map(Number);
-                        if (!isNaN(min) && !isNaN(sec)) {
-                          const totalSec = min * 60 + sec;
-                          if (totalSec >= 180 && totalSec <= 600) {
-                            handleInputChange('easy_pace_sec', String(totalSec));
-                          }
+                    // Разрешаем промежуточный ввод: пусто, "5", "5:", "5:3", "5:30"
+                    const allowed = value === '' || /^\d{0,2}(:\d{0,2})?$/.test(value);
+                    if (!allowed) return;
+                    handleInputChange('easy_pace_min', value);
+                    // Полный формат MM:SS — конвертируем в секунды
+                    if (/^\d{1,2}:\d{2}$/.test(value)) {
+                      const [min, sec] = value.split(':').map(Number);
+                      if (!isNaN(min) && !isNaN(sec)) {
+                        const totalSec = min * 60 + sec;
+                        if (totalSec >= 180 && totalSec <= 600) {
+                          handleInputChange('easy_pace_sec', String(totalSec));
                         }
-                      } else {
-                        handleInputChange('easy_pace_sec', '');
                       }
+                    } else if (value === '') {
+                      handleInputChange('easy_pace_sec', '');
                     }
                   }}
                   placeholder="7:00"
@@ -1508,32 +1536,6 @@ const SettingsScreen = ({ onLogout }) => {
           </div>
         )}
 
-        {/* Вкладка Аккаунт */}
-        {activeTab === 'account' && (
-          <div className="tab-content active">
-            <div className="settings-section">
-              <h2>⚙️ Аккаунт</h2>
-              <p>Управление аккаунтом</p>
-
-              <div className="form-actions">
-                <button className="btn btn-secondary" onClick={handleLogout}>
-                  Выйти из аккаунта
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Кнопка сохранения */}
-        <div className="form-actions" style={{ marginTop: '24px' }}>
-          <button
-            className="btn btn-primary"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Сохранение...' : 'Сохранить изменения'}
-          </button>
-        </div>
       </div>
     </div>
   );

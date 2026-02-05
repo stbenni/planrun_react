@@ -11,7 +11,6 @@ import RegisterScreen from './screens/RegisterScreen';
 import BottomNav from './components/common/BottomNav';
 import TopHeader from './components/common/TopHeader';
 import PageTransition from './components/common/PageTransition';
-import ThemeToggle from './components/common/ThemeToggle';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
@@ -22,6 +21,8 @@ const CalendarScreen = lazy(() => import('./screens/CalendarScreen'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 const StatsScreen = lazy(() => import('./screens/StatsScreen'));
 const UserProfileScreen = lazy(() => import('./screens/UserProfileScreen'));
+const ForgotPasswordScreen = lazy(() => import('./screens/ForgotPasswordScreen'));
+const ResetPasswordScreen = lazy(() => import('./screens/ResetPasswordScreen'));
 
 function App() {
   const { user, api, loading, isAuthenticated, initialize, logout, updateUser } = useAuthStore();
@@ -41,7 +42,7 @@ function App() {
   }, [isAuthenticated, loading]);
 
   // Для публичных страниц (профили пользователей) не требуем авторизацию
-  const knownRoutes = ['/landing', '/login', '/register', '/', '/calendar', '/settings', '/stats'];
+  const knownRoutes = ['/landing', '/login', '/register', '/forgot-password', '/reset-password', '/', '/calendar', '/settings', '/stats'];
   const isPublicRoute = typeof window !== 'undefined' && 
     !knownRoutes.includes(window.location.pathname);
 
@@ -98,6 +99,26 @@ function App() {
           element={
             !isAuthenticated ? (
               <Navigate to="/landing" replace state={{ openLogin: true }} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            !isAuthenticated ? (
+              <ForgotPasswordScreen />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            !isAuthenticated ? (
+              <ResetPasswordScreen />
             ) : (
               <Navigate to="/" replace />
             )
@@ -169,7 +190,6 @@ function App() {
         </Routes>
         </Suspense>
       </PageTransition>
-      <ThemeToggle />
     </Router>
   );
 }

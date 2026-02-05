@@ -225,6 +225,52 @@
 }
 
 /* ========================================
+   ТЁМНАЯ ТЕМА — лендинг (тот же градиент: от оранжевого к тёмному)
+   ======================================== */
+[data-theme="dark"] .landing-container {
+    background: linear-gradient(135deg, #ff6b35 0%, #1a1a1a 100%);
+}
+
+[data-theme="dark"] .landing-logo,
+[data-theme="dark"] .landing-hero,
+[data-theme="dark"] .landing-hero h1,
+[data-theme="dark"] .landing-hero .subtitle,
+[data-theme="dark"] .badge,
+[data-theme="dark"] .btn-landing-secondary,
+[data-theme="dark"] .landing-footer {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="dark"] .feature-card {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="dark"] .feature-card:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="dark"] .feature-title,
+[data-theme="dark"] .feature-text {
+    color: inherit;
+}
+
+[data-theme="dark"] .badge {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+[data-theme="dark"] .btn-landing-secondary {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="dark"] .btn-landing-secondary:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* ========================================
    МОБИЛЬНАЯ АДАПТИВНОСТЬ
    ======================================== */
 

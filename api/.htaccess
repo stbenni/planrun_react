@@ -1,0 +1,2 @@
+# Папка /api отдаётся через Alias в vladimirov-le-ssl.conf.
+# Если PHP не выполняется — проверьте, что apply-apache.sh применён и mod_php включён.

@@ -26,12 +26,19 @@
     box-shadow: 0 4px 16px rgba(255, 107, 61, 0.25);
 }
 
-.settings-header-content {
+.settings-save-row {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+.settings-save-btn {
+    flex: 0 0 auto;
+    width: fit-content;
+    padding: 10px 18px;
+    font-size: var(--text-sm);
+    display: inline-flex;
 }
 
 .settings-header h1 {

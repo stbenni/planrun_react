@@ -6,18 +6,23 @@
  * 
  * ВАЖНО: Конфигурация загружается из .env файла для безопасности.
  * Создайте .env файл на основе .env.example
+ * 
+ * Файл может подключаться дважды (напрямую и через composer autoload.files) — защита от переобъявления.
  */
 
 // Загружаем переменные окружения
 require_once __DIR__ . '/config/env_loader.php';
 
 // Параметры подключения к БД из .env или значения по умолчанию
-define('DB_HOST', env('DB_HOST', 'localhost'));
-define('DB_NAME', env('DB_NAME', 'sv'));
-define('DB_USER', env('DB_USER', 'root'));
-define('DB_PASS', env('DB_PASSWORD', '')); // Используем DB_PASSWORD из .env
-define('DB_CHARSET', env('DB_CHARSET', 'utf8mb4'));
+if (!defined('DB_HOST')) {
+    define('DB_HOST', env('DB_HOST', 'localhost'));
+    define('DB_NAME', env('DB_NAME', 'sv'));
+    define('DB_USER', env('DB_USER', 'root'));
+    define('DB_PASS', env('DB_PASSWORD', ''));
+    define('DB_CHARSET', env('DB_CHARSET', 'utf8mb4'));
+}
 
+if (!function_exists('getDBConnection')) {
 /**
  * Получить подключение к БД
  */
@@ -42,4 +47,4 @@ function getDBConnection() {
     
     return $conn;
 }
-
+}

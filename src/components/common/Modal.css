@@ -196,6 +196,93 @@
   box-shadow: 0 0 0 3px rgba(255, 107, 61, 0.2);
 }
 
+/* ========================================
+   ТЁМНАЯ ТЕМА — модальное окно
+   ======================================== */
+[data-theme="dark"] .app-modal {
+  background-color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="dark"] .app-modal-content {
+  background-color: var(--card-bg);
+  box-shadow: var(--shadow-2xl);
+}
+
+[data-theme="dark"] .app-modal-header {
+  background: linear-gradient(135deg, var(--gray-100) 0%, var(--card-bg) 100%);
+  border-bottom-color: var(--card-border);
+}
+
+[data-theme="dark"] .app-modal-header h2 {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .app-modal-close {
+  color: var(--gray-500);
+}
+
+[data-theme="dark"] .app-modal-close:hover,
+[data-theme="dark"] .app-modal-close:focus {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .app-modal-body {
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .app-modal-body::-webkit-scrollbar-track {
+  background: var(--gray-100);
+}
+
+[data-theme="dark"] .app-modal-body::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+}
+
+[data-theme="dark"] .app-modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+}
+
+[data-theme="dark"] .form-group label {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group textarea {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .form-actions {
+  border-top-color: var(--card-border);
+}
+
+[data-theme="dark"] .btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .btn:hover {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+[data-theme="dark"] .btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+  background: var(--gray-300);
+  border-color: var(--gray-400);
+  color: var(--text-primary);
+}
+
 .form-actions {
   display: flex;
   gap: var(--space-3);

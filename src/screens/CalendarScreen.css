@@ -11,6 +11,13 @@
   background: var(--bg-primary);
 }
 
+/* Отступ сверху для TopHeader на десктопах */
+@media (min-width: 1024px) {
+  .container {
+    padding-top: 88px; /* 64px header + 24px отступ */
+  }
+}
+
 .header {
   background: var(--gradient-primary);
   border-radius: 20px;
@@ -157,6 +164,12 @@
 .calendar-container {
   min-height: 100vh;
   background-color: var(--gray-50);
+}
+
+@media (min-width: 1024px) {
+  .calendar-container {
+    padding-top: 88px; /* Отступ для TopHeader */
+  }
 }
 
 .calendar-header {

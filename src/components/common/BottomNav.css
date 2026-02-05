@@ -20,7 +20,7 @@
 }
 
 [data-theme="dark"] .bottom-nav {
-  background: rgba(20, 20, 20, 0.95);
+  background: rgba(37, 37, 37, 0.95);
   border-top-color: var(--card-border);
 }
 

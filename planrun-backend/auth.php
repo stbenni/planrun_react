@@ -23,6 +23,8 @@ function isAuthenticated() {
  */
 function login($username, $password) {
     $db = getDBConnection();
+    $username = trim($username);
+    $password = trim($password); // консистентность с регистрацией
     
     $stmt = $db->prepare('SELECT id, username, password FROM users WHERE username = ?');
     $stmt->bind_param('s', $username);

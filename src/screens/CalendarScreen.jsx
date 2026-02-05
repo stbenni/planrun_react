@@ -3,7 +3,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import WeekCalendar from '../components/Calendar/WeekCalendar';
 import MonthlyCalendar from '../components/Calendar/MonthlyCalendar';
@@ -40,26 +39,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     }
   }, [externalViewMode]);
 
-  // Формируем подзаголовок как в оригинале
-  const getSubtitle = () => {
-    if (!plan || !plan.phases) return '';
-    
-    let totalWeeks = 0;
-    plan.phases.forEach(phase => {
-      if (phase.weeks_data) {
-        totalWeeks += phase.weeks_data.length;
-      } else if (phase.weeks) {
-        totalWeeks += parseInt(phase.weeks) || 0;
-      }
-    });
-    
-    if (totalWeeks > 0) {
-      const weekWord = totalWeeks === 1 ? 'неделю' : (totalWeeks < 5 ? 'недели' : 'недель');
-      return `План на ${totalWeeks} ${weekWord}`;
-    }
-    return 'Тренировочный план';
-  };
-
   const getCurrentWeekNumber = (plan) => {
     if (!plan || !plan.phases) return null;
     const today = new Date();
@@ -85,25 +64,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     loadPlan();
   }, [calendarUserId]); // Перезагружаем при смене пользователя
 
-  // Обновление прогресса
-  useEffect(() => {
-    if (plan && plan.phases) {
-      const allTrainingDays = document.querySelectorAll('.training-cell:not(.rest-day)[data-week]:not([data-week="0"])');
-      const total = allTrainingDays.length;
-      let completed = 0;
-      allTrainingDays.forEach(cell => {
-        if (cell.classList.contains('completed') || cell.classList.contains('has-workouts')) {
-          completed++;
-        }
-      });
-      const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-      const progressElement = document.getElementById('progress');
-      if (progressElement) {
-        progressElement.textContent = percentage + '%';
-      }
-    }
-  }, [plan, progressData]);
-
   const loadPlan = async () => {
     if (!api) {
       setLoading(false);
@@ -122,8 +82,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
       // ApiClient возвращает data.data || data
       // Итого: planData может быть {phases: [...]} или просто объект с phases
       const plan = planData?.data || planData;
-      
-      console.log('Loaded plan:', plan?.phases?.length || 0, 'phases');
       setPlan(plan);
       
       // Загружаем все тренировки (из GPX/TCX файлов) - сначала, чтобы потом обновить progressData
@@ -140,8 +98,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         } else if (workoutsSummary && typeof workoutsSummary === 'object') {
           workouts = workoutsSummary;
         }
-        
-        console.log('Loaded workouts:', Object.keys(workouts).length, 'days with workouts');
         setWorkoutsData(workouts);
       } catch (error) {
         console.error('Error loading workouts:', error);
@@ -186,8 +142,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             newProgressData[date] = true;
           }
         });
-        
-        console.log('Loaded progress data:', Object.keys(newProgressData).length, 'completed days (from results + workouts)');
         setProgressData(newProgressData);
       } catch (error) {
         console.error('Error loading progress:', error);
@@ -225,8 +179,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             resultsByDate[result.training_date].push(result);
           }
         });
-        
-        console.log('Loaded results:', Object.keys(resultsByDate).length, 'days with results');
         setResultsData(resultsByDate);
       } catch (error) {
         console.error('Error loading results for display:', error);
@@ -257,15 +209,6 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   if (!plan || !plan.phases || plan.phases.length === 0) {
     return (
       <div className="calendar-container">
-        {!hideHeader && (
-          <header className="calendar-header">
-            <h1>Календарь тренировок</h1>
-            <nav>
-              <Link to="/stats">Статистика</Link>
-              <Link to="/settings">Настройки</Link>
-            </nav>
-          </header>
-        )}
         <div className="empty-container">
           <p className="empty-text">План тренировок не найден</p>
           <p className="empty-subtext">
@@ -278,36 +221,22 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
 
   return (
     <div className="container">
-      {!hideHeader && (
-        <>
-          <div className="header">
-            <div>
-              <h1>Календарь тренировок</h1>
-              <div className="subtitle">{getSubtitle()}</div>
-            </div>
-            <div className="progress-indicator">
-              Прогресс: <strong id="progress">0%</strong>
-            </div>
-          </div>
-          
-          <div className="calendar-view-toggle">
-            <button 
-              className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
-              onClick={() => setViewMode('week')}
-              disabled={externalViewMode !== null && externalViewMode !== undefined}
-            >
-              📅 Неделя
-            </button>
-            <button 
-              className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
-              onClick={() => setViewMode('full')}
-              disabled={externalViewMode !== null && externalViewMode !== undefined}
-            >
-              📋 Полный план
-            </button>
-          </div>
-        </>
-      )}
+      <div className="calendar-view-toggle">
+        <button 
+          className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
+          onClick={() => setViewMode('week')}
+          disabled={externalViewMode !== null && externalViewMode !== undefined}
+        >
+          📅 Неделя
+        </button>
+        <button 
+          className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
+          onClick={() => setViewMode('full')}
+          disabled={externalViewMode !== null && externalViewMode !== undefined}
+        >
+          📋 Полный план
+        </button>
+      </div>
 
       <div className="content">
         {viewMode === 'week' ? (
@@ -325,21 +254,23 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             currentWeekNumber={getCurrentWeekNumber(plan)}
           />
         ) : (
-          <MonthlyCalendar
-            workoutsData={workoutsData}
-            resultsData={resultsData}
-            planData={plan}
-            api={api}
-            onDateClick={(date) => {
-              if (canEdit || isOwner) {
-                // Парсим дату для DayModal
-                const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
-                setDayModal({ isOpen: true, date: dateStr, week: null, day: null });
-              }
-            }}
-            canEdit={canEdit}
-            targetUserId={calendarUserId}
-          />
+          <div className="week-calendar-container">
+            <MonthlyCalendar
+              workoutsData={workoutsData}
+              resultsData={resultsData}
+              planData={plan}
+              api={api}
+              onDateClick={(date) => {
+                if (canEdit || isOwner) {
+                  // Парсим дату для DayModal
+                  const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+                  setDayModal({ isOpen: true, date: dateStr, week: null, day: null });
+                }
+              }}
+              canEdit={canEdit}
+              targetUserId={calendarUserId}
+            />
+          </div>
         )}
       </div>
 

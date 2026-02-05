@@ -95,8 +95,9 @@ class ErrorHandler {
     
     /**
      * Обработка исключений с логированием и возвратом JSON
+     * @param \Throwable $e Исключение или ошибка (в т.ч. mysqli_sql_exception, Error)
      */
-    public static function handleException(Exception $e, $returnJson = true) {
+    public static function handleException($e, $returnJson = true) {
         $message = $e->getMessage();
         $context = [
             'file' => $e->getFile(),
@@ -104,12 +105,22 @@ class ErrorHandler {
             'trace' => $e->getTraceAsString()
         ];
         
-        // Используем Logger для логирования исключений
-        Logger::exception($e, $context);
+        if ($e instanceof Exception) {
+            Logger::exception($e, $context);
+        } else {
+            Logger::error('Unhandled ' . get_class($e) . ': ' . $message, $context);
+        }
         
         if ($returnJson) {
+            // Отсутствие таблиц сброса пароля / JWT — возвращаем 503 с понятным текстом
+            if (stripos($message, 'password_reset_tokens') !== false
+                || stripos($message, 'refresh_tokens') !== false
+                || stripos($message, "doesn't exist") !== false) {
+                self::returnJsonError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
+            }
             // В продакшене не показываем детали ошибки
-            $showDetails = (isset($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] === 'localhost') || 
+            $showDetails = (isset($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] === 'localhost') ||
                           (isset($_GET['debug']) && $_GET['debug'] === '1');
             
             $errorMessage = $showDetails ? $message : 'Произошла внутренняя ошибка сервера';
@@ -151,7 +162,7 @@ class ErrorHandler {
         set_exception_handler(function($e) {
             try {
                 ErrorHandler::handleException($e, true);
-            } catch (Exception $fallback) {
+            } catch (\Throwable $fallback) {
                 // Если обработка исключения сама вызвала исключение, используем стандартный вывод
                 http_response_code(500);
                 header('Content-Type: application/json');

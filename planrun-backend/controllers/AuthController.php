@@ -119,42 +119,135 @@ class AuthController extends BaseController {
     }
     
     /**
+     * Запросить сброс пароля
+     * POST /api_v2.php?action=request_password_reset
+     */
+    public function requestPasswordReset() {
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method !== 'POST') {
+            $this->returnError('Метод не поддерживается', 405);
+            return;
+        }
+        try {
+            $data = $this->getJsonBody();
+            $email = $data['email'] ?? null;
+            if (!$email) {
+                $this->returnError('Введите email', 400);
+                return;
+            }
+            $result = $this->authService->requestPasswordReset($email);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            if ($this->isPasswordResetTableMissing($e)) {
+                $this->returnError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
+            }
+            $this->handleException($e);
+        } catch (Throwable $e) {
+            $msg = $e->getMessage();
+            if (stripos($msg, 'password_reset_tokens') !== false || stripos($msg, "doesn't exist") !== false) {
+                $this->returnError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
+            }
+            $this->returnError('Внутренняя ошибка сервера', 500);
+        }
+    }
+
+    /**
+     * Подтвердить сброс пароля по токену
+     * POST /api_v2.php?action=confirm_password_reset
+     */
+    public function confirmPasswordReset() {
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method !== 'POST') {
+            $this->returnError('Метод не поддерживается', 405);
+            return;
+        }
+        try {
+            $data = $this->getJsonBody();
+            $token = $data['token'] ?? null;
+            $newPassword = $data['new_password'] ?? null;
+            if (!$token || !$newPassword) {
+                $this->returnError('Токен и новый пароль обязательны', 400);
+                return;
+            }
+            $result = $this->authService->confirmPasswordReset($token, $newPassword);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            if ($this->isPasswordResetTableMissing($e)) {
+                $this->returnError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
+            }
+            $this->handleException($e);
+        } catch (Throwable $e) {
+            $msg = $e->getMessage();
+            if (stripos($msg, 'password_reset_tokens') !== false || stripos($msg, "doesn't exist") !== false) {
+                $this->returnError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
+            }
+            $this->returnError('Внутренняя ошибка сервера', 500);
+        }
+    }
+
+    /**
      * Проверить авторизацию
      * GET /api_v2.php?action=check_auth
+     * Возвращает authenticated, user_id, username, auth_method и при успехе — name, avatar_path для шапки.
      */
     public function checkAuth() {
         try {
+            $userId = null;
+            $username = null;
+            $authMethod = null;
+
             // Проверяем JWT токен
             $jwtUser = $this->authService->validateJwtToken();
-            
             if ($jwtUser) {
+                $userId = (int) $jwtUser['user_id'];
+                $username = $jwtUser['username'];
+                $authMethod = 'jwt';
+            } else {
+                require_once __DIR__ . '/../auth.php';
+                if (isAuthenticated()) {
+                    $userId = (int) getCurrentUserId();
+                    $username = $_SESSION['username'] ?? null;
+                    $authMethod = 'session';
+                }
+            }
+
+            if ($userId && $username !== null) {
+                $avatarPath = null;
+                $stmt = $this->db->prepare('SELECT avatar_path FROM users WHERE id = ? LIMIT 1');
+                if ($stmt) {
+                    $stmt->bind_param('i', $userId);
+                    $stmt->execute();
+                    $row = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+                    if ($row && !empty($row['avatar_path'])) {
+                        $avatarPath = $row['avatar_path'];
+                    }
+                }
                 $this->returnSuccess([
                     'authenticated' => true,
-                    'user_id' => $jwtUser['user_id'],
-                    'username' => $jwtUser['username'],
-                    'auth_method' => 'jwt'
+                    'user_id' => $userId,
+                    'username' => $username,
+                    'avatar_path' => $avatarPath,
+                    'auth_method' => $authMethod
                 ]);
                 return;
             }
-            
-            // Проверяем сессию
-            require_once __DIR__ . '/../auth.php';
-            $isAuthenticated = isAuthenticated();
-            
-            if ($isAuthenticated) {
-                $this->returnSuccess([
-                    'authenticated' => true,
-                    'user_id' => $_SESSION['user_id'] ?? null,
-                    'username' => $_SESSION['username'] ?? null,
-                    'auth_method' => 'session'
-                ]);
-            } else {
-                $this->returnSuccess([
-                    'authenticated' => false
-                ]);
-            }
+
+            $this->returnSuccess(['authenticated' => false]);
         } catch (Exception $e) {
             $this->handleException($e);
         }
+    }
+
+    /**
+     * Проверка: исключение из-за отсутствия таблицы password_reset_tokens (или refresh_tokens).
+     */
+    protected function isPasswordResetTableMissing($e) {
+        $msg = $e->getMessage();
+        return (stripos($msg, 'password_reset_tokens') !== false || stripos($msg, "doesn't exist") !== false);
     }
 }

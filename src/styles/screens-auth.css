@@ -79,6 +79,11 @@
   cursor: not-allowed;
 }
 
+[data-theme="dark"] .auth-input {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
 /* Кнопка основная */
 .auth-btn-primary {
   width: 100%;

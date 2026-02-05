@@ -30,8 +30,8 @@
   align-items: center;
   justify-content: center;
   color: var(--primary-500);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   z-index: 10;
   pointer-events: none;
   transition: opacity 200ms ease;
@@ -53,8 +53,8 @@
   gap: 12px;
   background: var(--primary-50);
   color: var(--primary-600);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   z-index: 10;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
@@ -87,7 +87,7 @@
   text-align: center;
   padding: 40px;
   color: var(--gray-600);
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 
 [data-theme="dark"] .dashboard-loading {
@@ -98,9 +98,45 @@
   margin-bottom: 40px;
 }
 
+.dashboard-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-customize-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--primary-600);
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dashboard-customize-btn:hover {
+  background: var(--primary-100);
+  color: var(--primary-700);
+}
+
+[data-theme="dark"] .dashboard-customize-btn {
+  color: var(--primary-400);
+  background: rgba(255, 107, 61, 0.15);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .dashboard-customize-btn:hover {
+  background: rgba(255, 107, 61, 0.25);
+  color: var(--primary-300);
+}
+
 .dashboard-greeting {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: var(--text-3xl);
+  font-weight: var(--font-extrabold);
   color: var(--gray-900);
   margin-bottom: 4px;
   line-height: 1.1;
@@ -112,18 +148,631 @@
 }
 
 .dashboard-date {
-  font-size: 15px;
+  font-size: var(--text-base);
   color: var(--gray-600);
   text-transform: capitalize;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 [data-theme="dark"] .dashboard-date {
   color: var(--text-secondary);
 }
 
+/* Окно настройки блоков дашборда */
+.dashboard-customizer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dashboard-customizer {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  max-width: 400px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme="dark"] .dashboard-customizer {
+  border: 1px solid var(--card-border);
+}
+
+.dashboard-customizer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 0;
+}
+
+.dashboard-customizer-header h3 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.dashboard-customizer-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--gray-600);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.dashboard-customizer-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-800);
+}
+
+.dashboard-customizer-hint {
+  padding: 8px 20px 16px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.dashboard-customizer-list {
+  padding: 6px 20px 20px;
+  overflow-y: auto;
+}
+
+.dashboard-customizer-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-height: 0;
+  position: relative;
+}
+
+.dashboard-customizer-row-double {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.dashboard-customizer-slot-wrap {
+  flex: 1;
+  min-width: 0;
+  transition: flex 0.22s ease, min-width 0.22s ease, max-width 0.22s ease;
+}
+
+/* Когда у блока появляется .dashboard-customizer-merge-active — он сужается, справа показывается блок «+ в одну строку» */
+.dashboard-customizer-row-show-merge .dashboard-customizer-slot-wrap {
+  max-width: calc(100% - 128px); /* 120px зона + 8px gap — блок явно сужается */
+}
+
+/* Зона «в одну строку» скрыта; показывается только когда у соседнего блока merge-active (строка получает show-merge) */
+.dashboard-customizer-row:not(.dashboard-customizer-row-double) .dashboard-customizer-merge-zone {
+  flex: 0 0 0;
+  min-width: 0;
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0;
+  border-width: 0;
+  margin: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  cursor: pointer;
+  pointer-events: none; /* не перехватывать события — при перетаскивании срабатывает вся строка */
+  transition: flex 0.22s ease, min-width 0.22s ease, width 0.22s ease, opacity 0.22s ease, border-color 0.15s, background 0.15s;
+}
+
+/* Когда загорается бордер у блока (merge target) — справа появляется этот же «дополнительный блок».
+   Специфичность должна быть не ниже свёрнутого правила, иначе зона остаётся width:0. */
+.dashboard-customizer-row.dashboard-customizer-row-show-merge .dashboard-customizer-merge-zone {
+  flex: 0 0 120px;
+  min-width: 120px;
+  width: 120px;
+  min-height: 48px; /* как у .dashboard-customizer-item */
+  opacity: 1;
+  overflow: visible;
+  padding: 12px 14px;
+  border: 1px solid var(--primary-300);
+  border-style: solid;
+  border-radius: var(--radius-md);
+  background: var(--primary-50);
+  box-shadow: 0 2px 8px rgba(252, 76, 2, 0.15);
+  pointer-events: auto;
+  z-index: 2;
+}
+
+/* Базовые стили зоны (видимое состояние и тёмная тема) */
+.dashboard-customizer-merge-zone {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.dashboard-customizer-merge-zone:hover,
+.dashboard-customizer-merge-zone-active {
+  background: rgba(255, 107, 61, 0.08);
+  border-color: var(--primary-400);
+}
+
+.dashboard-customizer-merge-label {
+  font-size: var(--text-sm);
+  color: var(--primary-700);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dashboard-customizer-merge-zone-active .dashboard-customizer-merge-label {
+  color: var(--primary-700);
+}
+
+[data-theme="dark"] .dashboard-customizer-merge-zone {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .dashboard-customizer-row.dashboard-customizer-row-show-merge .dashboard-customizer-merge-zone {
+  background: rgba(255, 107, 61, 0.18);
+  border-color: var(--primary-500);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .dashboard-customizer-merge-zone:hover,
+[data-theme="dark"] .dashboard-customizer-merge-zone-active {
+  background: rgba(255, 107, 61, 0.15);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .dashboard-customizer-merge-label {
+  color: var(--text-tertiary);
+}
+
+[data-theme="dark"] .dashboard-customizer-row.dashboard-customizer-row-show-merge .dashboard-customizer-merge-zone .dashboard-customizer-merge-label {
+  color: var(--primary-300);
+}
+
+[data-theme="dark"] .dashboard-customizer-merge-zone-active .dashboard-customizer-merge-label {
+  color: var(--primary-400);
+}
+
+.dashboard-customizer-item-wrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.dashboard-customizer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-200);
+  cursor: grab;
+  transition: box-shadow 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.dashboard-customizer-item:active {
+  cursor: grabbing;
+}
+
+.dashboard-customizer-item.dragging {
+  opacity: 0.6;
+  cursor: grabbing;
+}
+
+.dashboard-customizer-item.dashboard-customizer-merge-active {
+  box-shadow: 0 0 0 2px var(--primary-400);
+  border-color: var(--primary-400);
+}
+
+.dashboard-customizer-expand {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  border: 1px solid var(--gray-300);
+  background: white;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--gray-600);
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.dashboard-customizer-expand:hover {
+  color: var(--primary-600);
+  border-color: var(--primary-300);
+  background: var(--primary-50);
+}
+
+[data-theme="dark"] .dashboard-customizer-expand {
+  background: var(--bg-primary);
+  border-color: var(--card-border);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .dashboard-customizer-expand:hover {
+  color: var(--primary-400);
+  border-color: var(--primary-500);
+  background: rgba(255, 107, 61, 0.15);
+}
+
+.dashboard-customizer-strip-zone {
+  min-height: 14px;
+  margin-bottom: 4px;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+
+.dashboard-customizer-strip-zone:hover,
+.dashboard-customizer-strip-zone-active {
+  background: rgba(255, 107, 61, 0.06);
+}
+
+.dashboard-customizer-strip-zone .dashboard-customizer-drop-strip {
+  position: relative;
+  top: 0;
+  margin: 3px 0;
+  height: 4px;
+  background: var(--primary-500);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 107, 61, 0.4);
+  pointer-events: none;
+}
+
+.dashboard-customizer-drop-strip--full {
+  width: 100%;
+  left: 0;
+  right: 0;
+}
+
+[data-theme="dark"] .dashboard-customizer-drop-strip {
+  background: var(--primary-500);
+  box-shadow: 0 0 10px rgba(255, 107, 61, 0.5);
+}
+
+[data-theme="dark"] .dashboard-customizer-item {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+.dashboard-customizer-drag-handle {
+  flex-shrink: 0;
+  color: var(--gray-400);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 2px;
+  cursor: grab;
+  user-select: none;
+  letter-spacing: -2px;
+}
+
+.dashboard-customizer-item:active .dashboard-customizer-drag-handle,
+.dashboard-customizer-item.dragging .dashboard-customizer-drag-handle {
+  cursor: grabbing;
+}
+
+[data-theme="dark"] .dashboard-customizer-drag-handle {
+  color: var(--text-tertiary);
+}
+
+.dashboard-customizer-label {
+  flex: 1;
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.dashboard-customizer-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.dashboard-customizer-remove {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  border: 1px solid var(--gray-300);
+  background: white;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--danger-500, #dc2626);
+  border-color: var(--danger-200, #fecaca);
+}
+
+.dashboard-customizer-remove:hover {
+  background: var(--danger-50, #fef2f2);
+}
+
+[data-theme="dark"] .dashboard-customizer-remove {
+  background: var(--bg-primary);
+  border-color: var(--card-border);
+  color: var(--danger-400, #f87171);
+}
+
+.dashboard-customizer-add {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .dashboard-customizer-add {
+  border-top-color: var(--card-border);
+}
+
+.dashboard-customizer-add label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.dashboard-customizer-add select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--text-base);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dashboard-customizer-add select {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
 .dashboard-section {
   margin-bottom: 40px;
+}
+
+/* Два блока в одну строку (тренировки, прогресс+статистика) */
+.dashboard-row-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 40px;
+  align-items: start;
+}
+
+.dashboard-row-two .dashboard-section-inline {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .dashboard-row-two {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .dashboard-row-two .dashboard-section-inline {
+    margin-bottom: 0;
+  }
+}
+
+/* Карточки-ссылки на Календарь и Статистику */
+.dashboard-module-link-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 20px 24px;
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 20px;
+  cursor: pointer;
+  text-align: left;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.dashboard-module-link-card:hover {
+  border-color: var(--primary-300);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.dashboard-module-link-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.dashboard-module-link-text {
+  flex: 1;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--gray-800);
+}
+
+.dashboard-module-link-arrow {
+  font-size: var(--text-xl);
+  color: var(--primary-500);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .dashboard-module-link-card {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+.dashboard-module-link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--primary-500);
+  background: transparent;
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.dashboard-module-link-btn:hover {
+  background: var(--primary-50);
+}
+
+/* Обёртка полоски недели на дашборде (карточка и сетка — стили из WeekCalendar.css) */
+.dashboard-week-strip {
+  margin-bottom: 0;
+}
+
+.dashboard-week-strip-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-secondary);
+  background: var(--card-bg);
+  border-radius: 20px;
+  border: 1px solid var(--gray-200);
+}
+
+.dashboard-week-calendar-wrap {
+  margin-bottom: 16px;
+}
+
+/* Виджет статистики на дашборде */
+.dashboard-stats-widget {
+  background: white;
+  border-radius: 20px;
+  padding: 16px;
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.dashboard-stats-widget-loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+.dashboard-stats-time-range {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.dashboard-time-range-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+  background: white;
+  color: var(--gray-700);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dashboard-time-range-btn:hover {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+}
+
+.dashboard-time-range-btn.active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: white;
+}
+
+.dashboard-stats-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 520px) {
+  .dashboard-stats-metrics-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.dashboard-stat-metric-card {
+  background: var(--gray-50);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--gray-200);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-stat-metric-card .metric-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.dashboard-stat-metric-card .metric-value {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--gray-900);
+}
+
+.dashboard-stat-metric-card .metric-unit {
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+}
+
+.dashboard-stat-metric-card .metric-label {
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
+[data-theme="dark"] .dashboard-stats-widget {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .dashboard-time-range-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dashboard-time-range-btn.active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: white;
+}
+
+[data-theme="dark"] .dashboard-stat-metric-card {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .dashboard-stat-metric-card .metric-value {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dashboard-module-link-text {
+  color: var(--text-primary);
 }
 
 /* Десктопный layout: Сегодняшняя тренировка и Прогресс недели рядом */
@@ -132,6 +781,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   margin-bottom: 40px;
+  align-items: stretch;
 }
 
 @media (max-width: 768px) {
@@ -141,9 +791,23 @@
   }
 }
 
+/* Общая обёртка для карточек верхней секции — одинаковый размер */
+.dashboard-top-section .dashboard-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dashboard-top-card {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
 .section-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
   color: var(--gray-900);
   margin-bottom: 20px;
   display: flex;
@@ -156,6 +820,7 @@
   color: var(--text-primary);
 }
 
+/* Единый стиль карточек верхней секции */
 .progress-card {
   background: white;
   border-radius: 20px;
@@ -170,17 +835,30 @@
   color: var(--text-primary);
 }
 
-.progress-header {
+.progress-card-desc {
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+  margin-bottom: 12px;
+  line-height: 1.4;
+  font-weight: var(--font-medium);
+}
+
+[data-theme="dark"] .progress-card-desc {
+  color: var(--text-secondary);
+}
+
+/* Строка «Выполнено» + число — чёткая вертикальная связка */
+.progress-stat {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 
 .progress-label {
-  font-size: 14px;
+  font-size: var(--text-sm);
   color: var(--gray-600);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   line-height: 1.4;
 }
 
@@ -189,24 +867,32 @@
 }
 
 .progress-value {
-  font-size: 28px;
-  font-weight: 800;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-extrabold);
   color: var(--gray-900);
-  line-height: 1;
+  line-height: 1.2;
   letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 [data-theme="dark"] .progress-value {
   color: var(--text-primary);
 }
 
+/* Строка: полоса прогресса + процент — в одну линию */
+.progress-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .progress-bar {
-  width: 100%;
-  height: 12px;
+  flex: 1;
+  min-width: 0;
+  height: 10px;
   background: var(--gray-200);
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 12px;
   position: relative;
 }
 
@@ -227,58 +913,37 @@
 }
 
 .progress-percentage {
-  font-size: 16px;
+  flex-shrink: 0;
+  font-size: var(--text-sm);
   color: var(--gray-700);
-  text-align: right;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: -0.3px;
+  min-width: 4ch;
+  text-align: right;
 }
 
 [data-theme="dark"] .progress-percentage {
   color: var(--text-secondary);
 }
 
-.metrics-grid {
+.dashboard-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-}
-
-/* Десктоп: все 3 метрики в одну строку уже с 900px */
-@media (min-width: 900px) {
-  .metrics-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-}
-
-/* Планшет: 2 колонки */
-@media (max-width: 899px) and (min-width: 641px) {
-  .metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
-  }
-}
-
-/* Мобильные: 1 колонка */
-@media (max-width: 640px) {
-  .metrics-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .metric-card {
   min-width: 0;
   background: white;
   border-radius: 20px;
-  padding: 20px 16px;
+  padding: 26px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.04);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  text-align: center;
+  gap: 12px;
+  text-align: left;
   transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -307,31 +972,37 @@
 }
 
 .metric-card .metric-icon {
-  font-size: 36px;
-  margin-bottom: 12px;
+  flex-shrink: 0;
+  font-size: var(--text-2xl);
   line-height: 1;
   filter: grayscale(0.2);
 }
 
 .metric-card .metric-content {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .metric-card .metric-value {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--primary-500); /* Автоматически меняется в темной теме */
-  line-height: 1;
-  margin-bottom: 6px;
-  letter-spacing: -1px;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-extrabold);
+  color: var(--primary-500);
+  line-height: 1.2;
+  letter-spacing: -0.5px;
   font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+
+[data-theme="dark"] .metric-card .metric-value {
+  color: var(--primary-500);
 }
 
 .metric-card .metric-unit {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--gray-600);
-  margin-bottom: 6px;
-  font-weight: 600;
+  font-weight: var(--font-medium);
+  line-height: 1.4;
+  margin-bottom: 2px;
 }
 
 [data-theme="dark"] .metric-card .metric-unit {
@@ -339,41 +1010,45 @@
 }
 
 .metric-card .metric-label {
-  font-size: 11px;
-  color: var(--gray-500);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+  font-weight: var(--font-medium);
+  line-height: 1.4;
 }
 
 [data-theme="dark"] .metric-card .metric-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
-.dashboard-empty {
+/* Карточка «день отдыха» — в едином стиле с progress-card */
+.dashboard-top-card.dashboard-empty {
   background: white;
-  border-radius: 16px;
-  padding: 40px 20px;
+  border-radius: 20px;
+  padding: 24px;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  justify-content: center;
 }
 
-[data-theme="dark"] .dashboard-empty {
+[data-theme="dark"] .dashboard-top-card.dashboard-empty {
   background: var(--card-bg);
+  border-color: var(--card-border);
   color: var(--text-primary);
 }
 
 .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: var(--text-4xl);
+  margin-bottom: 12px;
+  line-height: 1;
 }
 
 .empty-text {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
   color: var(--gray-900);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  letter-spacing: -0.3px;
 }
 
 [data-theme="dark"] .empty-text {
@@ -381,20 +1056,92 @@
 }
 
 .empty-subtext {
-  font-size: 14px;
+  font-size: var(--text-sm);
   color: var(--gray-600);
+  font-weight: var(--font-medium);
 }
 
 [data-theme="dark"] .empty-subtext {
   color: var(--text-secondary);
 }
 
+/* WorkoutCard внутри верхней секции — компактный вид в едином стиле */
+.dashboard-top-card > .workout-card {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.dashboard-top-section .workout-card .workout-card-header {
+  margin-bottom: 12px;
+}
+
+.dashboard-top-section .workout-card .workout-date {
+  font-size: var(--text-sm);
+}
+
+.dashboard-top-section .workout-card .workout-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  margin-bottom: 12px;
+}
+
+.dashboard-top-section .workout-card .workout-metrics {
+  margin-bottom: 12px;
+  gap: 16px;
+}
+
+.dashboard-top-section .workout-card .metric-value {
+  font-size: var(--text-xl);
+}
+
+.dashboard-top-section .workout-card .metric-unit {
+  font-size: var(--text-sm);
+}
+
+.dashboard-top-section .workout-card .workout-description {
+  font-size: var(--text-sm);
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.dashboard-top-section .workout-card .workout-exercises,
+.dashboard-top-section .workout-card .workout-results {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.dashboard-top-section .workout-card .workout-exercises-title,
+.dashboard-top-section .workout-card .workout-results-title {
+  font-size: var(--text-xs);
+}
+
+.dashboard-top-section .workout-card .workout-exercise-item,
+.dashboard-top-section .workout-card .workout-result-item {
+  font-size: var(--text-xs);
+  padding: 6px 8px;
+}
+
+.dashboard-top-section .workout-card .workout-actions {
+  margin-top: 12px;
+}
+
+.dashboard-top-section .workout-card .btn-workout {
+  padding: 12px 20px;
+  font-size: var(--text-sm);
+}
+
 .btn-dashboard {
   flex: 1;
   padding: 14px 24px;
   border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
   border: none;
   cursor: pointer;
   transition: all 200ms ease;
@@ -450,17 +1197,31 @@
   }
 
   .dashboard-greeting {
-    font-size: 24px;
+    font-size: var(--text-2xl);
+  }
+
+  .dashboard-metrics-grid {
+    gap: 8px;
   }
 
   .metric-card {
-    flex-direction: row;
-    text-align: left;
-    padding: 16px;
+    padding: 12px 10px;
+    gap: 10px;
   }
 
   .metric-card .metric-icon {
-    margin-right: 16px;
-    margin-bottom: 0;
+    font-size: var(--text-xl);
+  }
+
+  .metric-card .metric-value {
+    font-size: var(--text-xl);
+  }
+
+  .metric-card .metric-unit {
+    font-size: var(--text-xs);
+  }
+
+  .metric-card .metric-label {
+    font-size: var(--text-sm);
   }
 }

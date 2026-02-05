@@ -18,16 +18,20 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $action = $_GET['action'] ?? '';
 
-if ($action === 'check_auth') {
-    require_once __DIR__ . '/../planrun-backend/auth.php';
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode([
-        'authenticated' => isAuthenticated(),
-        'user_id' => isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null,
-        'username' => isset($_SESSION['username']) ? $_SESSION['username'] : null
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+// Сброс пароля не требует сессию; раннее освобождение блокировки избегает зависания
+if (in_array($action, ['request_password_reset', 'confirm_password_reset'], true) && session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
 }
 
+// Для сброса пароля (SMTP) заранее грузим Composer autoload, иначе require в EmailService зависает по таймауту
+if ($action === 'request_password_reset') {
+    set_time_limit(60);
+    $autoload = __DIR__ . '/../planrun-backend/vendor/autoload.php';
+    if (is_file($autoload)) {
+        require_once $autoload;
+    }
+}
+
+// check_auth отдаём бэкенду (api_v2), чтобы в ответе были avatar_path и др.
 define('API_WRAPPER_CORS_SENT', true);
 require_once __DIR__ . '/../planrun-backend/api_v2.php';

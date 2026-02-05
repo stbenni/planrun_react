@@ -309,6 +309,14 @@ try {
             $controller->removeAvatar();
             break;
             
+        case 'get_avatar':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->getAvatar();
+            break;
+            
         case 'update_privacy':
             if ($method !== 'POST') {
                 ErrorHandler::returnJsonError('Метод не поддерживается', 405);
@@ -366,6 +374,16 @@ try {
         case 'check_auth':
             $controller = new AuthController($db);
             $controller->checkAuth();
+            break;
+
+        case 'request_password_reset':
+            $controller = new AuthController($db);
+            $controller->requestPasswordReset();
+            break;
+
+        case 'confirm_password_reset':
+            $controller = new AuthController($db);
+            $controller->confirmPasswordReset();
             break;
             
         default:

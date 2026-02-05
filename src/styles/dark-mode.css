@@ -149,7 +149,6 @@ body:not([data-theme])[data-theme="dark"],
 }
 
 /* Исключения для элементов, которые не должны иметь transition */
-.theme-toggle,
 .spinner,
 .chart-bar,
 .progress-bar-fill {

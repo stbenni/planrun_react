@@ -31,3 +31,65 @@
     padding-bottom: 80px;
   }
 }
+
+/* Выбор темы во вкладке Аккаунт */
+.theme-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.theme-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  background: var(--card-bg);
+}
+
+.theme-option:hover {
+  border-color: var(--primary-400);
+}
+
+.theme-option.selected,
+.theme-option:has(input:checked) {
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+.theme-option input[type="radio"] {
+  width: auto;
+  accent-color: var(--primary-500);
+}
+
+.theme-option-label {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.theme-option-desc {
+  width: 100%;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding-left: calc(1.25rem + var(--space-2));
+}
+
+[data-theme="dark"] .theme-option {
+  border-color: var(--gray-400);
+  background: var(--bg-secondary);
+}
+
+[data-theme="dark"] .theme-option:hover {
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .theme-option.selected,
+[data-theme="dark"] .theme-option:has(input:checked) {
+  border-color: var(--primary-500);
+  background: rgba(255, 107, 61, 0.15);
+}

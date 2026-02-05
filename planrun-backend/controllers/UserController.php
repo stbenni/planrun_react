@@ -663,29 +663,25 @@ class UserController extends BaseController {
                 return;
             }
             
-            // Создаем директорию для аватаров (в корне проекта)
-            $projectRoot = dirname(dirname(__DIR__)); // /var/www/vladimirov
+            // Папка аватаров рядом с backend (в корне проекта), в backend — только код
+            $projectRoot = dirname(dirname(__DIR__));
             $avatarDir = $projectRoot . '/uploads/avatars/';
             
             if (!is_dir($avatarDir)) {
                 mkdir($avatarDir, 0755, true);
             }
             
-            // Генерируем уникальное имя файла
             $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $fileName = 'avatar_' . $this->currentUserId . '_' . time() . '.' . $extension;
+            $fileName = 'avatar_' . $this->currentUserId . '_' . time() . '.' . ($extension ?: 'jpg');
             $filePath = $avatarDir . $fileName;
             
-            // Загружаем файл
             if (move_uploaded_file($file['tmp_name'], $filePath)) {
-                // Получаем старый путь аватара для удаления
                 $oldAvatarStmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
                 $oldAvatarStmt->bind_param("i", $this->currentUserId);
                 $oldAvatarStmt->execute();
                 $oldAvatar = $oldAvatarStmt->get_result()->fetch_assoc();
                 $oldAvatarStmt->close();
                 
-                // Удаляем старый аватар если есть
                 if ($oldAvatar && $oldAvatar['avatar_path']) {
                     $oldPath = $projectRoot . $oldAvatar['avatar_path'];
                     if (file_exists($oldPath)) {
@@ -693,21 +689,18 @@ class UserController extends BaseController {
                     }
                 }
                 
-                // Сохраняем путь в БД (относительный путь)
                 $relativePath = '/uploads/avatars/' . $fileName;
                 $updateStmt = $this->db->prepare("UPDATE users SET avatar_path = ? WHERE id = ?");
                 $updateStmt->bind_param("si", $relativePath, $this->currentUserId);
                 $updateStmt->execute();
                 $updateStmt->close();
                 
-                // Очищаем кеш пользователя
                 require_once __DIR__ . '/../user_functions.php';
                 clearUserCache($this->currentUserId);
                 
                 require_once __DIR__ . '/../config/Logger.php';
                 Logger::info("Аватар загружен", ['user_id' => $this->currentUserId]);
                 
-                // Возвращаем обновленные данные пользователя
                 $updatedUser = getUserData($this->currentUserId, null, false);
                 unset($updatedUser['password']);
                 
@@ -717,13 +710,51 @@ class UserController extends BaseController {
                     'user' => $updatedUser
                 ]);
             } else {
-                $this->returnError('Ошибка загрузки файла', 500);
+                require_once __DIR__ . '/../config/Logger.php';
+                Logger::error('Ошибка загрузки аватара: move_uploaded_file не удался', [
+                    'user_id' => $this->currentUserId,
+                    'target_dir' => $avatarDir,
+                    'is_writable' => is_dir($avatarDir) ? is_writable($avatarDir) : false
+                ]);
+                $this->returnError('Ошибка загрузки файла. Проверьте, что папка uploads/avatars существует и доступна для записи.', 500);
             }
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
     
+    /**
+     * Раздать файл аватара (GET, без авторизации)
+     * GET /api_v2.php?action=get_avatar&file=avatar_123_456.jpg
+     * Файлы лежат в projectRoot/uploads/avatars/, веб-сервер их не отдаёт — отдаём через API.
+     */
+    public function getAvatar() {
+        $file = isset($_GET['file']) ? basename($_GET['file']) : '';
+        if ($file === '' || !preg_match('/^avatar_\d+_\d+\.(jpe?g|png|gif|webp)$/i', $file)) {
+            http_response_code(404);
+            exit;
+        }
+        $projectRoot = dirname(dirname(__DIR__));
+        $path = $projectRoot . '/uploads/avatars/' . $file;
+        if (!is_file($path) || !is_readable($path)) {
+            http_response_code(404);
+            exit;
+        }
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $mimes = [
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+        ];
+        $mime = $mimes[$ext] ?? 'application/octet-stream';
+        header('Content-Type: ' . $mime);
+        header('Cache-Control: public, max-age=86400');
+        readfile($path);
+        exit;
+    }
+
     /**
      * Удалить аватар
      * POST /api_v2.php?action=remove_avatar
@@ -736,7 +767,6 @@ class UserController extends BaseController {
         $this->checkCsrfToken();
         
         try {
-            // Получаем путь к аватару
             $stmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
             $stmt->bind_param("i", $this->currentUserId);
             $stmt->execute();
@@ -744,7 +774,6 @@ class UserController extends BaseController {
             $stmt->close();
             
             if ($result && $result['avatar_path']) {
-                // Удаляем файл
                 $projectRoot = dirname(dirname(__DIR__));
                 $oldPath = $projectRoot . $result['avatar_path'];
                 if (file_exists($oldPath)) {
@@ -758,10 +787,9 @@ class UserController extends BaseController {
             $updateStmt->execute();
             $updateStmt->close();
             
-            // Очищаем кеш
+            // Очищаем кеш пользователя
             require_once __DIR__ . '/../user_functions.php';
-            require_once __DIR__ . '/../config/Cache.php';
-            Cache::delete("user_data_{$this->currentUserId}");
+            clearUserCache($this->currentUserId);
             
             require_once __DIR__ . '/../config/Logger.php';
             Logger::info("Аватар удален", ['user_id' => $this->currentUserId]);
@@ -815,10 +843,9 @@ class UserController extends BaseController {
             $stmt->execute();
             $stmt->close();
             
-            // Очищаем кеш
+            // Очищаем кеш пользователя
             require_once __DIR__ . '/../user_functions.php';
-            require_once __DIR__ . '/../config/Cache.php';
-            Cache::delete("user_data_{$this->currentUserId}");
+            clearUserCache($this->currentUserId);
             
             require_once __DIR__ . '/../config/Logger.php';
             Logger::info("Настройки приватности обновлены", [
@@ -853,10 +880,9 @@ class UserController extends BaseController {
             $stmt->execute();
             $stmt->close();
             
-            // Очищаем кеш
+            // Очищаем кеш пользователя
             require_once __DIR__ . '/../user_functions.php';
-            require_once __DIR__ . '/../config/Cache.php';
-            Cache::delete("user_data_{$this->currentUserId}");
+            clearUserCache($this->currentUserId);
             
             require_once __DIR__ . '/../config/Logger.php';
             Logger::info("Telegram отвязан", ['user_id' => $this->currentUserId]);

@@ -1,0 +1,47 @@
+# PlanRun — Nginx: SPA (dist) + /api (PHP-FPM)
+# Применить: sudo ./deploy/apply-nginx.sh
+
+# Редирект HTTP -> HTTPS
+server {
+    listen 80;
+    server_name s-vladimirov.ru www.s-vladimirov.ru;
+    return 301 https://s-vladimirov.ru$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name s-vladimirov.ru www.s-vladimirov.ru;
+
+    # SPA — статика из dist
+    root {{PROJECT_ROOT}}/dist;
+    index index.html;
+
+    # Логи
+    error_log /var/log/nginx/vladimirov-error.log;
+    access_log /var/log/nginx/vladimirov-access.log combined;
+
+    # SSL (Let's Encrypt) — опции встроены, без зависимости от certbot-файлов
+    ssl_certificate /etc/letsencrypt/live/s-vladimirov.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/s-vladimirov.ru/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Фронт: SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API — PHP через FPM (api_wrapper.php, register_api.php и т.д.)
+    # Явный SCRIPT_FILENAME: иначе $document_root от server (dist) даёт неверный путь → 502
+    location ~ ^/api/(.+\.php)(\?.*)?$ {
+        set $api_script $1;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME {{PROJECT_ROOT}}/api/$api_script;
+        fastcgi_param SCRIPT_NAME /api/$api_script;
+        fastcgi_pass {{PHP_FPM_SOCK}};
+        fastcgi_read_timeout 60;
+    }
+}

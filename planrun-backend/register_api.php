@@ -62,18 +62,18 @@ if (isset($_GET['action']) && $_GET['action'] === 'validate_field') {
             break;
             
         case 'email':
-            if (!empty($value)) {
-                if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
-                    $result = ['valid' => false, 'message' => 'Некорректный формат email'];
-                } else {
-                    $checkStmt = $db->prepare('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""');
-                    $checkStmt->bind_param('s', $value);
-                    $checkStmt->execute();
-                    if ($checkStmt->get_result()->fetch_assoc()) {
-                        $result = ['valid' => false, 'message' => 'Этот email уже используется'];
-                    }
-                    $checkStmt->close();
+            if (empty(trim((string)$value))) {
+                $result = ['valid' => false, 'message' => 'Email обязателен'];
+            } elseif (!filter_var(trim($value), FILTER_VALIDATE_EMAIL)) {
+                $result = ['valid' => false, 'message' => 'Некорректный формат email'];
+            } else {
+                $checkStmt = $db->prepare('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""');
+                $checkStmt->bind_param('s', $value);
+                $checkStmt->execute();
+                if ($checkStmt->get_result()->fetch_assoc()) {
+                    $result = ['valid' => false, 'message' => 'Этот email уже используется'];
                 }
+                $checkStmt->close();
             }
             break;
     }
@@ -89,9 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $input = $_POST;
     }
     
-    // Получаем данные
+    // Получаем данные (пароль trim для консистентности с логином — иначе пробелы при вводе ломают повторный вход)
     $username = trim($input['username'] ?? '');
-    $password = $input['password'] ?? '';
+    $password = trim($input['password'] ?? '');
     $email = trim($input['email'] ?? '');
     
     // Цель и даты
@@ -217,6 +217,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (strlen($password) < 6) {
         echo json_encode(['success' => false, 'error' => 'Пароль должен быть не менее 6 символов'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    
+    if (empty($email)) {
+        echo json_encode(['success' => false, 'error' => 'Email обязателен'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'error' => 'Некорректный формат email'], JSON_UNESCAPED_UNICODE);
         exit;
     }
     

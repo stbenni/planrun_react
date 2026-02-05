@@ -41,8 +41,9 @@ __pycache__/
 dist/
 *.egg
 
-# Logs
-logs/
+# Logs (каталог logs/ создаётся в репо, чтобы на сервере был после деплоя; *.log не коммитим)
+planrun-backend/logs/*
+!planrun-backend/logs/.gitkeep
 *.log
 
 # Cache

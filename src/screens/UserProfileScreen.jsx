@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { getAvatarSrc } from '../utils/avatarUrl';
 import PublicHeader from '../components/common/PublicHeader';
 import CalendarScreen from './CalendarScreen';
 import './UserProfileScreen.css';
@@ -153,7 +154,7 @@ const UserProfileScreen = () => {
         <div className="profile-avatar">
           {profileUser.avatar_path ? (
             <img 
-              src={profileUser.avatar_path} 
+              src={getAvatarSrc(profileUser.avatar_path, api?.baseUrl || '/api')} 
               alt={profileUser.username}
               className="avatar-large"
             />

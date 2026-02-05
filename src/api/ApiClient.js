@@ -558,6 +558,60 @@ class ApiClient {
   }
 
   /**
+   * Запросить сброс пароля (отправит письмо на email)
+   * @param {string} email - Email пользователя
+   * @returns {Promise<{success: boolean, sent: boolean}>}
+   */
+  async requestResetPassword(email) {
+    const url = `${this.baseUrl}/api_wrapper.php?action=request_password_reset`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email: (email || '').trim() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new ApiError({
+        code: 'RESET_FAILED',
+        message: data.error || 'Не удалось запросить сброс пароля',
+      });
+    }
+    return {
+      success: data.success,
+      sent: data.data?.sent ?? false,
+      message: data.data?.message ?? null,
+      email: data.data?.email ?? null,
+    };
+  }
+
+  /**
+   * Подтвердить сброс пароля по токену
+   * @param {string} token - Токен из ссылки
+   * @param {string} newPassword - Новый пароль
+   */
+  async confirmResetPassword(token, newPassword) {
+    const url = `${this.baseUrl}/api_wrapper.php?action=confirm_password_reset`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        token: (token || '').trim(),
+        new_password: (newPassword || '').trim(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new ApiError({
+        code: 'RESET_FAILED',
+        message: data.error || 'Не удалось сменить пароль',
+      });
+    }
+    return { success: data.success };
+  }
+
+  /**
    * Регистрация нового пользователя
    */
   async register(userData) {
@@ -628,40 +682,26 @@ class ApiClient {
       
       // Проверяем структуру ответа
       // BaseController возвращает {success: true, data: {...}}
-      // Но может быть и просто {...} если это старый формат
-      let isAuthenticated, userId, username;
-      
-      if (authCheck?.data) {
-        // Новый формат: {success: true, data: {authenticated: true, ...}}
-        isAuthenticated = authCheck.data.authenticated;
-        userId = authCheck.data.user_id;
-        username = authCheck.data.username;
-      } else {
-        // Старый формат или прямой ответ: {authenticated: true, ...}
-        isAuthenticated = authCheck?.authenticated;
-        userId = authCheck?.user_id;
-        username = authCheck?.username;
-      }
-      
+      const data = authCheck?.data || authCheck;
+      const isAuthenticated = data?.authenticated;
+      const userId = data?.user_id;
+      const username = data?.username;
+      const name = data?.name ?? null;
+      const avatarPath = data?.avatar_path ?? null;
+
       if (isAuthenticated) {
-        // Пользователь авторизован, пытаемся загрузить план
+        const baseUser = {
+          authenticated: true,
+          user_id: userId,
+          username: username,
+          ...(name != null && { name }),
+          ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath })
+        };
         try {
           const plan = await this.getPlan();
-          return { 
-            authenticated: true, 
-            user_id: userId,
-            username: username,
-            plan: plan 
-          };
+          return { ...baseUser, plan };
         } catch (error) {
-          // План не загрузился, но пользователь авторизован
-          // Это нормально - план может быть не создан
-          return { 
-            authenticated: true, 
-            user_id: userId,
-            username: username,
-            plan: null 
-          };
+          return { ...baseUser, plan: null };
         }
       }
       

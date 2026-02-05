@@ -170,24 +170,6 @@
   position: relative;
 }
 
-.training-mode-grid label.selected::before {
-  content: '✓';
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  width: 32px;
-  height: 32px;
-  background: var(--gradient-primary);
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-lg);
-  font-weight: var(--font-bold);
-  box-shadow: var(--shadow-md);
-}
-
 .training-mode-option {
   border: 3px solid var(--gray-200);
   border-radius: var(--radius-lg);
@@ -202,13 +184,68 @@
   display: none;
 }
 
-.training-mode-option.selected {
-  border-color: var(--primary-500);
+.training-mode-option:hover {
+  border-color: var(--warning-500, #f59e0b);
   background: var(--gray-50);
+  box-shadow: 0 0 0 1px var(--warning-500, #f59e0b), 0 0 16px rgba(245, 158, 11, 0.35);
 }
 
-[data-theme="dark"] .training-mode-option.selected {
+[data-theme="dark"] .training-mode-option:hover {
   background: var(--bg-tertiary);
+  box-shadow: 0 0 0 1px var(--warning-500, #f59e0b), 0 0 20px rgba(245, 158, 11, 0.4);
+}
+
+/* Карточка «Скоро» — без оранжевого бордера и свечения на hover */
+.training-mode-option--soon {
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.training-mode-option--soon:hover,
+[data-theme="dark"] .training-mode-option--soon:hover {
+  border-color: var(--gray-200) !important;
+  background: var(--card-bg) !important;
+  box-shadow: none !important;
+}
+
+/* Бейдж под карточкой (Рекомендуем / Скоро) */
+.training-mode-option-badge {
+  margin-top: var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.training-mode-option-badge--recommend {
+  background: var(--gradient-primary);
+  color: white;
+}
+
+.training-mode-option-badge--soon {
+  background: var(--warning-500, #f59e0b);
+  color: white;
+}
+
+[data-theme="dark"] .training-mode-option,
+[data-theme="dark"] .goal-option {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group textarea {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .register-step-progress {
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .step {
+  border-bottom-color: var(--card-border);
 }
 
 .mode-icon {
@@ -298,12 +335,6 @@
   background: var(--bg-tertiary);
 }
 
-.form-actions {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-8);
-}
-
 .btn {
   flex: 1;
   padding: var(--space-3) var(--space-6);
@@ -358,23 +389,6 @@
   margin-bottom: var(--space-5);
   text-align: center;
   font-size: var(--text-sm);
-}
-
-.register-footer {
-  text-align: center;
-  margin-top: var(--space-6);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-.register-footer a {
-  color: var(--primary-500);
-  text-decoration: none;
-  font-weight: var(--font-semibold);
-}
-
-.register-footer a:hover {
-  text-decoration: underline;
 }
 
 /* Программы здоровья */

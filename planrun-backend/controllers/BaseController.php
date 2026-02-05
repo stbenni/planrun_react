@@ -161,20 +161,26 @@ class BaseController {
             }
         } else {
             // Обычное исключение
+            $message = $e->getMessage();
             Logger::error('Необработанное исключение', [
-                'message' => $e->getMessage(),
+                'message' => $message,
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
-            
-            // В продакшене не показываем детали ошибки
-            $message = 'Внутренняя ошибка сервера';
-            if (defined('APP_DEBUG') && APP_DEBUG) {
-                $message = $e->getMessage();
+            // Отсутствие таблиц сброса пароля / JWT
+            if (stripos($message, 'password_reset_tokens') !== false
+                || stripos($message, 'refresh_tokens') !== false
+                || stripos($message, "doesn't exist") !== false) {
+                $this->returnError('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
+                return;
             }
-            
-            $this->returnError($message, 500);
+            // В продакшене не показываем детали ошибки
+            $displayMessage = 'Внутренняя ошибка сервера';
+            if (defined('APP_DEBUG') && APP_DEBUG) {
+                $displayMessage = $message;
+            }
+            $this->returnError($displayMessage, 500);
         }
     }
     
