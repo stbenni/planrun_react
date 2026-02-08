@@ -1,7 +1,8 @@
 <?php
 /**
  * Общий CORS для api/*.php
- * Вызывать в начале скрипта, до любого вывода.
+ * Универсально: разрешаем same-origin (текущий хост) и локальную разработку.
+ * Домен не захардкожен — работает при любом домене/сервере.
  */
 
 if (headers_sent()) {
@@ -9,23 +10,24 @@ if (headers_sent()) {
 }
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-// Только s-vladimirov.ru и локальная разработка. Изоляция от planrun.
-$allowed = [
-    'https://s-vladimirov.ru',
-    'https://www.s-vladimirov.ru',
-    'http://s-vladimirov.ru',
-    'http://www.s-vladimirov.ru',
-    'http://localhost',
-    'http://127.0.0.1',
-    'http://localhost:3200',
-    'http://127.0.0.1:3200',
-];
-$ok = $origin && (
-    in_array($origin, $allowed, true)
-    || strpos($origin, 'http://localhost') === 0
-    || strpos($origin, 'http://127.0.0.1') === 0
-    || strpos($origin, 'http://192.168.') === 0
-);
+$currentHost = $_SERVER['HTTP_HOST'] ?? '';
+
+$ok = false;
+if ($origin && $currentHost) {
+    $originHost = parse_url($origin, PHP_URL_HOST);
+    $currentHostClean = preg_replace('/^www\./', '', $currentHost);
+    $originHostClean = preg_replace('/^www\./', '', $originHost ?? '');
+    // Same domain: origin host совпадает с текущим хостом
+    $sameDomain = $originHost && $currentHostClean && (
+        $originHostClean === $currentHostClean
+        || strpos($originHostClean, '.' . $currentHostClean) !== false
+        || strpos($currentHostClean, '.' . $originHostClean) !== false
+    );
+    $localDev = strpos($origin, 'http://localhost') === 0
+        || strpos($origin, 'http://127.0.0.1') === 0
+        || strpos($origin, 'http://192.168.') === 0;
+    $ok = $sameDomain || $localDev;
+}
 
 // Preflight OPTIONS
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {

@@ -35,6 +35,14 @@ $migrations = [
         INDEX idx_token_hash (token_hash),
         INDEX idx_expires_at (expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    'notification_dismissals' => "CREATE TABLE IF NOT EXISTS notification_dismissals (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id INT UNSIGNED NOT NULL,
+        notification_id VARCHAR(128) NOT NULL,
+        dismissed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user_notification (user_id, notification_id),
+        INDEX idx_user_id (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
 foreach ($migrations as $name => $sql) {

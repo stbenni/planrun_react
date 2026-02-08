@@ -10,6 +10,14 @@
     background: linear-gradient(135deg, #00a8e8 0%, #ff6b35 100%);
 }
 
+.landing-notice {
+    padding: var(--space-3) var(--space-5);
+    background: rgba(0, 0, 0, 0.2);
+    color: white;
+    text-align: center;
+    font-size: var(--text-sm);
+}
+
 .landing-header {
     padding: var(--space-5);
     display: flex;

@@ -8,6 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
 import { getAvatarSrc } from '../../utils/avatarUrl';
+import ChatNotificationButton from './ChatNotificationButton';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -109,6 +110,10 @@ const TopHeader = () => {
 
         <div className="top-header-actions">
           {user && (
+            <>
+            <div className="header-chat-wrap">
+              <ChatNotificationButton />
+            </div>
             <div className="header-avatar-wrap" ref={triggerRef}>
               <button
                 type="button"
@@ -148,6 +153,12 @@ const TopHeader = () => {
                     <span className="header-dropdown-icon">🔗</span>
                     Интеграции
                   </button>
+                  {user?.role === 'admin' && (
+                    <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => { setMenuOpen(false); navigate('/admin'); }}>
+                      <span className="header-dropdown-icon">⚙️</span>
+                      Админка
+                    </button>
+                  )}
                   <div className="header-dropdown-divider" />
                   <button type="button" role="menuitem" className="header-dropdown-item header-dropdown-item-danger" onClick={() => handleMenuAction('logout')}>
                     <span className="header-dropdown-icon">🚪</span>
@@ -156,6 +167,7 @@ const TopHeader = () => {
                 </div>
               )}
             </div>
+            </>
           )}
         </div>
       </div>

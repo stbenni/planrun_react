@@ -26,7 +26,7 @@ if (!defined('API_CORS_SENT') || !API_CORS_SENT) {
 }
 
 require_once __DIR__ . '/db_config.php';
-require_once __DIR__ . '/auth.php';
+// auth.php не подключаем: для регистрации не нужен, session_start() только в конце для автологина
 
 // Валидация поля
 if (isset($_GET['action']) && $_GET['action'] === 'validate_field') {
@@ -83,7 +83,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'validate_field') {
 }
 
 // Регистрация
+// Матрица обязательных полей (conditional required):
+// - self: только username, password, email, gender; experience_level = NULL; дата начала опциональна (дефолт сегодня).
+// - ai/both + health: goal_type, training_start_date, health_program; при custom — health_plan_weeks.
+// - ai/both + race: goal_type, training_start_date, (race_date ИЛИ target_marathon_date).
+// - ai/both + time_improvement: goal_type, training_start_date, (target_marathon_date ИЛИ race_date).
+// - ai/both + weight_loss: goal_type, training_start_date, weight_goal_kg, weight_goal_date.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
     $input = json_decode(file_get_contents('php://input'), true);
     if (!$input) {
         $input = $_POST;
@@ -124,17 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $heightCm = !empty($input['height_cm']) ? (int)$input['height_cm'] : null;
     $weightKg = !empty($input['weight_kg']) ? (float)$input['weight_kg'] : null;
     
-    // Опыт
-    $allowedExperienceLevels = ['beginner', 'intermediate', 'advanced'];
-    $experienceLevel = $input['experience_level'] ?? 'beginner';
-    if (!in_array($experienceLevel, $allowedExperienceLevels, true)) {
-        $experienceLevel = 'beginner';
-    }
-    
-    $weeklyBaseKm = !empty($input['weekly_base_km']) ? (float)$input['weekly_base_km'] : null;
-    $sessionsPerWeek = !empty($input['sessions_per_week']) ? (int)$input['sessions_per_week'] : null;
-    
-    // Режим тренировок
+    // Режим тренировок — определяем сразу, чтобы условно требовать поля (conditional required fields)
     $trainingModeInput = $input['training_mode'] ?? 'ai';
     $allowedTrainingModes = ['ai', 'coach', 'both', 'self'];
     if (!in_array($trainingModeInput, $allowedTrainingModes, true)) {
@@ -145,6 +142,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($trainingMode === 'coach') {
         $trainingMode = 'ai';
     }
+    
+    if ($trainingMode === 'self') {
+        $goalType = 'health';
+    }
+    
+    // Опыт: для режима «самостоятельно» поле не показывается и не обязательно (сохраняем NULL)
+    $allowedExperienceLevels = ['novice', 'beginner', 'intermediate', 'advanced', 'expert'];
+    if ($trainingMode === 'self') {
+        $experienceLevel = null;
+    } else {
+        $experienceLevel = isset($input['experience_level']) ? trim((string)$input['experience_level']) : '';
+        if ($experienceLevel === '' || !in_array($experienceLevel, $allowedExperienceLevels, true)) {
+            $experienceLevel = 'beginner';
+        }
+    }
+    
+    $weeklyBaseKm = !empty($input['weekly_base_km']) ? (float)$input['weekly_base_km'] : null;
+    $sessionsPerWeek = !empty($input['sessions_per_week']) ? (int)$input['sessions_per_week'] : null;
     
     // Предпочтения
     $preferredDays = $input['preferred_days'] ?? [];
@@ -185,19 +200,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $runningExperience = !empty($input['running_experience']) && in_array($input['running_experience'], $allowedRunningExperience)
         ? $input['running_experience'] : null;
     
-    // Комфортный темп
+    // Комфортный темп: фронт присылает easy_pace_sec в секундах на км (180–600), easy_pace_min — строка MM:SS для отображения
     $easyPaceSec = null;
-    if (!empty($input['easy_pace_min'])) {
-        $easyPaceMin = (int)$input['easy_pace_min'];
-        $easyPaceSecPart = !empty($input['easy_pace_sec']) ? (int)$input['easy_pace_sec'] : 0;
-        if ($easyPaceMin >= 3 && $easyPaceMin <= 12) {
-            $easyPaceSec = $easyPaceMin * 60 + min(59, max(0, $easyPaceSecPart));
+    if (!empty($input['easy_pace_sec'])) {
+        $sec = (int)$input['easy_pace_sec'];
+        if ($sec >= 180 && $sec <= 600) {
+            $easyPaceSec = $sec;
+        }
+    }
+    if ($easyPaceSec === null && !empty($input['easy_pace_min'])) {
+        $parts = is_string($input['easy_pace_min']) ? explode(':', trim($input['easy_pace_min'])) : [];
+        if (count($parts) === 2) {
+            $min = (int)$parts[0];
+            $secPart = (int)$parts[1];
+            if ($min >= 3 && $min <= 12 && $secPart >= 0 && $secPart < 60) {
+                $easyPaceSec = $min * 60 + $secPart;
+            }
         }
     }
     
     $isFirstRaceAtDistance = null;
-    if (isset($input['is_first_race'])) {
-        $isFirstRaceAtDistance = $input['is_first_race'] === '1' || $input['is_first_race'] === true || $input['is_first_race'] === 1 ? 1 : 0;
+    if (isset($input['is_first_race_at_distance']) || isset($input['is_first_race'])) {
+        $val = $input['is_first_race_at_distance'] ?? $input['is_first_race'];
+        $isFirstRaceAtDistance = $val === '1' || $val === true || $val === 1 ? 1 : 0;
     }
     
     // Последний результат
@@ -207,7 +232,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $lastRaceDistanceKm = (!empty($input['last_race_distance_km']) && $lastRaceDistance === 'other')
         ? (float)$input['last_race_distance_km'] : null;
     $lastRaceTime = !empty($input['last_race_time']) ? $input['last_race_time'] : null;
-    $lastRaceDate = !empty($input['last_race_date']) ? $input['last_race_date'] . '-01' : null;
+    $lastRaceDate = null;
+    if (!empty($input['last_race_date'])) {
+        $d = trim((string)$input['last_race_date']);
+        $lastRaceDate = (strlen($d) === 7 && preg_match('/^\d{4}-\d{2}$/', $d)) ? $d . '-01' : $d;
+    }
     
     // Валидация
     if (empty($username) || empty($password)) {
@@ -240,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $gender = 'male';
     }
     
-    // Дополнительная валидация обязательных полей в зависимости от режима и цели
+    // Дополнительная валидация обязательных полей только для режимов с планом (AI/тренер)
     if ($trainingMode !== 'self') {
         // Проверка типа цели
         if (empty($goalType) || !in_array($goalType, $allowedGoalTypes, true)) {
@@ -254,10 +283,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         
-        // Валидация в зависимости от типа цели
-        if ($goalType === 'race' || $goalType === 'time_improvement') {
+        // Валидация в зависимости от типа цели (только нужные поля для выбранной цели)
+        if ($goalType === 'race') {
             if (empty($raceDate) && empty($targetMarathonDate)) {
-                echo json_encode(['success' => false, 'error' => 'Дата забега или целевая дата обязательна для подготовки к забегу'], JSON_UNESCAPED_UNICODE);
+                echo json_encode(['success' => false, 'error' => 'Укажите дату забега или целевую дату'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+        } elseif ($goalType === 'time_improvement') {
+            if (empty($targetMarathonDate) && empty($raceDate)) {
+                echo json_encode(['success' => false, 'error' => 'Укажите дату марафона или дату забега'], JSON_UNESCAPED_UNICODE);
                 exit;
             }
         } elseif ($goalType === 'weight_loss') {
@@ -279,20 +313,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
             if (empty($currentRunningLevel)) {
-                echo json_encode(['success' => false, 'error' => 'Текущий уровень бега обязателен'], JSON_UNESCAPED_UNICODE);
-                exit;
+                $currentRunningLevel = 'basic';
             }
         }
-        
-        // Устанавливаем experience_level по умолчанию если не указан
-        if (empty($experienceLevel) || !in_array($experienceLevel, $allowedExperienceLevels, true)) {
-            $experienceLevel = 'beginner';
+    }
+    
+    // Для режима «самостоятельно» — безопасные значения полей, которые не показываются (избегаем NOT NULL/truncate)
+    if ($trainingMode === 'self') {
+        if ($isFirstRaceAtDistance === null) {
+            $isFirstRaceAtDistance = 0;
+        }
+        if ($currentRunningLevel === null) {
+            $currentRunningLevel = 'basic';
         }
     }
     
     $db = getDBConnection();
     if (!$db) {
         echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    
+    // Проверка: регистрация включена в админке (таблица site_settings может отсутствовать — тогда считаем включённой)
+    $registrationEnabled = true;
+    $tableExists = @$db->query("SHOW TABLES LIKE 'site_settings'");
+    if ($tableExists && $tableExists->num_rows > 0) {
+        $res = @$db->query("SELECT value FROM site_settings WHERE `key` = 'registration_enabled' LIMIT 1");
+        if ($res && ($row = $res->fetch_assoc()) && isset($row['value']) && (string)$row['value'] === '0') {
+            $registrationEnabled = false;
+        }
+    }
+    if (!$registrationEnabled) {
+        echo json_encode(['success' => false, 'error' => 'Регистрация отключена администратором'], JSON_UNESCAPED_UNICODE);
         exit;
     }
     
@@ -404,13 +456,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Безопасный bind_param через call_user_func_array
-    $bindParams = [$types];
+    // bind_param требует ссылки; в PHP 8.1+ ссылки из foreach нужно собирать через отдельный массив
+    $bindValues = [$types];
     foreach ($userData as $field => $info) {
-        $bindParams[] = &$userData[$field]['value'];
+        $bindValues[] = $userData[$field]['value'];
     }
-    
-    call_user_func_array([$stmt, 'bind_param'], $bindParams);
+    $refs = [];
+    foreach ($bindValues as $k => $v) {
+        $refs[$k] = &$bindValues[$k];
+    }
+    call_user_func_array([$stmt, 'bind_param'], $refs);
     
     if (!$stmt->execute()) {
         $stmt->close();
@@ -461,13 +516,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($trainingMode === 'self') {
         require_once __DIR__ . '/planrun_ai/create_empty_plan.php';
         try {
+            $startDateForPlan = $trainingStartDate;
+            if (empty($startDateForPlan)) {
+                $startDateForPlan = date('Y-m-d');
+            }
             $endDate = null;
             if ($goalType === 'race' || $goalType === 'time_improvement') {
                 $endDate = $raceDate ?: $targetMarathonDate;
             } elseif (!empty($targetMarathonDate)) {
                 $endDate = $targetMarathonDate;
             }
-            createEmptyPlan($userId, $trainingStartDate, $endDate);
+            createEmptyPlan($userId, $startDateForPlan, $endDate);
             $planGenerationMessage = 'Пустой календарь создан! Теперь вы можете добавлять тренировки вручную.';
         } catch (Exception $e) {
             error_log("Ошибка создания пустого календаря: " . $e->getMessage());
@@ -519,6 +578,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'plan_message' => $planGenerationMessage,
         'user' => ['id' => $userId, 'username' => $username, 'email' => $email]
     ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        error_log('register_api.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        $detail = $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')';
+        echo json_encode([
+            'success' => false,
+            'error' => $detail
+        ], JSON_UNESCAPED_UNICODE);
+    }
 } else {
     echo json_encode(['success' => false, 'error' => 'Метод не поддерживается'], JSON_UNESCAPED_UNICODE);
 }

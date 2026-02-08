@@ -34,6 +34,16 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # SSE (chat_sse.php) — long-lived соединение, увеличенный таймаут, без буферизации
+    location = /api/chat_sse.php {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME {{PROJECT_ROOT}}/api/chat_sse.php;
+        fastcgi_param SCRIPT_NAME /api/chat_sse.php;
+        fastcgi_pass {{PHP_FPM_SOCK}};
+        fastcgi_read_timeout 3600;
+        fastcgi_buffering off;
+    }
+
     # API — PHP через FPM (api_wrapper.php, register_api.php и т.д.)
     # Явный SCRIPT_FILENAME: иначе $document_root от server (dist) даёт неверный путь → 502
     location ~ ^/api/(.+\.php)(\?.*)?$ {

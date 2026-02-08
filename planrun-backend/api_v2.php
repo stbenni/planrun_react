@@ -66,6 +66,8 @@ require_once __DIR__ . '/controllers/WeekController.php';
 require_once __DIR__ . '/controllers/AdaptationController.php';
 require_once __DIR__ . '/controllers/UserController.php';
 require_once __DIR__ . '/controllers/AuthController.php';
+require_once __DIR__ . '/controllers/AdminController.php';
+require_once __DIR__ . '/controllers/ChatController.php';
 
 try {
     $db = getDBConnection();
@@ -77,6 +79,30 @@ try {
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'];
     
+    // Публичные настройки сайта — без авторизации и без контроллера
+    if ($action === 'get_site_settings' && $method === 'GET') {
+        $defaults = [
+            'site_name' => 'PlanRun',
+            'site_description' => 'Персональный план беговых тренировок',
+            'maintenance_mode' => '0',
+            'registration_enabled' => '1',
+            'contact_email' => '',
+        ];
+        $settings = $defaults;
+        $tableExists = $db->query("SHOW TABLES LIKE 'site_settings'");
+        if ($tableExists && $tableExists->num_rows > 0) {
+            $res = $db->query("SELECT `key`, value FROM site_settings");
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    $settings[$row['key']] = $row['value'];
+                }
+            }
+        }
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => true, 'data' => ['settings' => $settings]], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    
     // Rate limiting (для авторизованных пользователей)
     if (isAuthenticated()) {
         $currentUserId = getCurrentUserId();
@@ -85,6 +111,9 @@ try {
                 $rateLimitAction = 'default';
                 if (strpos($action, 'plan') !== false) {
                     $rateLimitAction = 'plan_generation';
+                }
+                if (strpos($action, 'chat_send') !== false) {
+                    $rateLimitAction = 'chat';
                 }
                 RateLimiter::checkApiLimit($currentUserId, $rateLimitAction);
             } catch (Exception $e) {
@@ -325,6 +354,22 @@ try {
             $controller->updatePrivacy();
             break;
             
+        case 'notifications_dismissed':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->getNotificationsDismissed();
+            break;
+
+        case 'notifications_dismiss':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->dismissNotification();
+            break;
+
         case 'unlink_telegram':
             if ($method !== 'POST') {
                 ErrorHandler::returnJsonError('Метод не поддерживается', 405);
@@ -376,6 +421,47 @@ try {
             $controller->checkAuth();
             break;
 
+        // AdminController
+        case 'admin_list_users':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->listUsers();
+            break;
+
+        case 'admin_get_user':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->getUser();
+            break;
+
+        case 'admin_update_user':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->updateUser();
+            break;
+
+        case 'admin_get_settings':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->getSettings();
+            break;
+
+        case 'admin_update_settings':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->updateSettings();
+            break;
+
         case 'request_password_reset':
             $controller = new AuthController($db);
             $controller->requestPasswordReset();
@@ -384,6 +470,103 @@ try {
         case 'confirm_password_reset':
             $controller = new AuthController($db);
             $controller->confirmPasswordReset();
+            break;
+
+        // ChatController
+        case 'chat_get_messages':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getMessages();
+            break;
+
+        case 'chat_send_message':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->sendMessage();
+            break;
+
+        case 'chat_send_message_stream':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->sendMessageStream();
+            break;
+
+        case 'chat_mark_all_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->markAllRead();
+            break;
+
+        case 'chat_admin_mark_all_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->markAdminAllRead();
+            break;
+
+        case 'chat_mark_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->markRead();
+            break;
+
+        case 'chat_send_message_to_admin':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->sendMessageToAdmin();
+            break;
+
+        case 'chat_admin_send_message':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->sendAdminMessage();
+            break;
+
+        case 'chat_admin_chat_users':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getAdminChatUsers();
+            break;
+
+        case 'chat_admin_unread_notifications':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getAdminUnreadNotifications();
+            break;
+
+        case 'chat_admin_broadcast':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->broadcastAdminMessage();
+            break;
+
+        case 'chat_admin_get_messages':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getAdminMessages();
             break;
             
         default:

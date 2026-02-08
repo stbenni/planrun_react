@@ -528,8 +528,8 @@ class UserController extends BaseController {
                 return;
             }
             
-            // Проверяем, что пользователь существует
-            $checkStmt = $this->db->prepare("SELECT id, username FROM users WHERE id = ?");
+            // Проверяем, что пользователь существует (заодно берём avatar_path для удаления файла)
+            $checkStmt = $this->db->prepare("SELECT id, username, avatar_path FROM users WHERE id = ?");
             $checkStmt->bind_param("i", $targetUserId);
             $checkStmt->execute();
             $userResult = $checkStmt->get_result();
@@ -587,13 +587,68 @@ class UserController extends BaseController {
                 $deleteWorkoutLogStmt->execute();
                 $deleteWorkoutLogStmt->close();
                 
-                // 8. Удаляем автоматические тренировки (workouts)
+                // 8. Удаляем timeline автоматических тренировок (до удаления workouts; таблица может отсутствовать)
+                $timelineTable = $this->db->query("SHOW TABLES LIKE 'workout_timeline'");
+                if ($timelineTable && $timelineTable->num_rows > 0) {
+                    $deleteTimelineStmt = $this->db->prepare("DELETE wt FROM workout_timeline wt INNER JOIN workouts w ON wt.workout_id = w.id WHERE w.user_id = ?");
+                    if ($deleteTimelineStmt) {
+                        $deleteTimelineStmt->bind_param("i", $targetUserId);
+                        $deleteTimelineStmt->execute();
+                        $deleteTimelineStmt->close();
+                    }
+                }
+                
+                // 9. Удаляем автоматические тренировки (workouts)
                 $deleteWorkoutsStmt = $this->db->prepare("DELETE FROM workouts WHERE user_id = ?");
                 $deleteWorkoutsStmt->bind_param("i", $targetUserId);
                 $deleteWorkoutsStmt->execute();
                 $deleteWorkoutsStmt->close();
                 
-                // 9. Удаляем самого пользователя
+                // 10. Токены сброса пароля (таблица может отсутствовать)
+                $tblReset = $this->db->query("SHOW TABLES LIKE 'password_reset_tokens'");
+                if ($tblReset && $tblReset->num_rows > 0) {
+                    $deleteResetStmt = $this->db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?");
+                    if ($deleteResetStmt) {
+                        $deleteResetStmt->bind_param("i", $targetUserId);
+                        $deleteResetStmt->execute();
+                        $deleteResetStmt->close();
+                    }
+                }
+                
+                // 11. JWT refresh-токены (таблица может отсутствовать)
+                $tblRefresh = $this->db->query("SHOW TABLES LIKE 'refresh_tokens'");
+                if ($tblRefresh && $tblRefresh->num_rows > 0) {
+                    $deleteRefreshStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ?");
+                    if ($deleteRefreshStmt) {
+                        $deleteRefreshStmt->bind_param("i", $targetUserId);
+                        $deleteRefreshStmt->execute();
+                        $deleteRefreshStmt->close();
+                    }
+                }
+                
+                // 11b. Закрытые уведомления (notification_dismissals)
+                $tblNotif = $this->db->query("SHOW TABLES LIKE 'notification_dismissals'");
+                if ($tblNotif && $tblNotif->num_rows > 0) {
+                    $deleteNotifStmt = $this->db->prepare("DELETE FROM notification_dismissals WHERE user_id = ?");
+                    if ($deleteNotifStmt) {
+                        $deleteNotifStmt->bind_param("i", $targetUserId);
+                        $deleteNotifStmt->execute();
+                        $deleteNotifStmt->close();
+                    }
+                }
+                
+                // 12. Связи тренер–ученик (если таблица есть)
+                $tableCheck = $this->db->query("SHOW TABLES LIKE 'user_coaches'");
+                if ($tableCheck && $tableCheck->num_rows > 0) {
+                    $deleteCoachesStmt = $this->db->prepare("DELETE FROM user_coaches WHERE user_id = ? OR coach_id = ?");
+                    if ($deleteCoachesStmt) {
+                        $deleteCoachesStmt->bind_param("ii", $targetUserId, $targetUserId);
+                        $deleteCoachesStmt->execute();
+                        $deleteCoachesStmt->close();
+                    }
+                }
+                
+                // 13. Удаляем самого пользователя
                 $deleteUserStmt = $this->db->prepare("DELETE FROM users WHERE id = ?");
                 $deleteUserStmt->bind_param("i", $targetUserId);
                 $deleteUserStmt->execute();
@@ -606,6 +661,17 @@ class UserController extends BaseController {
                 
                 // Подтверждаем транзакцию
                 $this->db->commit();
+                
+                // Удаляем файл аватара с диска (вне транзакции — БД уже закоммичена)
+                if (!empty($user['avatar_path'])) {
+                    $projectRoot = dirname(dirname(__DIR__));
+                    $avatarPath = $projectRoot . $user['avatar_path'];
+                    if (file_exists($avatarPath) && is_file($avatarPath)) {
+                        @unlink($avatarPath);
+                    }
+                }
+                
+                clearUserCache($targetUserId);
                 
                 require_once __DIR__ . '/../config/Logger.php';
                 Logger::info("Пользователь удален", [
@@ -862,6 +928,48 @@ class UserController extends BaseController {
         }
     }
     
+    /**
+     * Получить список закрытых уведомлений (синхронизация между устройствами)
+     * GET /api_v2.php?action=notifications_dismissed
+     */
+    public function getNotificationsDismissed() {
+        if (!$this->requireAuth()) {
+            return;
+        }
+        try {
+            require_once __DIR__ . '/../repositories/NotificationRepository.php';
+            $repo = new NotificationRepository($this->db);
+            $ids = $repo->getDismissedIds($this->currentUserId);
+            $this->returnSuccess(['dismissed' => $ids]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Закрыть уведомление
+     * POST /api_v2.php?action=notifications_dismiss { "notification_id": "chat_123" }
+     */
+    public function dismissNotification() {
+        if (!$this->requireAuth()) {
+            return;
+        }
+        try {
+            $data = $this->getJsonBody();
+            $notificationId = trim($data['notification_id'] ?? $data['id'] ?? '');
+            if ($notificationId === '' || strlen($notificationId) > 120) {
+                $this->returnError('Некорректный ID уведомления', 400);
+                return;
+            }
+            require_once __DIR__ . '/../repositories/NotificationRepository.php';
+            $repo = new NotificationRepository($this->db);
+            $repo->dismiss($this->currentUserId, $notificationId);
+            $this->returnSuccess(['ok' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
     /**
      * Отвязать Telegram ID
      * POST /api_v2.php?action=unlink_telegram

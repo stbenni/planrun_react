@@ -50,6 +50,9 @@ planrun-backend/logs/*
 cache/
 *.cache
 
+# PHP sessions (api/session_init.php создаёт api/sessions при первом запросе)
+api/sessions/
+
 # Uploads (файлы пользователей - обычно не коммитятся)
 uploads/
 !uploads/.gitkeep

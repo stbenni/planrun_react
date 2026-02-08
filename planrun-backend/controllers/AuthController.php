@@ -217,14 +217,20 @@ class AuthController extends BaseController {
 
             if ($userId && $username !== null) {
                 $avatarPath = null;
-                $stmt = $this->db->prepare('SELECT avatar_path FROM users WHERE id = ? LIMIT 1');
+                $role = 'user';
+                $stmt = $this->db->prepare('SELECT avatar_path, role FROM users WHERE id = ? LIMIT 1');
                 if ($stmt) {
                     $stmt->bind_param('i', $userId);
                     $stmt->execute();
                     $row = $stmt->get_result()->fetch_assoc();
                     $stmt->close();
-                    if ($row && !empty($row['avatar_path'])) {
-                        $avatarPath = $row['avatar_path'];
+                    if ($row) {
+                        if (!empty($row['avatar_path'])) {
+                            $avatarPath = $row['avatar_path'];
+                        }
+                        if (!empty($row['role'])) {
+                            $role = $row['role'];
+                        }
                     }
                 }
                 $this->returnSuccess([
@@ -232,6 +238,7 @@ class AuthController extends BaseController {
                     'user_id' => $userId,
                     'username' => $username,
                     'avatar_path' => $avatarPath,
+                    'role' => $role,
                     'auth_method' => $authMethod
                 ]);
                 return;

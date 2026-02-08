@@ -7,7 +7,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import WorkoutCard from '../Calendar/WorkoutCard';
-import Notifications from '../common/Notifications';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import './Dashboard.css';
@@ -571,8 +570,6 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
 
   return (
     <div className="dashboard" ref={dashboardRef}>
-      <Notifications api={api} onWorkoutPress={handleWorkoutPress} />
-      
       {/* Уведомление об ошибке генерации плана */}
       {planError && (
         <div className="plan-generation-notice" style={{

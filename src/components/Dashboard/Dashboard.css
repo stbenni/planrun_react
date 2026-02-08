@@ -242,6 +242,20 @@
 .dashboard-customizer-row-double {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+}
+
+/* В сдвоенной строке оба блока одной высоты: если название в две строки — соседний тянется */
+.dashboard-customizer-row-double .dashboard-customizer-slot-wrap {
+  display: flex;
+  min-height: 100%;
+}
+
+.dashboard-customizer-row-double .dashboard-customizer-slot-wrap .dashboard-customizer-item {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  align-items: center;
 }
 
 .dashboard-customizer-slot-wrap {

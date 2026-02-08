@@ -90,9 +90,18 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
     setShowHealthPlanWeeks(formData.health_program === 'custom');
   }, [formData.goal_type, formData.health_program]);
 
-  // Для режима self пропускаем шаг 2
+  // Для режима self пропускаем шаг 2 (цель)
   const getTotalSteps = () => {
     return formData.training_mode === 'self' ? 3 : 4;
+  };
+
+  // Текущий индекс шага для прогресса и индикатора (0..totalSteps-1).
+  // Для self шаги 0, 1, 3 → отображаем как 0, 1, 2.
+  const getCurrentStepIndex = () => {
+    if (formData.training_mode === 'self') {
+      return step === 3 ? 2 : step; // 0 → 0, 1 → 1, 3 → 2
+    }
+    return step;
   };
 
   const handleChange = (field, value) => {
@@ -189,10 +198,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         setStep(2);
       }
     } else if (step === 2) {
-      // Шаг 2: Цель - валидация в зависимости от типа цели
-      if (formData.goal_type === 'race' || formData.goal_type === 'time_improvement') {
-        if (!formData.race_date) {
-          setError('Дата забега обязательна для выбранной цели');
+      // Шаг 2: Цель — валидация в зависимости от типа цели
+      if (formData.goal_type === 'race') {
+        if (!formData.race_date && !formData.target_marathon_date) {
+          setError('Укажите дату забега или целевую дату');
+          return;
+        }
+      } else if (formData.goal_type === 'time_improvement') {
+        if (!formData.target_marathon_date && !formData.race_date) {
+          setError('Укажите дату марафона или дату забега');
           return;
         }
       } else if (formData.goal_type === 'weight_loss') {
@@ -258,9 +272,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         preferred_ofp_days: formData.preferred_ofp_days,
         has_treadmill: formData.has_treadmill ? 1 : 0,
         is_first_race_at_distance: formData.is_first_race_at_distance ? 1 : 0,
-        // Автоматически вычисляем sessions_per_week из preferred_days
         sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || null,
-        // Удаляем device_type из регистрации (оно в интеграциях)
         device_type: undefined,
       };
       
@@ -297,7 +309,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
   };
 
   const totalSteps = getTotalSteps();
-  const progress = ((step + 1) / totalSteps) * 100;
+  const currentStepIndex = getCurrentStepIndex();
+  const progress = ((currentStepIndex + 1) / totalSteps) * 100;
   const dayLabels = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
 
   const formContent = (
@@ -310,10 +323,20 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         </div>
         
         <div className="step-indicator">
-          <div className={`step ${step >= 0 ? 'active' : ''}`}>0. Режим</div>
-          <div className={`step ${step >= 1 ? 'active' : ''}`} style={{ display: formData.training_mode === 'self' ? 'none' : 'block' }}>1. Аккаунт</div>
-          <div className={`step ${step >= 2 ? 'active' : ''}`} style={{ display: formData.training_mode === 'self' ? 'none' : 'block' }}>2. Цель</div>
-          <div className={`step ${step >= 3 ? 'active' : ''}`}>3. Профиль</div>
+          {formData.training_mode === 'self' ? (
+            <>
+              <div className={`step ${currentStepIndex >= 0 ? 'active' : ''}`}>1. Режим</div>
+              <div className={`step ${currentStepIndex >= 1 ? 'active' : ''}`}>2. Аккаунт</div>
+              <div className={`step ${currentStepIndex >= 2 ? 'active' : ''}`}>3. Профиль</div>
+            </>
+          ) : (
+            <>
+              <div className={`step ${currentStepIndex >= 0 ? 'active' : ''}`}>1. Режим</div>
+              <div className={`step ${currentStepIndex >= 1 ? 'active' : ''}`}>2. Аккаунт</div>
+              <div className={`step ${currentStepIndex >= 2 ? 'active' : ''}`}>3. Цель</div>
+              <div className={`step ${currentStepIndex >= 3 ? 'active' : ''}`}>4. Профиль</div>
+            </>
+          )}
         </div>
 
         {error && <div className="register-error">{error}</div>}
@@ -486,15 +509,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                   </div>
                   
                   <div className="form-group">
-                    <label>Дата забега <span className="required">*</span></label>
+                    <label>Дата забега {formData.goal_type === 'race' && <span className="required">*</span>}</label>
                     <input
                       type="date"
                       value={formData.race_date}
                       onChange={(e) => handleChange('race_date', e.target.value)}
                       min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                      required={showRaceFields}
+                      required={formData.goal_type === 'race'}
                     />
-                    <small>План будет рассчитан до этой даты. Дата должна быть в будущем.</small>
+                    <small>План будет рассчитан до этой даты (для «Улучшить время» — дата марафона). Дата должна быть в будущем.</small>
                   </div>
                   
                   <div className="form-group">
@@ -613,9 +636,21 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               <h2>Ваш профиль</h2>
               
               {formData.training_mode === 'self' && (
-                <p style={{ marginBottom: '20px', color: '#6b7280', fontSize: '1.05em' }}>
-                  Для создания календаря нужна базовая информация:
-                </p>
+                <>
+                  <p style={{ marginBottom: '20px', color: '#6b7280', fontSize: '1.05em' }}>
+                    Для создания календаря нужна базовая информация:
+                  </p>
+                  <div className="form-group">
+                    <label>📅 Дата начала тренировок</label>
+                    <input
+                      type="date"
+                      value={formData.training_start_date || ''}
+                      onChange={(e) => handleChange('training_start_date', e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                    <small>С какой даты начинается ваш календарь (по умолчанию — следующий понедельник)</small>
+                  </div>
+                </>
               )}
               
               <div className="form-group">
@@ -831,8 +866,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                               type="radio"
                               name="is_first_race_at_distance"
                               value="1"
-                              checked={formData.is_first_race === 1 || formData.is_first_race === true}
-                              onChange={() => handleChange('is_first_race', 1)}
+                              checked={formData.is_first_race_at_distance === true || formData.is_first_race_at_distance === 1}
+                              onChange={() => handleChange('is_first_race_at_distance', true)}
                             />
                             <span>Да, первый раз</span>
                           </label>

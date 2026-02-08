@@ -10,7 +10,7 @@ export default defineConfig({
     // В dev запросы к /api проксируем на бэкенд (иначе 404 — Vite не отдаёт PHP)
     proxy: {
       '/api': {
-        target: process.env.VITE_API_PROXY_TARGET || 'https://s-vladimirov.ru',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost',
         changeOrigin: true,
         secure: true,
       },

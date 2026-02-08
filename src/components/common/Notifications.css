@@ -26,6 +26,10 @@
   border-left: 4px solid var(--primary-500);
 }
 
+.notification-card--chat {
+  border-left-color: #3b82f6;
+}
+
 .notification-icon {
   font-size: 24px;
   line-height: 1;
@@ -126,6 +130,13 @@
 [data-theme="dark"] .notification-dismiss:hover {
   background: var(--gray-300);
   color: var(--text-primary);
+}
+
+/* Десктоп: ниже TopHeader (64px + отступ) */
+@media (min-width: 1024px) {
+  .notifications-container {
+    top: 80px;
+  }
 }
 
 /* Мобильная адаптация */

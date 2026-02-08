@@ -1,0 +1,170 @@
+/**
+ * Стили для кнопки чата в TopHeader
+ * В стиле header-avatar: квадратик, бейдж, dropdown
+ */
+
+.header-chat-wrap {
+  position: relative;
+}
+
+.header-chat-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-100);
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+}
+
+.header-chat-btn:hover {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+  transform: scale(1.05);
+}
+
+.header-chat-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-50);
+}
+
+.header-chat-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.header-chat-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-500);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 9px;
+  line-height: 1;
+}
+
+[data-theme="dark"] .header-chat-btn {
+  border-color: var(--gray-500);
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .header-chat-btn:hover {
+  border-color: var(--primary-500);
+  background: rgba(255, 107, 61, 0.15);
+}
+
+/* Dropdown — в стиле header-avatar-dropdown и notification-card */
+.header-chat-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 1100;
+  animation: header-dropdown-in 0.2s ease;
+  overflow: hidden;
+}
+
+.header-chat-dropdown-header {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.header-chat-dropdown-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.header-chat-dropdown-loading,
+.header-chat-dropdown-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.header-chat-dropdown-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.header-chat-dropdown-item {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.header-chat-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.header-chat-dropdown-item.unread {
+  background: var(--primary-50);
+  border-left: 4px solid var(--primary-500);
+  padding-left: calc(var(--space-4) - 4px);
+}
+
+[data-theme="dark"] .header-chat-dropdown-item.unread {
+  background: rgba(255, 107, 61, 0.12);
+}
+
+.header-chat-dropdown-content {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.header-chat-dropdown-time {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+.header-chat-dropdown-footer {
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--card-border);
+}
+
+.header-chat-dropdown-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--gradient-primary);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 200ms ease;
+  font-family: inherit;
+}
+
+.header-chat-dropdown-btn:hover {
+  opacity: 0.9;
+}
+
+[data-theme="dark"] .header-chat-dropdown {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}

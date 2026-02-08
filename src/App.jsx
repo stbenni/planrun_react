@@ -3,13 +3,14 @@
  * Использует Zustand для управления состоянием
  */
 
-import React, { useEffect, lazy, Suspense } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import BottomNav from './components/common/BottomNav';
 import TopHeader from './components/common/TopHeader';
+import Notifications from './components/common/Notifications';
 import PageTransition from './components/common/PageTransition';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
@@ -23,15 +24,28 @@ const StatsScreen = lazy(() => import('./screens/StatsScreen'));
 const UserProfileScreen = lazy(() => import('./screens/UserProfileScreen'));
 const ForgotPasswordScreen = lazy(() => import('./screens/ForgotPasswordScreen'));
 const ResetPasswordScreen = lazy(() => import('./screens/ResetPasswordScreen'));
+const AdminScreen = lazy(() => import('./screens/AdminScreen'));
+const ChatScreen = lazy(() => import('./screens/ChatScreen'));
 
 function App() {
   const { user, api, loading, isAuthenticated, initialize, logout, updateUser } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
+  const [siteSettings, setSiteSettings] = useState(null);
 
   useEffect(() => {
     initialize();
-    // Предзагружаем модули сразу при загрузке приложения
     preloadAllModulesImmediate();
   }, [initialize]);
+
+  useEffect(() => {
+    if (!api) return;
+    api.getSiteSettings?.()
+      .then((res) => {
+        const d = res?.data ?? res;
+        if (d?.settings && typeof d.settings === 'object') setSiteSettings(d.settings);
+      })
+      .catch(() => {});
+  }, [api]);
 
   // Предзагружаем модули после авторизации
   useEffect(() => {
@@ -41,16 +55,27 @@ function App() {
     }
   }, [isAuthenticated, loading]);
 
-  // Для публичных страниц (профили пользователей) не требуем авторизацию
-  const knownRoutes = ['/landing', '/login', '/register', '/forgot-password', '/reset-password', '/', '/calendar', '/settings', '/stats'];
-  const isPublicRoute = typeof window !== 'undefined' && 
-    !knownRoutes.includes(window.location.pathname);
-
-  // Для публичных маршрутов не блокируем рендеринг даже если API еще не готов
-  if ((loading || !api) && !isPublicRoute) {
+  // Показываем загрузку до проверки авторизации, чтобы не редиректить с /admin и др. на лендинг при F5
+  if (loading || !api) {
     return (
       <div className="loading-container">
         <div className="spinner">Загрузка...</div>
+      </div>
+    );
+  }
+
+  const maintenanceMode = siteSettings?.maintenance_mode === '1';
+  const registrationEnabled = siteSettings?.registration_enabled !== '0';
+  if (maintenanceMode && !isAdmin) {
+    return (
+      <div className="maintenance-overlay">
+        <div className="maintenance-content">
+          <h1>Режим обслуживания</h1>
+          <p>Сайт временно недоступен. Попробуйте позже.</p>
+          {siteSettings?.contact_email && (
+            <p className="maintenance-contact">Контакты: {siteSettings.contact_email}</p>
+          )}
+        </div>
       </div>
     );
   }
@@ -72,7 +97,12 @@ function App() {
 
   return (
     <Router>
-      {isAuthenticated && <TopHeader />}
+      {isAuthenticated && (
+        <>
+          <TopHeader />
+          <Notifications api={api} isAdmin={isAdmin} />
+        </>
+      )}
       <PageTransition>
         <Suspense fallback={
           <div className="loading-container">
@@ -82,13 +112,17 @@ function App() {
           <Routes>
         <Route
           path="/landing"
-          element={<LandingScreen onRegister={handleRegister} />}
+          element={<LandingScreen onRegister={handleRegister} registrationEnabled={registrationEnabled} />}
         />
         <Route
           path="/register"
           element={
             !isAuthenticated ? (
-              <RegisterScreen onRegister={handleRegister} />
+              registrationEnabled ? (
+                <RegisterScreen onRegister={handleRegister} />
+              ) : (
+                <Navigate to="/landing" replace state={{ registrationDisabled: true }} />
+              )
             ) : (
               <Navigate to="/" replace />
             )
@@ -168,6 +202,31 @@ function App() {
                 <StatsScreen />
                 <BottomNav />
               </>
+            ) : (
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
+            )
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            isAuthenticated ? (
+              <>
+                <ChatScreen />
+                <BottomNav />
+              </>
+            ) : (
+              <Navigate to="/landing" replace state={{ openLogin: true }} />
+            )
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            isAuthenticated && isAdmin ? (
+              <AdminScreen />
+            ) : isAuthenticated ? (
+              <Navigate to="/" replace />
             ) : (
               <Navigate to="/landing" replace state={{ openLogin: true }} />
             )

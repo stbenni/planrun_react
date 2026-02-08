@@ -12,6 +12,7 @@ const BottomNav = () => {
 
   const tabs = [
     { id: 'home', path: '/', icon: '🏠', label: 'Главная' },
+    { id: 'chat', path: '/chat', icon: '💬', label: 'Чат' },
     { id: 'calendar', path: '/calendar', icon: '📅', label: 'Календарь' },
     { id: 'stats', path: '/stats', icon: '📊', label: 'Статистика' },
     { id: 'settings', path: '/settings', icon: '⚙️', label: 'Настройки' }

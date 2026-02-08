@@ -16,6 +16,7 @@ export const preloadScreenModules = () => {
   Promise.all([
     import('../screens/DashboardScreen'),
     import('../screens/CalendarScreen'),
+    import('../screens/ChatScreen'),
     import('../screens/SettingsScreen'),
     import('../screens/StatsScreen')
   ]).catch(err => {

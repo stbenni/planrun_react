@@ -8,7 +8,7 @@ import LoginModal from '../components/LoginModal';
 import RegisterModal from '../components/RegisterModal';
 import './LandingScreen.css';
 
-const LandingScreen = ({ onRegister }) => {
+const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loginOpen, setLoginOpen] = useState(false);
@@ -23,11 +23,17 @@ const LandingScreen = ({ onRegister }) => {
 
   return (
     <div className="landing-container">
+      {!registrationEnabled && (
+        <div className="landing-notice" role="alert">
+          Регистрация временно отключена администратором.
+        </div>
+      )}
       <div className="landing-header">
         <div className="landing-logo">
           🏃‍♂️ planRUN
         </div>
         <div className="landing-nav">
+          {registrationEnabled && (
           <button
             type="button"
             className="btn btn-landing-secondary"
@@ -39,6 +45,7 @@ const LandingScreen = ({ onRegister }) => {
           >
             Регистрация
           </button>
+          )}
           <button
             type="button"
             className="btn btn-landing-secondary"

@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/cors.php';
+require_once __DIR__ . '/session_init.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.cookie_samesite', 'None');

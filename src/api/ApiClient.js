@@ -15,10 +15,9 @@ class ApiError extends Error {
 class ApiClient {
   constructor(baseUrl = null) {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    // Всегда same-origin для s-vladimirov.ru — избегаем CORS
-    const forceSameOrigin = /^https?:\/\/(s-vladimirov\.ru|www\.s-vladimirov\.ru)(:\d+)?$/i.test(origin);
     const envBase = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL;
-    const explicit = !forceSameOrigin && (baseUrl ?? (envBase !== undefined && envBase !== '' ? envBase : null));
+    // Явный URL — если передан baseUrl или VITE_API_BASE_URL (для cross-origin)
+    const explicit = baseUrl ?? (envBase !== undefined && envBase !== '' ? envBase : null);
 
     if (explicit) {
       this.baseUrl = explicit;
@@ -220,6 +219,10 @@ class ApiClient {
       method,
       headers,
     };
+    // Чат — не кэшировать (сообщения обновляются)
+    if (action === 'chat_get_messages') {
+      options.cache = 'no-store';
+    }
 
     // Настройки для разных платформ
     if (typeof window !== 'undefined' && window.Capacitor) {
@@ -634,7 +637,11 @@ class ApiClient {
         if (data.success) {
           // Сессия установлена через cookies, получаем данные пользователя
           const userData = await this.getCurrentUser();
-          return { success: true, user: userData };
+          return {
+            success: true,
+            user: userData,
+            plan_message: data.plan_message ?? null,
+          };
         } else {
           throw new ApiError({ 
             code: 'REGISTRATION_FAILED', 
@@ -688,12 +695,14 @@ class ApiClient {
       const username = data?.username;
       const name = data?.name ?? null;
       const avatarPath = data?.avatar_path ?? null;
+      const role = data?.role ?? 'user';
 
       if (isAuthenticated) {
         const baseUser = {
           authenticated: true,
           user_id: userId,
           username: username,
+          role,
           ...(name != null && { name }),
           ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath })
         };
@@ -807,6 +816,220 @@ class ApiClient {
 
   async addWeek(weekData) {
     return this.request('add_week', weekData, 'POST');
+  }
+
+  // ========== АДМИНКА ==========
+
+  /** Список пользователей (только для admin) */
+  async getAdminUsers(params = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.page != null) searchParams.set('page', params.page);
+    if (params.per_page != null) searchParams.set('per_page', params.per_page);
+    if (params.search != null && params.search !== '') searchParams.set('search', params.search);
+    const query = searchParams.toString();
+    return this.request('admin_list_users', query ? Object.fromEntries(searchParams) : {}, 'GET');
+  }
+
+  /** Один пользователь по ID */
+  async getAdminUser(userId) {
+    return this.request('admin_get_user', { user_id: userId }, 'GET');
+  }
+
+  /** Обновить пользователя (роль, email). В body передать csrf_token. */
+  async updateAdminUser(payload) {
+    return this.request('admin_update_user', payload, 'POST');
+  }
+
+  /** Удалить пользователя (только admin). В body передать user_id и csrf_token. */
+  async deleteUser(payload) {
+    return this.request('delete_user', payload, 'POST');
+  }
+
+  /** Настройки сайта */
+  async getAdminSettings() {
+    return this.request('admin_get_settings', {}, 'GET');
+  }
+
+  /** Сохранить настройки сайта. В payload включить csrf_token и settings. */
+  async updateAdminSettings(payload) {
+    return this.request('admin_update_settings', payload, 'POST');
+  }
+
+  /**
+   * Публичные настройки сайта (без авторизации).
+   * Для проверки maintenance_mode, registration_enabled, site_name и т.д.
+   */
+  async getSiteSettings() {
+    return this.request('get_site_settings', {}, 'GET');
+  }
+
+  // ========== ЧАТ ==========
+
+  /**
+   * Получить сообщения чата
+   * @param {string} type - 'ai' | 'admin'
+   * @param {number} limit
+   * @param {number} offset
+   */
+  async chatGetMessages(type = 'ai', limit = 50, offset = 0) {
+    return this.request('chat_get_messages', { type, limit, offset }, 'GET');
+  }
+
+  /**
+   * Отправить сообщение AI (без streaming)
+   * @param {string} content
+   */
+  async chatSendMessage(content) {
+    return this.request('chat_send_message', { content: (content || '').trim() }, 'POST');
+  }
+
+  /**
+   * Отправить сообщение AI с streaming
+   * @param {string} content
+   * @param {function(string)} onChunk - callback для каждого чанка
+   */
+  async chatSendMessageStream(content, onChunk) {
+    const urlParams = new URLSearchParams({ action: 'chat_send_message_stream' });
+    const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
+
+    const token = await this.getToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ content: (content || '').trim() }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new ApiError({ code: 'CHAT_FAILED', message: err.error || 'Ошибка чата' });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          if (obj.chunk && typeof onChunk === 'function') {
+            onChunk(obj.chunk);
+          }
+        } catch (_) {}
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        const obj = JSON.parse(buffer.trim());
+        if (obj.chunk && typeof onChunk === 'function') onChunk(obj.chunk);
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * Отправить сообщение администрации (из чата «От администрации»)
+   * @param {string} content
+   */
+  async chatSendMessageToAdmin(content) {
+    return this.request('chat_send_message_to_admin', { content: (content || '').trim() }, 'POST');
+  }
+
+  /**
+   * Отметить сообщения как прочитанные
+   * @param {number} conversationId
+   */
+  async chatMarkRead(conversationId) {
+    return this.request('chat_mark_read', { conversation_id: conversationId }, 'POST');
+  }
+
+  /**
+   * Отметить все сообщения во всех чатах как прочитанные
+   */
+  async chatMarkAllRead() {
+    return this.request('chat_mark_all_read', {}, 'POST');
+  }
+
+  /**
+   * Админ: отметить все сообщения от пользователей как прочитанные
+   */
+  async chatAdminMarkAllRead() {
+    return this.request('chat_admin_mark_all_read', {}, 'POST');
+  }
+
+  /**
+   * Админ: отправить сообщение пользователю
+   * @param {number} userId - ID пользователя
+   * @param {string} content - текст сообщения
+   */
+  async chatAdminSendMessage(userId, content) {
+    return this.request('chat_admin_send_message', { user_id: userId, content: (content || '').trim() }, 'POST');
+  }
+
+  /**
+   * Админ: список пользователей, которые писали в admin-чат
+   */
+  async getAdminChatUsers() {
+    const res = await this.request('chat_admin_chat_users', {}, 'GET');
+    return Array.isArray(res?.users) ? res.users : [];
+  }
+
+  /**
+   * Админ: получить сообщения пользователя (admin-чат)
+   * @param {number} userId - ID пользователя
+   * @param {number} limit
+   * @param {number} offset
+   */
+  async chatAdminGetMessages(userId, limit = 50, offset = 0) {
+    return this.request('chat_admin_get_messages', { user_id: userId, limit, offset }, 'GET');
+  }
+
+  /**
+   * Админ: непрочитанные сообщения от пользователей (для уведомлений)
+   * @param {number} limit
+   */
+  async chatAdminGetUnreadNotifications(limit = 10) {
+    const res = await this.request('chat_admin_unread_notifications', { limit }, 'GET');
+    return Array.isArray(res?.messages) ? res.messages : [];
+  }
+
+  /**
+   * Админ: массовая рассылка сообщения
+   * @param {string} content - текст сообщения
+   * @param {number[]} [userIds] - опционально; если не указан — всем пользователям
+   */
+  async chatAdminBroadcast(content, userIds = null) {
+    const body = { content: (content || '').trim() };
+    if (Array.isArray(userIds) && userIds.length > 0) {
+      body.user_ids = userIds;
+    }
+    return this.request('chat_admin_broadcast', body, 'POST');
+  }
+
+  /**
+   * Получить список закрытых уведомлений (синхронизация между устройствами)
+   */
+  async getNotificationsDismissed() {
+    const res = await this.request('notifications_dismissed', {}, 'GET');
+    return Array.isArray(res?.dismissed) ? res.dismissed : [];
+  }
+
+  /**
+   * Закрыть уведомление
+   * @param {string} notificationId - например "chat_123", "workout_2025-02-07"
+   */
+  async dismissNotification(notificationId) {
+    return this.request('notifications_dismiss', { notification_id: String(notificationId || '') }, 'POST');
   }
 }
 
