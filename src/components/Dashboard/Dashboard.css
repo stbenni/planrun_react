@@ -5,10 +5,10 @@
 .dashboard {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 24px 20px;
+  padding: var(--space-6) var(--space-5);
   background: var(--gray-50);
   min-height: 100vh;
-  padding-bottom: 100px; /* Для bottom nav */
+  padding-bottom: 100px; /* место под BottomNav */
   overflow-y: auto;
   position: relative;
   -webkit-overflow-scrolling: touch; /* Плавный скролл на iOS */
@@ -18,6 +18,11 @@
 [data-theme="dark"] .dashboard {
   background: var(--bg-primary);
   color: var(--text-primary);
+  /* Увеличенные отступы, чтобы оранжевое свечение карточек не обрезалось скролл-контейнером */
+  padding-left: calc(var(--space-5) + 40px);
+  padding-right: calc(var(--space-5) + 40px);
+  padding-top: calc(var(--space-6) + 40px);
+  padding-bottom: calc(100px + 40px);
 }
 
 .pull-to-refresh-indicator {
@@ -94,8 +99,66 @@
   color: var(--text-secondary);
 }
 
+/* Пустой дашборд до прохождения специализации */
+.dashboard-empty-onboarding {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: var(--space-8);
+}
+
+.dashboard-empty-onboarding-inner {
+  max-width: 400px;
+  text-align: center;
+}
+
+.dashboard-empty-onboarding-icon {
+  font-size: 4rem;
+  margin-bottom: var(--space-5);
+  line-height: 1;
+}
+
+.dashboard-empty-onboarding-title {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-extrabold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-4);
+}
+
+.dashboard-empty-onboarding-text {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 var(--space-8);
+}
+
+.dashboard-empty-onboarding-btn {
+  padding: var(--space-3) var(--space-8);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: white;
+  background: var(--gradient-primary);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  font-family: inherit;
+}
+
+.dashboard-empty-onboarding-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="dark"] .dashboard-empty-onboarding-btn {
+  color: white;
+}
+
 .dashboard-header {
   margin-bottom: 40px;
+  margin-top: 20px;
 }
 
 .dashboard-header-row {
@@ -228,6 +291,19 @@
 .dashboard-customizer-list {
   padding: 6px 20px 20px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* При перетаскивании на тач — не скроллить список и фон */
+.dashboard-customizer--dragging .dashboard-customizer-list {
+  overflow: hidden !important;
+  touch-action: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+body.dashboard-customizer-dragging {
+  overflow: hidden;
+  touch-action: none;
 }
 
 .dashboard-customizer-row {
@@ -386,6 +462,8 @@
   border: 1px solid var(--gray-200);
   cursor: grab;
   transition: box-shadow 0.15s, background 0.15s, border-color 0.15s;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .dashboard-customizer-item:active {
@@ -393,8 +471,21 @@
 }
 
 .dashboard-customizer-item.dragging {
-  opacity: 0.6;
+  opacity: 0.4;
   cursor: grabbing;
+}
+
+/* Превью карточки в DragOverlay — «летит» за курсором */
+.dashboard-customizer-item--overlay {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  transform: rotate(-1deg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-theme="dark"] .dashboard-customizer-item--overlay {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--card-border);
 }
 
 .dashboard-customizer-item.dashboard-customizer-merge-active {
@@ -565,18 +656,172 @@
   margin-bottom: 40px;
 }
 
-/* Два блока в одну строку (тренировки, прогресс+статистика) */
+/* По умолчанию высота по контенту; в ряду из двух — одинаковая высота */
+.dashboard-module-card {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.02),
+    0 8px 16px rgba(0, 0, 0, 0.03),
+    0 16px 32px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.25s ease;
+}
+
+/* Вдвоём в строке — одинаковая высота, контент обрезается */
+.dashboard-row-two .dashboard-module-card {
+  height: 230px;
+  min-height: 230px;
+  overflow: hidden;
+}
+
+.dashboard-module-card:hover {
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.03),
+    0 12px 24px rgba(0, 0, 0, 0.05),
+    0 24px 48px rgba(0, 0, 0, 0.03);
+}
+
+/* Движение при наведении — на общий контейнер карточек «Сегодня» и «Следующая», а не на внутреннюю WorkoutCard */
+.dashboard-module-card--workout {
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.dashboard-module-card--workout:hover {
+  transform: translateY(-4px);
+}
+
+.dashboard-module-card--workout .workout-card:hover,
+.dashboard-module-card--workout .workout-card:active {
+  transform: none;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.04);
+}
+
+.dashboard-module-card--workout .workout-card {
+  transition: none;
+}
+
+[data-theme="dark"] .dashboard-module-card--workout .workout-card:hover,
+[data-theme="dark"] .dashboard-module-card--workout .workout-card:active {
+  box-shadow: none;
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .dashboard-module-card {
+  box-shadow:
+    0 2px 4px rgba(255, 107, 61, 0.07),
+    0 8px 20px rgba(255, 107, 61, 0.1),
+    0 20px 40px rgba(255, 107, 61, 0.07);
+}
+
+[data-theme="dark"] .dashboard-module-card:hover {
+  box-shadow:
+    0 4px 8px rgba(255, 107, 61, 0.12),
+    0 12px 28px rgba(255, 107, 61, 0.16),
+    0 28px 56px rgba(255, 107, 61, 0.1);
+}
+
+/* Обёртка карточек «Сегодня» и «Следующая» — кликабельна; в ряду контент обрезается */
+.dashboard-workout-card-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: visible;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.dashboard-row-two .dashboard-workout-card-wrapper {
+  overflow: hidden;
+}
+
+.dashboard-workout-card-wrapper .dashboard-top-card {
+  min-height: 0;
+}
+
+/* Раскрытие карточки тренировки по стрелке */
+.dashboard-module-card--workout.dashboard-module-card--expanded {
+  height: auto;
+  min-height: 270px;
+  overflow: visible;
+  transition: height 0.3s ease, min-height 0.3s ease;
+}
+
+.dashboard-module-card--workout.dashboard-module-card--expanded .dashboard-workout-card-wrapper {
+  overflow: visible;
+}
+
+.dashboard-workout-expand-arrow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: linear-gradient(to top, var(--card-bg, white) 60%, transparent);
+  border: none;
+  cursor: pointer;
+  color: var(--primary-500);
+  font-size: 12px;
+  transition: color 0.2s, background 0.2s;
+  z-index: 1;
+}
+
+/* Стрелку показываем только когда карточка в ряду с другим блоком (сужена по высоте) */
+.dashboard-section:not(.dashboard-section-inline) .dashboard-module-card--workout .dashboard-workout-expand-arrow {
+  display: none;
+}
+
+.dashboard-workout-expand-arrow:hover {
+  color: var(--primary-600);
+  background: linear-gradient(to top, var(--primary-300) 75%, rgba(255, 107, 61, 0.2));
+}
+
+.dashboard-module-card--expanded .dashboard-workout-expand-arrow:hover {
+  background: var(--primary-50);
+}
+
+.dashboard-workout-expand-arrow-icon {
+  display: inline-block;
+  transition: transform 0.25s ease;
+}
+
+.dashboard-module-card--expanded .dashboard-workout-expand-arrow {
+  position: static;
+  background: transparent;
+  margin-top: 8px;
+}
+
+.dashboard-module-card--expanded .dashboard-workout-expand-arrow-icon {
+  transform: rotate(180deg);
+}
+
+.dashboard-workout-open-calendar {
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* Два блока в одну строку (тренировки, прогресс+статистика) — одинаковая высота ряда */
 .dashboard-row-two {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 40px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .dashboard-row-two .dashboard-section-inline {
   margin-bottom: 0;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 720px) {
@@ -587,6 +832,11 @@
 
   .dashboard-row-two .dashboard-section-inline {
     margin-bottom: 0;
+  }
+
+  .dashboard-module-card:has(.dashboard-metrics-grid) {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }
 
@@ -602,13 +852,13 @@
   border-radius: 20px;
   cursor: pointer;
   text-align: left;
-  transition: box-shadow 0.2s, border-color 0.2s;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, border-color 0.2s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
 .dashboard-module-link-card:hover {
   border-color: var(--primary-300);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.08);
 }
 
 .dashboard-module-link-icon {
@@ -652,6 +902,13 @@
   background: var(--primary-50);
 }
 
+/* Кнопка «Открыть календарь» в пустом состоянии — компактная, по ширине контента */
+.dashboard-week-strip-empty .dashboard-module-link-btn,
+.dashboard-week-strip .dashboard-module-link-btn {
+  width: auto;
+  display: inline-block;
+}
+
 /* Обёртка полоски недели на дашборде (карточка и сетка — стили из WeekCalendar.css) */
 .dashboard-week-strip {
   margin-bottom: 0;
@@ -664,19 +921,33 @@
   background: var(--card-bg);
   border-radius: 20px;
   border: 1px solid var(--gray-200);
+  cursor: pointer;
 }
 
 .dashboard-week-calendar-wrap {
-  margin-bottom: 16px;
+  margin: 0;
 }
 
-/* Виджет статистики на дашборде */
-.dashboard-stats-widget {
+/* Виджет статистики на дашборде — клик по виджету ведёт в раздел «Статистика» */
+/* Карточка, в которой виджет статистики — фон и граница здесь */
+.dashboard-module-card:has(.dashboard-stats-widget) {
   background: white;
-  border-radius: 20px;
-  padding: 16px;
   border: 1px solid var(--gray-200);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+.dashboard-stats-widget {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px;
+  cursor: pointer;
 }
 
 .dashboard-stats-widget-loading {
@@ -721,47 +992,72 @@
   gap: 12px;
 }
 
-@media (min-width: 520px) {
+/* 4 в ряд только при полной ширине и широком экране */
+@media (min-width: 900px) {
   .dashboard-stats-metrics-grid {
     grid-template-columns: repeat(4, 1fr);
   }
 }
 
+/* В ряду с другим блоком или при узком экране — всегда 2×2 */
+.dashboard-row-two .dashboard-stats-metrics-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* Карточки метрик в статистике: сверху подпись, снизу значение (привычный скан) */
 .dashboard-stat-metric-card {
   background: var(--gray-50);
   border-radius: 16px;
   padding: 16px;
   border: 1px solid var(--gray-200);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  text-align: center;
 }
 
-.dashboard-stat-metric-card .metric-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.dashboard-stat-metric-card .metric-value {
-  font-size: var(--text-xl);
-  font-weight: var(--font-bold);
-  color: var(--gray-900);
-}
-
-.dashboard-stat-metric-card .metric-unit {
+.dashboard-stat-metric-card__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   color: var(--gray-600);
 }
 
-.dashboard-stat-metric-card .metric-label {
-  font-size: 12px;
-  color: var(--gray-500);
-  margin-top: 2px;
+.dashboard-stat-metric-card__icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dashboard-stat-metric-card__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dashboard-stat-metric-card__number {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--gray-900);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.dashboard-stat-metric-card__unit {
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+  font-weight: var(--font-medium);
 }
 
 [data-theme="dark"] .dashboard-stats-widget {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: transparent;
+  border: none;
 }
 
 [data-theme="dark"] .dashboard-time-range-btn {
@@ -778,11 +1074,19 @@
 
 [data-theme="dark"] .dashboard-stat-metric-card {
   background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  border: 1px solid var(--card-border);
 }
 
-[data-theme="dark"] .dashboard-stat-metric-card .metric-value {
+[data-theme="dark"] .dashboard-stat-metric-card__label {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .dashboard-stat-metric-card__number {
   color: var(--text-primary);
+}
+
+[data-theme="dark"] .dashboard-stat-metric-card__unit {
+  color: var(--text-secondary);
 }
 
 [data-theme="dark"] .dashboard-module-link-text {
@@ -839,7 +1143,7 @@
   background: white;
   border-radius: 20px;
   padding: 24px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
@@ -946,12 +1250,135 @@
   gap: 12px;
 }
 
+/* Во всю строку — блоки по размеру контента */
+.dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid {
+  grid-template-columns: repeat(3, auto);
+  width:100%;
+  max-width: 100%;
+}
+
+/* В строке с кем-то: первые две пополам, третья во всю ширину следующей строки */
+.dashboard-row-two .dashboard-metrics-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.dashboard-row-two .dashboard-metrics-grid .metric-card:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+/* Контейнер быстрых метрик — фон и стиль карточки, контент по центру по высоте */
+.dashboard-module-card:has(.dashboard-metrics-grid) {
+  background: white;
+  border: 1px solid var(--gray-200);
+  justify-content: center;
+}
+
+/* У быстрых метрик — небольшой паддинг по бокам в ряду с другим виджетом или при низком разрешении */
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+/* У быстрых метрик — границы у каждой .metric-card как раньше (контейнер с фоном карточки) */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.08);
+  transform: translateY(-4px);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 20px 48px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active {
+  transform: translateY(-2px);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Быстрые метрики: подпись сверху, значение снизу (как в блоке Статистика) */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--gray-600);
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--primary-500);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit {
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+  font-weight: var(--font-medium);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number {
+  color: var(--primary-500);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit {
+  color: var(--text-secondary);
+}
+
 .metric-card {
   min-width: 0;
   background: white;
   border-radius: 20px;
   padding: 26px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.04);
   display: flex;
   flex-direction: row;
@@ -970,11 +1397,11 @@
 
 .metric-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.08);
 }
 
 [data-theme="dark"] .metric-card:hover {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 4px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 20px 48px rgba(0, 0, 0, 0.35);
 }
 
 .metric-card:active {
@@ -1040,7 +1467,7 @@
   border-radius: 20px;
   padding: 24px;
   text-align: center;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.04);
   justify-content: center;
 }
@@ -1077,6 +1504,16 @@
 
 [data-theme="dark"] .empty-subtext {
   color: var(--text-secondary);
+}
+
+/* Кнопка в пустом состоянии виджета — по ширине контента, не на всю строку */
+.dashboard-top-card.dashboard-empty .dashboard-empty-btn {
+  width: auto !important;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-block;
 }
 
 /* WorkoutCard внутри верхней секции — компактный вид в едином стиле */
@@ -1150,51 +1587,12 @@
   font-size: var(--text-sm);
 }
 
+/* Кнопки .btn, .btn-primary, .btn-secondary: src/styles/buttons.css */
 .btn-dashboard {
   flex: 1;
-  padding: 14px 24px;
-  border-radius: 12px;
+  padding: var(--space-4) var(--space-6);
   font-size: var(--text-base);
-  font-weight: var(--font-semibold);
-  border: none;
-  cursor: pointer;
-  transition: all 200ms ease;
-  font-family: inherit;
-}
-
-.btn-primary {
-  background: var(--primary-500);
-  color: white;
-}
-
-.btn-primary:hover {
-  background: var(--primary-600);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(252, 76, 2, 0.3);
-}
-
-[data-theme="dark"] .btn-primary:hover {
-  box-shadow: 0 4px 8px rgba(255, 107, 61, 0.4);
-}
-
-.btn-secondary {
-  background: var(--gray-100);
-  color: var(--gray-700);
-}
-
-[data-theme="dark"] .btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.btn-secondary:hover {
-  background: var(--gray-200);
-}
-
-[data-theme="dark"] .btn-secondary:hover {
-  background: var(--bg-secondary);
-  border-color: var(--primary-500);
-  color: var(--primary-500);
+  border-radius: var(--radius-lg);
 }
 
 /* Десктопная адаптация */
@@ -1204,23 +1602,75 @@
   }
 }
 
-/* Мобильная адаптация */
+/* Мобильная адаптация (единый брейкпоинт 640px) */
 @media (max-width: 640px) {
   .dashboard {
     padding: 16px;
+    padding-bottom: 100px;
+  }
+
+  [data-theme="dark"] .dashboard {
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-top: 16px;
+    padding-bottom: 100px;
+  }
+
+  .dashboard-header-row {
+    flex-wrap: wrap;
+    gap: 12px;
   }
 
   .dashboard-greeting {
     font-size: var(--text-2xl);
   }
 
+  .dashboard-customize-btn {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  /* Быстрые метрики: контейнер — padding 12px со всех сторон */
+  .dashboard-module-card:has(.dashboard-metrics-grid) {
+    padding: 12px;
+  }
+
+  /* Быстрые метрики: первый ряд — 2 карточки, вторая строка — третья на всю ширину */
+  .dashboard-section .dashboard-metrics-grid,
   .dashboard-metrics-grid {
-    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 100%;
+  }
+  .dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid { 
+    grid-template-columns: repeat(2, auto);
+  }
+
+  .dashboard-metrics-grid .metric-card:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  /* Карточки растягиваются: первая строка — по половине каждая, третья — на всю ширину */
+  .dashboard-metrics-grid .metric-card {
+    min-height: 64px;
+    min-width: 0;
+    width: 100%;
+    padding: 10px 12px;
+  }
+
+  .dashboard-metrics-grid .metric-card__number {
+    font-size: var(--text-xl);
+  }
+
+  .dashboard-metrics-grid .metric-card__unit {
+    font-size: var(--text-xs);
   }
 
   .metric-card {
     padding: 12px 10px;
     gap: 10px;
+    min-height: 44px;
   }
 
   .metric-card .metric-icon {
@@ -1237,5 +1687,55 @@
 
   .metric-card .metric-label {
     font-size: var(--text-sm);
+  }
+
+  .dashboard-row-two {
+    margin-bottom: 24px;
+  }
+
+  .dashboard-row-two .dashboard-module-card {
+    min-height: 120px;
+  }
+
+  /* Кастомайзер на мобильных: узкая полоска по умолчанию, при наведении карточкой — плавно расширяется */
+  .dashboard-customizer-strip-zone {
+    min-height: 8px;
+    margin-bottom: 0;
+    transition: min-height 0.22s ease, background 0.15s;
+  }
+
+  .dashboard-customizer-strip-zone-active {
+    min-height: 32px;
+  }
+
+  .dashboard-customizer-merge-zone {
+    display: none !important;
+  }
+
+  .dashboard-customizer-row-double {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-customizer-row-double .dashboard-customizer-slot-wrap {
+    max-width: none;
+  }
+
+  .dashboard-customizer-item {
+    min-height: 44px;
+    padding: 10px 14px;
+    touch-action: none; /* первое касание не уходит в скролл — drag срабатывает сразу */
+  }
+
+  .dashboard-customizer-hint {
+    margin-bottom: 0;
+  }
+
+  .dashboard-time-range-btn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .dashboard-module-link-card {
+    min-height: 44px;
   }
 }

@@ -6,6 +6,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HeartRateChart, PaceChart } from './index';
 import useAuthStore from '../../stores/useAuthStore';
 
+/** Подписи типа активности для отображения (run/running → Бег, ofp → ОФП) */
+const ACTIVITY_TYPE_LABELS = {
+  run: 'Бег',
+  running: 'Бег',
+  ofp: 'ОФП',
+};
+
+const getActivityTypeLabel = (activityType) => {
+  if (!activityType) return '';
+  const key = String(activityType).toLowerCase();
+  return ACTIVITY_TYPE_LABELS[key] || activityType;
+};
+
 const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading }) => {
   const { api } = useAuthStore();
   const [timelineData, setTimelineData] = useState({});
@@ -103,7 +116,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading }) => {
                       </div>
                       {workout.activity_type && (
                         <div className="workout-details-item-type">
-                          {workout.activity_type}
+                          {getActivityTypeLabel(workout.activity_type)}
                         </div>
                       )}
                     </div>
@@ -176,35 +189,38 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading }) => {
                       </div>
                     )}
                     
-                    {/* Показываем упражнения дня, если есть */}
-                    {dayData.dayExercises && dayData.dayExercises.length > 0 && index === 0 && (
-                      <div className="workout-details-exercises">
-                        <span className="workout-details-exercises-label">Упражнения:</span>
-                        <div className="workout-details-exercises-list">
-                          {dayData.dayExercises.map((exercise, exIndex) => (
-                            <div key={exIndex} className="workout-details-exercise-item">
-                              <div className="workout-details-exercise-name">
-                                {exercise.name}
-                                {exercise.category && (
-                                  <span className="workout-details-exercise-category"> ({exercise.category})</span>
+                    {/* Упражнения дня — те же данные, что в календаре (get_day → dayExercises) */}
+                    {(dayData?.dayExercises?.length > 0 || dayData?.day_exercises?.length > 0) && index === 0 && (() => {
+                      const exercises = dayData?.dayExercises ?? dayData?.day_exercises ?? [];
+                      return (
+                        <div className="workout-details-exercises">
+                          <span className="workout-details-exercises-label">Упражнения:</span>
+                          <div className="workout-details-exercises-list">
+                            {exercises.map((exercise, exIndex) => (
+                              <div key={exercise.id ?? exIndex} className="workout-details-exercise-item">
+                                <div className="workout-details-exercise-name">
+                                  {exercise.name || 'Упражнение'}
+                                  {exercise.category && (
+                                    <span className="workout-details-exercise-category"> ({exercise.category})</span>
+                                  )}
+                                </div>
+                                <div className="workout-details-exercise-details">
+                                  {exercise.sets != null && exercise.sets !== '' && <span>Подходов: {exercise.sets}</span>}
+                                  {exercise.reps != null && exercise.reps !== '' && <span>Повторений: {exercise.reps}</span>}
+                                  {exercise.distance_m != null && <span>Дистанция: {exercise.distance_m} м</span>}
+                                  {exercise.duration_sec != null && <span>Время: {Math.round(Number(exercise.duration_sec) / 60)} мин</span>}
+                                  {exercise.weight_kg != null && <span>Вес: {exercise.weight_kg} кг</span>}
+                                  {exercise.pace && <span>Темп: {exercise.pace}</span>}
+                                </div>
+                                {exercise.notes && (
+                                  <div className="workout-details-exercise-notes">{exercise.notes}</div>
                                 )}
                               </div>
-                              <div className="workout-details-exercise-details">
-                                {exercise.sets && <span>Подходов: {exercise.sets}</span>}
-                                {exercise.reps && <span>Повторений: {exercise.reps}</span>}
-                                {exercise.distance_m && <span>Дистанция: {exercise.distance_m} м</span>}
-                                {exercise.duration_sec && <span>Время: {Math.round(exercise.duration_sec / 60)} мин</span>}
-                                {exercise.weight_kg && <span>Вес: {exercise.weight_kg} кг</span>}
-                                {exercise.pace && <span>Темп: {exercise.pace}</span>}
-                              </div>
-                              {exercise.notes && (
-                                <div className="workout-details-exercise-notes">{exercise.notes}</div>
-                              )}
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 );
               })}

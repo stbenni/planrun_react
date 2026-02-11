@@ -165,6 +165,80 @@
   /* Стили для контента из API */
 }
 
+.plan-day-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plan-day-block {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .plan-day-block {
+  background: var(--bg-tertiary);
+  border-color: var(--gray-600);
+}
+
+.plan-day-block .plan-day-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+.plan-day-block .plan-day-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.plan-day-block .btn-edit-plan-day,
+.plan-day-block .btn-delete-plan-day {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  border: 1px solid;
+}
+
+.plan-day-block .btn-edit-plan-day {
+  color: var(--primary-600);
+  border-color: var(--primary-300);
+}
+
+.plan-day-block .btn-edit-plan-day:hover {
+  background: var(--primary-50);
+}
+
+.plan-day-block .btn-delete-plan-day {
+  color: var(--danger-600);
+  border-color: var(--danger-300);
+}
+
+.plan-day-block .btn-delete-plan-day:hover {
+  background: var(--danger-50);
+}
+
+[data-theme="dark"] .plan-day-block .btn-edit-plan-day {
+  color: var(--primary-400);
+  border-color: var(--primary-600);
+}
+
+[data-theme="dark"] .plan-day-block .btn-delete-plan-day {
+  color: var(--danger-400);
+  border-color: var(--danger-600);
+}
+
 .day-plan-card-modern {
   background: white;
   border-radius: 16px;
@@ -256,6 +330,73 @@
 
 [data-theme="dark"] .metric-item-label {
   color: var(--text-secondary);
+}
+
+/* Краткий вывод выполненной тренировки + ссылка на полный просмотр */
+.day-modal-workout-summary {
+  background: var(--gray-50);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .day-modal-workout-summary {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+.day-modal-workout-summary-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin-bottom: 12px;
+}
+
+[data-theme="dark"] .day-modal-workout-summary-title {
+  color: var(--text-primary);
+}
+
+.day-modal-workout-summary-card {
+  padding: 12px 0;
+  border-top: 1px solid var(--gray-200);
+}
+
+.day-modal-workout-summary-card:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+[data-theme="dark"] .day-modal-workout-summary-card {
+  border-top-color: var(--card-border);
+}
+
+.day-modal-workout-summary-metrics {
+  font-size: 14px;
+  color: var(--gray-700);
+  margin-bottom: 8px;
+}
+
+[data-theme="dark"] .day-modal-workout-summary-metrics {
+  color: var(--text-secondary);
+}
+
+.day-modal-workout-summary-link {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-500);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.day-modal-workout-summary-link:hover {
+  color: var(--primary-600);
+  text-decoration: underline;
 }
 
 .workouts-list {
@@ -385,6 +526,55 @@
   color: var(--primary-300);
 }
 
+.exercise-item-plan-day .exercise-header {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.exercise-item-plan-day .exercise-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.exercise-item-plan-day .btn-edit-plan-day,
+.exercise-item-plan-day .btn-delete-plan-day {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.exercise-item-plan-day .btn-edit-plan-day {
+  color: var(--primary-600);
+  border-color: var(--primary-300);
+}
+
+.exercise-item-plan-day .btn-edit-plan-day:hover {
+  background: var(--primary-50);
+}
+
+.exercise-item-plan-day .btn-delete-plan-day {
+  color: var(--danger-600);
+  border-color: var(--danger-300);
+}
+
+.exercise-item-plan-day .btn-delete-plan-day:hover {
+  background: var(--danger-50);
+}
+
+[data-theme="dark"] .exercise-item-plan-day .btn-edit-plan-day {
+  color: var(--primary-400);
+  border-color: var(--primary-600);
+}
+
+[data-theme="dark"] .exercise-item-plan-day .btn-delete-plan-day {
+  color: var(--danger-400);
+  border-color: var(--danger-600);
+}
+
 .exercise-details {
   display: flex;
   flex-wrap: wrap;
@@ -451,4 +641,30 @@
   .metric-item-value {
     font-size: 28px;
   }
+}
+
+/* Кнопки «Добавить тренировку» и «Отметить выполненной» внизу модалки дня */
+.day-modal-add-training {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.day-modal-add-training .btn {
+  width: 100%;
+}
+
+.day-modal-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.day-modal-actions-row .btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+[data-theme="dark"] .day-modal-add-training {
+  border-top-color: var(--gray-700);
 }

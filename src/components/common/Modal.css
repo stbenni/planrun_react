@@ -107,8 +107,7 @@
 }
 
 .app-modal-body {
-  padding: var(--space-6);
-  padding-right: var(--space-2);
+  padding: 20px 0;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
@@ -259,28 +258,285 @@
   border-top-color: var(--card-border);
 }
 
-[data-theme="dark"] .btn {
+/* Модалка «Отметить тренировку» */
+.result-modal-body {
+  padding: var(--space-6);
+}
+
+.result-modal-block-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--gray-700);
+  margin: var(--space-4) 0 var(--space-2) 0;
+}
+.result-modal-body .result-modal-block-title:first-child {
+  margin-top: 0;
+}
+
+.result-modal-planned {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+}
+.result-modal-planned-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: var(--text-sm);
+  color: var(--gray-700);
+}
+.result-modal-planned-list li {
+  margin-bottom: var(--space-1);
+}
+.result-modal-planned-type {
+  font-weight: var(--font-medium);
+}
+.result-modal-planned-desc {
+  color: var(--gray-600);
+}
+.result-modal-planned-desc-multiline {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.result-modal-run-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.result-modal-hint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.result-modal-add-exercise {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.result-modal-select-cat {
+  width: 70px;
+  padding: var(--space-2) var(--space-2);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.result-modal-input-name {
+  flex: 1;
+  min-width: 100px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+}
+.result-modal-input-small {
+  width: 56px;
+  padding: var(--space-2);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.result-modal-sep {
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+}
+.result-modal-additional-list {
+  list-style: none;
+  margin: 0 0 var(--space-4) 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+.result-modal-additional-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+}
+.result-modal-additional-name {
+  flex: 1;
+}
+.result-modal-remove-ex {
+  padding: 0 var(--space-2);
+  font-size: 1.2rem;
+  line-height: 1;
+  min-width: auto;
+  border: none;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+}
+.result-modal-remove-ex:hover {
+  color: var(--gray-800);
+}
+
+.result-modal-section {
+  margin-bottom: var(--space-4);
+    
+}
+
+.result-modal-section .result-modal-block-title {
+  margin-top: var(--space-4);
+}
+.result-modal-planned-block {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+}
+.result-modal-planned-subtitle {
+  font-size: var(--text-xs);
+  color: var(--gray-500);
+  margin-bottom: var(--space-2);
+}
+.result-modal-checklist {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+.result-modal-checklist-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--gray-200);
+  font-size: var(--text-sm);
+}
+.result-modal-checklist-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+.result-modal-checklist-name {
+  font-weight: var(--font-medium);
+  min-width: 120px;
+}
+.result-modal-checklist-plan {
+  color: var(--gray-500);
+  font-size: var(--text-xs);
+}
+.result-modal-checklist-done {
+  margin-left: auto;
+  color: var(--gray-600);
+  font-size: var(--text-xs);
+}
+.result-modal-input-tiny {
+  width: 48px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.result-modal-add-own {
+  margin-top: var(--space-2);
+}
+.result-modal-add-own-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--gray-500);
+  margin-bottom: var(--space-1);
+}
+.result-modal-add-own .result-modal-add-exercise {
+  margin-bottom: var(--space-2);
+}
+
+.result-modal-add-own-wrap {
+  margin-top: var(--space-2);
+}
+.result-modal-add-own-btn {
+  font-size: var(--text-sm);
+}
+.result-modal-add-type-wrap {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+  position: relative;
+}
+.result-modal-add-type-btn {
+  width: 100%;
+  font-size: var(--text-sm);
+}
+.result-modal-add-type-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.result-modal-add-type-dropdown {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.result-modal-add-type-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: white;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: border-color 0.2s, background 0.2s;
+}
+.result-modal-add-type-option:hover {
+  border-color: var(--primary-400);
+  background: var(--gray-50);
+}
+.result-modal-add-type-icon {
+  font-size: 1.2em;
+}
+
+/* Анимация появления добавленного типа тренировки */
+.result-modal-type-block-enter {
+  animation: resultModalTypeBlockEnter 0.35s ease-out;
+}
+@keyframes resultModalTypeBlockEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-theme="dark"] .result-modal-add-type-dropdown {
   background: var(--bg-tertiary);
+  border-color: var(--gray-600);
+}
+[data-theme="dark"] .result-modal-add-type-option {
+  background: var(--bg-primary);
+  border-color: var(--gray-600);
   color: var(--text-primary);
-  border-color: var(--card-border);
 }
-
-[data-theme="dark"] .btn:hover {
-  border-color: var(--primary-500);
-  color: var(--primary-500);
-  background: var(--primary-50);
-}
-
-[data-theme="dark"] .btn-secondary {
+[data-theme="dark"] .result-modal-add-type-option:hover {
+  border-color: var(--primary-400);
   background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-color: var(--card-border);
 }
 
-[data-theme="dark"] .btn-secondary:hover {
-  background: var(--gray-300);
-  border-color: var(--gray-400);
+[data-theme="dark"] .result-modal-planned,
+[data-theme="dark"] .result-modal-planned-block,
+[data-theme="dark"] .result-modal-additional-list li {
+  background: var(--bg-tertiary);
+}
+[data-theme="dark"] .result-modal-block-title,
+[data-theme="dark"] .result-modal-planned-type {
   color: var(--text-primary);
+}
+[data-theme="dark"] .result-modal-planned-desc {
+  color: var(--text-secondary);
 }
 
 .form-actions {
@@ -292,43 +548,122 @@
   border-top: 1px solid var(--gray-200);
 }
 
-.btn {
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-lg);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  border: 1.5px solid var(--gray-300);
-  background: white;
-  color: var(--gray-700);
+/* Кнопки: базовые стили в src/styles/buttons.css */
+
+/* ========================================
+   Вариант modern — в стиле DayModal (оранжевый шапка, общая светлая/тёмная тема)
+   ======================================== */
+.app-modal--modern {
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn:hover {
-  border-color: var(--primary-500);
-  color: var(--primary-600);
-  background: var(--primary-50);
-  transform: translateY(-1px);
+.app-modal--modern .app-modal-content--modern {
+  background: var(--card-bg);
+  border-radius: var(--radius-2xl);
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: appModalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.btn-primary {
-  background: var(--primary-500);
+.app-modal--modern .app-modal-header--modern {
+  background: var(--gradient-primary);
   color: white;
-  border-color: var(--primary-500);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: var(--space-6);
 }
 
-.btn-primary:hover {
-  background: var(--primary-600);
-  border-color: var(--primary-600);
+.app-modal--modern .app-modal-header--modern h2 {
+  color: white;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
 }
 
-.btn-secondary {
-  background: var(--gray-100);
-  color: var(--gray-700);
-  border-color: var(--gray-300);
+.app-modal--modern .app-modal-close--modern {
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  border: none;
+  transition: background var(--transition-base), transform var(--transition-base);
 }
 
-.btn-secondary:hover {
-  background: var(--gray-200);
-  border-color: var(--gray-400);
+.app-modal--modern .app-modal-close--modern:hover,
+.app-modal--modern .app-modal-close--modern:focus {
+  color: white;
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.app-modal--modern .app-modal-body--modern {
+  background: var(--gray-50);
+  color: var(--text-primary);
+  padding: var(--space-6);
+  overflow-y: auto;
+  flex: 1;
+}
+
+[data-theme="dark"] .app-modal--modern {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="dark"] .app-modal--modern .app-modal-content--modern {
+  background: var(--card-bg);
+  box-shadow: var(--shadow-2xl);
+}
+
+[data-theme="dark"] .app-modal--modern .app-modal-body--modern {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Мобильная версия модального окна (регистрация, логин и др.) */
+@media (max-width: 640px) {
+  .app-modal {
+    padding: 12px;
+    align-items: stretch;
+  }
+
+  .app-modal-content {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - 24px);
+    margin: auto 0;
+    border-radius: var(--radius-xl);
+  }
+
+  .app-modal-content.modal-small {
+    max-width: none;
+  }
+
+  .app-modal-body {
+    padding: var(--space-4);
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-modal-body--center {
+    min-height: 240px;
+    padding: var(--space-4);
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow-y: auto;
+  }
 }

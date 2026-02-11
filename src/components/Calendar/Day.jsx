@@ -10,7 +10,7 @@ import '../../assets/css/short-desc.css';
 
 const Day = ({ dayData, dayKey, weekNumber, weekStartDate, progressData, workoutsData, resultsData, onPress }) => {
   const date = getDateForDay(weekStartDate, dayKey);
-  const isRest = !dayData || dayData.type === 'rest';
+  const isRest = !dayData || dayData.type === 'rest' || dayData.type === 'free';
   const dayClass = isRest ? 'rest-day' : getTrainingClass(dayData.type, dayData.key);
   const isCompleted = progressData[date] || false;
   const resultDisplayRef = useRef(null);

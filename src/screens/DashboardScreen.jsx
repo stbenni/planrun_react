@@ -6,7 +6,6 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import Dashboard from '../components/Dashboard/Dashboard';
-import BottomNav from '../components/common/BottomNav';
 import '../components/Dashboard/Dashboard.css';
 
 const DashboardScreen = () => {
@@ -27,16 +26,13 @@ const DashboardScreen = () => {
   const isNewRegistration = location.state?.registrationSuccess;
 
   return (
-    <>
-      <Dashboard 
-        api={api} 
-        user={user} 
-        onNavigate={handleNavigate}
-        registrationMessage={registrationMessage}
-        isNewRegistration={isNewRegistration}
-      />
-      <BottomNav />
-    </>
+    <Dashboard
+      api={api}
+      user={user}
+      onNavigate={handleNavigate}
+      registrationMessage={registrationMessage}
+      isNewRegistration={isNewRegistration}
+    />
   );
 };
 

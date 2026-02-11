@@ -126,6 +126,31 @@ class EmailService {
     }
 
     /**
+     * Отправить код подтверждения email (регистрация)
+     * @param string $toEmail
+     * @param string $code 6 цифр
+     * @param int $expiresMin минуты действия кода
+     */
+    public function sendVerificationCode($toEmail, $code, $expiresMin = 10) {
+        $subject = 'Код подтверждения PlanRun';
+        $bodyHtml = '
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: sans-serif; line-height: 1.6; color: #333;">
+  <p>Здравствуйте!</p>
+  <p>Ваш код подтверждения для регистрации в PlanRun:</p>
+  <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">' . htmlspecialchars($code) . '</p>
+  <p>Код действителен ' . $expiresMin . ' минут. Никому не сообщайте код.</p>
+  <p>Если письмо попало в папку «Спам», откройте его оттуда — это мы.</p>
+  <p>— PlanRun</p>
+</body>
+</html>';
+        $bodyText = "Ваш код подтверждения PlanRun: $code\nКод действителен $expiresMin минут.\nЕсли письмо попало в папку «Спам», откройте его оттуда — это мы.\n\n— PlanRun";
+        return $this->send($toEmail, $subject, $bodyHtml, $bodyText);
+    }
+
+    /**
      * Проверка: настроена ли отправка email
      */
     public function isConfigured() {

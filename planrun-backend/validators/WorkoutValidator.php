@@ -30,7 +30,9 @@ class WorkoutValidator extends BaseValidator {
         $this->validateRequired($data['date'] ?? null, 'date');
         $this->validateRequired($data['week'] ?? null, 'week');
         $this->validateRequired($data['day'] ?? null, 'day');
-        $this->validateRequired($data['activity_type_id'] ?? null, 'activity_type_id');
+        if (isset($data['activity_type_id'])) {
+            $this->validateType($data['activity_type_id'], 'int', 'activity_type_id');
+        }
         
         if (isset($data['date'])) {
             $this->validateDate($data['date'], 'Y-m-d');
@@ -39,10 +41,6 @@ class WorkoutValidator extends BaseValidator {
         if (isset($data['week'])) {
             $this->validateType($data['week'], 'int', 'week');
             $this->validateRange($data['week'], 1, 1000, 'week');
-        }
-        
-        if (isset($data['activity_type_id'])) {
-            $this->validateType($data['activity_type_id'], 'int', 'activity_type_id');
         }
         
         return !$this->hasErrors();

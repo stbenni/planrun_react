@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { useChatUnread } from '../hooks/useChatUnread';
+import { ChatSSE } from '../services/ChatSSE';
 import { getAvatarSrc } from '../utils/avatarUrl';
 import './ChatScreen.css';
 
@@ -51,6 +52,7 @@ const ChatScreen = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [streamPhase, setStreamPhase] = useState(null);
   const [error, setError] = useState(null);
   const [mobileListVisible, setMobileListVisible] = useState(!openAdminModeFromState && !openAdminTabFromState);
 
@@ -236,42 +238,77 @@ const ChatScreen = () => {
       created_at: null,
     };
     setMessages((prev) => [...prev, aiPlaceholder]);
+    setStreamPhase('connecting');
 
     try {
       let fullContent = '';
-      await api.chatSendMessageStream(content, (chunk) => {
-        fullContent += chunk;
-        setMessages((prev) => {
-          const next = [...prev];
-          const idx = next.findIndex((m) => m.id === aiPlaceholder.id);
-          if (idx >= 0) {
-            next[idx] = { ...next[idx], content: fullContent };
-          }
-          return next;
-        });
-      });
+      await api.chatSendMessageStream(
+        content,
+        (chunk) => {
+          fullContent += chunk;
+          setMessages((prev) => {
+            const next = [...prev];
+            const idx = next.findIndex((m) => m.id === aiPlaceholder.id);
+            if (idx >= 0) {
+              next[idx] = { ...next[idx], content: fullContent };
+            }
+            return next;
+          });
+        },
+        {
+          onFirstChunk: () => setStreamPhase('streaming'),
+          timeoutMs: 180000,
+        }
+      );
+      if (!fullContent) {
+        setStreamPhase('connecting');
+        const res = await api.chatSendMessage(content);
+        fullContent = res?.content ?? '';
+      }
+      setStreamPhase('done');
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiPlaceholder.id ? { ...m, sender_type: 'ai', content: fullContent } : m
         )
       );
+      if (!fullContent) {
+        setError('AI не вернул ответ. Попробуйте ещё раз.');
+      }
     } catch (e) {
       setError(e.message || 'Ошибка отправки');
       setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
     } finally {
       setSending(false);
+      setStreamPhase(null);
     }
   };
 
+  const handleClearAiChat = useCallback(async () => {
+    if (!api || !window.confirm('Очистить историю чата с AI? Это действие нельзя отменить.')) return;
+    try {
+      await api.chatClearAi();
+      setMessages([]);
+      setError(null);
+    } catch (e) {
+      setError(e.message || 'Не удалось очистить чат');
+    }
+  }, [api]);
+
+  const [markAllReadLoading, setMarkAllReadLoading] = useState(false);
   const handleMarkAllRead = useCallback(async () => {
     if (!api) return;
+    setMarkAllReadLoading(true);
     try {
       if (isAdmin) {
         await Promise.all([api.chatMarkAllRead(), api.chatAdminMarkAllRead()]);
       } else {
         await api.chatMarkAllRead();
       }
-    } catch (_) {}
+      ChatSSE.setUnreadData({ total: 0, by_type: {} });
+    } catch (_) {
+    } finally {
+      setMarkAllReadLoading(false);
+    }
   }, [api, isAdmin]);
 
   const handleAdminChatSend = async (e) => {
@@ -332,16 +369,21 @@ const ChatScreen = () => {
   const sidebarContent = isAdminMode ? (
     <>
       <div className="chat-sidebar-header">
-        {adminSectionTabs}
+        <div className="chat-sidebar-header-row">
+          {adminSectionTabs}
+        </div>
         {unreadTotal > 0 && (
-          <button
-            type="button"
-            className="chat-mark-all-read-btn"
-            onClick={handleMarkAllRead}
-            title="Прочитать все"
-          >
-            Прочитать все
-          </button>
+          <div className="chat-sidebar-header-row">
+            <button
+              type="button"
+              className="chat-sidebar-tab chat-mark-all-read-btn"
+              onClick={handleMarkAllRead}
+              disabled={markAllReadLoading}
+              title="Прочитать все"
+            >
+              {markAllReadLoading ? '…' : 'Прочитать все'}
+            </button>
+          </div>
         )}
       </div>
       {chatUsersLoading ? (
@@ -377,16 +419,21 @@ const ChatScreen = () => {
   ) : (
     <>
       <div className="chat-sidebar-header">
-        {isAdmin ? adminSectionTabs : <h2 className="chat-sidebar-title">Чаты</h2>}
+        <div className="chat-sidebar-header-row">
+          {isAdmin ? adminSectionTabs : <h2 className="chat-sidebar-title">Чаты</h2>}
+        </div>
         {unreadTotal > 0 && (
-          <button
-            type="button"
-            className="chat-mark-all-read-btn"
-            onClick={handleMarkAllRead}
-            title="Прочитать все"
-          >
-            Прочитать все
-          </button>
+          <div className="chat-sidebar-header-row">
+            <button
+              type="button"
+              className="chat-sidebar-tab chat-mark-all-read-btn"
+              onClick={handleMarkAllRead}
+              disabled={markAllReadLoading}
+              title="Прочитать все"
+            >
+              {markAllReadLoading ? '…' : 'Прочитать все'}
+            </button>
+          </div>
         )}
       </div>
       <nav className="chat-list">
@@ -514,6 +561,11 @@ const ChatScreen = () => {
             <p className="chat-main-header-subtitle">{currentChat?.description}</p>
           </div>
         </div>
+        {isAiChat && (
+          <button type="button" className="chat-clear-btn" onClick={handleClearAiChat} disabled={sending} title="Очистить чат">
+            Очистить
+          </button>
+        )}
         {isAdminChat && (
           <button type="button" className="chat-refresh-btn" onClick={loadMessages} disabled={loading} title="Обновить">
             {loading ? '…' : '↻'}
@@ -544,7 +596,32 @@ const ChatScreen = () => {
                   </div>
                 )}
                 <div className="chat-message-bubble">
-                  <div className="chat-message-content">{msg.content || '...'}</div>
+                  <div className="chat-message-content">
+                    {msg.content ? (
+                      msg.content
+                    ) : sending && msg.id?.startsWith('temp-ai-') ? (
+                      <span className="chat-message-status">
+                        {streamPhase === 'connecting' && (
+                          <span className="chat-typing-dots" aria-hidden="true">
+                            <span /><span /><span />
+                          </span>
+                        )}
+                        {streamPhase === 'streaming' && (
+                          <>
+                            <span className="chat-typing-dots" aria-hidden="true">
+                              <span /><span /><span />
+                            </span>
+                            Печатает…
+                          </>
+                        )}
+                        {!streamPhase && (
+                          <span className="chat-message-error-text">Ошибка</span>
+                        )}
+                      </span>
+                    ) : (
+                      '…'
+                    )}
+                  </div>
                   {msg.created_at && <div className="chat-message-time">{formatTime(msg.created_at)}</div>}
                 </div>
                 {msg.sender_type === 'user' && (
@@ -578,7 +655,7 @@ const ChatScreen = () => {
           disabled={sending || loading}
           maxLength={4000}
         />
-        <button type="submit" className="chat-send-btn" disabled={sending || loading || !input.trim()}>
+        <button type="submit" className="chat-send-btn" disabled={sending || loading || !input.trim()} title={sending ? 'Отправка…' : 'Отправить'}>
           {sending ? '…' : '➤'}
         </button>
       </form>

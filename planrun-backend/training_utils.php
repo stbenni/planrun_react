@@ -25,8 +25,8 @@ function findTrainingDay($workoutDate, $userId = null) {
     $dayName = $dayNames[$dayOfWeek];
     
     // Ищем неделю, в которую попадает дата
-    foreach ($trainingData['phases'] as $phase) {
-        foreach ($phase['weeks_data'] as $week) {
+    $weeksData = isset($trainingData['weeks_data']) && is_array($trainingData['weeks_data']) ? $trainingData['weeks_data'] : [];
+    foreach ($weeksData as $week) {
             $weekStart = new DateTime($week['start_date']);
             $weekEnd = clone $weekStart;
             $weekEnd->modify('+6 days');
@@ -39,7 +39,6 @@ function findTrainingDay($workoutDate, $userId = null) {
                     'training_date' => $workoutDate
                 ];
             }
-        }
     }
     
     return null;

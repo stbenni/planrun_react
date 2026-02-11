@@ -147,17 +147,16 @@ const StatsScreen = () => {
       setWorkoutModal({ isOpen: true, date, dayData: null, loading: true });
       
       const response = await api.getDay(date);
-      let dayData = response;
-      
-      // Обрабатываем структуру ответа
-      if (response && typeof response === 'object') {
-        if (response.data) {
-          dayData = response.data;
-        } else if (response.success && response.data) {
-          dayData = response.data;
-        }
+      let raw = response;
+      if (response && typeof response === 'object' && (response.data != null)) {
+        raw = response.data;
       }
-      
+      const dayData = raw && typeof raw === 'object' ? {
+        ...raw,
+        planDays: raw.planDays ?? raw.plan_days ?? [],
+        dayExercises: raw.dayExercises ?? raw.day_exercises ?? [],
+        workouts: raw.workouts ?? []
+      } : null;
       setWorkoutModal({ isOpen: true, date, dayData, loading: false });
     } catch (error) {
       console.error('Error loading workout details:', error);
@@ -252,39 +251,44 @@ const StatsScreen = () => {
             </button>
           </div>
           <div className="stats-metrics-grid">
-            <div className="stat-metric-card">
-              <div className="metric-icon">🏃</div>
-              <div className="metric-content">
-                <div className="metric-value">{stats.totalDistance}</div>
-                <div className="metric-unit">км</div>
-                <div className="metric-label">Дистанция</div>
+            <div className="dashboard-stat-metric-card">
+              <div className="dashboard-stat-metric-card__label">
+                <span className="dashboard-stat-metric-card__icon" aria-hidden>🏃</span>
+                Дистанция
+              </div>
+              <div className="dashboard-stat-metric-card__value">
+                <span className="dashboard-stat-metric-card__number">{stats.totalDistance}</span>
+                <span className="dashboard-stat-metric-card__unit">км</span>
               </div>
             </div>
-            
-            <div className="stat-metric-card">
-              <div className="metric-icon">⏱️</div>
-              <div className="metric-content">
-                <div className="metric-value">{Math.round(stats.totalTime / 60)}</div>
-                <div className="metric-unit">часов</div>
-                <div className="metric-label">Время</div>
+            <div className="dashboard-stat-metric-card">
+              <div className="dashboard-stat-metric-card__label">
+                <span className="dashboard-stat-metric-card__icon" aria-hidden>⏱️</span>
+                Время
+              </div>
+              <div className="dashboard-stat-metric-card__value">
+                <span className="dashboard-stat-metric-card__number">{Math.round(stats.totalTime / 60)}</span>
+                <span className="dashboard-stat-metric-card__unit">часов</span>
               </div>
             </div>
-            
-            <div className="stat-metric-card">
-              <div className="metric-icon">📅</div>
-              <div className="metric-content">
-                <div className="metric-value">{stats.totalWorkouts}</div>
-                <div className="metric-unit">тренировок</div>
-                <div className="metric-label">Активность</div>
+            <div className="dashboard-stat-metric-card">
+              <div className="dashboard-stat-metric-card__label">
+                <span className="dashboard-stat-metric-card__icon" aria-hidden>📅</span>
+                Активность
+              </div>
+              <div className="dashboard-stat-metric-card__value">
+                <span className="dashboard-stat-metric-card__number">{stats.totalWorkouts}</span>
+                <span className="dashboard-stat-metric-card__unit">тренировок</span>
               </div>
             </div>
-            
-            <div className="stat-metric-card">
-              <div className="metric-icon">📍</div>
-              <div className="metric-content">
-                <div className="metric-value">{stats.avgPace}</div>
-                <div className="metric-unit">/км</div>
-                <div className="metric-label">Средний темп</div>
+            <div className="dashboard-stat-metric-card">
+              <div className="dashboard-stat-metric-card__label">
+                <span className="dashboard-stat-metric-card__icon" aria-hidden>📍</span>
+                Средний темп
+              </div>
+              <div className="dashboard-stat-metric-card__value">
+                <span className="dashboard-stat-metric-card__number">{stats.avgPace}</span>
+                <span className="dashboard-stat-metric-card__unit">/км</span>
               </div>
             </div>
           </div>

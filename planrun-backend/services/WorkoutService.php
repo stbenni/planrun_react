@@ -86,51 +86,64 @@ class WorkoutService extends BaseService {
             require_once __DIR__ . '/../load_training_plan.php';
             require_once __DIR__ . '/../user_functions.php';
             
-            // Получаем план на этот день из БД
+            // Получаем все записи плана на этот день (несколько тренировок в день разрешены)
             $plan = null;
             $planHtml = null;
             $planType = null;
             $planDayId = null;
+            $planDays = [];
             $weekNumber = null;
             
-            // Определяем day_name для любой даты
             $dateObj = new DateTime($date);
             $dayOfWeek = (int)$dateObj->format('N');
             $dayNames = [1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat', 7 => 'sun'];
             $dayName = $dayNames[$dayOfWeek];
             
-            $planStmt = $this->db->prepare("SELECT id, type, description, date, is_key_workout FROM training_plan_days WHERE user_id = ? AND date = ? LIMIT 1");
+            $planStmt = $this->db->prepare("SELECT id, type, description, date, is_key_workout FROM training_plan_days WHERE user_id = ? AND date = ? ORDER BY id");
             $planStmt->bind_param("is", $userId, $date);
             $planStmt->execute();
             $planResult = $planStmt->get_result();
-            $planRow = null;
-            if ($planRow = $planResult->fetch_assoc()) {
-                $planDayId = (int)$planRow['id'];
-                $planType = $planRow['type'];
-                $planHtml = $planRow['description'];
-                $plan = strip_tags(str_replace('<br>', "\n", $planRow['description']));
-                
-                // Если тренировка добавлена вручную, находим week_number
-                if ($planRow['date'] && $planRow['type'] !== 'rest') {
+            $planBlocks = [];
+            while ($planRow = $planResult->fetch_assoc()) {
+                $pid = (int)$planRow['id'];
+                $planDays[] = [
+                    'id' => $pid,
+                    'type' => $planRow['type'],
+                    'description' => $planRow['description'],
+                    'is_key_workout' => (bool)($planRow['is_key_workout'] ?? 0),
+                ];
+                if ($planDayId === null) {
+                    $planDayId = $pid;
+                    $planType = $planRow['type'];
+                    $plan = strip_tags(str_replace('<br>', "\n", $planRow['description'] ?? ''));
+                }
+                $desc = $planRow['description'] ?? '';
+                $planBlocks[] = '<div class="plan-day-block" data-plan-day-id="' . (int)$pid . '">'
+                    . '<div class="plan-day-text">' . $desc . '</div>'
+                    . '<div class="plan-day-actions">'
+                    . '<button type="button" class="btn-edit-plan-day" data-plan-day-id="' . (int)$pid . '" title="Редактировать тренировку">Изменить</button>'
+                    . '<button type="button" class="btn-delete-plan-day" data-plan-day-id="' . (int)$pid . '" title="Удалить тренировку">Удалить</button>'
+                    . '</div></div>';
+                if ($weekNumber === null && $planRow['date'] && $planRow['type'] !== 'rest') {
                     $weekStmt = $this->db->prepare("
-                        SELECT week_number 
-                        FROM training_plan_weeks 
-                        WHERE user_id = ? 
-                          AND start_date <= ? 
-                          AND DATE_ADD(start_date, INTERVAL 6 DAY) >= ?
-                        ORDER BY start_date DESC
-                        LIMIT 1
+                        SELECT week_number FROM training_plan_weeks
+                        WHERE user_id = ? AND start_date <= ? AND DATE_ADD(start_date, INTERVAL 6 DAY) >= ?
+                        ORDER BY start_date DESC LIMIT 1
                     ");
                     $weekStmt->bind_param("iss", $userId, $date, $date);
                     $weekStmt->execute();
-                    $weekResult = $weekStmt->get_result();
-                    if ($weekRow = $weekResult->fetch_assoc()) {
-                        $weekNumber = (int)$weekRow['week_number'];
+                    $weekResultInner = $weekStmt->get_result();
+                    if ($wr = $weekResultInner->fetch_assoc()) {
+                        $weekNumber = (int)$wr['week_number'];
                     }
                     $weekStmt->close();
                 }
             }
             $planStmt->close();
+            if (count($planBlocks) > 0) {
+                $planHtml = '<div class="plan-day-blocks">' . implode('', $planBlocks) . '</div>';
+            }
+            $firstPlan = $planDays[0] ?? null;
             
             // Если week_number не найден, пытаемся найти его по дате
             if (!$weekNumber) {
@@ -231,14 +244,14 @@ class WorkoutService extends BaseService {
                         'max_heart_rate' => $logRow['max_heart_rate'],
                         'elevation_gain' => $logRow['elevation_gain'],
                         'is_manual' => true,
-                        'type' => $planRow['type'] ?? null,
-                        'description' => $planRow['description'] ?? null,
-                        'is_key_workout' => $planRow['is_key_workout'] ?? false,
+                        'type' => $firstPlan['type'] ?? null,
+                        'description' => $firstPlan['description'] ?? null,
+                        'is_key_workout' => $firstPlan['is_key_workout'] ?? false,
                         'notes' => $logRow['notes']
                     ];
                     array_unshift($workouts, $manualTraining);
                 }
-            } else if ($planRow && ($planRow['type'] === 'other' || $planRow['type'] === 'free')) {
+            } else if ($firstPlan && ($firstPlan['type'] === 'other' || $firstPlan['type'] === 'free')) {
                 $manualTraining = [
                     'id' => null,
                     'user_id' => $userId,
@@ -251,36 +264,74 @@ class WorkoutService extends BaseService {
                     'max_heart_rate' => null,
                     'elevation_gain' => null,
                     'is_manual' => true,
-                    'type' => $planRow['type'],
-                    'description' => $planRow['description'],
-                    'is_key_workout' => $planRow['is_key_workout']
+                    'type' => $firstPlan['type'],
+                    'description' => $firstPlan['description'],
+                    'is_key_workout' => $firstPlan['is_key_workout']
                 ];
                 array_unshift($workouts, $manualTraining);
             }
             
-            // Получаем структурированные упражнения дня
+            // Получаем структурированные упражнения дня — по всем плановым дням (новый формат)
             $dayExercises = [];
-            if ($planDayId) {
+            $planDayIdsWithExercises = [];
+            if (count($planDays) > 0) {
                 try {
                     require_once __DIR__ . '/../repositories/ExerciseRepository.php';
                     $exerciseRepo = new ExerciseRepository($this->db);
-                    $exercisesRaw = $exerciseRepo->getExercisesByDayId($planDayId, $userId);
-                    
-                    // Форматируем данные в нужный формат
-                    foreach ($exercisesRaw as $exerciseRow) {
+                    foreach ($planDays as $pd) {
+                        $pid = (int)$pd['id'];
+                        $exercisesRaw = $exerciseRepo->getExercisesByDayId($pid, $userId);
+                        foreach ($exercisesRaw as $exerciseRow) {
+                            $planDayIdsWithExercises[$pid] = true;
+                            $dayExercises[] = [
+                                'id' => (int)$exerciseRow['id'],
+                                'exercise_id' => $exerciseRow['exercise_id'] ? (int)$exerciseRow['exercise_id'] : null,
+                                'plan_day_id' => $pid,
+                                'category' => $exerciseRow['category'],
+                                'name' => $exerciseRow['name'],
+                                'sets' => $exerciseRow['sets'],
+                                'reps' => $exerciseRow['reps'],
+                                'distance_m' => $exerciseRow['distance_m'],
+                                'duration_sec' => $exerciseRow['duration_sec'],
+                                'weight_kg' => $exerciseRow['weight_kg'] ? (float)$exerciseRow['weight_kg'] : null,
+                                'pace' => $exerciseRow['pace'],
+                                'notes' => $exerciseRow['notes'],
+                                'order_index' => (int)$exerciseRow['order_index']
+                            ];
+                        }
+                    }
+                    // Поддержка старого формата: плановые дни без записей в training_day_exercises
+                    // (только type + description) показываем как одно «синтетическое» упражнение
+                    $typeLabels = [
+                        'easy' => 'Легкий бег', 'long' => 'Длительный бег', 'long-run' => 'Длительный бег',
+                        'tempo' => 'Темповый бег', 'interval' => 'Интервалы', 'other' => 'ОФП',
+                        'sbu' => 'СБУ', 'fartlek' => 'Фартлек', 'race' => 'Соревнование',
+                        'rest' => 'День отдыха', 'free' => 'Пустой день'
+                    ];
+                    $typeCategory = ['easy' => 'run', 'long' => 'run', 'long-run' => 'run', 'tempo' => 'run', 'interval' => 'run', 'fartlek' => 'run', 'race' => 'run', 'other' => 'ofp', 'sbu' => 'sbu', 'rest' => 'run', 'free' => 'run'];
+                    foreach ($planDays as $pd) {
+                        $pid = (int)$pd['id'];
+                        if (!empty($planDayIdsWithExercises[$pid])) {
+                            continue;
+                        }
+                        $type = $pd['type'] ?? '';
+                        $desc = strip_tags(str_replace('<br>', "\n", $pd['description'] ?? ''));
+                        $name = $typeLabels[$type] ?? $type ?: 'Тренировка';
+                        $category = $typeCategory[$type] ?? 'run';
                         $dayExercises[] = [
-                            'id' => (int)$exerciseRow['id'],
-                            'exercise_id' => $exerciseRow['exercise_id'] ? (int)$exerciseRow['exercise_id'] : null,
-                            'category' => $exerciseRow['category'],
-                            'name' => $exerciseRow['name'],
-                            'sets' => $exerciseRow['sets'],
-                            'reps' => $exerciseRow['reps'],
-                            'distance_m' => $exerciseRow['distance_m'],
-                            'duration_sec' => $exerciseRow['duration_sec'],
-                            'weight_kg' => $exerciseRow['weight_kg'] ? (float)$exerciseRow['weight_kg'] : null,
-                            'pace' => $exerciseRow['pace'],
-                            'notes' => $exerciseRow['notes'],
-                            'order_index' => (int)$exerciseRow['order_index']
+                            'id' => 0,
+                            'exercise_id' => null,
+                            'plan_day_id' => $pid,
+                            'category' => $category,
+                            'name' => $name,
+                            'sets' => null,
+                            'reps' => null,
+                            'distance_m' => null,
+                            'duration_sec' => null,
+                            'weight_kg' => null,
+                            'pace' => null,
+                            'notes' => $desc !== '' ? $desc : null,
+                            'order_index' => 0
                         ];
                     }
                 } catch (Exception $e) {
@@ -291,13 +342,20 @@ class WorkoutService extends BaseService {
                 }
             }
             
+            if ($weekNumber === null) {
+                $weekNumber = 1;
+            }
+
             return [
                 'success' => true,
                 'date' => $date,
+                'week_number' => $weekNumber,
+                'day_name' => $dayName,
                 'plan' => $plan,
                 'planHtml' => $planHtml,
                 'planType' => $planType,
                 'planDayId' => $planDayId,
+                'planDays' => $planDays,
                 'dayExercises' => $dayExercises,
                 'workouts' => $workouts
             ];

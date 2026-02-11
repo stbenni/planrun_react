@@ -250,11 +250,8 @@ export function getShortDescription(fullText, type) {
       return html;
       
     case 'free':
-      // Для свободных тренировок
-      html += '<div class="short-desc-title"><strong>СВОБОДНАЯ</strong></div>';
-      html += '<div class="short-desc-details">';
-      html += 'Легкий бег или отдых';
-      html += '</div></div>';
+      // Пустой день (режим «самостоятельно») — без подписи
+      html += '<div class="short-desc-details">—</div></div>';
       return html;
       
     default:

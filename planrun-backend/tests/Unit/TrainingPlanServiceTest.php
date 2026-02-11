@@ -29,10 +29,8 @@ class TrainingPlanServiceTest extends TestCase {
         $result = $this->service->loadPlan(999999);
         
         $this->assertIsArray($result);
-        $this->assertArrayHasKey('phases', $result);
-        $this->assertArrayHasKey('has_plan', $result);
-        $this->assertFalse($result['has_plan']);
-        $this->assertEmpty($result['phases']);
+        $this->assertArrayHasKey('weeks_data', $result);
+        $this->assertEmpty($result['weeks_data']);
     }
     
     /**

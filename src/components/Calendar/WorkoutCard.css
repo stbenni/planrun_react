@@ -103,23 +103,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .workout-date-wrapper {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .workout-date {
-  font-size: 14px;
-  color: var(--gray-600);
-  font-weight: 500;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--gray-800);
+  letter-spacing: -0.01em;
 }
 
 [data-theme="dark"] .workout-date {
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .workout-badge-today {
@@ -337,6 +338,139 @@
   color: var(--text-tertiary);
 }
 
+/* Список тренировок дня с кнопками удаления */
+.workout-card-plan-days {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workout-card-plan-days-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+
+[data-theme="dark"] .workout-card-plan-days-title {
+  color: var(--text-primary);
+}
+
+.workout-card-plan-day-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--gray-50);
+  border-radius: 12px;
+  border: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .workout-card-plan-day-block {
+  background: var(--bg-tertiary);
+  border-color: var(--gray-600);
+}
+
+.workout-card-plan-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workout-card-plan-day-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.workout-card-btn-edit-plan-day {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-600);
+  background: transparent;
+  border: 1px solid var(--primary-300);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s, color 0.2s;
+}
+
+.workout-card-btn-edit-plan-day:hover {
+  background: var(--primary-50);
+  color: var(--primary-700);
+}
+
+[data-theme="dark"] .workout-card-btn-edit-plan-day {
+  color: var(--primary-400);
+  border-color: var(--primary-600);
+}
+
+[data-theme="dark"] .workout-card-btn-edit-plan-day:hover {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--primary-300);
+}
+
+.workout-card-plan-day-type {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--gray-800);
+}
+
+[data-theme="dark"] .workout-card-plan-day-type {
+  color: var(--text-primary);
+}
+
+.workout-card-plan-day-text {
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--gray-700);
+}
+
+[data-theme="dark"] .workout-card-plan-day-text {
+  color: var(--text-secondary);
+}
+
+.workout-card-plan-day-text p {
+  margin: 0 0 6px;
+}
+
+.workout-card-btn-delete-plan-day {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--danger-600);
+  background: transparent;
+  border: 1px solid var(--danger-300);
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s, color 0.2s;
+}
+
+.workout-card-btn-delete-plan-day:hover {
+  background: var(--danger-50);
+  color: var(--danger-700);
+}
+
+[data-theme="dark"] .workout-card-btn-delete-plan-day {
+  color: var(--danger-400);
+  border-color: var(--danger-600);
+}
+
+[data-theme="dark"] .workout-card-btn-delete-plan-day:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger-300);
+}
+
 .workout-rest {
   display: flex;
   align-items: center;
@@ -409,6 +543,17 @@
 
 .btn-missed:hover {
   background: var(--accent-100);
+}
+
+/* Кнопка «Отметить выполненной» — оранжевая (как в календаре) */
+.btn-workout.btn-missed.btn-primary {
+  background: var(--primary-500);
+  color: white;
+  border-color: var(--primary-500);
+}
+.btn-workout.btn-missed.btn-primary:hover {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
 }
 
 /* Мобильная адаптация */

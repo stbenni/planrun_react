@@ -5,7 +5,18 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { flushSync } from 'react-dom';
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import useAuthStore from '../../stores/useAuthStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
@@ -53,6 +64,61 @@ function getStoredLayout() {
 }
 
 const PAIRABLE_MODULE_IDS = new Set(['today_workout', 'next_workout', 'week_progress', 'stats']);
+
+/** API возвращает week.days[dayKey] как массив { type, text, id } или один объект. Нормализуем в массив. */
+function getDayItems(dayData) {
+  if (!dayData) return [];
+  const arr = Array.isArray(dayData) ? dayData : [dayData];
+  return arr.filter((d) => d && d.type !== 'rest' && d.type !== 'free');
+}
+
+/** Дата в формате YYYY-MM-DD по локальной таймзоне (не UTC). */
+function toLocalDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Сегодня в формате YYYY-MM-DD в заданной IANA-таймзоне (Europe/Moscow и т.д.). */
+function getTodayInTimezone(ianaTimezone) {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: ianaTimezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const parts = formatter.formatToParts(new Date());
+    const y = parts.find((p) => p.type === 'year').value;
+    const m = parts.find((p) => p.type === 'month').value;
+    const d = parts.find((p) => p.type === 'day').value;
+    return `${y}-${m}-${d}`;
+  } catch {
+    return toLocalDateString(new Date());
+  }
+}
+
+/** Добавить дни к строке даты YYYY-MM-DD (без сдвига по таймзоне). */
+function addDaysToDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().split('T')[0];
+}
+
+/** Из массива дня плана: первый элемент для workout, все — для planDays в WorkoutCard. */
+function dayItemsToWorkoutAndPlanDays(items, date, weekNumber, dayKey) {
+  if (!items || items.length === 0) return null;
+  const first = items[0];
+  const workout = {
+    type: first.type,
+    text: first.text,
+    date,
+    weekNumber,
+    dayKey,
+  };
+  const planDays = items.map((d) => ({
+    id: d.id,
+    type: d.type,
+    description: d.text || '',
+  }));
+  return { workout, planDays };
+}
 
 function orderToLayout(order) {
   const rows = [];
@@ -123,7 +189,112 @@ function layoutExpandSlot(layout, rowIndex, slotIndex) {
   return out;
 }
 
+/** На мобильных: развернуть все строки в по одному блоку — [[a,b],[c]] → [[a],[b],[c]] */
+function expandLayoutForMobile(layout) {
+  const result = [];
+  for (const row of layout) {
+    for (const id of row) result.push([id]);
+  }
+  return result;
+}
+
+/** Полоска-зона сброса «вставить перед строкой N» (для @dnd-kit) */
+function CustomizerStripZone({ rowIndex, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `insert-${rowIndex}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`dashboard-customizer-strip-zone ${isOver ? 'dashboard-customizer-strip-zone-active' : ''}`}
+    >
+      {isOver && <div className="dashboard-customizer-drop-strip dashboard-customizer-drop-strip--full" aria-hidden />}
+      {children}
+    </div>
+  );
+}
+
+/** Карточка для DragOverlay — та же вёрстка, что и в списке, без кнопки и без useDraggable */
+function CustomizerItemPreview({ moduleId }) {
+  return (
+    <div className="dashboard-customizer-item dashboard-customizer-item--overlay">
+      <span className="dashboard-customizer-drag-handle" aria-hidden>⋮⋮</span>
+      <span className="dashboard-customizer-label">{DASHBOARD_MODULE_LABELS[moduleId]}</span>
+    </div>
+  );
+}
+
+/** Блок «+ в одну строку» — только оформление; зоной сброса является вся строка (см. CustomizerRow). */
+function CustomizerMergeZone({ active }) {
+  return (
+    <div className={`dashboard-customizer-merge-zone ${active ? 'dashboard-customizer-merge-zone-active' : ''}`}>
+      <span className="dashboard-customizer-merge-label">+ в одну строку</span>
+    </div>
+  );
+}
+
+/** Элемент списка — перетаскиваемый блок (для @dnd-kit). Тянуть можно за всю карточку, кнопка «Убрать» не запускает drag. */
+function CustomizerDraggableItem({ rowIndex, slotIndex, moduleId, onRemove }) {
+  const id = `slot-${rowIndex}-${slotIndex}`;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`dashboard-customizer-item ${isDragging ? 'dragging' : ''}`}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="dashboard-customizer-drag-handle" aria-hidden title="Перетащите">⋮⋮</span>
+      <span className="dashboard-customizer-label">{DASHBOARD_MODULE_LABELS[moduleId]}</span>
+      <div className="dashboard-customizer-actions" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="dashboard-customizer-remove"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          aria-label="Убрать"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Строка кастомайзера: слоты + зона «в одну строку» (десктоп). Вся строка — зона сброса для merge, когда в ней один блок. */
+function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileView }) {
+  const { setNodeRef: setMergeRef, isOver: isMergeOver } = useDroppable({
+    id: `merge-${rowIndex}`,
+  });
+  const showMerge = row.length === 1 && !isMobileView && isMergeOver;
+  const isMergeDroppable = row.length === 1 && !isMobileView;
+  return (
+    <div
+      ref={isMergeDroppable ? setMergeRef : undefined}
+      className={`dashboard-customizer-row ${row.length === 2 ? 'dashboard-customizer-row-double' : ''} ${showMerge ? 'dashboard-customizer-row-show-merge' : ''}`}
+    >
+      {row.map((id, slotIndex) => (
+        <div key={`${rowIndex}-${slotIndex}-${id}`} className="dashboard-customizer-slot-wrap">
+          <CustomizerDraggableItem
+            rowIndex={rowIndex}
+            slotIndex={slotIndex}
+            moduleId={id}
+            onRemove={() => {
+              const next = layoutRemoveId(layout, id);
+              setLayout(next);
+              saveLayout(next);
+            }}
+          />
+        </div>
+      ))}
+      {row.length === 1 && !isMobileView && (
+        <CustomizerMergeZone active={isMergeOver} />
+      )}
+    </div>
+  );
+}
+
 const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistration }) => {
+  const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
+  const needsOnboarding = !!(user && user.onboarding_completed === false);
+
   const [todayWorkout, setTodayWorkout] = useState(null);
   const [weekProgress, setWeekProgress] = useState({ completed: 0, total: 0 });
   const [metrics, setMetrics] = useState({
@@ -138,71 +309,107 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
   const [progressDataMap, setProgressDataMap] = useState({});
   const [planExists, setPlanExists] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [hasAnyPlannedWorkout, setHasAnyPlannedWorkout] = useState(false);
   const [showPlanMessage, setShowPlanMessage] = useState(false);
   const [planError, setPlanError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
   const [layout, setLayout] = useState(getStoredLayout);
   const [customizerOpen, setCustomizerOpen] = useState(false);
-  const [draggingSlot, setDraggingSlot] = useState(null);
-  const [dropTarget, setDropTarget] = useState(null);
+  const [activeDragId, setActiveDragId] = useState(null); // id перетаскиваемого слота для DragOverlay
+  const [expandedWorkoutCard, setExpandedWorkoutCard] = useState(null); // 'today' | 'next' | null
   const dashboardRef = useRef(null);
+  const [isMobileView, setIsMobileView] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 640px)').matches : false
+  );
 
-  const handleModuleDragStart = (e, rowIndex, slotIndex) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('application/json', JSON.stringify({ rowIndex, slotIndex }));
-    setDraggingSlot({ rowIndex, slotIndex });
-  };
-
-  const handleModuleDragEnd = () => {
-    setDraggingSlot(null);
-    setDropTarget(null);
-  };
-
-  const setDropTargetSync = useCallback((target) => {
-    flushSync(() => setDropTarget(target));
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const m = window.matchMedia('(max-width: 640px)');
+    const fn = () => setIsMobileView(m.matches);
+    fn();
+    m.addEventListener('change', fn);
+    return () => m.removeEventListener('change', fn);
   }, []);
 
-  const handleModuleDragOver = (e, target) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggingSlot && target.type === 'insert' && target.rowIndex === draggingSlot.rowIndex && layout[draggingSlot.rowIndex]?.length === 1) return;
-    setDropTargetSync(target);
-  };
+  /* На мобильных в layout не должно быть сдвоенных строк — нормализуем и сохраняем */
+  useEffect(() => {
+    if (!isMobileView) return;
+    const hasDoubles = layout.some((row) => row.length > 1);
+    if (!hasDoubles) return;
+    const expanded = expandLayoutForMobile(layout);
+    setLayout(expanded);
+    saveLayout(expanded);
+  }, [isMobileView, layout]);
 
-  const handleModuleDragLeave = () => {
-    setDropTarget(null);
-  };
+  /** На мобильных — развёрнутый layout (по одному блоку в строку), на десктопе — как сохранён */
+  const displayLayout = useMemo(
+    () => (isMobileView ? expandLayoutForMobile(layout) : layout),
+    [layout, isMobileView]
+  );
 
-  const handleModuleDrop = (e, target) => {
-    e.preventDefault();
-    setDropTarget(null);
-    let data;
-    try {
-      data = JSON.parse(e.dataTransfer.getData('application/json'));
-    } catch {
-      setDraggingSlot(null);
-      return;
-    }
-    const { rowIndex: fromRow, slotIndex: fromSlot } = data;
-    const id = layout[fromRow]?.[fromSlot];
-    if (!id) {
-      setDraggingSlot(null);
-      return;
-    }
-    if (target.type === 'insert') {
-      const without = layoutRemoveId(layout, id);
-      const insertAt = fromRow < target.rowIndex && layout[fromRow]?.length === 1 ? target.rowIndex - 1 : target.rowIndex;
+  const customizerSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor)
+  );
+
+  const handleDndDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    if (!over?.id || typeof active.id !== 'string') return;
+    const slotMatch = String(active.id).match(/^slot-(\d+)-(\d+)$/);
+    if (!slotMatch) return;
+    const fromRow = parseInt(slotMatch[1], 10);
+    const fromSlot = parseInt(slotMatch[2], 10);
+    const currentLayout = isMobileView ? displayLayout : layout;
+    const id = currentLayout[fromRow]?.[fromSlot];
+    if (!id) return;
+
+    const overId = String(over.id);
+    if (overId.startsWith('insert-')) {
+      const targetRow = parseInt(overId.slice(7), 10);
+      const without = layoutRemoveId(currentLayout, id);
+      const insertAt = fromRow < targetRow && currentLayout[fromRow]?.length === 1 ? targetRow - 1 : targetRow;
       const next = layoutInsertRow(without, insertAt, id);
       setLayout(next);
       saveLayout(next);
-    } else if (target.type === 'merge' && layout[target.rowIndex]?.length === 1 && target.rowIndex !== fromRow) {
-      const without = layoutRemoveId(layout, id);
-      const next = layoutMergeIntoRow(without, target.rowIndex, id);
-      setLayout(next);
-      saveLayout(next);
+    } else if (overId.startsWith('merge-') && !isMobileView) {
+      const targetRow = parseInt(overId.slice(6), 10);
+      if (currentLayout[targetRow]?.length === 1 && targetRow !== fromRow) {
+        const without = layoutRemoveId(currentLayout, id);
+        const next = layoutMergeIntoRow(without, targetRow, id);
+        setLayout(next);
+        saveLayout(next);
+      }
     }
-    setDraggingSlot(null);
-  };
+  }, [layout, displayLayout, isMobileView]);
+
+  const handleDndDragStart = useCallback((event) => {
+    setActiveDragId(String(event.active.id));
+  }, []);
+
+  const handleDndDragEndWithCleanup = useCallback((event) => {
+    handleDndDragEnd(event);
+    setActiveDragId(null);
+  }, [handleDndDragEnd]);
+
+  /* На тач-устройствах при перетаскивании блокируем скролл фона и списка */
+  useEffect(() => {
+    if (!activeDragId) return;
+    document.body.classList.add('dashboard-customizer-dragging');
+    return () => document.body.classList.remove('dashboard-customizer-dragging');
+  }, [activeDragId]);
+
+  const draggedModuleId = useMemo(() => {
+    if (!activeDragId || typeof activeDragId !== 'string') return null;
+    const m = activeDragId.match(/^slot-(\d+)-(\d+)$/);
+    if (!m) return null;
+    const rowIndex = parseInt(m[1], 10);
+    const slotIndex = parseInt(m[2], 10);
+    const currentLayout = isMobileView ? displayLayout : layout;
+    return currentLayout[rowIndex]?.[slotIndex] ?? null;
+  }, [activeDragId, layout, displayLayout, isMobileView]);
 
   const handleExpandSlot = (rowIndex, slotIndex) => {
     const next = layoutExpandSlot(layout, rowIndex, slotIndex);
@@ -212,13 +419,14 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
   const pullStartY = useRef(0);
   const isPulling = useRef(false);
 
-  const loadDashboardData = useCallback(async () => {
+  const loadDashboardData = useCallback(async (options = {}) => {
+    const silent = options.silent === true;
     if (!api) {
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       
       // Проверяем статус плана (включая ошибки)
       try {
@@ -238,8 +446,11 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       
       // Загружаем план
       const plan = await api.getPlan();
-      if (!plan || !plan.phases) {
+      const weeksData = plan?.weeks_data;
+      if (!plan || !Array.isArray(weeksData)) {
         setPlanExists(false);
+        setPlan(null);
+        setHasAnyPlannedWorkout(false);
         setPlanError(null);
         setLoading(false);
         // Если это новая регистрация, показываем сообщение о генерации
@@ -253,6 +464,20 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       setPlanError(null);
       setShowPlanMessage(false);
       setPlan(plan);
+
+      // Есть ли в плане хотя бы одна запланированная тренировка (дни могут быть массивом)
+      let anyWorkout = false;
+      for (const week of weeksData) {
+        if (!week.days) continue;
+        for (const dayData of Object.values(week.days)) {
+          if (getDayItems(dayData).length > 0) {
+            anyWorkout = true;
+            break;
+          }
+        }
+        if (anyWorkout) break;
+      }
+      setHasAnyPlannedWorkout(anyWorkout);
 
       // Загружаем все результаты ОДИН РАЗ для всех целей
       let allResults = null;
@@ -275,80 +500,61 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       
       setProgressDataMap(progressDataMap);
 
-      // Находим сегодняшнюю дату
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split('T')[0];
+      // Сегодня в таймзоне пользователя: профиль (Europe/Moscow) → браузер (Intl) → по умолчанию Europe/Moscow
+      const ianaTimezone = (user && user.timezone) || (typeof Intl !== 'undefined' && Intl.DateTimeFormat && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Europe/Moscow';
+      const todayStr = getTodayInTimezone(ianaTimezone);
 
-      // Находим тренировку на сегодня
+      // Находим тренировку на сегодня и следующую после сегодня
       let foundTodayWorkout = null;
+      let foundTodayPlanDays = null;
       let foundNextWorkout = null;
+      let foundNextPlanDays = null;
       let weekStart = null;
       let weekEnd = null;
+      const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-      for (const phase of plan.phases) {
-        if (!phase.weeks_data) continue;
-        
-        for (const week of phase.weeks_data) {
-          if (!week.start_date || !week.days) continue;
-          
-          const startDate = new Date(week.start_date);
-          startDate.setHours(0, 0, 0, 0);
-          
-          const endDate = new Date(startDate);
-          endDate.setDate(endDate.getDate() + 6);
-          endDate.setHours(23, 59, 59, 999);
-
-          // Проверяем, попадает ли сегодня в эту неделю
-          if (today >= startDate && today <= endDate) {
-            weekStart = startDate;
-            weekEnd = endDate;
-            
-            // Используем ISO-8601 формат дня недели (1=понедельник, 7=воскресенье), как в PHP
-            // Это соответствует формату, используемому в day_workouts.php
-            const dayOfWeekISO = today.getDay() === 0 ? 7 : today.getDay(); // Преобразуем 0 (воскресенье) в 7
-            const dayNamesISO = { 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat', 7: 'sun' };
-            const dayKey = dayNamesISO[dayOfWeekISO];
-            
-            const dayData = week.days && week.days[dayKey];
-            if (dayData && dayData.type !== 'rest') {
-              foundTodayWorkout = {
-                ...dayData,
-                date: todayStr,
-                weekNumber: week.number,
-                dayKey
-              };
-            }
-          }
-
-          // Ищем следующую тренировку
-          if (!foundNextWorkout && startDate > today) {
-            const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-            for (let i = 0; i < 7; i++) {
-              const dayKey = dayKeys[i];
-              const dayData = week.days && week.days[dayKey];
-              if (dayData && dayData.type !== 'rest') {
-                const workoutDate = new Date(startDate);
-                workoutDate.setDate(startDate.getDate() + i);
-                
-                foundNextWorkout = {
-                  ...dayData,
-                  date: workoutDate.toISOString().split('T')[0],
-                  weekNumber: week.number,
-                  dayKey
-                };
-                break;
-              }
-            }
-            if (foundNextWorkout) break;
+      for (const week of weeksData) {
+        if (!week.start_date || !week.days) continue;
+        const endDateStr = addDaysToDateStr(week.start_date, 6);
+        const inThisWeek = todayStr >= week.start_date && todayStr <= endDateStr;
+        if (inThisWeek) {
+          const startDate = new Date(week.start_date + 'T12:00:00');
+          const todayDate = new Date(todayStr + 'T12:00:00');
+          weekStart = new Date(week.start_date + 'T00:00:00');
+          weekEnd = new Date(endDateStr + 'T23:59:59');
+          const dayIndex = Math.round((todayDate - startDate) / (24 * 60 * 60 * 1000));
+          const dayKey = dayKeys[dayIndex >= 0 && dayIndex <= 6 ? dayIndex : 0];
+          const items = getDayItems(week.days && week.days[dayKey]);
+          const todayPayload = dayItemsToWorkoutAndPlanDays(items, todayStr, week.number, dayKey);
+          if (todayPayload) {
+            foundTodayWorkout = todayPayload.workout;
+            foundTodayPlanDays = todayPayload.planDays;
           }
         }
-        
-        if (foundTodayWorkout && foundNextWorkout) break;
       }
 
-      setTodayWorkout(foundTodayWorkout);
-      setNextWorkout(foundNextWorkout);
+      // Следующая тренировка — первый день с тренировкой строго после сегодня (текущая неделя и дальше)
+      if (!foundNextWorkout) {
+        for (const week of weeksData) {
+          if (!week.start_date || !week.days) continue;
+          for (let i = 0; i < 7; i++) {
+            const workoutDateStr = addDaysToDateStr(week.start_date, i);
+            if (workoutDateStr <= todayStr) continue;
+            const dayKey = dayKeys[i];
+            const items = getDayItems(week.days && week.days[dayKey]);
+            const nextPayload = dayItemsToWorkoutAndPlanDays(items, workoutDateStr, week.number, dayKey);
+            if (nextPayload) {
+              foundNextWorkout = nextPayload.workout;
+              foundNextPlanDays = nextPayload.planDays;
+              break;
+            }
+          }
+          if (foundNextWorkout) break;
+        }
+      }
+
+      setTodayWorkout(foundTodayWorkout ? { ...foundTodayWorkout, planDays: foundTodayPlanDays } : null);
+      setNextWorkout(foundNextWorkout ? { ...foundNextWorkout, planDays: foundNextPlanDays } : null);
 
       // Загружаем прогресс недели (используем уже загруженные allResults)
       if (weekStart && weekEnd) {
@@ -366,24 +572,15 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           }
         }
 
-        // Подсчитываем общее количество тренировок в неделе
-        for (const phase of plan.phases) {
-          if (!phase.weeks_data) continue;
-          for (const week of phase.weeks_data) {
-            if (!week.days) continue;
-            const startDate = new Date(week.start_date);
-            startDate.setHours(0, 0, 0, 0);
-            const endDate = new Date(startDate);
-            endDate.setDate(endDate.getDate() + 6);
-            
-            if (today >= startDate && today <= endDate) {
-              for (const dayData of Object.values(week.days)) {
-                if (dayData && dayData.type !== 'rest') {
-                  total++;
-                }
-              }
-              break;
+        // Подсчитываем общее количество тренировок в текущей неделе (дни — массив элементов)
+        for (const week of weeksData) {
+          if (!week.days) continue;
+          const endDateStr = addDaysToDateStr(week.start_date, 6);
+          if (todayStr >= week.start_date && todayStr <= endDateStr) {
+            for (const dayData of Object.values(week.days)) {
+              total += getDayItems(dayData).length;
             }
+            break;
           }
         }
 
@@ -396,8 +593,9 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
         let totalTime = 0;
         let workoutCount = 0;
 
-        // Берем данные за последние 7 дней
-        const weekAgo = new Date(today);
+        // Берем данные за последние 7 дней (относительно «сегодня» в таймзоне пользователя)
+        const todayDate = new Date(todayStr + 'T12:00:00');
+        const weekAgo = new Date(todayDate);
         weekAgo.setDate(weekAgo.getDate() - 7);
 
         for (const result of allResults.results) {
@@ -429,18 +627,32 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api, isNewRegistration, registrationMessage]);
+  }, [api, user, isNewRegistration, registrationMessage]);
 
-  // Загружаем данные при монтировании
+  // Загружаем данные при монтировании и при появлении timezone (после getCurrentUser)
   useEffect(() => {
-    if (api) {
-      loadDashboardData();
-    } else {
-      // Если api еще не загружен, устанавливаем loading в false чтобы не показывать вечную загрузку
+    if (!api) {
       setLoading(false);
+      return;
     }
+    if (user && user.onboarding_completed === false) {
+      setLoading(false);
+      return;
+    }
+    loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api]); // Запускаем при монтировании и изменении api
+  }, [api, user?.onboarding_completed, user?.timezone]);
+
+  // Обновление при возврате на вкладку (тихо, без спиннера)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && api) {
+        loadDashboardData({ silent: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [api, loadDashboardData]);
   
   // Показываем сообщение о генерации плана при новой регистрации
   useEffect(() => {
@@ -551,14 +763,37 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       : 0;
   }, [weekProgress]);
 
-  /** Строки дашборда из layout (каждая строка — 1 или 2 блока) */
-  const dashboardRows = useMemo(() => layout.map((row) => ({
-    type: row.length === 2 ? 'double' : 'single',
-    ids: row,
-  })), [layout]);
+  /** Строки дашборда из displayLayout (на мобильных всегда по одному блоку в строку) */
+  const dashboardRows = useMemo(
+    () => displayLayout.map((row) => ({
+      type: row.length === 2 ? 'double' : 'single',
+      ids: row,
+    })),
+    [displayLayout]
+  );
 
   const moduleOrder = useMemo(() => layoutToOrder(layout), [layout]);
-  const draggedId = draggingSlot != null ? layout[draggingSlot.rowIndex]?.[draggingSlot.slotIndex] : null;
+
+  if (needsOnboarding) {
+    return (
+      <div className="dashboard dashboard-empty-onboarding">
+        <div className="dashboard-empty-onboarding-inner">
+          <div className="dashboard-empty-onboarding-icon">🏃</div>
+          <h1 className="dashboard-empty-onboarding-title">Добро пожаловать в PlanRun</h1>
+          <p className="dashboard-empty-onboarding-text">
+            Выберите режим тренировок, цель и заполните профиль — после этого здесь появится ваш план и прогресс.
+          </p>
+          <button
+            type="button"
+            className="dashboard-empty-onboarding-btn"
+            onClick={() => setShowOnboardingModal(true)}
+          >
+            Настроить план
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -718,24 +953,67 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="today_workout" className={sectionClass}>
                 <h2 className="section-title">📅 Сегодняшняя тренировка</h2>
-                {todayWorkout ? (
-                  <div className="dashboard-top-card">
-                    <WorkoutCard
-                      workout={todayWorkout}
-                      date={todayWorkout.date}
-                      status={progressDataMap[todayWorkout.date] ? 'completed' : 'planned'}
-                      isToday={true}
-                      compact={true}
-                      onPress={() => handleWorkoutPress(todayWorkout)}
-                    />
-                  </div>
-                ) : (
-                  <div className="dashboard-top-card dashboard-empty">
-                    <div className="empty-icon">📅</div>
-                    <div className="empty-text">Сегодня день отдыха</div>
-                    <div className="empty-subtext">Отдых — важная часть тренировочного процесса</div>
-                  </div>
-                )}
+                <div className={`dashboard-module-card ${todayWorkout ? 'dashboard-module-card--workout' : ''} ${todayWorkout && expandedWorkoutCard === 'today' ? 'dashboard-module-card--expanded' : ''}`}>
+                  {!hasAnyPlannedWorkout ? (
+                    <div className="dashboard-top-card dashboard-empty">
+                      <div className="empty-icon">📅</div>
+                      <div className="empty-text">Кажется, у вас нет ни одной тренировки</div>
+                      <div className="empty-subtext">Перейдите в календарь и запланируйте тренировку</div>
+                      {onNavigate && (
+                        <button
+                          type="button"
+                          className="btn btn-primary dashboard-empty-btn"
+                          style={{ marginTop: '12px' }}
+                          onClick={() => onNavigate('calendar')}
+                        >
+                          Открыть календарь
+                        </button>
+                      )}
+                    </div>
+                  ) : todayWorkout ? (
+                    <div
+                      className="dashboard-workout-card-wrapper"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today'))}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); } }}
+                    >
+                      <div className="dashboard-top-card">
+                        <WorkoutCard
+                          workout={todayWorkout}
+                          date={todayWorkout.date}
+                          status={progressDataMap[todayWorkout.date] ? 'completed' : 'planned'}
+                          isToday={true}
+                          compact={expandedWorkoutCard !== 'today'}
+                          planDays={todayWorkout.planDays || []}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="dashboard-workout-expand-arrow"
+                        onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); }}
+                        aria-label={expandedWorkoutCard === 'today' ? 'Свернуть' : 'Развернуть'}
+                      >
+                        <span className="dashboard-workout-expand-arrow-icon">▼</span>
+                      </button>
+                      {expandedWorkoutCard === 'today' && (
+                        <button
+                          type="button"
+                          className="btn btn-primary dashboard-workout-open-calendar"
+                          onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
+                        >
+                          Открыть в календаре
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="dashboard-top-card dashboard-empty">
+                      <div className="empty-icon">📅</div>
+                      <div className="empty-text">Сегодня день отдыха</div>
+                      <div className="empty-subtext">Отдых — важная часть тренировочного процесса</div>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           }
@@ -743,18 +1021,38 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="week_progress" className={sectionClass}>
                 <h2 className="section-title">📊 Прогресс недели</h2>
-                <div className="dashboard-top-card progress-card">
-                  <p className="progress-card-desc">Тренировок выполнено из плана на неделю</p>
-                  <div className="progress-stat">
-                    <span className="progress-label">Выполнено</span>
-                    <span className="progress-value">{weekProgress.completed} из {weekProgress.total}</span>
+                <div className="dashboard-module-card">
+                {!hasAnyPlannedWorkout ? (
+                  <div className="dashboard-top-card dashboard-empty">
+                    <div className="empty-icon">📊</div>
+                    <div className="empty-text">Кажется, у вас нет ни одной тренировки</div>
+                    <div className="empty-subtext">Перейдите в календарь и запланируйте тренировку</div>
+                    {onNavigate && (
+                      <button
+                        type="button"
+                        className="btn btn-primary dashboard-empty-btn"
+                        style={{ marginTop: '12px' }}
+                        onClick={() => onNavigate('calendar')}
+                      >
+                        Открыть календарь
+                      </button>
+                    )}
                   </div>
-                  <div className="progress-bar-row">
-                    <div className="progress-bar" role="progressbar" aria-valuenow={progressPercentage} aria-valuemin={0} aria-valuemax={100} title={`${progressPercentage}%`}>
-                      <div className="progress-bar-fill" style={{ width: `${progressPercentage}%` }} />
+                ) : (
+                  <div className="dashboard-top-card progress-card">
+                    <p className="progress-card-desc">Тренировок выполнено из плана на неделю</p>
+                    <div className="progress-stat">
+                      <span className="progress-label">Выполнено</span>
+                      <span className="progress-value">{weekProgress.completed} из {weekProgress.total}</span>
                     </div>
-                    <span className="progress-percentage">{progressPercentage}% плана</span>
+                    <div className="progress-bar-row">
+                      <div className="progress-bar" role="progressbar" aria-valuenow={progressPercentage} aria-valuemin={0} aria-valuemax={100} title={`${progressPercentage}%`}>
+                        <div className="progress-bar-fill" style={{ width: `${progressPercentage}%` }} />
+                      </div>
+                      <span className="progress-percentage">{progressPercentage}% плана</span>
+                    </div>
                   </div>
+                )}
                 </div>
               </div>
             );
@@ -763,31 +1061,39 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="quick_metrics" className={sectionClass}>
                 <h2 className="section-title">⚡ Быстрые метрики</h2>
+                <div className="dashboard-module-card">
                 <div className="dashboard-metrics-grid">
                   <div className="metric-card">
-                    <div className="metric-icon">🏃</div>
-                    <div className="metric-content">
-                      <div className="metric-value">{metrics.distance}</div>
-                      <div className="metric-unit">км</div>
-                      <div className="metric-label">За неделю</div>
+                    <div className="metric-card__label">
+                      <span className="metric-card__icon" aria-hidden>🏃</span>
+                      <span>Дистанция</span>
+                    </div>
+                    <div className="metric-card__value">
+                      <span className="metric-card__number">{metrics.distance}</span>
+                      <span className="metric-card__unit">км</span>
                     </div>
                   </div>
                   <div className="metric-card">
-                    <div className="metric-icon">📅</div>
-                    <div className="metric-content">
-                      <div className="metric-value">{metrics.workouts}</div>
-                      <div className="metric-unit">тренировок</div>
-                      <div className="metric-label">За неделю</div>
+                    <div className="metric-card__label">
+                      <span className="metric-card__icon" aria-hidden>📅</span>
+                      <span>Активность</span>
+                    </div>
+                    <div className="metric-card__value">
+                      <span className="metric-card__number">{metrics.workouts}</span>
+                      <span className="metric-card__unit">тренировок</span>
                     </div>
                   </div>
                   <div className="metric-card">
-                    <div className="metric-icon">⏱️</div>
-                    <div className="metric-content">
-                      <div className="metric-value">{metrics.time}</div>
-                      <div className="metric-unit">часов</div>
-                      <div className="metric-label">За неделю</div>
+                    <div className="metric-card__label">
+                      <span className="metric-card__icon" aria-hidden>⏱️</span>
+                      <span>Время</span>
+                    </div>
+                    <div className="metric-card__value">
+                      <span className="metric-card__number">{metrics.time}</span>
+                      <span className="metric-card__unit">часов</span>
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
             );
@@ -796,14 +1102,42 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="next_workout" className={sectionClass}>
                 <h2 className="section-title">⏭️ Следующая тренировка</h2>
+                <div className={`dashboard-module-card ${nextWorkout ? 'dashboard-module-card--workout' : ''} ${nextWorkout && expandedWorkoutCard === 'next' ? 'dashboard-module-card--expanded' : ''}`}>
                 {nextWorkout ? (
-                  <WorkoutCard
-                    workout={nextWorkout}
-                    date={nextWorkout.date}
-                    status="planned"
-                    compact={true}
-                    onPress={() => handleWorkoutPress(nextWorkout)}
-                  />
+                  <div
+                    className="dashboard-workout-card-wrapper"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next'))}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next')); } }}
+                  >
+                    <div className="dashboard-top-card">
+                      <WorkoutCard
+                        workout={nextWorkout}
+                        date={nextWorkout.date}
+                        status="planned"
+                        compact={expandedWorkoutCard !== 'next'}
+                        planDays={nextWorkout.planDays || []}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="dashboard-workout-expand-arrow"
+                      onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next')); }}
+                      aria-label={expandedWorkoutCard === 'next' ? 'Свернуть' : 'Развернуть'}
+                    >
+                      <span className="dashboard-workout-expand-arrow-icon">▼</span>
+                    </button>
+                    {expandedWorkoutCard === 'next' && (
+                      <button
+                        type="button"
+                        className="btn btn-primary dashboard-workout-open-calendar"
+                        onClick={(e) => { e.stopPropagation(); handleWorkoutPress(nextWorkout); }}
+                      >
+                        Открыть в календаре
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="dashboard-top-card dashboard-empty">
                     <div className="empty-icon">⏭️</div>
@@ -811,6 +1145,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                     <div className="empty-subtext">Добавьте план или откройте календарь</div>
                   </div>
                 )}
+                </div>
               </div>
             );
           }
@@ -818,11 +1153,13 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="calendar" className={sectionClass}>
                 <h2 className="section-title">📅 Календарь</h2>
+                <div className="dashboard-module-card">
                 <DashboardWeekStrip
                   plan={plan}
                   progressDataMap={progressDataMap}
                   onNavigate={onNavigate}
                 />
+                </div>
               </div>
             );
           }
@@ -830,7 +1167,9 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             return (
               <div key="stats" className={sectionClass}>
                 <h2 className="section-title">📊 Статистика</h2>
+                <div className="dashboard-module-card">
                 <DashboardStatsWidget api={api} onNavigate={onNavigate} />
+                </div>
               </div>
             );
           }
@@ -853,90 +1192,46 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
 
       {customizerOpen && (
         <div className="dashboard-customizer-overlay" onClick={() => setCustomizerOpen(false)} role="presentation">
-          <div className="dashboard-customizer" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`dashboard-customizer ${activeDragId ? 'dashboard-customizer--dragging' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="dashboard-customizer-header">
               <h3>Блоки дашборда</h3>
               <button type="button" className="dashboard-customizer-close" onClick={() => setCustomizerOpen(false)} aria-label="Закрыть">×</button>
             </div>
-            <p className="dashboard-customizer-hint">Перетаскивайте для порядка. Бросьте на блок — в одну строку; на полоску — на всю ширину.</p>
-            <div className="dashboard-customizer-list">
-              {layout.map((row, rowIndex) => {
-                const insertBeforeTarget = { type: 'insert', rowIndex };
-                const showStripBefore = dropTarget?.type === 'insert' && dropTarget.rowIndex === rowIndex;
-                return (
+            <p className="dashboard-customizer-hint">
+              {isMobileView
+                ? 'Удерживайте блок ~0.3 сек, затем перетащите. По одному в строку.'
+                : 'Перетаскивайте для порядка. Бросьте на блок — в одну строку; на полоску — на всю ширину.'}
+            </p>
+            <DndContext
+              sensors={customizerSensors}
+              onDragStart={handleDndDragStart}
+              onDragEnd={handleDndDragEndWithCleanup}
+            >
+              <div className="dashboard-customizer-list">
+                {displayLayout.map((row, rowIndex) => (
                   <React.Fragment key={`row-${rowIndex}`}>
-                    <div
-                      className={`dashboard-customizer-strip-zone ${showStripBefore ? 'dashboard-customizer-strip-zone-active' : ''}`}
-                      onDragEnter={(e) => { e.preventDefault(); setDropTargetSync(insertBeforeTarget); }}
-                      onDragOver={(e) => handleModuleDragOver(e, insertBeforeTarget)}
-                      onDragLeave={handleModuleDragLeave}
-                      onDrop={(e) => handleModuleDrop(e, insertBeforeTarget)}
-                    >
-                      {showStripBefore && <div className="dashboard-customizer-drop-strip dashboard-customizer-drop-strip--full" aria-hidden />}
-                    </div>
-                    <div
-                      className={`dashboard-customizer-row ${row.length === 2 ? 'dashboard-customizer-row-double' : ''} ${row.length === 1 && dropTarget?.type === 'merge' && dropTarget.rowIndex === rowIndex ? 'dashboard-customizer-row-show-merge' : ''}`}
-                      onDragEnter={row.length === 1 ? (e) => { e.preventDefault(); setDropTargetSync({ type: 'merge', rowIndex }); } : undefined}
-                      onDragOver={row.length === 1 ? (e) => handleModuleDragOver(e, { type: 'merge', rowIndex }) : undefined}
-                    >
-                      {row.map((id, slotIndex) => {
-                        const isDragging = draggingSlot?.rowIndex === rowIndex && draggingSlot?.slotIndex === slotIndex;
-                        const mergeTarget = { type: 'merge', rowIndex };
-                        const showMerge = row.length === 1 && dropTarget?.type === 'merge' && dropTarget.rowIndex === rowIndex;
-                        return (
-                          <div key={`${rowIndex}-${slotIndex}-${id}`} className="dashboard-customizer-slot-wrap">
-                            <div
-                              className={`dashboard-customizer-item ${isDragging ? 'dragging' : ''} ${showMerge ? 'dashboard-customizer-merge-active' : ''}`}
-                              draggable
-                              onDragStart={(e) => handleModuleDragStart(e, rowIndex, slotIndex)}
-                              onDragEnd={handleModuleDragEnd}
-                              onDragOver={(e) => row.length === 1 && handleModuleDragOver(e, mergeTarget)}
-                              onDrop={(e) => row.length === 1 && handleModuleDrop(e, mergeTarget)}
-                            >
-                              <span className="dashboard-customizer-drag-handle" aria-hidden title="Перетащите">⋮⋮</span>
-                              <span className="dashboard-customizer-label">{DASHBOARD_MODULE_LABELS[id]}</span>
-                              <div className="dashboard-customizer-actions">
-                                <button type="button" className="dashboard-customizer-remove" onClick={() => {
-                                  const next = layoutRemoveId(layout, id);
-                                  setLayout(next);
-                                  saveLayout(next);
-                                }} aria-label="Убрать">✕</button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {row.length === 1 && (
-                        <div
-                          className={`dashboard-customizer-merge-zone ${dropTarget?.type === 'merge' && dropTarget.rowIndex === rowIndex ? 'dashboard-customizer-merge-zone-active' : ''}`}
-                          onDragEnter={(e) => { e.preventDefault(); setDropTargetSync({ type: 'merge', rowIndex }); }}
-                          onDragOver={(e) => { e.preventDefault(); handleModuleDragOver(e, { type: 'merge', rowIndex }); }}
-                          onDragLeave={handleModuleDragLeave}
-                          onDrop={(e) => handleModuleDrop(e, { type: 'merge', rowIndex })}
-                        >
-                          <span className="dashboard-customizer-merge-label">+ в одну строку</span>
-                        </div>
-                      )}
-                    </div>
+                    <CustomizerStripZone rowIndex={rowIndex} />
+                    <CustomizerRow
+                      row={row}
+                      rowIndex={rowIndex}
+                      layout={displayLayout}
+                      setLayout={setLayout}
+                      saveLayout={saveLayout}
+                      isMobileView={isMobileView}
+                    />
                   </React.Fragment>
-                );
-              })}
-              {layout.length > 0 && (() => {
-                const insertEndTarget = { type: 'insert', rowIndex: layout.length };
-                const showStripEnd = dropTarget?.type === 'insert' && dropTarget.rowIndex === layout.length;
-                return (
-                  <div
-                    className={`dashboard-customizer-strip-zone ${showStripEnd ? 'dashboard-customizer-strip-zone-active' : ''}`}
-                    onDragEnter={(e) => { e.preventDefault(); setDropTargetSync(insertEndTarget); }}
-                    onDragOver={(e) => handleModuleDragOver(e, insertEndTarget)}
-                    onDragLeave={handleModuleDragLeave}
-                    onDrop={(e) => handleModuleDrop(e, insertEndTarget)}
-                  >
-                    {showStripEnd && <div className="dashboard-customizer-drop-strip dashboard-customizer-drop-strip--full" aria-hidden />}
-                  </div>
-                );
-              })()}
-            </div>
+                ))}
+                {displayLayout.length > 0 && <CustomizerStripZone rowIndex={displayLayout.length} />}
+              </div>
+              <DragOverlay dropAnimation={null}>
+                {draggedModuleId ? (
+                  <CustomizerItemPreview moduleId={draggedModuleId} />
+                ) : null}
+              </DragOverlay>
+            </DndContext>
             {moduleOrder.length < DASHBOARD_MODULE_IDS.length && (
               <div className="dashboard-customizer-add">
                 <label htmlFor="dashboard-add-select">Добавить блок:</label>

@@ -8,11 +8,11 @@ import WeekCalendar from '../components/Calendar/WeekCalendar';
 import MonthlyCalendar from '../components/Calendar/MonthlyCalendar';
 import DayModal from '../components/Calendar/DayModal';
 import ResultModal from '../components/Calendar/ResultModal';
+import AddTrainingModal from '../components/Calendar/AddTrainingModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import '../assets/css/calendar_v2.css';
 import '../assets/css/short-desc.css';
 import './CalendarScreen.css';
-import BottomNav from '../components/common/BottomNav';
 
 const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, hideHeader = false, viewMode: externalViewMode = null }) => {
   const { api, user } = useAuthStore();
@@ -26,6 +26,8 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   const [refreshing, setRefreshing] = useState(false);
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [resultModal, setResultModal] = useState({ isOpen: false, date: null, week: null, day: null });
+  const [addTrainingModal, setAddTrainingModal] = useState({ isOpen: false, date: null, planDay: null });
+  const [dayModalRefreshKey, setDayModalRefreshKey] = useState(0);
   // Инициализируем viewMode: если передан externalViewMode, используем его, иначе 'week'
   // Если externalViewMode задан, он фиксирует режим (для публичных профилей)
   // Если не задан, пользователь может свободно переключаться
@@ -40,21 +42,19 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   }, [externalViewMode]);
 
   const getCurrentWeekNumber = (plan) => {
-    if (!plan || !plan.phases) return null;
+    const weeksData = plan?.weeks_data;
+    if (!plan || !Array.isArray(weeksData)) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    for (const phase of plan.phases) {
-      if (!phase.weeks_data) continue;
-      for (const week of phase.weeks_data) {
-        if (!week.start_date) continue;
-        const startDate = new Date(week.start_date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(startDate);
-        endDate.setDate(endDate.getDate() + 7);
-        endDate.setHours(23, 59, 59, 999);
-        if (today >= startDate && today <= endDate) {
-          return week.number;
-        }
+    for (const week of weeksData) {
+      if (!week.start_date) continue;
+      const startDate = new Date(week.start_date);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 7);
+      endDate.setHours(23, 59, 59, 999);
+      if (today >= startDate && today <= endDate) {
+        return week.number;
       }
     }
     return null;
@@ -64,23 +64,22 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     loadPlan();
   }, [calendarUserId]); // Перезагружаем при смене пользователя
 
-  const loadPlan = async () => {
+  const loadPlan = async (options = {}) => {
+    const silent = options.silent === true; // обновление без показа загрузки (после add/delete)
     if (!api) {
       setLoading(false);
       return;
     }
     
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       
       // Загружаем план
       const planData = await api.getPlan(calendarUserId !== user?.id ? calendarUserId : null);
       
-      // Проверяем структуру ответа (может быть data.phases или просто phases)
-      // TrainingPlanService возвращает planData с phases
-      // BaseController оборачивает в {success: true, data: planData}
+      // Проверяем структуру ответа (может быть data.weeks_data)
+      // TrainingPlanService возвращает planData с weeks_data
       // ApiClient возвращает data.data || data
-      // Итого: planData может быть {phases: [...]} или просто объект с phases
       const plan = planData?.data || planData;
       setPlan(plan);
       
@@ -186,7 +185,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
       }
     } catch (error) {
       console.error('Error loading plan:', error);
-      setPlan(null);
+      if (!silent) setPlan(null);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -206,59 +205,67 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     );
   }
 
-  if (!plan || !plan.phases || plan.phases.length === 0) {
+  // Календарь всегда доступен: при ошибке загрузки показываем сообщение, иначе — сетку (пустую или с планом)
+  if (!loading && plan === null) {
     return (
       <div className="calendar-container">
         <div className="empty-container">
-          <p className="empty-text">План тренировок не найден</p>
+          <p className="empty-text">Не удалось загрузить календарь</p>
           <p className="empty-subtext">
-            Создайте план в настройках или через веб-версию
+            Проверьте подключение и обновите страницу
           </p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="container">
-      <div className="calendar-view-toggle">
-        <button 
-          className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
-          onClick={() => setViewMode('week')}
-          disabled={externalViewMode !== null && externalViewMode !== undefined}
-        >
-          📅 Неделя
-        </button>
-        <button 
-          className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
-          onClick={() => setViewMode('full')}
-          disabled={externalViewMode !== null && externalViewMode !== undefined}
-        >
-          📋 Полный план
-        </button>
-      </div>
+  // plan может быть с пустыми weeks_data — календарь покажет пустую сетку, тренировки навешиваются на даты
+  const planData = plan || { weeks_data: [] };
 
+  return (
+    <div className="container calendar-screen">
       <div className="content">
+        <div className="calendar-view-toggle">
+          <button 
+            className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
+            onClick={() => setViewMode('week')}
+            disabled={externalViewMode !== null && externalViewMode !== undefined}
+          >
+            📅 Неделя
+          </button>
+          <button 
+            className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
+            onClick={() => setViewMode('full')}
+            disabled={externalViewMode !== null && externalViewMode !== undefined}
+          >
+            📋 Полный план
+          </button>
+        </div>
         {viewMode === 'week' ? (
           <WeekCalendar
-            plan={plan}
+            plan={planData}
             progressData={progressData}
             workoutsData={workoutsData}
             resultsData={resultsData}
             api={api}
+            canEdit={canEdit}
             onDayPress={(date, weekNumber, dayKey) => {
               if (canEdit || isOwner) {
                 setDayModal({ isOpen: true, date, week: weekNumber, day: dayKey });
               }
             }}
-            currentWeekNumber={getCurrentWeekNumber(plan)}
+            onOpenResultModal={(date, week, day) => setResultModal({ isOpen: true, date, week, day })}
+            onAddTraining={(date) => setAddTrainingModal({ isOpen: true, date, planDay: null })}
+            onEditTraining={(planDay, date) => setAddTrainingModal({ isOpen: true, date, planDay })}
+            onTrainingAdded={() => loadPlan({ silent: true })}
+            currentWeekNumber={getCurrentWeekNumber(planData)}
           />
         ) : (
           <div className="week-calendar-container">
             <MonthlyCalendar
               workoutsData={workoutsData}
               resultsData={resultsData}
-              planData={plan}
+              planData={planData}
               api={api}
               onDateClick={(date) => {
                 if (canEdit || isOwner) {
@@ -283,6 +290,10 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         api={api}
         canEdit={canEdit}
         targetUserId={calendarUserId}
+        onTrainingAdded={() => loadPlan({ silent: true })}
+        onEditTraining={(planDay, date) => setAddTrainingModal({ isOpen: true, date, planDay })}
+        onOpenResultModal={(date, week, day) => setResultModal({ isOpen: true, date, week, day })}
+        refreshKey={dayModalRefreshKey}
       />
 
       <ResultModal
@@ -293,7 +304,20 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         dayKey={resultModal.day}
         api={api}
         onSave={() => {
-          loadPlan(); // Перезагрузить план после сохранения
+          loadPlan({ silent: true });
+        }}
+      />
+
+      <AddTrainingModal
+        isOpen={addTrainingModal.isOpen}
+        onClose={() => setAddTrainingModal({ isOpen: false, date: null, planDay: null })}
+        date={addTrainingModal.date}
+        api={api}
+        initialData={addTrainingModal.planDay ? { ...addTrainingModal.planDay, date: addTrainingModal.date } : null}
+        onSuccess={() => {
+          loadPlan({ silent: true });
+          setAddTrainingModal({ isOpen: false, date: null, planDay: null });
+          setDayModalRefreshKey((k) => k + 1);
         }}
       />
     </div>

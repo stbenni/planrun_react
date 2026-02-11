@@ -143,8 +143,15 @@ body:not([data-theme])[data-theme="dark"],
   background: var(--bg-tertiary);
 }
 
-/* Плавный переход между темами */
-* {
+/* Плавный переход между темами (только для основных контейнеров, не для всех элементов) */
+body,
+[data-theme="dark"] .dashboard,
+[data-theme="dark"] .stats-screen,
+[data-theme="dark"] .container,
+[data-theme="dark"] .bottom-nav,
+[data-theme="dark"] .week-calendar-container,
+[data-theme="dark"] .modal-modern-content,
+[data-theme="dark"] .app-modal-content {
   transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
 }
 

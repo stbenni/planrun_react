@@ -74,6 +74,13 @@ function getUnreadData() {
   return unreadData;
 }
 
+function setUnreadData(data) {
+  const payload = typeof data === 'object' && data !== null
+    ? { total: Number(data.total) || 0, by_type: data.by_type && typeof data.by_type === 'object' ? data.by_type : {} }
+    : parsePayload(typeof data === 'string' ? data : JSON.stringify(data || {}));
+  notifyListeners(payload);
+}
+
 function getUnreadTotal() {
   return unreadData.total;
 }
@@ -90,4 +97,5 @@ export const ChatSSE = {
   getUnreadData,
   getUnreadTotal,
   getUnreadByType,
+  setUnreadData,
 };

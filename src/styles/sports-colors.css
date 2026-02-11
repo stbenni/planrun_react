@@ -174,6 +174,9 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Высота нижней навигации (мобильные) — 100vh минус это значение для чата */
+  --bottom-nav-height: 72px;
 }
 
 /* ========================================

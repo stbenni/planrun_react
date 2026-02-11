@@ -1,58 +1,48 @@
 # Настройка AI-чата PlanRun
 
+Чат устроен так: **vladimirov** (приложение) собирает контекст (профиль, история, RAG) и отправляет запрос в **PlanRun AI** (`ai/planrun_ai_service`). Там вызывается LM Studio; приложение с LM Studio не общается.
+
 ## Требования
 
-- **Ollama** установлен и запущен
-- Модель DeepSeek (например `deepseek-r1-ru:14b`)
+- **PlanRun AI** запущен (порт 8000), в нём заданы `LMSTUDIO_BASE_URL` и `LMSTUDIO_CHAT_MODEL` (см. `ai/planrun_ai_service` и systemd-юнит).
+- **LM Studio** запущен на порту 1234 (как настроено в ai-сервисе).
 
-## Конфигурация (.env)
+## Конфигурация vladimirov (.env)
 
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=deepseek-r1-ru:14b
+# URL чата в AI-сервисе. По умолчанию из PLANRUN_AI_API_URL ( .../chat )
+CHAT_AI_URL=http://localhost:8000/api/v1/chat
+# или задайте базовый URL планов — чат подставит /chat вместо /generate-plan
+PLANRUN_AI_API_URL=http://localhost:8000/api/v1/generate-plan
 ```
 
-## Запуск Ollama
+Если `CHAT_AI_URL` не задан, используется URL из `PLANRUN_AI_API_URL` с путём `/api/v1/chat`.
 
-```bash
-ollama serve
-ollama pull deepseek-r1-ru:14b
-```
+## Конфигурация PlanRun AI (ai)
+
+В окружении сервиса (systemd или .env в `ai/planrun_ai_service`) должны быть:
+
+- `LMSTUDIO_BASE_URL=http://localhost:1234/v1`
+- `LMSTUDIO_CHAT_MODEL=...` — идентификатор модели в LM Studio
+
+Запуск LM Studio на сервере: см. документацию в `altervision/server/docs/LM_STUDIO_UBUNTU_GUI.md` и `ai/planrun_ai_service`.
 
 ## Ошибка 500 при отправке сообщения
 
-### 1. Ollama недоступен
+### 1. PlanRun AI недоступен
 
-Если PHP (Apache/Nginx) работает на другом хосте или в Docker, `localhost:11434` может быть недоступен.
+Проверьте, что сервис на 8000 отвечает: `curl -s http://localhost:8000/api/v1/chat -X POST -H "Content-Type: application/json" -d '{"messages":[{"role":"user","content":"Привет"}],"stream":false}'`
 
-**Решение:** укажите IP-адрес машины с Ollama в `.env`:
-```env
-OLLAMA_BASE_URL=http://192.168.0.6:11434
-```
+В `.env` vladimirov укажите правильный `CHAT_AI_URL` (или `PLANRUN_AI_API_URL`).
 
-### 2. Модель не найдена
+### 2. LM Studio недоступен для ai-сервиса
 
-Проверьте доступные модели:
-```bash
-ollama list
-```
-
-Убедитесь, что `OLLAMA_CHAT_MODEL` совпадает с именем модели (например `deepseek-r1-ru:14b`).
+Ошибка будет со стороны PlanRun AI (503). Проверьте в ai: `LMSTUDIO_BASE_URL`, запущен ли LM Studio (`lms server start`).
 
 ### 3. Логи
 
-Проверьте логи в `planrun-backend/logs/`:
-```bash
-tail -f planrun-backend/logs/error_*.log
-```
-
-### 4. Ручная проверка Ollama
-
-```bash
-curl http://localhost:11434/api/chat -d '{"model":"deepseek-r1-ru:14b","messages":[{"role":"user","content":"Привет"}],"stream":false}'
-```
-
-Если ответ приходит — Ollama работает, проблема в настройках PHP/веб-сервера.
+- vladimirov: `planrun-backend/logs/error_*.log`
+- PlanRun AI: `journalctl -u planrun-ai.service -f`
 
 ---
 

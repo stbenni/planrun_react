@@ -218,7 +218,9 @@ class AuthController extends BaseController {
             if ($userId && $username !== null) {
                 $avatarPath = null;
                 $role = 'user';
-                $stmt = $this->db->prepare('SELECT avatar_path, role FROM users WHERE id = ? LIMIT 1');
+                $onboardingCompleted = 1;
+                $row = null;
+                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone FROM users WHERE id = ? LIMIT 1');
                 if ($stmt) {
                     $stmt->bind_param('i', $userId);
                     $stmt->execute();
@@ -231,15 +233,21 @@ class AuthController extends BaseController {
                         if (!empty($row['role'])) {
                             $role = $row['role'];
                         }
+                        if (isset($row['onboarding_completed'])) {
+                            $onboardingCompleted = (int) $row['onboarding_completed'];
+                        }
                     }
                 }
+                $timezone = (isset($row) && !empty($row['timezone'])) ? $row['timezone'] : 'Europe/Moscow';
                 $this->returnSuccess([
                     'authenticated' => true,
                     'user_id' => $userId,
                     'username' => $username,
                     'avatar_path' => $avatarPath,
                     'role' => $role,
-                    'auth_method' => $authMethod
+                    'auth_method' => $authMethod,
+                    'onboarding_completed' => $onboardingCompleted,
+                    'timezone' => $timezone
                 ]);
                 return;
             }

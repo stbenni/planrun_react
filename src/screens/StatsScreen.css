@@ -9,6 +9,10 @@
   background: var(--gray-50);
   min-height: 100vh;
   padding-bottom: 100px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  box-sizing: border-box;
 }
 
 /* Отступ сверху для TopHeader на десктопах */
@@ -149,75 +153,83 @@
   gap: 24px;
 }
 
+/* Сетка метрик — такой же вид, как в виджете статистики на дашборде */
 .stats-metrics-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 12px;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 900px) {
   .stats-metrics-grid {
     grid-template-columns: repeat(4, 1fr);
   }
 }
 
-.stat-metric-card {
-  background: white;
+.stats-metrics-grid .dashboard-stat-metric-card {
+  background: var(--gray-50);
   border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+  border: 1px solid var(--gray-200);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  transition: all 200ms ease;
+  gap: 8px;
+  text-align: center;
 }
 
-[data-theme="dark"] .stat-metric-card {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+.stats-metrics-grid .dashboard-stat-metric-card__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--gray-600);
+}
+
+.stats-metrics-grid .dashboard-stat-metric-card__icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.stats-metrics-grid .dashboard-stat-metric-card__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.stats-metrics-grid .dashboard-stat-metric-card__number {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--gray-900);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stats-metrics-grid .dashboard-stat-metric-card__unit {
+  font-size: var(--text-sm);
+  color: var(--gray-600);
+  font-weight: var(--font-medium);
+}
+
+[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--card-border);
+}
+
+[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__label {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__number {
   color: var(--text-primary);
 }
 
-.stat-metric-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-
-.stat-metric-card .metric-icon {
-  font-size: 40px;
-  line-height: 1;
-}
-
-.stat-metric-card .metric-content {
-  flex: 1;
-}
-
-.stat-metric-card .metric-value {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--primary-500);
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.stat-metric-card .metric-unit {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-  font-weight: var(--font-medium);
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-.stat-metric-card .metric-label {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-  font-weight: var(--font-medium);
-  line-height: 1.4;
-  text-transform: lowercase;
-}
-
-[data-theme="dark"] .stat-metric-card .metric-unit,
-[data-theme="dark"] .stat-metric-card .metric-label {
+[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__unit {
   color: var(--text-secondary);
 }
 
@@ -1454,7 +1466,34 @@
 }
 
 [data-theme="dark"] .workout-chart-container {
-  background: var(--gray-800);
+  background: transparent;
+}
+
+/* Заливка под линией графика — светлая тема */
+.workout-chart-svg .workout-chart-area--hr {
+  fill: rgba(239, 68, 68, 0.12);
+}
+
+.workout-chart-svg .workout-chart-area--pace {
+  fill: rgba(252, 76, 2, 0.1);
+}
+
+[data-theme="dark"] .workout-chart-svg .workout-chart-area--hr {
+  fill: rgba(255, 82, 82, 0.25);
+}
+
+[data-theme="dark"] .workout-chart-svg .workout-chart-area--pace {
+  fill: rgba(255, 107, 61, 0.2);
+}
+
+/* Обводка точки при наведении */
+.workout-chart-svg .workout-chart-marker {
+  stroke: white;
+  stroke-width: 2;
+}
+
+[data-theme="dark"] .workout-chart-svg .workout-chart-marker {
+  stroke: var(--bg-primary);
 }
 
 .workout-chart-title {
@@ -1464,7 +1503,11 @@
 }
 
 [data-theme="dark"] .workout-chart-title {
-  color: var(--gray-100);
+  color: #fff;
+}
+
+[data-theme="dark"] .workout-chart-title .workout-chart-title-icon {
+  color: var(--danger-500);
 }
 
 .workout-chart-wrapper {
@@ -1484,7 +1527,7 @@
 .workout-chart-legend {
   display: flex;
   gap: 16px;
-  margin-top: 8px;
+  margin-top: -35px;
   margin-bottom: 0;
   font-size: 12px;
   color: var(--gray-600);
@@ -1721,6 +1764,9 @@
   .stats-metrics-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .stats-time-range {
+    margin: 0;
+  }
 
   .chart-bars {
     gap: 2px;
@@ -1732,5 +1778,10 @@
 
   .achievements-grid {
     grid-template-columns: 1fr;
+  }
+  .workout-item {
+    padding: 10px 0;
+    flex-direction: column;
+    align-items: start;
   }
 }

@@ -29,7 +29,7 @@ const usePlanStore = create((set, get) => ({
       
       set({ 
         plan: planData,
-        hasPlan: !!planData && (planData.phases?.length > 0 || planData.weeks?.length > 0),
+        hasPlan: !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0,
         loading: false 
       });
       
@@ -144,7 +144,7 @@ const usePlanStore = create((set, get) => ({
   setPlan: (planData) => {
     set({ 
       plan: planData,
-      hasPlan: !!planData && (planData.phases?.length > 0 || planData.weeks?.length > 0)
+      hasPlan: !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0
     });
   }
 }));

@@ -29,9 +29,6 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
         </div>
       )}
       <div className="landing-header">
-        <div className="landing-logo">
-          🏃‍♂️ planRUN
-        </div>
         <div className="landing-nav">
           {registrationEnabled && (
           <button

@@ -56,6 +56,7 @@ class ChatController extends BaseController {
      */
     public function sendMessage() {
         if (!$this->requireAuth()) return;
+        set_time_limit(300);
 
         $data = $this->getJsonBody();
         $content = trim($data['content'] ?? $data['message'] ?? '');
@@ -84,6 +85,7 @@ class ChatController extends BaseController {
      */
     public function sendMessageStream() {
         if (!$this->requireAuth()) return;
+        set_time_limit(300);
 
         $data = $this->getJsonBody();
         $content = trim($data['content'] ?? $data['message'] ?? '');
@@ -105,6 +107,21 @@ class ChatController extends BaseController {
             if (ob_get_level()) ob_end_clean();
 
             $this->chatService->streamResponse($this->currentUserId, $content);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Очистить чат с AI
+     * POST chat_clear_ai
+     */
+    public function clearAiChat() {
+        if (!$this->requireAuth()) return;
+
+        try {
+            $this->chatService->clearAiChat($this->currentUserId);
+            $this->returnSuccess(['ok' => true]);
         } catch (Exception $e) {
             $this->handleException($e);
         }

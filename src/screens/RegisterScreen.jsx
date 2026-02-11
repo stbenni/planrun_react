@@ -1,19 +1,26 @@
 /**
- * Экран регистрации нового пользователя
- * Полная многошаговая форма со всеми полями
+ * Экран регистрации: только минимальная (логин, email, пароль) или специализация (после входа).
+ * Полная многошаговая форма не используется — везде минимальная регистрация, затем специализация на дашборде.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import './RegisterScreen.css';
+import './LoginScreen.css'; /* стили логина для короткого попапа регистрации */
 
-const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
+const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalOnly, specializationOnly, onSpecializationSuccess }) => {
   const navigate = useNavigate();
-  const { api } = useAuthStore();
+  const { api, updateUser } = useAuthStore();
+  // Везде только два режима: специализация (попап после входа) или минимальная регистрация (логин/email/пароль)
+  const isMinimalFlow = !specializationOnly;
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Шаг верификации email: 'form' → 'code'
+  const [verificationStep, setVerificationStep] = useState('form');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeAttemptsLeft, setCodeAttemptsLeft] = useState(3);
   
   // Данные формы - все поля
   const [formData, setFormData] = useState({
@@ -26,7 +33,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
     email: '',
     
     // Шаг 2: Цель
-    goal_type: 'health',
+    goal_type: '',
     race_distance: '',
     race_date: '',
     race_target_time: '',
@@ -47,6 +54,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
     weekly_base_km: '',
     sessions_per_week: '',
     preferred_days: [],
+    will_do_ofp: '', // '' | 'yes' | 'no' — показываем вопросы ОФП только при 'yes'
     preferred_ofp_days: [],
     ofp_preference: '',
     training_time_pref: '',
@@ -69,6 +77,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
   const [showWeightLossFields, setShowWeightLossFields] = useState(false);
   const [showHealthFields, setShowHealthFields] = useState(false);
   const [showHealthPlanWeeks, setShowHealthPlanWeeks] = useState(false);
+  const [goalStepFieldsHeight, setGoalStepFieldsHeight] = useState(0);
+  const goalStepFieldsInnerRef = useRef(null);
 
   // Функция для получения следующего понедельника
   function getNextMonday() {
@@ -90,16 +100,47 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
     setShowHealthPlanWeeks(formData.health_program === 'custom');
   }, [formData.goal_type, formData.health_program]);
 
+  // Замер высоты блока цели для плавной анимации при переключении селекта
+  useEffect(() => {
+    if (!formData.goal_type) {
+      setGoalStepFieldsHeight(0);
+      return;
+    }
+    const measure = () => {
+      const el = goalStepFieldsInnerRef.current;
+      if (el) setGoalStepFieldsHeight(el.scrollHeight);
+    };
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(measure);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [formData.goal_type, showRaceFields, showWeightLossFields, showHealthFields, showHealthPlanWeeks, formData.health_program]);
+
+  // При смене шага плавно прокручиваем форму вверх (в модалке — тело модалки, иначе окно)
+  useEffect(() => {
+    const el = document.querySelector('.app-modal-body');
+    if (el) {
+      el.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [step]);
+
   // Для режима self пропускаем шаг 2 (цель)
   const getTotalSteps = () => {
+    if (specializationOnly) {
+      return formData.training_mode === 'self' ? 2 : 3; // режим, (цель), профиль
+    }
     return formData.training_mode === 'self' ? 3 : 4;
   };
 
   // Текущий индекс шага для прогресса и индикатора (0..totalSteps-1).
-  // Для self шаги 0, 1, 3 → отображаем как 0, 1, 2.
   const getCurrentStepIndex = () => {
+    if (specializationOnly) {
+      return step; // 0, 1, 2
+    }
     if (formData.training_mode === 'self') {
-      return step === 3 ? 2 : step; // 0 → 0, 1 → 1, 3 → 2
+      return step === 3 ? 2 : step;
     }
     return step;
   };
@@ -135,23 +176,102 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
 
   const validateField = async (field, value) => {
     const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) return true;
-    
+    if (!currentApi) return { valid: true };
     try {
       const result = await currentApi.validateField(field, value);
       if (!result.valid) {
-        setValidationErrors(prev => ({ ...prev, [field]: result.message }));
-        return false;
+        setValidationErrors(prev => ({ ...prev, [field]: result.message || '' }));
+        return { valid: false, message: result.message };
       }
-      return true;
+      return { valid: true };
     } catch (err) {
       console.error('Validation error:', err);
-      return true;
+      return { valid: true };
     }
   };
 
   const handleNext = async () => {
     setError('');
+    
+    if (isMinimalFlow) {
+      await handleSubmitMinimal();
+      return;
+    }
+    
+    if (specializationOnly) {
+      if (step === 0) {
+        if (!formData.training_mode) {
+          setError('Пожалуйста, выберите режим тренировок');
+          return;
+        }
+        if (formData.training_mode === 'self') {
+          setStep(1); // сразу к профилю
+        } else {
+          setStep(1); // цель
+        }
+      } else if (step === 1) {
+        if (formData.training_mode === 'self') {
+          // Режим «самостоятельно»: шаг 1 уже профиль — сразу сохраняем, без перехода на шаг 2
+          if (!formData.gender) {
+            setError('Пожалуйста, выберите пол');
+            return;
+          }
+          await handleSubmitSpecialization();
+          return;
+        }
+        if (formData.training_mode !== 'self') {
+          if (!formData.goal_type) {
+            setError('Выберите цель');
+            return;
+          }
+          if (formData.goal_type === 'race') {
+            if (!formData.race_date && !formData.target_marathon_date) {
+              setError('Укажите дату забега или целевую дату');
+              return;
+            }
+          } else if (formData.goal_type === 'time_improvement') {
+            if (!formData.target_marathon_date && !formData.race_date) {
+              setError('Укажите дату марафона или дату забега');
+              return;
+            }
+          } else if (formData.goal_type === 'weight_loss') {
+            if (!formData.weight_goal_kg) setError('Укажите целевой вес');
+            else if (!formData.weight_goal_date) setError('Укажите дату достижения цели');
+            else setStep(2);
+            return;
+          } else if (formData.goal_type === 'health') {
+            if (!formData.health_program) {
+              setError('Выберите программу');
+              return;
+            }
+            if (formData.health_program === 'custom' && !formData.health_plan_weeks) {
+              setError('Укажите срок плана');
+              return;
+            }
+          }
+          if (!formData.training_start_date) {
+            setError('Укажите дату начала тренировок');
+            return;
+          }
+        }
+        setStep(2);
+      } else if (step === 2) {
+        if (!formData.gender) {
+          setError('Пожалуйста, выберите пол');
+          return;
+        }
+        if (formData.training_mode !== 'self' && !formData.experience_level) {
+          setError('Укажите ваш опыт');
+          return;
+        }
+        if (formData.training_mode !== 'self' && !formData.will_do_ofp) {
+          setError('Ответьте, планируете ли вы делать ОФП');
+          return;
+        }
+        await handleSubmitSpecialization();
+      }
+      return;
+    }
     
     if (step === 0) {
       // Шаг 0: Режим тренировок
@@ -180,15 +300,14 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
         return;
       }
       
-      const usernameValid = await validateField('username', formData.username);
-      if (!usernameValid) {
-        setError(validationErrors.username || 'Имя пользователя уже занято');
+      const usernameResult = await validateField('username', formData.username);
+      if (!usernameResult.valid) {
+        setError(usernameResult.message || 'Имя пользователя уже занято');
         return;
       }
-      
-      const emailValid = await validateField('email', formData.email.trim());
-      if (!emailValid) {
-        setError(validationErrors.email || 'Некорректный email или уже используется');
+      const emailResult = await validateField('email', formData.email.trim());
+      if (!emailResult.valid) {
+        setError(emailResult.message || 'Некорректный email или уже используется');
         return;
       }
       
@@ -199,6 +318,10 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
       }
     } else if (step === 2) {
       // Шаг 2: Цель — валидация в зависимости от типа цели
+      if (!formData.goal_type) {
+        setError('Выберите цель');
+        return;
+      }
       if (formData.goal_type === 'race') {
         if (!formData.race_date && !formData.target_marathon_date) {
           setError('Укажите дату забега или целевую дату');
@@ -244,6 +367,11 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
       
       if (formData.training_mode !== 'self' && !formData.experience_level) {
         setError('Укажите ваш опыт');
+        return;
+      }
+      
+      if (formData.training_mode !== 'self' && !formData.will_do_ofp) {
+        setError('Ответьте, планируете ли вы делать ОФП');
         return;
       }
       
@@ -308,22 +436,251 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
     }
   };
 
+  const handleSubmitMinimal = async () => {
+    setLoading(true);
+    setError('');
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) {
+      setError('API не инициализирован.');
+      setLoading(false);
+      return;
+    }
+    if (verificationStep === 'form') {
+      if (!formData.username || formData.username.length < 3) {
+        setError('Имя пользователя не менее 3 символов');
+        setLoading(false);
+        return;
+      }
+      if (!formData.password || formData.password.length < 6) {
+        setError('Пароль не менее 6 символов');
+        setLoading(false);
+        return;
+      }
+      if (!formData.email || !String(formData.email).trim()) {
+        setError('Введите email');
+        setLoading(false);
+        return;
+      }
+      try {
+        const usernameResult = await validateField('username', formData.username);
+        if (!usernameResult.valid) {
+          setError(usernameResult.message || 'Имя пользователя уже занято');
+          setLoading(false);
+          return;
+        }
+        const emailResult = await validateField('email', formData.email.trim());
+        if (!emailResult.valid) {
+          setError(emailResult.message || 'Некорректный email или уже используется');
+          setLoading(false);
+          return;
+        }
+        await currentApi.sendVerificationCode(formData.email.trim());
+        setVerificationStep('code');
+        setVerificationCode('');
+        setCodeAttemptsLeft(3);
+      } catch (err) {
+        setError(err.message || 'Не удалось отправить код');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    // verificationStep === 'code' — подтверждение кода и создание аккаунта
+    const codeDigits = (verificationCode || '').replace(/\D/g, '');
+    if (codeDigits.length !== 6) {
+      setError('Введите 6-значный код из письма');
+      setLoading(false);
+      return;
+    }
+    try {
+      const result = await currentApi.registerMinimal({
+        username: formData.username,
+        email: formData.email.trim(),
+        password: formData.password,
+        verification_code: codeDigits,
+      });
+      if (result.success) {
+        useAuthStore.setState({ user: result.user || { authenticated: true }, isAuthenticated: true });
+        if (onRegister) onRegister(result.user);
+        navigate('/', { state: { registrationSuccess: true } });
+      } else {
+        setError(result.error || 'Ошибка регистрации');
+      }
+    } catch (err) {
+      setError(err.message || 'Ошибка регистрации');
+      if (typeof err.attempts_left === 'number') setCodeAttemptsLeft(err.attempts_left);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitSpecialization = async () => {
+    setLoading(true);
+    setError('');
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) {
+      setError('API не инициализирован.');
+      setLoading(false);
+      return;
+    }
+    try {
+      const submitData = {
+        ...formData,
+        preferred_days: formData.preferred_days,
+        preferred_ofp_days: formData.preferred_ofp_days,
+        has_treadmill: formData.has_treadmill ? 1 : 0,
+        is_first_race_at_distance: formData.is_first_race_at_distance ? 1 : 0,
+        sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || null,
+      };
+      const result = await currentApi.completeSpecialization(submitData);
+      if (result.success) {
+        const userData = await currentApi.getCurrentUser();
+        if (userData) updateUser(userData);
+        onSpecializationSuccess?.();
+        onClose?.();
+      } else {
+        setError(result.error || 'Ошибка сохранения');
+      }
+    } catch (err) {
+      setError(err.message || 'Ошибка сохранения');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const totalSteps = getTotalSteps();
   const currentStepIndex = getCurrentStepIndex();
   const progress = ((currentStepIndex + 1) / totalSteps) * 100;
   const dayLabels = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
 
+  /* Короткий попап регистрации в стиле окна логина */
+  if (embedInModal && isMinimalFlow) {
+    const isCodeStep = verificationStep === 'code';
+    return (
+      <div className="login-content login-content--inline login-content--login">
+        <h1 className="login-title">PlanRun</h1>
+        <p className="login-subtitle">{isCodeStep ? 'Подтверждение email' : 'Регистрация'}</p>
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleNext(); }}
+          onFocusCapture={() => error && setError('')}
+          className="login-form"
+        >
+          {!isCodeStep ? (
+            <>
+              <input
+                type="text"
+                className="login-input"
+                placeholder="Логин"
+                value={formData.username}
+                onChange={(e) => handleChange('username', e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                disabled={loading}
+              />
+              <input
+                type="email"
+                className="login-input"
+                placeholder="Email"
+                value={formData.email}
+                onChange={(e) => handleChange('email', e.target.value)}
+                autoComplete="email"
+                disabled={loading}
+              />
+              <input
+                type="password"
+                className="login-input"
+                placeholder="Пароль"
+                value={formData.password}
+                onChange={(e) => handleChange('password', e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                disabled={loading}
+              />
+            </>
+          ) : (
+            <>
+              <p className="register-code-hint">Код отправлен на <strong>{formData.email}</strong></p>
+              <p className="register-code-spam">Если письма нет во входящих, проверьте папку «Спам».</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                className="login-input register-code-input"
+                placeholder="000000"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                autoComplete="one-time-code"
+                disabled={loading}
+                autoFocus
+              />
+              <p className="register-attempts">Осталось попыток: {codeAttemptsLeft}</p>
+            </>
+          )}
+          {error && <div className="login-error">{error}</div>}
+          <button
+            type="button"
+            className="login-button"
+            disabled={loading}
+            onClick={(e) => { e.preventDefault(); handleNext(); }}
+          >
+            {loading ? (isCodeStep ? 'Проверка...' : 'Отправка...') : isCodeStep ? 'Подтвердить' : 'Далее'}
+          </button>
+          {isCodeStep && (
+            <button
+              type="button"
+              className="register-resend-code"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (loading) return;
+                setError('');
+                setLoading(true);
+                try {
+                  await (api || useAuthStore.getState().api)?.sendVerificationCode(formData.email.trim());
+                  setCodeAttemptsLeft(3);
+                  setVerificationCode('');
+                  setError('');
+                } catch (err) {
+                  setError(err.message || 'Не удалось отправить код');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              Запросить код повторно
+            </button>
+          )}
+        </form>
+      </div>
+    );
+  }
+
   const formContent = (
       <div className={embedInModal ? 'register-content register-content--modal' : 'register-content'}>
-        <h1 className="register-title">🏃 Начните свой путь</h1>
-        <p className="register-subtitle">Создайте персональный план тренировок</p>
+        <h1 className="register-title">{isMinimalFlow ? 'Регистрация' : 'Настройте свой план'}</h1>
+        <p className="register-subtitle">
+          {isMinimalFlow ? 'Логин, email и пароль — потом настроите план на дашборде' : 'Выберите режим, цель и заполните профиль'}
+        </p>
         
+        {!isMinimalFlow && (
+        <>
         <div className="register-step-progress">
           <div className="register-step-progress-fill" style={{ width: `${progress}%` }}></div>
         </div>
         
         <div className="step-indicator">
-          {formData.training_mode === 'self' ? (
+          {specializationOnly ? (
+            formData.training_mode === 'self' ? (
+            <>
+              <div className={`step ${currentStepIndex >= 0 ? 'active' : ''}`}>1. Режим</div>
+              <div className={`step ${currentStepIndex >= 1 ? 'active' : ''}`}>2. Профиль</div>
+            </>
+          ) : (
+            <>
+              <div className={`step ${currentStepIndex >= 0 ? 'active' : ''}`}>1. Режим</div>
+              <div className={`step ${currentStepIndex >= 1 ? 'active' : ''}`}>2. Цель</div>
+              <div className={`step ${currentStepIndex >= 2 ? 'active' : ''}`}>3. Профиль</div>
+            </>
+          )) : formData.training_mode === 'self' ? (
             <>
               <div className={`step ${currentStepIndex >= 0 ? 'active' : ''}`}>1. Режим</div>
               <div className={`step ${currentStepIndex >= 1 ? 'active' : ''}`}>2. Аккаунт</div>
@@ -338,6 +695,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
             </>
           )}
         </div>
+        </>
+        )}
 
         {error && <div className="register-error">{error}</div>}
 
@@ -346,15 +705,90 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
           onFocusCapture={() => error && setError('')}
           className="register-form"
         >
-          {/* Шаг 0: Выбор режима */}
-          {step === 0 && (
+          {/* Минимальная регистрация: аккаунт → код подтверждения */}
+          {isMinimalFlow && (
             <div className="form-step">
-              <h2>🏃 Добро пожаловать в PlanRun!</h2>
+              {verificationStep === 'form' ? (
+                <>
+                  <div className="form-group">
+                    <label>Имя пользователя <span className="required">*</span></label>
+                    <input type="text" value={formData.username} onChange={(e) => handleChange('username', e.target.value)} placeholder="ivan_runner" required />
+                    {validationErrors.username && <small className="error-text">{validationErrors.username}</small>}
+                  </div>
+                  <div className="form-group">
+                    <label>Пароль <span className="required">*</span></label>
+                    <input type="password" value={formData.password} onChange={(e) => handleChange('password', e.target.value)} placeholder="Минимум 6 символов" minLength={6} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Email <span className="required">*</span></label>
+                    <input type="email" value={formData.email} onChange={(e) => handleChange('email', e.target.value)} placeholder="your@email.com" required />
+                    {validationErrors.email && <small className="error-text">{validationErrors.email}</small>}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="register-code-hint">Код отправлен на <strong>{formData.email}</strong>. Введите 6 цифр из письма.</p>
+                  <p className="register-code-spam">Если письма нет во входящих, проверьте папку «Спам».</p>
+                  <div className="form-group">
+                    <label>Код подтверждения <span className="required">*</span></label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      className="register-code-input"
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      autoComplete="one-time-code"
+                      disabled={loading}
+                    />
+                    <small className="register-attempts">Осталось попыток: {codeAttemptsLeft}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn--sm"
+                    disabled={loading}
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      if (loading) return;
+                      setError('');
+                      setLoading(true);
+                      try {
+                        await (api || useAuthStore.getState().api)?.sendVerificationCode(formData.email.trim());
+                        setCodeAttemptsLeft(3);
+                        setVerificationCode('');
+                      } catch (err) {
+                        setError(err.message || 'Не удалось отправить код');
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Запросить код повторно
+                  </button>
+                </>
+              )}
+              <div style={{ marginTop: 'var(--space-8)' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={loading}
+                  onClick={(e) => { e.preventDefault(); handleNext(); }}
+                >
+                  {loading ? (verificationStep === 'code' ? 'Проверка...' : 'Отправка...') : verificationStep === 'code' ? 'Подтвердить' : 'Далее'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Шаг 0: Выбор режима (только в режиме специализации) */}
+          {!isMinimalFlow && step === 0 && (
+            <div className="form-step">
               <p style={{ marginBottom: '30px', color: '#6b7280', fontSize: '1.05em' }}>
                 Выбери, как хочешь тренироваться:
               </p>
               
-              <div className="training-mode-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '30px' }}>
+              <div className="training-mode-grid">
                 <label
                   className="training-mode-option"
                   onClick={() => {
@@ -362,25 +796,22 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                     setStep(1);
                   }}
                 >
-                  <input
-                    type="radio"
-                    name="training_mode"
-                    value="ai"
-                    checked={formData.training_mode === 'ai'}
-                    onChange={() => {}}
-                    readOnly
-                  />
-                  <div style={{ fontSize: '3em', marginBottom: '15px' }}>🤖</div>
-                  <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>AI-ТРЕНЕР</div>
-                  <div style={{ color: '#6b7280', fontSize: '0.95em', marginBottom: '15px' }}>(бесплатно)</div>
-                  <ul style={{ textAlign: 'left', listStyle: 'none', padding: 0, margin: 0 }}>
-                    <li style={{ margin: '8px 0' }}>✓ AI создаст персональный план</li>
-                    <li style={{ margin: '8px 0' }}>✓ Адаптирует его каждую неделю</li>
-                    <li style={{ margin: '8px 0' }}>✓ Анализирует твой прогресс</li>
-                  </ul>
-                  <div className="training-mode-option-badge training-mode-option-badge--recommend">👈 Рекомендуем</div>
+                  <input type="radio" name="training_mode" value="ai" checked={formData.training_mode === 'ai'} onChange={() => {}} readOnly />
+                  <div className="training-mode-option__left">
+                    <div className="training-mode-option__icon">🤖</div>
+                    <div className="training-mode-option__title">AI-ТРЕНЕР</div>
+                    <div className="training-mode-option__price">(бесплатно)</div>
+                  </div>
+                  <div className="training-mode-option__right">
+                    <ul className="training-mode-option__list">
+                      <li>✓ AI создаст персональный план</li>
+                      <li>✓ Адаптирует его каждую неделю</li>
+                      <li>✓ Анализирует твой прогресс</li>
+                    </ul>
+                    <div className="training-mode-option-badge training-mode-option-badge--recommend">👈 Рекомендуем</div>
+                  </div>
+                 
                 </label>
-                
                 <label
                   className="training-mode-option"
                   onClick={() => {
@@ -388,108 +819,69 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                     setStep(1);
                   }}
                 >
-                  <input
-                    type="radio"
-                    name="training_mode"
-                    value="self"
-                    checked={formData.training_mode === 'self'}
-                    onChange={() => {}}
-                    readOnly
-                  />
-                  <div style={{ fontSize: '3em', marginBottom: '15px' }}>📝</div>
-                  <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>САМОСТОЯТЕЛЬНО</div>
-                  <div style={{ color: '#6b7280', fontSize: '0.95em', marginBottom: '15px' }}>(бесплатно)</div>
-                  <ul style={{ textAlign: 'left', listStyle: 'none', padding: 0, margin: 0 }}>
-                    <li style={{ margin: '8px 0' }}>✓ Создавай план сам</li>
-                    <li style={{ margin: '8px 0' }}>✓ Добавляй тренировки вручную</li>
-                    <li style={{ margin: '8px 0' }}>✓ Полный контроль над планом</li>
-                  </ul>
+                  <input type="radio" name="training_mode" value="self" checked={formData.training_mode === 'self'} onChange={() => {}} readOnly />
+                  <div className="training-mode-option__left">
+                    <div className="training-mode-option__icon">📝</div>
+                    <div className="training-mode-option__title">САМ</div>
+                    <div className="training-mode-option__price">(бесплатно)</div>
+                  </div>
+                  <div className="training-mode-option__right">
+                    <ul className="training-mode-option__list">
+                      <li>✓ Создавай план сам</li>
+                      <li>✓ Добавляй тренировки вручную</li>
+                      <li>✓ Полный контроль над планом</li>
+                    </ul>
+                  </div>
                 </label>
-                
                 <label className="training-mode-option training-mode-option--soon">
                   <input type="radio" name="training_mode" value="coach" disabled />
-                  <div style={{ fontSize: '3em', marginBottom: '15px' }}>👤</div>
-                  <div style={{ fontWeight: 700, fontSize: '1.2em', marginBottom: '10px' }}>ЖИВОЙ ТРЕНЕР</div>
-                  <div style={{ color: '#6b7280', fontSize: '0.95em', marginBottom: '15px' }}>(от 1000₽/мес)</div>
-                  <ul style={{ textAlign: 'left', listStyle: 'none', padding: 0, margin: 0 }}>
-                    <li style={{ margin: '8px 0' }}>✓ Персональный тренер</li>
-                    <li style={{ margin: '8px 0' }}>✓ Корректировки плана в реальном времени</li>
-                    <li style={{ margin: '8px 0' }}>✓ Поддержка и мотивация</li>
-                  </ul>
-                  <div className="training-mode-option-badge training-mode-option-badge--soon">Скоро</div>
+                  <div className="training-mode-option__left">
+                    <div className="training-mode-option__icon">👤</div>
+                    <div className="training-mode-option__title">ЖИВОЙ ТРЕНЕР</div>
+                    <div className="training-mode-option__price">(от 1000₽/мес)</div>
+                  </div>
+                  <div className="training-mode-option__right">
+                    <ul className="training-mode-option__list">
+                      <li>✓ Персональный тренер</li>
+                      <li>✓ Корректировки плана</li>
+                      <li>в реальном времени</li>
+                      <li>✓ Поддержка и мотивация</li>
+                    </ul>
+                    <div className="training-mode-option-badge training-mode-option-badge--soon">Скоро</div>
+                  </div>
                 </label>
               </div>
             </div>
           )}
 
-          {/* Шаг 1: Аккаунт */}
-          {step === 1 && (
-            <div className="form-step">
-              <h2>Создайте аккаунт</h2>
-              <div className="form-group">
-                <label>Имя пользователя <span className="required">*</span></label>
-                <input
-                  type="text"
-                  value={formData.username}
-                  onChange={(e) => handleChange('username', e.target.value)}
-                  placeholder="ivan_runner"
-                  required
-                />
-                <small>Будет использоваться для входа и вашего персонального URL</small>
-                {validationErrors.username && (
-                  <small className="error-text">{validationErrors.username}</small>
-                )}
-              </div>
-              
-              <div className="form-group">
-                <label>Пароль <span className="required">*</span></label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => handleChange('password', e.target.value)}
-                  placeholder="Минимум 6 символов"
-                  minLength={6}
-                  required
-                />
-                <small>Используйте надежный пароль</small>
-              </div>
-              
-              <div className="form-group">
-                <label>Email <span className="required">*</span></label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleChange('email', e.target.value)}
-                  placeholder="your@email.com"
-                  required
-                />
-                <small>Для восстановления пароля и уведомлений</small>
-                {validationErrors.email && (
-                  <small className="error-text">{validationErrors.email}</small>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Шаг 2: Цель */}
-          {step === 2 && (
+          {/* Шаг 2: Цель (только в режиме специализации) */}
+          {!isMinimalFlow && ((!specializationOnly && step === 2) || (specializationOnly && step === 1 && formData.training_mode !== 'self')) && (
             <div className="form-step">
               <h2>🎯 Какая у тебя цель?</h2>
               
               <div className="form-group">
                 <label>Что вы хотите достичь? <span className="required">*</span></label>
                 <select
+                  className="goal-type-select"
                   value={formData.goal_type}
                   onChange={(e) => handleChange('goal_type', e.target.value)}
                   required
                 >
+                  <option value="">Выберите</option>
                   <option value="health">Просто бегать для здоровья</option>
                   <option value="race">Подготовка к забегу</option>
                   <option value="weight_loss">Снижение веса</option>
                   <option value="time_improvement">Улучшить время</option>
                 </select>
               </div>
-              
+
+              <div
+                className={`goal-step-fields-wrap ${formData.goal_type ? 'goal-step-fields-wrap--visible' : ''}`}
+                style={{ maxHeight: formData.goal_type ? goalStepFieldsHeight : 0 }}
+              >
+                <div ref={goalStepFieldsInnerRef} className="goal-step-fields-wrap__inner">
+              <div className="goal-recommendations">
+                <div className="goal-recommendations__content">
               {/* Поля для забега */}
               {showRaceFields && (
                 <div>
@@ -615,8 +1007,10 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                   
                 </div>
               )}
-              
-              <div className="form-group" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e5e7eb' }}>
+                </div>
+              </div>
+
+              <div className="form-group goal-step-date-field" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e5e7eb' }}>
                 <label>📅 С какого дня начинаем тренировки? <span className="required">*</span></label>
                 <input
                   type="date"
@@ -627,11 +1021,13 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                 />
                 <small>Выбери дату начала тренировок. План будет рассчитан от этой даты до цели.</small>
               </div>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Шаг 3: Профиль */}
-          {step === 3 && (
+          {/* Шаг 3: Профиль (только в режиме специализации) */}
+          {!isMinimalFlow && ((!specializationOnly && step === 3) || (specializationOnly && (step === 2 || (step === 1 && formData.training_mode === 'self')))) && (
             <div className="form-step">
               <h2>Ваш профиль</h2>
               
@@ -655,7 +1051,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               
               <div className="form-group">
                 <label>Пол <span className="required">*</span></label>
-                <div className="form-row">
+                <div className="form-row form-row--two-cols profile-gender-row">
                   <label className={`gender-option ${formData.gender === 'male' ? 'selected' : ''}`}>
                     <input
                       type="radio"
@@ -683,7 +1079,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
               
               {formData.training_mode !== 'self' && (
                 <>
-                  <div className="form-row">
+                  <div className="form-row form-row--two-cols">
                     <div className="form-group">
                       <label>Год рождения</label>
                       <input
@@ -752,7 +1148,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                       />
                       <small>км в неделю</small>
                     </div>
-                    <div className="form-group">
+                    <div className="form-group hidden">
                       <label>Тренировок в неделю</label>
                       <input
                         type="number"
@@ -963,39 +1359,68 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
                       ))}
                     </div>
                   </div>
-                  
+
                   <div className="form-group">
-                    <label>Выбери дни для ОФП</label>
-                    <div className="checkbox-group">
-                      {Object.entries(dayLabels).map(([key, label]) => (
-                        <label key={key} className="checkbox-item">
-                          <input
-                            type="checkbox"
-                            value={key}
-                            checked={formData.preferred_ofp_days.includes(key)}
-                            onChange={(e) => handleArrayChange('preferred_ofp_days', key, e.target.checked)}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
+                    <label>Планируете ли вы делать ОФП? <span className="required">*</span></label>
+                    <small style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>ОФП — общая физическая подготовка (силовые, растяжка)</small>
+                    <div className="form-row form-row--two-cols ofp-choice-row">
+                      <label className={`gender-option ${formData.will_do_ofp === 'yes' ? 'selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="will_do_ofp"
+                          value="yes"
+                          checked={formData.will_do_ofp === 'yes'}
+                          onChange={(e) => handleChange('will_do_ofp', e.target.value)}
+                        />
+                        Да
+                      </label>
+                      <label className={`gender-option ${formData.will_do_ofp === 'no' ? 'selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="will_do_ofp"
+                          value="no"
+                          checked={formData.will_do_ofp === 'no'}
+                          onChange={(e) => handleChange('will_do_ofp', e.target.value)}
+                        />
+                        Нет
+                      </label>
                     </div>
-                    <small>ОФП — общая физическая подготовка (силовые упражнения, растяжка)</small>
                   </div>
-                  
-                  <div className="form-group">
-                    <label>Где удобно делать ОФП?</label>
-                    <select
-                      value={formData.ofp_preference}
-                      onChange={(e) => handleChange('ofp_preference', e.target.value)}
-                    >
-                      <option value="">Не важно</option>
-                      <option value="gym">В тренажерном зале (с тренажерами)</option>
-                      <option value="home">Дома самостоятельно</option>
-                      <option value="both">И в зале, и дома</option>
-                      <option value="group_classes">Групповые занятия</option>
-                      <option value="online">Онлайн-платформы</option>
-                    </select>
-                    <small>Это поможет составить более подходящий план тренировок</small>
+
+                  <div className={`ofp-fields-wrap ${formData.will_do_ofp === 'yes' ? 'ofp-fields-wrap--visible' : ''}`}>
+                    <div className="ofp-fields-wrap__inner">
+                      <div className="form-group">
+                        <label>Выбери дни для ОФП</label>
+                        <div className="checkbox-group">
+                          {Object.entries(dayLabels).map(([key, label]) => (
+                            <label key={key} className="checkbox-item">
+                              <input
+                                type="checkbox"
+                                value={key}
+                                checked={formData.preferred_ofp_days.includes(key)}
+                                onChange={(e) => handleArrayChange('preferred_ofp_days', key, e.target.checked)}
+                              />
+                              <span>{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label>Где удобно делать ОФП?</label>
+                        <select
+                          value={formData.ofp_preference}
+                          onChange={(e) => handleChange('ofp_preference', e.target.value)}
+                        >
+                          <option value="">Не важно</option>
+                          <option value="gym">В тренажерном зале (с тренажерами)</option>
+                          <option value="home">Дома самостоятельно</option>
+                          <option value="both">И в зале, и дома</option>
+                          <option value="group_classes">Групповые занятия</option>
+                          <option value="online">Онлайн-платформы</option>
+                        </select>
+                        <small>Это поможет составить более подходящий план тренировок</small>
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="form-row">
@@ -1048,29 +1473,36 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose }) => {
             </div>
           )}
 
-          {step > 0 && (
-            <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-8)' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  if (step === 3 && formData.training_mode === 'self') {
-                    setStep(1);
-                  } else {
-                    setStep(step - 1);
-                  }
-                }}
-                disabled={loading}
-              >
-                ← Назад
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={loading}
-              >
-                {loading ? 'Обработка...' : step === 3 ? 'Создать аккаунт' : 'Далее →'}
-              </button>
+          {!isMinimalFlow && (step > 0 || specializationOnly) && (
+            <div className="register-form-actions">
+              {step > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn--block"
+                  onClick={() => {
+                    if (specializationOnly) {
+                      setStep(step - 1);
+                    } else if (step === 3 && formData.training_mode === 'self') {
+                      setStep(1);
+                    } else {
+                      setStep(step - 1);
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  ← Назад
+                </button>
+              )}
+              {step !== 0 && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn--block"
+                  disabled={loading}
+                  onClick={(e) => { e.preventDefault(); handleNext(); }}
+                >
+                  {loading ? 'Обработка...' : (specializationOnly && step === totalSteps - 1) ? 'Сохранить' : (step === 3 || (specializationOnly && step === 2)) ? 'Создать аккаунт' : 'Далее →'}
+                </button>
+              )}
             </div>
           )}
         </form>

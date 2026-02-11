@@ -35,7 +35,7 @@ class TrainingPlanService extends BaseService {
             
             if (empty($planData)) {
                 return [
-                    'phases' => [],
+                    'weeks_data' => [],
                     'has_plan' => false
                 ];
             }
@@ -80,26 +80,15 @@ class TrainingPlanService extends BaseService {
             
             // Загружаем план
             $planData = loadTrainingPlanForUser($userId);
-            $hasPlan = !empty($planData) && isset($planData['phases']) && is_array($planData['phases']) && !empty($planData['phases']);
-            
-            // Дополнительная проверка: есть ли хотя бы одна фаза с неделями
-            if ($hasPlan) {
-                $hasWeeks = false;
-                foreach ($planData['phases'] as $phase) {
-                    if (isset($phase['weeks_data']) && is_array($phase['weeks_data']) && !empty($phase['weeks_data'])) {
-                        $hasWeeks = true;
-                        break;
-                    }
-                }
-                $hasPlan = $hasWeeks;
-            }
-            
+            $weeksData = isset($planData['weeks_data']) && is_array($planData['weeks_data']) ? $planData['weeks_data'] : [];
+            $hasPlan = !empty($weeksData);
+
             return [
                 'has_plan' => $hasPlan,
                 'user_id' => $userId,
                 'debug' => [
                     'plan_data_exists' => !empty($planData),
-                    'phases_count' => isset($planData['phases']) ? count($planData['phases']) : 0,
+                    'weeks_count' => count($weeksData),
                     'is_active' => $planCheckRow ? (bool)$planCheckRow['is_active'] : false
                 ]
             ];

@@ -16,6 +16,7 @@ const useAuthStore = create(
       api: null,
       loading: true,
       isAuthenticated: false,
+      showOnboardingModal: false,
 
       // Инициализация
       initialize: async () => {
@@ -186,6 +187,8 @@ const useAuthStore = create(
           };
         }
       },
+
+      setShowOnboardingModal: (value) => set({ showOnboardingModal: value }),
 
       // Обновление данных пользователя
       updateUser: (userData) => {

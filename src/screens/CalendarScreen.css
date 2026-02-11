@@ -1,10 +1,10 @@
 .container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 24px 20px;
+  padding: var(--space-6) var(--space-5);
   background: var(--gray-50);
   min-height: 100vh;
-  padding-bottom: 100px;
+  padding-bottom: 100px; /* место под BottomNav */
 }
 
 [data-theme="dark"] .container {
@@ -21,9 +21,9 @@
 .header {
   background: var(--gradient-primary);
   border-radius: 20px;
-  padding: 32px 28px;
-  margin-bottom: 28px;
-  box-shadow: 0 4px 16px rgba(252, 76, 2, 0.2);
+  padding: var(--space-8) var(--space-6);
+  margin-bottom: var(--space-6);
+  box-shadow: var(--shadow-lg);
   color: white;
   width: 100%;
   box-sizing: border-box;
@@ -50,16 +50,16 @@
 
 .controls {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 28px;
-  padding: 16px 20px;
-  background: white;
-  border-radius: 18px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  transition: box-shadow 250ms ease;
+  margin-bottom: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-primary);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--gray-200);
+  transition: box-shadow var(--transition-slow);
   width: 100%;
   box-sizing: border-box;
 }
@@ -70,57 +70,17 @@
 
 [data-theme="dark"] .controls {
   background: var(--bg-secondary) !important;
-  border-radius: 18px !important;
-  padding: 16px 20px !important;
+  border-radius: var(--radius-2xl) !important;
+  padding: var(--space-4) var(--space-5) !important;
   border: 1px solid var(--gray-300) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
 [data-theme="dark"] .controls:hover {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4) !important;
 }
 
-.btn {
-  padding: 12px 20px;
-  border-radius: 16px;
-  border: 2px solid var(--gray-200);
-  background: white;
-  color: var(--gray-700);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  font-family: inherit;
-  letter-spacing: 0.1px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-}
-
-.btn:hover {
-  background: var(--gray-50);
-  border-color: var(--primary-500);
-  color: var(--primary-500);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.15), 0 2px 4px rgba(252, 76, 2, 0.1);
-}
-
-[data-theme="dark"] .btn {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  color: var(--text-primary) !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
-}
-
-[data-theme="dark"] .btn:hover {
-  background: var(--bg-tertiary) !important;
-  border-color: var(--primary-500) !important;
-  color: var(--primary-500) !important;
-  box-shadow: 0 4px 16px rgba(255, 107, 61, 0.25), 0 2px 4px rgba(255, 107, 61, 0.15) !important;
-  transform: translateY(-2px);
-}
+/* Кнопки: базовые стили в src/styles/buttons.css */
 
 .progress-indicator {
   margin-left: auto;
@@ -159,6 +119,28 @@
 
 .content {
   margin-top: 0;
+}
+.week-calendar-container:has(.monthly-calendar) {
+  padding-top: 0;
+}
+
+/* Мобильная версия: контент без боковых отступов, от края до края */
+@media (max-width: 1023px) {
+  .container.calendar-screen {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .container.calendar-screen .content {
+    padding-top: 0;
+  }
+
+  /* Только обёртка «Полного плана» (с месячным календарём внутри) — без отступов */
+  .week-calendar-container:has(.monthly-calendar) {
+    padding: 0;
+    border: none;
+    border-radius: unset;
+  }
 }
 
 .calendar-container {
@@ -244,11 +226,24 @@
 .calendar-view-toggle {
   display: flex;
   gap: 10px;
-  margin: 0 0 28px 0;
+  margin: 0 0 20px 0;
   padding: 0;
   justify-content: center;
   width: 100%;
   box-sizing: border-box;
+}
+
+@media (max-width: 1023px) {
+  .calendar-view-toggle {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .calendar-view-toggle .view-toggle-btn {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+  }
 }
 
 .view-toggle-btn {

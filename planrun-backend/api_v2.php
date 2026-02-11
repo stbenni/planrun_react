@@ -290,6 +290,30 @@ try {
             $controller = new WeekController($db);
             $controller->addTrainingDay();
             break;
+
+        case 'add_training_day_by_date':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->addTrainingDayByDate();
+            break;
+
+        case 'update_training_day':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->updateTrainingDay();
+            break;
+
+        case 'delete_training_day':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->deleteTrainingDay();
+            break;
             
         // AdaptationController
         case 'run_weekly_adaptation':
@@ -497,13 +521,15 @@ try {
             $controller->sendMessageStream();
             break;
 
-        case 'chat_mark_all_read':
+        case 'chat_clear_ai':
             if ($method !== 'POST') {
                 ErrorHandler::returnJsonError('Метод не поддерживается', 405);
             }
             $controller = new ChatController($db);
-            $controller->markAllRead();
+            $controller->clearAiChat();
             break;
+
+        case 'chat_mark_all_read':
 
         case 'chat_admin_mark_all_read':
             if ($method !== 'POST') {

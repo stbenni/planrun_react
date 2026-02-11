@@ -93,3 +93,154 @@
   border-color: var(--primary-500);
   background: rgba(255, 107, 61, 0.15);
 }
+@media (max-width:768px) {
+  .settings-content {
+    padding: 0 20px;
+  }
+
+  /* Вкладки на всю ширину экрана, по 2 кнопки в ряд, плавающие — прижаты к верху при скролле */
+  .settings-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    width: calc(100% + 40px);
+    margin-left: -20px;
+    margin-right: -20px;
+    margin-bottom: var(--space-6);
+    padding: var(--space-2);
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+    box-sizing: border-box;
+    background: var(--bg-secondary);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  }
+  [data-theme="dark"] .settings-container .settings-tabs {
+    background: var(--bg-primary);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  }
+  .tab-button {
+    flex: none;
+    min-width: 0;
+    margin: 0;
+  }
+}
+
+/* Плавающая кнопка «Сохранить» внизу — справа, в линию с концом формы */
+.settings-save-row {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-12);
+  margin-bottom: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.settings-save-row .settings-save-btn {
+  pointer-events: auto;
+  min-width: 160px;
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--text-base);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="dark"] .settings-save-row .settings-save-btn {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.settings-container.settings-page .settings-content {
+  padding-bottom: 88px;
+}
+
+@media (max-width: 768px) {
+  .settings-save-row {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .settings-save-row {
+    bottom: 80px;
+  }
+  .settings-container.settings-page .settings-content {
+    padding-bottom: 168px;
+  }
+}
+
+/* Кнопка «Выйти из аккаунта» — только на мобильных, в стиле приложения */
+.settings-logout-section {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .settings-logout-section {
+    display: block;
+    margin-top: var(--space-10);
+    padding: var(--space-6);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    background: var(--card-bg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  [data-theme="dark"] .settings-logout-section {
+    border-top-color: var(--card-border);
+    background: var(--bg-secondary);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  }
+  .settings-logout-section h2 {
+    font-size: var(--text-lg);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
+    margin: 0 0 var(--space-1);
+  }
+  .settings-logout-section p {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin: 0 0 var(--space-4);
+  }
+  [data-theme="dark"] .settings-logout-section h2,
+  [data-theme="dark"] .settings-logout-section p {
+    color: var(--text-primary);
+  }
+  [data-theme="dark"] .settings-logout-section p {
+    opacity: 0.85;
+  }
+  .settings-logout-btn {
+    width: 100%;
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-base);
+    font-weight: var(--font-semibold);
+    border-radius: var(--radius-md);
+    border: 2px solid var(--gray-300);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    transition: border-color var(--transition-base), background var(--transition-base);
+  }
+  .settings-logout-btn:hover {
+    border-color: var(--danger-500);
+    background: var(--danger-50);
+    color: var(--danger-600);
+  }
+  [data-theme="dark"] .settings-logout-btn {
+    border-color: var(--card-border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+  [data-theme="dark"] .settings-logout-btn:hover {
+    border-color: var(--danger-500);
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-400, var(--danger-500));
+  }
+}

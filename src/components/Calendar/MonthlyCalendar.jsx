@@ -50,7 +50,8 @@ const MonthlyCalendar = ({
   }
 
   function getPlanDayForDate(dateStr, planData) {
-    if (!planData || !planData.phases) return null;
+    const weeksData = planData?.weeks_data;
+    if (!planData || !Array.isArray(weeksData)) return null;
     
     const date = new Date(dateStr + 'T00:00:00');
     date.setHours(0, 0, 0, 0);
@@ -58,10 +59,7 @@ const MonthlyCalendar = ({
     const dayOfWeek = date.getDay();
     const dayKey = dayOfWeek === 0 ? 'sun' : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'][dayOfWeek - 1];
     
-    for (const phase of planData.phases) {
-      if (!phase.weeks_data) continue;
-      
-      for (const week of phase.weeks_data) {
+    for (const week of weeksData) {
         if (!week.start_date) continue;
         
         const weekStart = new Date(week.start_date + 'T00:00:00');
@@ -71,14 +69,17 @@ const MonthlyCalendar = ({
         weekEnd.setHours(23, 59, 59, 999);
         
         if (date >= weekStart && date <= weekEnd) {
-          if (week.days && week.days[dayKey]) {
+          const raw = week.days && week.days[dayKey];
+          if (raw) {
+            const items = Array.isArray(raw) ? raw : [raw];
             return {
-              ...week.days[dayKey],
-              weekNumber: week.number
+              items,
+              weekNumber: week.number,
+              type: items[0]?.type,
+              text: items.map((i) => i.text).filter(Boolean).join('\n')
             };
           }
         }
-      }
     }
     
     return null;
@@ -177,7 +178,7 @@ const MonthlyCalendar = ({
                 'sbu': 'СБУ',
                 'fartlek': 'Фартлек',
                 'race': 'Соревнование',
-                'free': 'Свободная',
+                'free': '—',
                 'rest': 'Отдых'
               };
               return typeNames[type] || type;
@@ -206,7 +207,7 @@ const MonthlyCalendar = ({
               return null;
             };
 
-            const planDistance = day.planDay ? extractDistanceFromPlan(day.planDay.text) : null;
+            const planDistance = day.planDay?.text ? extractDistanceFromPlan(day.planDay.text) : null;
             const displayDistance = workoutDistance || planDistance;
 
             const formatDuration = (minutes) => {
@@ -220,10 +221,19 @@ const MonthlyCalendar = ({
             };
 
             const formatPace = (pace) => {
-              if (!pace) return null;
-              const minutes = Math.floor(pace);
-              const seconds = Math.round((pace - minutes) * 60);
-              return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+              if (pace == null || pace === '') return null;
+              if (typeof pace === 'string') {
+                const trimmed = String(pace).trim();
+                const match = trimmed.match(/^(\d+):(\d{1,2})$/);
+                if (match) return `${match[1]}:${match[2].padStart(2, '0')}`;
+                return trimmed;
+              }
+              if (typeof pace === 'number') {
+                const minutes = Math.floor(pace);
+                const seconds = Math.round((pace - minutes) * 60);
+                return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+              }
+              return null;
             };
 
             return (
@@ -234,7 +244,7 @@ const MonthlyCalendar = ({
               >
                 <div className="day-number">{day.day}</div>
                 
-                {day.planDay && day.planDay.type !== 'rest' && (
+                {day.planDay && day.planDay.type !== 'rest' && day.planDay.type !== 'free' && (
                   <div className="plan-indicator" title={day.planDay.text || day.planDay.type}>
                     {day.planDay.type === 'long' || day.planDay.type === 'long-run' ? '🏃' :
                      day.planDay.type === 'interval' ? '⚡' :
@@ -255,7 +265,7 @@ const MonthlyCalendar = ({
                 )}
                 
                 <div className="workout-info">
-                  {day.planDay && day.planDay.type !== 'rest' && (
+                  {day.planDay && day.planDay.type !== 'rest' && day.planDay.type !== 'free' && (
                     <div className="workout-type">
                       {getWorkoutTypeName(day.planDay.type)}
                     </div>
@@ -291,11 +301,15 @@ const MonthlyCalendar = ({
 
       <div className="monthly-calendar-legend">
         <div className="legend-item">
-          <span className="legend-icon">📋</span>
+          <span className="legend-swatch legend-swatch--today" aria-hidden />
+          <span>Сегодня</span>
+        </div>
+        <div className="legend-item">
+          <span className="legend-swatch legend-swatch--plan" aria-hidden />
           <span>План</span>
         </div>
         <div className="legend-item">
-          <span className="legend-icon">✅</span>
+          <span className="legend-swatch legend-swatch--completed" aria-hidden />
           <span>Выполнено</span>
         </div>
         <div className="legend-item">

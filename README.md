@@ -29,9 +29,12 @@ npm run build
 
 ## Документация
 
-- [Архитектура проекта](./docs/ARCHITECTURE_ANALYSIS_2026.md)
-- [Документация профиля](./docs/PROFILE_DOCUMENTATION.md)
-- [Анализ формы профиля](./docs/FORM_ANALYSIS.md)
+- **[Индекс для ИИ](./docs/AI_PROJECT_INDEX.md)** — все API, зависимости, ссылки на детальные доки (рекомендуется для ИИ)
+- [Обзор документации](./docs/README.md)
+- [Текущее состояние](./docs/CURRENT_STATE_2026.md)
+- [Архитектура](./docs/architecture/ARCHITECTURE_ANALYSIS_2026.md)
+- [Профиль пользователя](./docs/PROFILE_DOCUMENTATION.md)
+- [Внесение тренировок (ИИ)](./docs/ai-add-workouts-instruction.md)
 
 ## Лицензия
 

@@ -8,14 +8,15 @@ require_once __DIR__ . '/planrun_ai_config.php';
 
 /**
  * Генерация плана через PlanRun AI API
- * 
+ *
  * @param string $prompt Промпт для генерации плана
  * @param array $userData Данные пользователя
  * @param int $maxRetries Количество попыток при ошибке
+ * @param int|null $userId ID пользователя (при наличии AI загрузит свежие данные из MySQL)
  * @return string JSON ответ с планом
  * @throws Exception
  */
-function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3) {
+function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3, $userId = null) {
     if (!USE_PLANRUN_AI) {
         throw new Exception("PlanRun AI отключен в конфигурации");
     }
@@ -41,6 +42,7 @@ function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3) {
             // Подготовка запроса
             $requestData = [
                 'user_data' => $userData,
+                'user_id' => $userId,
                 'goal_type' => $goalType,
                 'include_knowledge' => true, // Использовать RAG
                 'temperature' => 0.3,
@@ -117,8 +119,13 @@ function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3) {
 
 /**
  * Единственная функция для вызова AI API - использует только локальную LLM (PlanRun AI)
+ *
+ * @param string $prompt Промпт
+ * @param array $userData Данные пользователя
+ * @param int $maxRetries Попытки при ошибке
+ * @param int|null $userId ID пользователя (AI загрузит данные из MySQL при наличии)
  */
-function callAIAPI($prompt, $userData, $maxRetries = 3) {
+function callAIAPI($prompt, $userData, $maxRetries = 3, $userId = null) {
     // Используем только локальную LLM через PlanRun AI API
     if (!USE_PLANRUN_AI) {
         throw new Exception("PlanRun AI отключен. Локальная LLM должна быть включена в конфигурации.");
@@ -129,5 +136,5 @@ function callAIAPI($prompt, $userData, $maxRetries = 3) {
     }
     
     error_log("callAIAPI: Используем локальную LLM через PlanRun AI API");
-    return callPlanRunAIAPI($prompt, $userData, $maxRetries);
+    return callPlanRunAIAPI($prompt, $userData, $maxRetries, $userId);
 }

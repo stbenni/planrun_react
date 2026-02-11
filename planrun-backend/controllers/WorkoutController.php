@@ -47,9 +47,12 @@ class WorkoutController extends BaseController {
             return;
         }
         
-        if (!isset($data['date']) || !isset($data['week']) || !isset($data['day']) || !isset($data['activity_type_id'])) {
-            $this->returnError('Недостаточно данных: требуется date, week, day, activity_type_id');
+        if (!isset($data['date']) || !isset($data['week']) || !isset($data['day'])) {
+            $this->returnError('Недостаточно данных: требуется date, week, day');
             return;
+        }
+        if (!isset($data['activity_type_id'])) {
+            $data['activity_type_id'] = 1;
         }
         
         try {

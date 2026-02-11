@@ -43,7 +43,8 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
     const loadUpcomingWorkouts = async () => {
       try {
         const plan = await api.getPlan();
-        if (!plan || !plan.phases) return;
+        const weeksData = plan?.weeks_data;
+        if (!plan || !Array.isArray(weeksData)) return;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
@@ -51,9 +52,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
         const dayAfterTomorrow = new Date(today);
         dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
         const upcoming = [];
-        for (const phase of plan.phases) {
-          if (!phase.weeks_data) continue;
-          for (const week of phase.weeks_data) {
+        for (const week of weeksData) {
             if (!week.start_date || !week.days) continue;
             const startDate = new Date(week.start_date);
             startDate.setHours(0, 0, 0, 0);
@@ -66,7 +65,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
                   workoutDate.getTime() === dayAfterTomorrow.getTime()) {
                 const dayKey = dayKeys[i];
                 const dayData = week.days[dayKey];
-                if (dayData && dayData.type !== 'rest') {
+                if (dayData && dayData.type !== 'rest' && dayData.type !== 'free') {
                   upcoming.push({
                     type: 'workout',
                     id: `workout_${workoutDate.toISOString().split('T')[0]}`,
@@ -79,7 +78,6 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
                 }
               }
             }
-          }
         }
         setUpcomingWorkouts(upcoming.slice(0, 2));
       } catch (error) {

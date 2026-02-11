@@ -209,7 +209,7 @@ const HeartRateChart = ({ timeline }) => {
 
   return (
     <div className="workout-chart-container">
-      <div className="workout-chart-title">❤️ Пульс по времени</div>
+      <div className="workout-chart-title"><span className="workout-chart-title-icon" aria-hidden>❤️</span> Пульс по времени</div>
       <div className="workout-chart-wrapper">
         <svg 
           ref={svgRef}
@@ -288,17 +288,17 @@ const HeartRateChart = ({ timeline }) => {
             </g>
           ))}
           
-          {/* Заливка под графиком */}
+          {/* Заливка под графиком (цвет через CSS для светлой/тёмной темы) */}
           <path
+            className="workout-chart-area workout-chart-area--hr"
             d={`${pathData} L ${viewBoxWidth - margin.right} ${viewBoxHeight - margin.bottom} L ${margin.left} ${viewBoxHeight - margin.bottom} Z`}
-            fill="rgba(239, 68, 68, 0.1)"
           />
           
           {/* График */}
           <path
             d={pathData}
             fill="none"
-            stroke="var(--error-500)"
+            stroke="var(--danger-500)"
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -328,11 +328,11 @@ const HeartRateChart = ({ timeline }) => {
                 opacity="0.6"
               />
               <circle
+                className="workout-chart-marker"
                 cx={timeScale(tooltip.point.timestamp)}
                 cy={hrScale(tooltip.point.heartRate)}
                 r="4"
-                fill="var(--error-500)"
-                stroke="white"
+                fill="var(--danger-500)"
                 strokeWidth="2"
               />
             </g>

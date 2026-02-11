@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { getAvatarSrc } from '../utils/avatarUrl';
+import Modal from '../components/common/Modal';
 import './SettingsScreen.css';
 
 function getSystemTheme() {
@@ -341,6 +342,23 @@ const SettingsScreen = ({ onLogout }) => {
     }));
   };
 
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+    if (window.innerWidth <= 768) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const closeMessagePopup = () => setMessage({ type: '', text: '' });
+
+  // Автозакрытие попапа успеха через 5 сек (хук должен вызываться до любого условного return)
+  useEffect(() => {
+    if (!message.text || message.type !== 'success') return;
+    const t = setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    return () => clearTimeout(t);
+  }, [message.text, message.type]);
+
   const handleSave = async () => {
     const currentApi = api || useAuthStore.getState().api;
     
@@ -433,14 +451,10 @@ const SettingsScreen = ({ onLogout }) => {
       console.log('Response:', response);
       
       if (response && response.success !== false) {
-        setMessage({ type: 'success', text: 'Профиль успешно обновлен' });
+        setMessage({ type: 'success', text: 'Настройки успешно сохранены' });
         
         // Перезагружаем профиль после успешного сохранения
         await loadProfile(currentApi);
-        
-        setTimeout(() => {
-          setMessage({ type: '', text: '' });
-        }, 3000);
       } else {
         throw new Error(response?.error || 'Ошибка обновления профиля');
       }
@@ -633,39 +647,49 @@ const SettingsScreen = ({ onLogout }) => {
       </div>
     );
   }
-  
 
   return (
     <div className="settings-container settings-page">
-      <div className="settings-content">
-        {message.text && (
-          <div className={`alert ${message.type === 'success' ? 'alert-success' : 'alert-error'}`}>
-            {message.text}
+      <Modal
+        isOpen={!!message.text}
+        onClose={closeMessagePopup}
+        title={message.type === 'success' ? 'Готово' : 'Ошибка'}
+        size="small"
+        centerBody
+      >
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ marginBottom: 'var(--space-4)' }}>{message.text}</p>
+          <div style={{ marginTop: 'var(--space-5)' }}>
+            <button type="button" className="btn btn-primary" onClick={closeMessagePopup} style={{ display: 'inline-block' }}>
+              Закрыть
+            </button>
           </div>
-        )}
+        </div>
+      </Modal>
 
+      <div className="settings-content">
         <div className="settings-tabs">
           <button
             className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('profile'); setSearchParams({ tab: 'profile' }); }}
+            onClick={() => handleTabChange('profile')}
           >
             👤 Профиль
           </button>
           <button
             className={`tab-button ${activeTab === 'training' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('training'); setSearchParams({ tab: 'training' }); }}
+            onClick={() => handleTabChange('training')}
           >
             🏃 Тренировки
           </button>
           <button
             className={`tab-button ${activeTab === 'social' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('social'); setSearchParams({ tab: 'social' }); }}
+            onClick={() => handleTabChange('social')}
           >
             🔒 Конфиденциальность
           </button>
           <button
             className={`tab-button ${activeTab === 'integrations' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('integrations'); setSearchParams({ tab: 'integrations' }); }}
+            onClick={() => handleTabChange('integrations')}
           >
             🔗 Интеграции
           </button>
@@ -859,6 +883,18 @@ const SettingsScreen = ({ onLogout }) => {
                   ))}
                 </div>
               </div>
+            </div>
+
+            <div className="settings-section settings-logout-section">
+              <h2>Аккаунт</h2>
+              <p>Выход из аккаунта на этом устройстве</p>
+              <button
+                type="button"
+                className="btn btn-secondary settings-logout-btn"
+                onClick={handleLogout}
+              >
+                Выйти из аккаунта
+              </button>
             </div>
           </div>
         )}

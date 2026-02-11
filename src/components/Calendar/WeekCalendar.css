@@ -16,27 +16,16 @@
   box-sizing: border-box;
 }
 
-.week-calendar-container::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--gradient-primary);
-  opacity: 0;
-  transition: opacity 250ms ease;
-}
-
-.week-calendar-container:hover::before {
-  opacity: 1;
-}
-
 [data-theme="dark"] .week-calendar-container {
-  background: var(--bg-secondary) !important;
+  background: transparent !important;
   border-color: var(--gray-300) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.week-calendar-container:has(.monthly-calendar) {
+  padding: 0;
+  border: none;
+  box-shadow: unset;
 }
 
 .week-calendar-container.swiping {
@@ -243,15 +232,15 @@
   justify-content: flex-start;
   position: relative;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .week-day-cell::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  bottom: -10px;
+  left: 5px;
+  right: 5px;
   height: 2px;
   background: var(--gradient-primary);
   transform: scaleX(0);
@@ -290,7 +279,8 @@
   position: relative;
 }
 
-.week-day-cell.today::before {
+/* Подчёркивание только у активного (выбранного) дня — при клике переходит на выбранную дату */
+.week-day-cell.selected::before {
   transform: scaleX(1);
   height: 3px;
 }
@@ -462,6 +452,37 @@
 .week-selected-day {
   margin-top: 24px;
   animation: slideUp 300ms ease;
+}
+
+.week-selected-day-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.week-selected-day-actions .btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* Кнопка «Добавить тренировку» под карточкой выбранного дня — использует .btn .btn-primary из buttons.css */
+.week-selected-day .btn {
+  margin-top: 0;
+}
+
+.week-add-training-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  font-size: var(--text-lg);
+  line-height: 1;
+  font-weight: var(--font-normal);
 }
 
 @keyframes slideUp {

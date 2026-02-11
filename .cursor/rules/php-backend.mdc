@@ -1,0 +1,13 @@
+---
+description: Правила работы с PHP backend (контроллеры, сервисы, репозитории)
+globs: planrun-backend/**/*.php
+alwaysApply: false
+---
+
+# Backend PlanRun (PHP)
+
+- **Маршрутизация:** все action обрабатываются в `api_v2.php`. Добавление нового action — добавить case и вызвать нужный контроллер. Не дублировать логику в api_v2.php.
+- **Слои:** Controller → Service → Repository. Контроллер получает вход, вызывает сервис; сервис — бизнес-логика и вызов репозитория; репозиторий — запросы к БД. Валидация — через validators (WeekValidator, WorkoutValidator и т.д.).
+- **Исключения:** использовать AppException, ValidationException, UnauthorizedException, NotFoundException, ForbiddenException. Контроллер не ловит их — обрабатывает глобальный ErrorHandler.
+- **План/недели/дни:** добавление тренировки на дату — только через WeekController::addTrainingDayByDate (action add_training_day_by_date). Обновление/удаление дня — update_training_day, delete_training_day (нужен csrf_token). Валидация type — WeekValidator (rest, easy, long, tempo, interval, fartlek, other, sbu и др.).
+- **Кеш плана:** при любом изменении плана/недель/дней вызывать `Cache::delete("training_plan_{$userId}")` (уже делается в WeekService).

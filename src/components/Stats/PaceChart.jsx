@@ -314,10 +314,10 @@ const PaceChart = ({ timeline }) => {
             </g>
           ))}
           
-          {/* Заливка под графиком */}
+          {/* Заливка под графиком (цвет через CSS для светлой/тёмной темы) */}
           <path
+            className="workout-chart-area workout-chart-area--pace"
             d={`${pathData} L ${viewBoxWidth - margin.right} ${viewBoxHeight - margin.bottom} L ${margin.left} ${viewBoxHeight - margin.bottom} Z`}
-            fill="rgba(99, 102, 241, 0.1)"
           />
           
           {/* График */}
@@ -354,11 +354,11 @@ const PaceChart = ({ timeline }) => {
                 opacity="0.6"
               />
               <circle
+                className="workout-chart-marker"
                 cx={timeScale(tooltip.point.timestamp)}
                 cy={paceScale(tooltip.point.pace)}
                 r="4"
                 fill="var(--primary-500)"
-                stroke="white"
                 strokeWidth="2"
               />
             </g>

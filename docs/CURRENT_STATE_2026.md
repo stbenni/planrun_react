@@ -1,148 +1,114 @@
-# 📊 Текущее состояние проекта PlanRun (Январь 2026)
+# Текущее состояние проекта PlanRun (Февраль 2026)
 
-**Дата обновления:** 25 января 2026
+**Дата обновления:** февраль 2026
 
-## ✅ Завершенные задачи
+## Структура и статистика (актуально по коду)
 
-### 1. Backend архитектура (ПОЛНОСТЬЮ ЗАВЕРШЕНО)
-- ✅ Рефакторинг api.php на контроллеры (9 контроллеров)
-- ✅ Создание слоя сервисов (9 сервисов)
-- ✅ Создание слоя репозиториев (5 репозиториев)
-- ✅ Создание валидаторов (4 валидатора)
-- ✅ Система исключений (5 типов исключений)
-- ✅ JWT аутентификация (JwtService, AuthService, AuthController)
-- ✅ Таблица refresh_tokens в БД
-- ✅ Централизованная обработка ошибок
-- ✅ CI/CD настройка (GitHub Actions)
-- ✅ Тестирование (PHPUnit, 20+ тестов)
+### Backend (planrun-backend/)
 
-### 2. Frontend архитектура (ПОЛНОСТЬЮ ЗАВЕРШЕНО)
-- ✅ State Management (Zustand) - 3 stores
-  - useAuthStore - авторизация
-  - usePlanStore - планы тренировок
-  - useWorkoutStore - тренировки
-- ✅ Биометрическая аутентификация
-  - @aparajita/capacitor-biometric-auth
-  - BiometricService
-  - Интеграция с JWT
-- ✅ JWT интеграция в ApiClient
-  - Автоматическое обновление токенов
-  - Поддержка refresh tokens
-  - Обработка ошибок 401
+| Слой | Количество | Файлы |
+|------|------------|--------|
+| Контроллеры | 10 | TrainingPlan, Workout, Stats, Exercise, Week, Adaptation, User, Auth, Admin, Chat (+ BaseController) |
+| Сервисы | 10 + 1 | Те же домены + ChatContextBuilder, JwtService, EmailService |
+| Репозитории | 7 | TrainingPlan, Workout, Stats, Exercise, Week, Chat, Notification (+ BaseRepository) |
+| Валидаторы | 4 | Week, Workout, Exercise, TrainingPlan (+ BaseValidator) |
+| Исключения | 5 | AppException, ValidationException, UnauthorizedException, ForbiddenException, NotFoundException |
 
-### 3. Архитектурные решения (ЗАФИКСИРОВАНО)
-- ✅ Определена архитектура: **React Web + Capacitor** (НЕ React Native)
-- ✅ Решение: Оставить текущую архитектуру
-- ✅ React Native Web удален (не нужен)
+**Точка входа API:** `api_v2.php` — все action маршрутируются на контроллеры. Вызов с фронта идёт через `api_wrapper.php?action=...`.
 
-## 📊 Статистика проекта
+### Frontend (src/)
 
-### Backend
-- **Контроллеров:** 9
-- **Сервисов:** 9
-- **Репозиториев:** 5
-- **Валидаторов:** 4
-- **Исключений:** 5
-- **Тестов:** 20+
-- **CI/CD workflows:** 2
-
-### Frontend
-- **Компонентов:** 13
-- **Экранов:** 7
-- **CSS файлов:** 28
-- **Stores (Zustand):** 3
-- **Сервисов:** 1 (BiometricService)
+| Категория | Количество | Примечание |
+|-----------|------------|------------|
+| Экраны (screens/) | 12 | Dashboard, Calendar, Chat, Stats, Settings, Admin, Login, Register, Landing, UserProfile, ForgotPassword, ResetPassword |
+| Компоненты (components/) | 35+ JSX | Calendar (AddTrainingModal, DayModal, WeekCalendar, MonthlyCalendar, WorkoutCard, ResultModal, RouteMap…), Dashboard, Stats, common (Modal, BottomNav, TopHeader…) |
+| Стили | 42 CSS | В т.ч. styles/variables.css, dark-mode.css, screens-auth.css |
+| Stores (Zustand) | 3 | useAuthStore, usePlanStore, useWorkoutStore |
+| Сервисы | 2 | BiometricService, ChatSSE |
+| API | 1 | ApiClient.js (все вызовы к api_wrapper.php) |
 
 ### Технологии
-- **Backend:** PHP 8.3+, MySQL, Composer, PHPUnit
-- **Frontend:** React 18.2.0, Vite 5.4.2, Zustand 5.0.10
-- **Мобильные:** Capacitor 8.0.1
-- **Аутентификация:** JWT + Биометрия
 
-## 🏗️ Архитектура
+- **Backend:** PHP 8+, MySQL, Composer, PHPUnit
+- **Frontend:** React 18.2.0, Vite 5.4.2, React Router 6.20, Zustand 5.0.10
+- **Мобильные:** Capacitor 8.x, @aparajita/capacitor-biometric-auth
+- **Аутентификация:** JWT (access + refresh), опционально сессии
+- **Чат с ИИ:** Ollama (LLM), контекст — ChatContextBuilder
+- **Генерация планов:** planrun_ai/ (PlanRun AI API, plan_saver)
+
+---
+
+## Реализованный функционал
+
+### План и календарь
+- Загрузка плана (`load`), проверка статуса (`check_plan_status`), регенерация с прогрессом (`regenerate_plan_with_progress`).
+- Добавление тренировки на дату (`add_training_day_by_date`), обновление (`update_training_day`), удаление (`delete_training_day`). Неделя по дате создаётся автоматически.
+- Календарь: недельный (WeekCalendar) и месячный (MonthlyCalendar) вид; DayModal — план дня, результаты, кнопки «Добавить/Изменить/Удалить» тренировку.
+- AddTrainingModal: категории Бег/ОФП/СБУ, конструкторы (лёгкий бег, интервалы, фартлек), библиотека ОФП/СБУ с возможностью задать дистанцию (м) для каждого упражнения.
+
+### Тренировки и результаты
+- get_day(date) — план на день, упражнения дня, записи из workout_log.
+- save_result, get_result, get_all_results, delete_workout, reset.
+- ResultModal — ввод результата вручную или загрузка файла (GPX/TCX).
+
+### Профиль и пользователь
+- get_profile, update_profile; аватар (upload_avatar, remove_avatar, get_avatar), update_privacy, уведомления (notifications_dismissed, notifications_dismiss), unlink_telegram.
+- Регистрация, сброс пароля (request_password_reset, confirm_password_reset).
+
+### Чат
+- Чат с ИИ: chat_get_messages, chat_send_message, chat_send_message_stream (стриминг). Контекст из профиля/плана/тренировок (ChatContextBuilder).
+- Чат с админом: chat_send_message_to_admin; админ — chat_admin_* (список пользователей, сообщения, рассылка, mark read).
+
+### Админка
+- admin_list_users, admin_get_user, admin_update_user, admin_get_settings, admin_update_settings, delete_user.
+
+### Упражнения
+- list_exercise_library (ОФП/СБУ для формы), add_day_exercise, update_day_exercise, delete_day_exercise, reorder_day_exercises.
+
+### Статистика и адаптация
+- stats, get_all_workouts_summary, prepare_weekly_analysis; run_weekly_adaptation.
+
+---
+
+## Документация и правила для ИИ
+
+- **Индекс для ИИ:** [docs/AI_PROJECT_INDEX.md](./AI_PROJECT_INDEX.md) — полная таблица API, зависимости, ссылки на тематические доки.
+- **Внесение тренировок:** [docs/ai-add-workouts-instruction.md](./ai-add-workouts-instruction.md) — add_training_day_by_date, update_training_day, delete_training_day, форматы description, типы type.
+- **Профиль:** [docs/PROFILE_DOCUMENTATION.md](./PROFILE_DOCUMENTATION.md).
+- **Чат:** [docs/CHAT_SETUP.md](./CHAT_SETUP.md).
+- **Правила Cursor:** `.cursor/rules/` — project-context, php-backend, react-frontend, api-and-docs.
+
+---
+
+## Архитектура (кратко)
 
 ### Backend
 ```
 planrun-backend/
-├── controllers/     # HTTP слой (9 контроллеров)
-├── services/        # Бизнес-логика (9 сервисов)
-├── repositories/    # Доступ к данным (5 репозиториев)
-├── validators/      # Валидация (4 валидатора)
-├── exceptions/      # Исключения (5 типов)
-└── api_v2.php      # Новый API endpoint
+├── api_v2.php           # Маршрутизация action → контроллер
+├── controllers/         # HTTP, вызов сервисов
+├── services/            # Бизнес-логика, ChatContextBuilder
+├── repositories/        # Работа с БД
+├── validators/          # Валидация входных данных
+├── exceptions/          # Исключения для API
+├── planrun_ai/          # Генерация планов, plan_saver
+└── config/, scripts/, tests/
 ```
 
 ### Frontend
 ```
 src/
-├── components/      # React компоненты (13)
-├── screens/         # Экраны (7)
-├── stores/          # Zustand stores (3)
-├── services/        # Сервисы (BiometricService)
-├── api/             # API клиент (ApiClient.js)
-└── platform/        # Платформо-специфичные утилиты
+├── api/ApiClient.js     # Все запросы к API
+├── screens/             # Экраны приложения
+├── components/          # Calendar, Dashboard, Stats, common
+├── stores/              # Zustand: auth, plan, workout
+├── services/            # BiometricService, ChatSSE
+├── styles/              # variables, dark-mode, общие стили
+└── hooks/, utils/, assets/
 ```
-
-## 🔐 Аутентификация
-
-### JWT система
-- ✅ Access tokens (1 час)
-- ✅ Refresh tokens (7 дней)
-- ✅ Автоматическое обновление
-- ✅ Хранение в localStorage/AsyncStorage
-
-### Биометрия
-- ✅ Face ID / Touch ID (iOS)
-- ✅ Fingerprint / Face Unlock (Android)
-- ✅ Защищенное хранение токенов (Keychain/Keystore)
-- ✅ Автоматический вход при запуске
-
-## 📝 API
-
-### Endpoints (api_v2.php)
-- ✅ Training Plans (load, regenerate, check_status)
-- ✅ Workouts (save, get_day, get_all_results, reset)
-- ✅ Exercises (add, update, delete, reorder, list)
-- ✅ Weeks (add, delete, add_training_day)
-- ✅ Stats (stats, get_all_workouts_summary)
-- ✅ Adaptation (run_weekly_adaptation)
-- ✅ Auth (login, logout, refresh_token, check_auth)
-- ✅ User (delete_user)
-
-## 🎯 Следующие шаги
-
-### Приоритет 1: Оптимизация и улучшения
-1. Оптимизация производительности фронтенда
-2. Улучшение PWA возможностей
-3. Оптимизация мобильного опыта
-
-### Приоритет 2: Новый функционал
-1. Добавление новых возможностей
-2. Улучшение UX
-3. Расширение статистики
-
-### Приоритет 3: Долгосрочные задачи
-1. Миграция на Laravel (если планируется)
-2. RESTful API структура
-3. Миграция на PostgreSQL (если нужно)
-
-## 📚 Документация
-
-### Созданная документация
-- ✅ ARCHITECTURE_ANALYSIS_2026.md
-- ✅ MIGRATION_PROGRESS.md
-- ✅ PROJECT_ARCHITECTURE_ANALYSIS.md
-- ✅ REACT_VS_REACT_NATIVE_ANALYSIS.md
-- ✅ JWT_AUTHENTICATION_COMPLETE.md
-- ✅ BIOMETRIC_AUTHENTICATION_COMPLETE.md
-- ✅ STATE_MANAGEMENT_COMPLETE.md
-
-### Правила Cursor
-- ✅ project-context.mdc
-- ✅ migration-process.mdc
-- ✅ php-backend.mdc
-- ✅ react-frontend.mdc
 
 ---
 
-**Проект в отличном состоянии и готов к дальнейшему развитию!** ✅
+## Итог
+
+Проект в рабочем состоянии: календарь с добавлением/редактированием/удалением тренировок (в т.ч. ОФП/СБУ с произвольной дистанцией), результаты, профиль, чат с ИИ и админ-чат, админка, статистика. Документация приведена в соответствие с кодом; для ИИ используется единый индекс в docs/AI_PROJECT_INDEX.md и правила в .cursor/rules/.

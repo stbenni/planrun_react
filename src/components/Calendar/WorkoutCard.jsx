@@ -6,6 +6,20 @@
 import React, { useMemo } from 'react';
 import './WorkoutCard.css';
 
+const TYPE_NAMES = {
+  easy: 'Легкий бег',
+  long: 'Длительный бег',
+  'long-run': 'Длительный бег',
+  tempo: 'Темповый бег',
+  interval: 'Интервалы',
+  other: 'ОФП',
+  sbu: 'СБУ',
+  fartlek: 'Фартлек',
+  race: 'Соревнование',
+  rest: 'День отдыха',
+  free: 'Пустой день',
+};
+
 const WorkoutCard = ({ 
   workout, 
   date, 
@@ -13,10 +27,15 @@ const WorkoutCard = ({
   onPress,
   isToday = false,
   compact = false,
-  dayDetail = null, // {plan, dayExercises, workouts}
+  dayDetail = null, // {plan, planDays, dayExercises, workouts}
   workoutMetrics = null, // {distance, duration, pace} из workoutsData
-  results = [] // Результаты из resultsData
+  results = [], // Результаты из resultsData
+  planDays = [], // [{ id, type, description, is_key_workout? }] — все тренировки дня
+  onDeletePlanDay, // (dayId) => void
+  onEditPlanDay, // (planDay) => void — открыть модалку редактирования
+  canEdit = false,
 }) => {
+  const items = (planDays && planDays.length > 0) ? planDays : null;
   const statusConfig = {
     completed: { 
       border: 'var(--success-500)', 
@@ -41,7 +60,8 @@ const WorkoutCard = ({
   };
 
   const config = statusConfig[status] || statusConfig.planned;
-  const isRest = status === 'rest' || !workout;
+  const isRest = status === 'rest' || !workout || workout?.type === 'free';
+  const hasPlanDays = items && items.length > 0;
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -107,22 +127,11 @@ const WorkoutCard = ({
     if (workout?.type === 'rest') {
       return 'День отдыха';
     }
+    if (workout?.type === 'free') {
+      return 'Пустой день';
+    }
     
-    // Определяем название по типу тренировки
-    const typeNames = {
-      'easy': 'Легкий бег',
-      'long': 'Длительный бег',
-      'long-run': 'Длительный бег',
-      'tempo': 'Темповый бег',
-      'interval': 'Интервалы',
-      'other': 'ОФП',
-      'sbu': 'СБУ',
-      'fartlek': 'Фартлек',
-      'race': 'Соревнование',
-      'free': 'Свободная тренировка'
-    };
-    
-    const typeName = typeNames[workout?.type];
+    const typeName = TYPE_NAMES[workout?.type];
     if (typeName) {
       return typeName;
     }
@@ -145,10 +154,51 @@ const WorkoutCard = ({
           <span className="workout-date">{formatDate(date)}</span>
           {isToday && <span className="workout-badge-today">Сегодня</span>}
         </div>
-        <span className="workout-status-icon">{config.icon}</span>
+        {(!isRest || hasPlanDays) && <span className="workout-status-icon">{config.icon}</span>}
       </div>
+
+      {/* Список всех тренировок дня с возможностью удаления */}
+      {hasPlanDays && (
+        <div className="workout-card-plan-days">
+          <div className="workout-card-plan-days-title">Тренировки:</div>
+          {items.map((planDay) => (
+            <div key={planDay.id} className="workout-card-plan-day-block">
+              <div className="workout-card-plan-day-head">
+                <span className="workout-card-plan-day-type">{TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}</span>
+                {canEdit && (
+                  <div className="workout-card-plan-day-actions">
+                    {onEditPlanDay && (
+                      <button
+                        type="button"
+                        className="workout-card-btn-edit-plan-day"
+                        onClick={(e) => { e.stopPropagation(); onEditPlanDay(planDay); }}
+                        title="Редактировать тренировку"
+                      >
+                        Изменить
+                      </button>
+                    )}
+                    {onDeletePlanDay && (
+                      <button
+                        type="button"
+                        className="workout-card-btn-delete-plan-day"
+                        onClick={(e) => { e.stopPropagation(); onDeletePlanDay(planDay.id); }}
+                        title="Удалить тренировку"
+                      >
+                        Удалить
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {planDay.description && (
+                <div className="workout-card-plan-day-text" dangerouslySetInnerHTML={{ __html: planDay.description }} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       
-      {!isRest && (
+      {!isRest && !hasPlanDays && (
         <>
           <div className="workout-title">{workoutTitle}</div>
           
@@ -237,10 +287,11 @@ const WorkoutCard = ({
         </>
       )}
 
-      {isRest && (
+      {isRest && !hasPlanDays && (
         <div className="workout-rest">
-          <span className="rest-icon">{config.icon}</span>
-          <span className="rest-text">День отдыха</span>
+          <span className="rest-text">
+            {isToday ? 'На сегодня тренировок не запланировано' : (workout?.type === 'free' ? 'Пустой день' : 'День отдыха')}
+          </span>
         </div>
       )}
 
@@ -251,7 +302,7 @@ const WorkoutCard = ({
           </button>
         )}
         {status === 'missed' && (
-          <button className="btn-workout btn-missed" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
+          <button className="btn-workout btn-missed btn btn-primary" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
             Отметить выполненной
           </button>
         )}

@@ -1,0 +1,32 @@
+/**
+ * Базовые стили карточек PlanRun
+ * Используйте .card для контейнеров; модификаторы .card--compact, .card--interactive
+ */
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.card--compact {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+}
+
+.card--interactive:hover {
+  border-color: var(--gray-300);
+  box-shadow: var(--shadow-md);
+}
+
+[data-theme="dark"] .card {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .card--interactive:hover {
+  border-color: var(--gray-500);
+}

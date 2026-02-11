@@ -14,8 +14,9 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 24px;
-  padding: 0 8px;
+  padding: 0;
 }
+
 
 .month-title {
   display: flex;
@@ -82,14 +83,31 @@
 }
 
 .month-day-cell {
-  min-height: 100px;
+  width: 100%;
+  min-height: 0;
   background: white;
   padding: 8px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
+  box-sizing: border-box;
+}
+
+/* Десктоп: высота ячейки 60% от ширины, увеличенные боковые отступы — календарь компактнее */
+@media (min-width: 769px) {
+  .monthly-calendar {
+    padding-left: 10%;
+    padding-right: 10%;
+  }
+
+  .month-day-cell {
+    aspect-ratio: 1 / 0.8;
+  }
 }
 
 .month-day-cell:hover {
@@ -142,11 +160,12 @@
 }
 
 .workout-info {
-  margin-top: auto;
+  margin-top: 4px;
   font-size: 0.7rem;
   color: var(--gray-600, #4b5563);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
   line-height: 1.2;
 }
@@ -200,6 +219,52 @@
 
 .legend-icon {
   font-size: 1.2rem;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--gray-200);
+  background: var(--gray-100);
+}
+
+.legend-swatch--today {
+  border: 2px solid var(--primary-500);
+  background: var(--primary-50);
+}
+
+.legend-swatch--plan {
+  border: 1px solid var(--gray-200);
+  border-left: 2px solid var(--primary-500);
+  background: var(--primary-50);
+}
+
+.legend-swatch--completed {
+  border: 1px solid var(--primary-200);
+  background: var(--success-50);
+}
+
+[data-theme="dark"] .legend-swatch {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .legend-swatch--today {
+  border-color: var(--primary-500);
+  background: rgba(255, 107, 61, 0.2);
+}
+
+[data-theme="dark"] .legend-swatch--plan {
+  border-color: var(--card-border);
+  border-left-color: var(--primary-500);
+  background: rgba(255, 107, 61, 0.12);
+}
+
+[data-theme="dark"] .legend-swatch--completed {
+  border-color: var(--primary-500);
+  background: rgba(34, 197, 94, 0.15);
 }
 
 /* Темная тема */
@@ -338,36 +403,198 @@
   color: var(--text-secondary);
 }
 
-/* Адаптивность */
+/* Мобильный — в стиле heatmap из Статистики */
 @media (max-width: 768px) {
   .monthly-calendar {
-    padding: 12px;
+    padding: 0;
+  }
+
+  .monthly-calendar-header {
+    margin-bottom: 12px;
+    padding: 0 4px;
+  }
+
+  .month-title h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .month-nav-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    font-size: 20px;
+  }
+
+  .monthly-calendar-grid {
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .monthly-calendar-weekdays {
+    gap: 2px;
+    margin-bottom: 4px;
+    padding: 0;
+  }
+
+  .weekday-header {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 0;
+  }
+
+  .monthly-calendar-days {
+    gap: 2px;
   }
 
   .month-day-cell {
-    min-height: 80px;
-    padding: 6px;
+    aspect-ratio: 1; /* на мобильных — квадрат */
+    min-height: 0;
+    padding: 4px;
+    border-radius: 4px;
+    border: 1px solid var(--gray-200);
+    background: var(--gray-100);
+  }
+
+  .month-day-cell.empty {
+    background: transparent;
+    border: none;
+  }
+
+  .month-day-cell.today {
+    border-width: 2px;
+    border-color: var(--primary-500);
+    background: var(--primary-50);
+  }
+
+  .month-day-cell.has-plan {
+    border: 1px solid var(--gray-200);
+    border-left: 1px solid var(--primary-500);
+    background: var(--primary-50);
+  }
+
+  .month-day-cell.completed {
+    border-width: 2px;
+    border-color: var(--primary-500);
+    background: var(--success-50);
   }
 
   .day-number {
-    font-size: 0.875rem;
+    font-size: 9px;
+    font-weight: 500;
+    margin-bottom: 2px;
   }
 
   .plan-indicator,
   .completed-indicator {
-    font-size: 1rem;
+    display: none;
   }
 
   .workout-info {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
+    margin-top: 0;
+    gap: 0;
   }
 
-  .month-title h2 {
-    font-size: 1.25rem;
+  .monthly-calendar .workout-distance {
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .monthly-calendar .workout-type {
+    display: none;
+  }
+
+  .monthly-calendar .workout-duration,
+  .monthly-calendar .workout-pace {
+    display: none;
+  }
+
+  .rest-indicator {
+    font-size: 12px;
   }
 
   .monthly-calendar-legend {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 12px;
+    margin-top: 16px;
+    padding: 12px;
+  }
+
+  /* Тёмная тема — мобильный */
+  [data-theme="dark"] .month-title h2 {
+    color: var(--text-primary);
+  }
+
+  [data-theme="dark"] .monthly-calendar-grid {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  [data-theme="dark"] .monthly-calendar-weekdays {
+    background: var(--bg-secondary);
+    border-bottom-color: var(--card-border);
+  }
+
+  [data-theme="dark"] .weekday-header {
+    color: var(--text-secondary);
+  }
+
+  [data-theme="dark"] .monthly-calendar-days {
+    background: transparent;
+  }
+
+  [data-theme="dark"] .month-day-cell {
+    background: var(--bg-tertiary);
+    border-color: var(--card-border);
+  }
+
+  [data-theme="dark"] .month-day-cell.empty {
+    background: transparent;
+    border: none;
+  }
+
+  [data-theme="dark"] .month-day-cell.today {
+    background: rgba(255, 107, 61, 0.2);
+    border-color: var(--primary-500);
+  }
+
+  [data-theme="dark"] .month-day-cell.has-plan {
+    border: 1px solid var(--card-border);
+    border-left: 1px solid var(--primary-500);
+    background: rgba(255, 107, 61, 0.12);
+  }
+
+  [data-theme="dark"] .month-day-cell.completed {
+    border-color: var(--primary-500);
+    background: rgba(34, 197, 94, 0.15);
+  }
+
+  [data-theme="dark"] .day-number {
+    color: var(--text-primary);
+  }
+
+  [data-theme="dark"] .month-day-cell.today .day-number {
+    color: var(--primary-400);
+  }
+
+  [data-theme="dark"] .monthly-calendar .workout-distance {
+    color: var(--success-500);
+  }
+
+  [data-theme="dark"] .rest-indicator {
+    opacity: 0.8;
+  }
+
+  [data-theme="dark"] .monthly-calendar-legend {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+  }
+
+  [data-theme="dark"] .legend-item {
+    color: var(--text-secondary);
   }
 }

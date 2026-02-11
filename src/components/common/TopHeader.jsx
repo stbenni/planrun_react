@@ -24,7 +24,8 @@ const initials = (user) => {
 const TopHeader = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, api } = useAuthStore();
+  const { user, logout, api, setShowOnboardingModal } = useAuthStore();
+  const needsOnboarding = !!(user && user.onboarding_completed === false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const menuRef = useRef(null);
@@ -111,6 +112,11 @@ const TopHeader = () => {
         <div className="top-header-actions">
           {user && (
             <>
+            {needsOnboarding && (
+              <button type="button" className="top-header-onboarding-btn" onClick={() => setShowOnboardingModal(true)}>
+                Настроить план
+              </button>
+            )}
             <div className="header-chat-wrap">
               <ChatNotificationButton />
             </div>

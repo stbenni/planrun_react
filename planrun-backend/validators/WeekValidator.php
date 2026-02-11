@@ -63,7 +63,7 @@ class WeekValidator extends BaseValidator {
         }
         
         if (isset($data['type'])) {
-            $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free'];
+            $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
             if (!in_array($data['type'], $validTypes)) {
                 $this->addError('type', "Тип должен быть одним из: " . implode(', ', $validTypes));
             }
@@ -73,6 +73,48 @@ class WeekValidator extends BaseValidator {
             $this->validateDate($data['date'], 'Y-m-d');
         }
         
+        return !$this->hasErrors();
+    }
+
+    /**
+     * Валидация для добавления дня тренировки по дате (без week_id / day_of_week)
+     */
+    public function validateAddTrainingDayByDate($data) {
+        $this->errors = [];
+        
+        $this->validateRequired($data['date'] ?? null, 'date');
+        $this->validateRequired($data['type'] ?? null, 'type');
+        
+        if (isset($data['date'])) {
+            $this->validateDate($data['date'], 'Y-m-d');
+        }
+        
+        if (isset($data['type'])) {
+            $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
+            if (!in_array($data['type'], $validTypes)) {
+                $this->addError('type', "Тип должен быть одним из: " . implode(', ', $validTypes));
+            }
+        }
+        
+        return !$this->hasErrors();
+    }
+
+    /**
+     * Валидация для обновления дня тренировки по id
+     */
+    public function validateUpdateTrainingDay($data) {
+        $this->errors = [];
+        $this->validateRequired($data['day_id'] ?? null, 'day_id');
+        $this->validateRequired($data['type'] ?? null, 'type');
+        if (isset($data['day_id'])) {
+            $this->validateType($data['day_id'], 'int', 'day_id');
+        }
+        if (isset($data['type'])) {
+            $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
+            if (!in_array($data['type'], $validTypes)) {
+                $this->addError('type', "Тип должен быть одним из: " . implode(', ', $validTypes));
+            }
+        }
         return !$this->hasErrors();
     }
 }

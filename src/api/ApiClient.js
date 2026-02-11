@@ -4,11 +4,12 @@
  */
 
 class ApiError extends Error {
-  constructor({ code, message }) {
+  constructor({ code, message, attempts_left }) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.message = message;
+    this.attempts_left = attempts_left;
   }
 }
 
@@ -615,10 +616,64 @@ class ApiClient {
   }
 
   /**
-   * Регистрация нового пользователя
+   * Отправить код подтверждения на email (шаг перед регистрацией).
+   */
+  async sendVerificationCode(email) {
+    const url = `${this.baseUrl}/register_api.php`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ action: 'send_verification_code', email: (email || '').trim() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!data.success) {
+      throw new ApiError({ code: 'VERIFICATION_SEND_FAILED', message: data.error || 'Не удалось отправить код' });
+    }
+    return { success: true, message: data.message };
+  }
+
+  /**
+   * Минимальная регистрация (логин, email, пароль, код из письма). После успеха — автологин.
+   */
+  async registerMinimal({ username, email, password, verification_code }) {
+    const registerUrl = `${this.baseUrl}/register_api.php`;
+    const payload = { username, email, password, register_minimal: true, verification_code: (verification_code || '').trim() };
+    try {
+      const response = await fetch(registerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data.success) {
+          const user = await this.getCurrentUser();
+          return {
+            success: true,
+            user: user ?? data.user,
+            plan_message: data.plan_message ?? null,
+          };
+        }
+        throw new ApiError({
+          code: 'REGISTRATION_FAILED',
+          message: data.error || 'Ошибка регистрации',
+          attempts_left: data.attempts_left,
+        });
+      }
+      throw new ApiError({ message: `Registration failed: ${await response.text()}` });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError({ code: 'REGISTRATION_FAILED', message: error.message });
+    }
+  }
+
+  /**
+   * Регистрация нового пользователя (полная форма)
    */
   async register(userData) {
-    // Используем register_api.php из папки /api/
     const registerUrl = `${this.baseUrl}/register_api.php`;
 
     try {
@@ -636,10 +691,10 @@ class ApiClient {
         const data = await response.json();
         if (data.success) {
           // Сессия установлена через cookies, получаем данные пользователя
-          const userData = await this.getCurrentUser();
+          const user = await this.getCurrentUser();
           return {
             success: true,
-            user: userData,
+            user: user ?? data.user,
             plan_message: data.plan_message ?? null,
           };
         } else {
@@ -657,6 +712,37 @@ class ApiClient {
         throw error;
       }
       throw new ApiError({ code: 'REGISTRATION_FAILED', message: error.message });
+    }
+  }
+
+  /**
+   * Завершение специализации (второй этап после минимальной регистрации)
+   */
+  async completeSpecialization(payload) {
+    const url = `${this.baseUrl}/complete_specialization_api.php`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data.success) {
+          return {
+            success: true,
+            plan_message: data.plan_message ?? null,
+            onboarding_completed: data.onboarding_completed ?? 1,
+          };
+        }
+        throw new ApiError({ code: 'SPECIALIZATION_FAILED', message: data.error || 'Ошибка сохранения' });
+      }
+      throw new ApiError({ message: `Specialization failed: ${await response.text()}` });
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError({ code: 'SPECIALIZATION_FAILED', message: error.message });
     }
   }
 
@@ -696,6 +782,8 @@ class ApiClient {
       const name = data?.name ?? null;
       const avatarPath = data?.avatar_path ?? null;
       const role = data?.role ?? 'user';
+      const onboardingCompleted = data?.onboarding_completed !== undefined ? !!data.onboarding_completed : false;
+      const timezone = data?.timezone ?? null;
 
       if (isAuthenticated) {
         const baseUser = {
@@ -703,8 +791,10 @@ class ApiClient {
           user_id: userId,
           username: username,
           role,
+          onboarding_completed: onboardingCompleted,
           ...(name != null && { name }),
-          ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath })
+          ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath }),
+          ...(timezone != null && timezone !== '' && { timezone })
         };
         try {
           const plan = await this.getPlan();
@@ -753,8 +843,17 @@ class ApiClient {
     return this.request('get_day', { date }, 'GET');
   }
 
-  async saveResult(date, result) {
-    return this.request('save_result', { date, result: JSON.stringify(result) }, 'POST');
+  /**
+   * Сохранить результат тренировки (отметить выполненной).
+   * @param {Object} data — { date, week, day, activity_type_id?, result_distance?, result_time?, notes?, is_successful?, avg_heart_rate?, ... }
+   */
+  async saveResult(data) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    const body = { ...data };
+    if (csrfToken) body.csrf_token = csrfToken;
+    if (body.activity_type_id == null) body.activity_type_id = 1;
+    return this.request('save_result', body, 'POST');
   }
 
   async getResult(date) {
@@ -816,6 +915,47 @@ class ApiClient {
 
   async addWeek(weekData) {
     return this.request('add_week', weekData, 'POST');
+  }
+
+  /**
+   * Добавить тренировку на дату (календарная модель).
+   * @param {{ date: string, type: string, description?: string, is_key_workout?: boolean }} data
+   */
+  async addTrainingDayByDate(data) {
+    return this.request('add_training_day_by_date', data, 'POST');
+  }
+
+  /**
+   * Удалить тренировку из плана по id дня.
+   * @param {number} dayId - id записи в training_plan_days
+   */
+  async deleteTrainingDay(dayId) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) {
+      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
+    }
+    return this.request('delete_training_day', { day_id: dayId, csrf_token: csrfToken }, 'POST');
+  }
+
+  /**
+   * Обновить тренировку в плане по id дня.
+   * @param {number} dayId - id записи в training_plan_days
+   * @param {object} data - { type, description?, is_key_workout? }
+   */
+  async updateTrainingDay(dayId, data) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) {
+      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
+    }
+    return this.request('update_training_day', {
+      day_id: dayId,
+      type: data.type,
+      description: data.description,
+      is_key_workout: data.is_key_workout != null ? (data.is_key_workout ? 1 : 0) : undefined,
+      csrf_token: csrfToken,
+    }, 'POST');
   }
 
   // ========== АДМИНКА ==========
@@ -887,8 +1027,10 @@ class ApiClient {
    * Отправить сообщение AI с streaming
    * @param {string} content
    * @param {function(string)} onChunk - callback для каждого чанка
+   * @param {object} opts - { onFirstChunk?: () => void, timeoutMs?: number }
    */
-  async chatSendMessageStream(content, onChunk) {
+  async chatSendMessageStream(content, onChunk, opts = {}) {
+    const { onFirstChunk, timeoutMs = 180000 } = opts;
     const urlParams = new URLSearchParams({ action: 'chat_send_message_stream' });
     const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
@@ -896,12 +1038,18 @@ class ApiClient {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     const response = await fetch(url, {
       method: 'POST',
       headers,
       credentials: 'include',
       body: JSON.stringify({ content: (content || '').trim() }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -911,29 +1059,45 @@ class ApiClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let firstChunkFired = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const obj = JSON.parse(trimmed);
-          if (obj.chunk && typeof onChunk === 'function') {
-            onChunk(obj.chunk);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const obj = JSON.parse(trimmed);
+            if (obj.error) {
+              throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
+            }
+            if (obj.chunk && typeof onChunk === 'function') {
+              if (!firstChunkFired && typeof onFirstChunk === 'function') {
+                firstChunkFired = true;
+                onFirstChunk();
+              }
+              onChunk(obj.chunk);
+            }
+          } catch (e) {
+            if (e instanceof ApiError) throw e;
           }
-        } catch (_) {}
+        }
       }
-    }
-    if (buffer.trim()) {
-      try {
+      if (buffer.trim()) {
         const obj = JSON.parse(buffer.trim());
-        if (obj.chunk && typeof onChunk === 'function') onChunk(obj.chunk);
-      } catch (_) {}
+        if (obj.error) throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
+        if (obj.chunk && typeof onChunk === 'function') {
+          if (!firstChunkFired && typeof onFirstChunk === 'function') onFirstChunk();
+          onChunk(obj.chunk);
+        }
+      }
+    } finally {
+      reader.releaseLock?.();
     }
   }
 
@@ -951,6 +1115,13 @@ class ApiClient {
    */
   async chatMarkRead(conversationId) {
     return this.request('chat_mark_read', { conversation_id: conversationId }, 'POST');
+  }
+
+  /**
+   * Очистить чат с AI
+   */
+  async chatClearAi() {
+    return this.request('chat_clear_ai', {}, 'POST');
   }
 
   /**

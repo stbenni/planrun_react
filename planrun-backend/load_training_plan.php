@@ -72,13 +72,19 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
                 $dayName = $dayNames[$dayOfWeek];
                 $dayId = $day['id'];
                 
-                $days[$dayName] = [
+                $item = [
                     'type' => $day['type'],
-                    'text' => $day['description']
+                    'text' => $day['description'],
+                    'id' => (int)$dayId
                 ];
-                
                 if ($day['is_key_workout']) {
-                    $days[$dayName]['key'] = true;
+                    $item['key'] = true;
+                }
+                
+                if ($days[$dayName] === null) {
+                    $days[$dayName] = [$item];
+                } else {
+                    $days[$dayName][] = $item;
                 }
                 
                 // Считаем дистанцию из exercises для беговых тренировок
@@ -119,17 +125,9 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
     }
     $stmt->close();
     
-    // Для совместимости с UI оборачиваем в phases[0]
-    // UI пока ожидает структуру с фазами, но мы используем только одну "виртуальную" фазу
+    // Плоская структура: только недели (фазы не используем)
     $result = [
-        'phases' => [[
-            'id' => 1,
-            'name' => 'План тренировок',
-            'period' => '',
-            'weeks' => count($weeks_data),
-            'goal' => '',
-            'weeks_data' => $weeks_data
-        ]]
+        'weeks_data' => $weeks_data
     ];
     
     // Кешируем результат (15 минут - план может изменяться)

@@ -1,5 +1,6 @@
 /**
- * Модальное окно регистрации (на лендинге, те же размеры по смыслу что и страница)
+ * Модальное окно регистрации (на лендинге).
+ * Минимальная регистрация: только логин, email, пароль. После успеха — дашборд и попап специализации.
  */
 
 import React from 'react';
@@ -21,11 +22,13 @@ const RegisterModal = ({ isOpen, onClose, onRegister }) => {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      size="xlarge"
+      size="small"
       hideHeader
+      centerBody
     >
       <RegisterScreen
         embedInModal
+        minimalOnly
         onRegister={onRegister}
         onSuccess={handleSuccess}
         onClose={onClose}

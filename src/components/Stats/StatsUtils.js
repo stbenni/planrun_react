@@ -161,29 +161,26 @@ export const processStatsData = (workoutsData, allResults, plan, range) => {
   
   // Прогресс по плану
   let planProgress = null;
-  if (plan && plan.phases) {
+  const weeksData = plan?.weeks_data;
+  if (plan && Array.isArray(weeksData)) {
     const allTrainingDays = [];
     const trainingDaysMap = {}; // Карта для быстрой проверки типа дня
     
-    plan.phases.forEach(phase => {
-      if (phase.weeks_data) {
-        phase.weeks_data.forEach(week => {
-          if (week.days && week.start_date) {
-            const startDate = new Date(week.start_date + 'T00:00:00');
-            startDate.setHours(0, 0, 0, 0);
+    weeksData.forEach(week => {
+      if (week.days && week.start_date) {
+        const startDate = new Date(week.start_date + 'T00:00:00');
+        startDate.setHours(0, 0, 0, 0);
+        
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        dayKeys.forEach((dayKey, index) => {
+          const day = week.days[dayKey];
+          if (day && day.type !== 'rest') {
+            const dayDate = new Date(startDate);
+            dayDate.setDate(startDate.getDate() + index);
+            const dateStr = formatDateStr(dayDate);
             
-            const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-            dayKeys.forEach((dayKey, index) => {
-              const day = week.days[dayKey];
-              if (day && day.type !== 'rest') {
-                const dayDate = new Date(startDate);
-                dayDate.setDate(startDate.getDate() + index);
-                const dateStr = formatDateStr(dayDate);
-                
-                allTrainingDays.push(day);
-                trainingDaysMap[dateStr] = true; // Отмечаем, что это тренировочный день
-              }
-            });
+            allTrainingDays.push(day);
+            trainingDaysMap[dateStr] = true;
           }
         });
       }
@@ -249,24 +246,23 @@ export const processProgressData = (workoutsData, allResults, plan) => {
   let planProgress = null;
   const chartData = [];
   
-  if (plan && plan.phases) {
+  const weeksData = plan?.weeks_data;
+  if (plan && Array.isArray(weeksData)) {
     const allTrainingDays = [];
     const trainingDaysMap = {};
     
-    plan.phases.forEach(phase => {
-      if (phase.weeks_data) {
-        phase.weeks_data.forEach(week => {
-          if (week.days && week.start_date) {
-            const startDate = new Date(week.start_date + 'T00:00:00');
-            startDate.setHours(0, 0, 0, 0);
-            
-            const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-            dayKeys.forEach((dayKey, index) => {
-              const day = week.days[dayKey];
-              if (day && day.type !== 'rest') {
-                const dayDate = new Date(startDate);
-                dayDate.setDate(startDate.getDate() + index);
-                const dateStr = formatDateStr(dayDate);
+    weeksData.forEach(week => {
+      if (week.days && week.start_date) {
+        const startDate = new Date(week.start_date + 'T00:00:00');
+        startDate.setHours(0, 0, 0, 0);
+        
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        dayKeys.forEach((dayKey, index) => {
+          const day = week.days[dayKey];
+          if (day && day.type !== 'rest') {
+            const dayDate = new Date(startDate);
+            dayDate.setDate(startDate.getDate() + index);
+            const dateStr = formatDateStr(dayDate);
                 
                 allTrainingDays.push(day);
                 trainingDaysMap[dateStr] = true;
@@ -279,8 +275,6 @@ export const processProgressData = (workoutsData, allResults, plan) => {
                   distance: dayData ? (dayData.distance || 0) : 0,
                   workouts: dayData ? (dayData.count || 0) : 0
                 });
-              }
-            });
           }
         });
       }

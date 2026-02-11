@@ -6,26 +6,33 @@
 import React, { useMemo } from 'react';
 import '../Calendar/WeekCalendar.css';
 
+/** API может вернуть day как массив { type, text, id }. Нормализуем: один объект для отображения (первый). */
+function normalizeDayData(dayData) {
+  if (!dayData) return null;
+  if (Array.isArray(dayData)) {
+    const first = dayData.find((d) => d && d.type !== 'rest' && d.type !== 'free');
+    return first || null;
+  }
+  return dayData.type !== 'rest' && dayData.type !== 'free' ? dayData : null;
+}
+
 function getWeekDaysFromPlan(plan, progressDataMap) {
-  if (!plan?.phases) return [];
+  const weeksData = plan?.weeks_data;
+  if (!plan || !Array.isArray(weeksData)) return [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let currentWeek = null;
-  for (const phase of plan.phases) {
-    if (!phase.weeks_data) continue;
-    for (const week of phase.weeks_data) {
-      if (!week.start_date || !week.days) continue;
-      const startDate = new Date(week.start_date + 'T00:00:00');
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
-      if (today >= startDate && today <= endDate) {
-        currentWeek = week;
-        break;
-      }
+  for (const week of weeksData) {
+    if (!week.start_date || !week.days) continue;
+    const startDate = new Date(week.start_date + 'T00:00:00');
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+    if (today >= startDate && today <= endDate) {
+      currentWeek = week;
+      break;
     }
-    if (currentWeek) break;
   }
   if (!currentWeek) return [];
 
@@ -42,10 +49,11 @@ function getWeekDaysFromPlan(plan, progressDataMap) {
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
     const dayKey = dayKeys[i];
-    const dayData = currentWeek.days && currentWeek.days[dayKey];
+    const rawDayData = currentWeek.days && currentWeek.days[dayKey];
+    const dayData = normalizeDayData(rawDayData);
     const isToday = date.getTime() === today.getTime();
     const isCompleted = progressDataMap[dateStr];
-    const status = isCompleted ? 'completed' : (dayData && dayData.type !== 'rest' ? 'planned' : 'rest');
+    const status = isCompleted ? 'completed' : (dayData ? 'planned' : 'rest');
     days.push({
       date: dateStr,
       dateObj: date,
@@ -64,6 +72,7 @@ function getDayTypeLabel(dayData, status) {
   if (!dayData) return '—';
   if (dayData.type === 'rest') return 'Отдых';
   if (status === 'completed') return 'Выполнено';
+  if (dayData.type === 'free') return '—';
   const labels = {
     long: 'Длительный',
     'long-run': 'Длительный',
@@ -72,7 +81,6 @@ function getDayTypeLabel(dayData, status) {
     tempo: 'Темп',
     fartlek: 'Фартлек',
     race: 'Соревнование',
-    free: 'Свободная',
     other: 'ОФП',
     sbu: 'СБУ',
   };
@@ -87,13 +95,14 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
 
   if (!weekDays.length) {
     return (
-      <div className="dashboard-week-strip dashboard-week-strip-empty">
+      <div
+        className="dashboard-week-strip dashboard-week-strip-empty"
+        role={onNavigate ? 'button' : undefined}
+        tabIndex={onNavigate ? 0 : undefined}
+        onClick={onNavigate ? () => onNavigate('calendar') : undefined}
+        onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate('calendar'); } } : undefined}
+      >
         <p>Нет плана на текущую неделю</p>
-        {onNavigate && (
-          <button type="button" className="dashboard-module-link-btn" onClick={() => onNavigate('calendar')}>
-            Открыть календарь →
-          </button>
-        )}
       </div>
     );
   }
@@ -123,7 +132,7 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
                 </div>
               </div>
 
-              {day.dayData && day.dayData.type !== 'rest' && (
+              {day.dayData && day.dayData.type !== 'rest' && day.dayData.type !== 'free' && (
                 <div className="week-day-workout">
                   <div className="workout-type-icon">
                     {day.status === 'completed' ? '✅' :
@@ -143,18 +152,13 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
                 </div>
               )}
 
-              {!day.dayData && (
+              {(!day.dayData || day.dayData.type === 'free') && (
                 <div className="week-day-empty">—</div>
               )}
             </div>
           ))}
         </div>
       </div>
-      {onNavigate && (
-        <button type="button" className="dashboard-module-link-btn" onClick={() => onNavigate('calendar')}>
-          Открыть календарь →
-        </button>
-      )}
     </div>
   );
 };

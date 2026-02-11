@@ -8,10 +8,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import useAuthStore from './stores/useAuthStore';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
-import BottomNav from './components/common/BottomNav';
-import TopHeader from './components/common/TopHeader';
-import Notifications from './components/common/Notifications';
-import PageTransition from './components/common/PageTransition';
+import AppLayout from './components/AppLayout';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
@@ -97,19 +94,12 @@ function App() {
 
   return (
     <Router>
-      {isAuthenticated && (
-        <>
-          <TopHeader />
-          <Notifications api={api} isAdmin={isAdmin} />
-        </>
-      )}
-      <PageTransition>
-        <Suspense fallback={
-          <div className="loading-container">
-            <SkeletonScreen type="dashboard" />
-          </div>
-        }>
-          <Routes>
+      <Suspense fallback={
+        <div className="loading-container">
+          <SkeletonScreen type="dashboard" />
+        </div>
+      }>
+      <Routes>
         <Route
           path="/landing"
           element={<LandingScreen onRegister={handleRegister} registrationEnabled={registrationEnabled} />}
@@ -119,7 +109,7 @@ function App() {
           element={
             !isAuthenticated ? (
               registrationEnabled ? (
-                <RegisterScreen onRegister={handleRegister} />
+                <RegisterScreen onRegister={handleRegister} minimalOnly />
               ) : (
                 <Navigate to="/landing" replace state={{ registrationDisabled: true }} />
               )
@@ -158,82 +148,27 @@ function App() {
             )
           }
         />
+        {/* Авторизованная зона: один layout с хедером, при навигации меняется только контент (Outlet) */}
         <Route
-          path="/"
-          element={
-            isAuthenticated ? (
-              <DashboardScreen />
-            ) : (
-              <Navigate to="/landing" replace />
-            )
-          }
-        />
-        <Route
-          path="/calendar"
-          element={
-            isAuthenticated ? (
-              <>
-                <CalendarScreen />
-                <BottomNav />
-              </>
-            ) : (
-              <Navigate to="/landing" replace state={{ openLogin: true }} />
-            )
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            isAuthenticated ? (
-              <>
-                <SettingsScreen onLogout={handleLogout} />
-                <BottomNav />
-              </>
-            ) : (
-              <Navigate to="/landing" replace state={{ openLogin: true }} />
-            )
-          }
-        />
-        <Route
-          path="/stats"
-          element={
-            isAuthenticated ? (
-              <>
-                <StatsScreen />
-                <BottomNav />
-              </>
-            ) : (
-              <Navigate to="/landing" replace state={{ openLogin: true }} />
-            )
-          }
-        />
-        <Route
-          path="/chat"
-          element={
-            isAuthenticated ? (
-              <>
-                <ChatScreen />
-                <BottomNav />
-              </>
-            ) : (
-              <Navigate to="/landing" replace state={{ openLogin: true }} />
-            )
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            isAuthenticated && isAdmin ? (
-              <AdminScreen />
-            ) : isAuthenticated ? (
-              <Navigate to="/" replace />
-            ) : (
-              <Navigate to="/landing" replace state={{ openLogin: true }} />
-            )
-          }
-        />
-        
-        {/* Публичный маршрут профиля пользователя - должен быть последним */}
+          element={isAuthenticated ? <AppLayout /> : <Navigate to="/landing" replace />}
+        >
+          <Route path="/" element={<DashboardScreen />} />
+          <Route path="/calendar" element={<CalendarScreen />} />
+          <Route path="/settings" element={<SettingsScreen onLogout={handleLogout} />} />
+          <Route path="/stats" element={<StatsScreen />} />
+          <Route path="/chat" element={<ChatScreen />} />
+          <Route
+            path="/admin"
+            element={
+              isAdmin ? (
+                <AdminScreen />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+        </Route>
+        {/* Публичный маршрут профиля пользователя — без хедера */}
         <Route
           path="/:username"
           element={
@@ -246,9 +181,8 @@ function App() {
             </Suspense>
           }
         />
-        </Routes>
-        </Suspense>
-      </PageTransition>
+      </Routes>
+      </Suspense>
     </Router>
   );
 }

@@ -1,20 +1,14 @@
 /**
- * Компонент для плавных переходов между страницами
- * Создает ощущение единого приложения без видимых переходов
+ * Компонент для плавных переходов между страницами.
+ * Обёртка без key — не перемонтируется при навигации (хедер и контент-зона остаются).
+ * Анимация применяется к внутреннему контенту через .page-transition-content.
  */
 
 import React from 'react';
-import { useLocation } from 'react-router-dom';
 import './PageTransition.css';
 
 const PageTransition = ({ children }) => {
-  const location = useLocation();
-
-  return (
-    <div className="page-transition" key={location.pathname}>
-      {children}
-    </div>
-  );
+  return <div className="page-transition">{children}</div>;
 };
 
 export default PageTransition;

@@ -85,6 +85,40 @@ class ChatRepository extends BaseRepository {
     }
 
     /**
+     * Поиск по сообщениям диалога по ключевым словам (для подстановки релевантных фрагментов в контекст LLM).
+     * Возвращает до $limit сообщений, в которых встречается любое из слов. Только этот диалог (conversation_id).
+     */
+    public function searchInChat(int $conversationId, array $keywords, int $limit = 8): array {
+        $keywords = array_slice(array_unique(array_map('trim', $keywords)), 0, 10);
+        $keywords = array_filter($keywords, function ($w) {
+            return mb_strlen($w) >= 2;
+        });
+        if (empty($keywords)) {
+            return [];
+        }
+        $placeholders = implode(' OR ', array_fill(0, count($keywords), 'content LIKE ?'));
+        $types = 'i' . str_repeat('s', count($keywords));
+        $params = [$conversationId];
+        foreach ($keywords as $w) {
+            $params[] = '%' . $w . '%';
+        }
+        $params[] = $limit;
+        $sql = "SELECT id, sender_type, content, created_at 
+                FROM chat_messages 
+                WHERE conversation_id = ? AND ({$placeholders}) 
+                ORDER BY created_at DESC 
+                LIMIT ?";
+        return $this->fetchAll($sql, $params, $types . 'i');
+    }
+
+    /**
+     * Удалить все сообщения из разговора (очистка чата)
+     */
+    public function deleteMessagesByConversation(int $conversationId): void {
+        $this->execute("DELETE FROM chat_messages WHERE conversation_id = ?", [$conversationId], 'i');
+    }
+
+    /**
      * Обновить updated_at разговора
      */
     public function touchConversation(int $conversationId): void {

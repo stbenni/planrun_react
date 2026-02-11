@@ -81,7 +81,7 @@ function generatePlanViaPlanRunAI($userId) {
     
     // Вызываем PlanRun AI API
     try {
-        $response = callAIAPI($prompt, $user, 3);
+        $response = callAIAPI($prompt, $user, 3, $userId);
         error_log("PlanRun AI Generator: Получен ответ от PlanRun AI API, длина: " . strlen($response) . " символов");
         
         // Парсим JSON ответ

@@ -85,6 +85,20 @@
   margin-top: var(--space-8);
 }
 
+/* Кнопки «Назад» / «Далее» — по ширине контента, справа */
+.register-form-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+  justify-content: flex-end;
+}
+
+.register-form-actions .btn {
+  flex: none;
+  width: auto;
+  min-width: 0;
+}
+
 .form-step h2 {
   font-size: var(--text-2xl);
   margin: 0 0 var(--space-6) 0;
@@ -96,7 +110,7 @@
 }
 
 .form-group label {
-  display: block;
+  display: flex;
   margin-bottom: var(--space-2);
   font-weight: var(--font-semibold);
   color: var(--gray-800);
@@ -131,6 +145,38 @@
   font-family: inherit;
 }
 
+/* Селект цели — крупнее и оранжевое выделение (специфичность как у .form-group select, чтобы перебить settings.css !important) */
+.form-group select.goal-type-select,
+.goal-type-select {
+  font-size: 1.125rem !important;
+  min-height: 48px;
+  padding: var(--space-3) var(--space-4) !important;
+  border: 2px solid var(--primary-500, #FF4D1A) !important;
+  background: var(--card-bg) !important;
+  color: var(--text-primary) !important;
+  font-weight: 500;
+}
+
+.form-group select.goal-type-select:focus,
+.goal-type-select:focus {
+  outline: none;
+  border-color: var(--primary-500, #f97316) !important;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.25);
+}
+
+[data-theme="dark"] .form-group select.goal-type-select,
+[data-theme="dark"] .goal-type-select {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--primary-400, #fb923c) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="dark"] .form-group select.goal-type-select:focus,
+[data-theme="dark"] .goal-type-select:focus {
+  border-color: var(--primary-400, #fb923c) !important;
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.2);
+}
+
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
@@ -145,11 +191,18 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
 }
+.form-row--two-cols {
+  grid-template-columns: 2fr 2fr!important;
+}
 
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
+}
+/* Ряд из двух колонок и на мобиле (пол, год рождения + рост) */
+.form-group .hidden {
+  display: none;
 }
 
 .error-text {
@@ -182,6 +235,48 @@
 
 .training-mode-option input[type="radio"] {
   display: none;
+}
+
+.training-mode-option__left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.training-mode-option__icon {
+  font-size: 3em;
+  margin-bottom: 15px;
+  line-height: 1;
+}
+
+.training-mode-option__title {
+  font-weight: 700;
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.training-mode-option__price {
+  color: var(--text-secondary);
+  font-size: 0.95em;
+  margin-bottom: 15px;
+}
+
+.training-mode-option__right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.training-mode-option__list {
+  text-align: left;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.training-mode-option__list li {
+  margin: 8px 0;
 }
 
 .training-mode-option:hover {
@@ -234,7 +329,7 @@
 }
 
 [data-theme="dark"] .form-group input,
-[data-theme="dark"] .form-group select,
+[data-theme="dark"] .form-group select:not(.goal-type-select),
 [data-theme="dark"] .form-group textarea {
   background: var(--bg-tertiary);
   border-color: var(--card-border);
@@ -270,9 +365,13 @@
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+  align-items: stretch;
 }
 
 .goal-option {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
   border: 2px solid var(--gray-200);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
@@ -305,6 +404,46 @@
   color: var(--text-primary);
 }
 
+/* Блок цели: плавное появление и изменение высоты при переключении селекта (max-height задаётся из JS) */
+.goal-step-fields-wrap {
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.4s ease-out, opacity 0.3s ease-out;
+}
+
+.goal-step-fields-wrap--visible {
+  opacity: 1;
+  transition: max-height 0.4s ease-in-out, opacity 0.3s ease-out;
+}
+
+.goal-step-fields-wrap__inner {
+  padding-top: 2px;
+}
+
+/* Блок «Что ты получишь» — выделение рекомендаций под цель */
+.goal-recommendations {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+[data-theme="dark"] .goal-recommendations {
+  background: var(--bg-tertiary);
+  border-left-color: var(--primary-400);
+}
+
+.goal-recommendations__title {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-base);
+}
+
+.goal-recommendations__content {
+  margin: 0;
+}
+
 .gender-options {
   display: flex;
   gap: var(--space-3);
@@ -335,49 +474,27 @@
   background: var(--bg-tertiary);
 }
 
-.btn {
+/* Блок ОФП: выезжание при «Да» и скрытие при «Нет» */
+.ofp-fields-wrap {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.35s ease-out, opacity 0.3s ease-out;
+}
+
+.ofp-fields-wrap--visible {
+  max-height: 520px;
+  opacity: 1;
+  transition: max-height 0.4s ease-in, opacity 0.3s ease-out;
+}
+
+.ofp-fields-wrap__inner {
+  padding-top: 2px;
+}
+
+/* Кнопки .btn, .btn-primary, .btn-secondary: src/styles/buttons.css */
+.register-form-actions .btn--block {
   flex: 1;
-  padding: var(--space-3) var(--space-6);
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-  font-weight: var(--font-semibold);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  font-family: inherit;
-}
-
-.btn-primary {
-  background: var(--gradient-primary);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.btn-secondary {
-  background: var(--gray-100);
-  color: var(--gray-700);
-}
-
-[data-theme="dark"] .btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--gray-200);
-}
-
-[data-theme="dark"] .btn-secondary:hover:not(:disabled) {
-  background: var(--gray-700);
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .register-error {
@@ -391,14 +508,63 @@
   font-size: var(--text-sm);
 }
 
+/* Шаг ввода кода подтверждения email */
+.register-code-hint {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.register-code-spam {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  font-style: italic;
+}
+
+.register-code-input {
+  text-align: center !important;
+  font-size: 1.5rem !important;
+  letter-spacing: 0.4em;
+}
+
+.register-attempts {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.register-resend-code {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-3);
+  padding: var(--space-2);
+  background: none;
+  border: none;
+  color: var(--primary-500);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.register-resend-code:hover {
+  color: var(--primary-600);
+}
+
 /* Программы здоровья */
 .program-options {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-3);
+  align-items: stretch;
 }
 
 .program-option {
+  display: flex;
+  min-height: 0;
+  height: 100%;
   cursor: pointer;
 }
 
@@ -410,6 +576,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
+  min-height: 100%;
   padding: var(--space-4) var(--space-3);
   border: 2px solid var(--gray-200);
   border-radius: var(--radius-lg);
@@ -497,6 +665,7 @@
 
 /* Чекбоксы */
 .checkbox-group {
+  align-items: center;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: var(--space-2);
@@ -504,8 +673,9 @@
 }
 
 .checkbox-item {
-  display: flex;
+  display: flex!important;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   padding: var(--space-2);
   border: 2px solid var(--gray-200);
@@ -557,28 +727,95 @@
 
 @media (max-width: 640px) {
   .register-content {
-    padding: var(--space-6);
+    padding: 0;
     max-width: 100%;
   }
 
-  .training-mode-grid {
-    grid-template-columns: 1fr !important;
+  .register-content--modal {
+    padding: 0;
   }
 
-  .goal-options,
-  .program-options {
+  .training-mode-grid {
     grid-template-columns: 1fr;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+  .register-form {
+    margin-top: 0;
+  }
+  .form-step h2 {
+    margin: 10px;
+  }
+
+  /* Карточка: слева 30% — иконка, подпись, стоимость; справа 70% — галочки и бейдж */
+  .training-mode-option {
+    display: grid;
+    grid-template-columns: 35% 1fr;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    text-align: center;
+    align-items: center;
+  }
+
+  .training-mode-option__left {
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .training-mode-option__icon {
+    font-size: 2em;
+    margin-bottom: 6px;
+  }
+
+  .training-mode-option__title {
+    font-size: 0.9em;
+    margin-bottom: 2px;
+  }
+
+  .training-mode-option__price {
+    font-size: 0.85em;
+    margin-bottom: 0;
+  }
+
+  .training-mode-option__right {
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+
+  .training-mode-option__list {
+    width: 100%;
+    font-size: 0.85em;
+  }
+
+  .training-mode-option__list li {
+    margin: 4px 0;
+  }
+
+  .training-mode-option-badge {
+    width: 100%;
+    margin-top: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    font-size: 0.75rem;
+  }
+
+  .goal-options {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .program-options {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .step-indicator {
     font-size: 10px;
   }
 
-  .form-row {
+  .form-row:not(.form-row--two-cols) {
     grid-template-columns: 1fr;
   }
 
   .checkbox-group {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }

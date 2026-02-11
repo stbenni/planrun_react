@@ -7,6 +7,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  justify-content: center;
   min-height: 100vh;
   background: var(--gradient-primary);
   padding: var(--space-5);
@@ -15,7 +16,7 @@
 .login-content {
   width: 100%;
   max-width: 400px;
-  padding: var(--space-10);
+  padding: 0 10px;
   background: var(--card-bg);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
@@ -28,6 +29,8 @@
   animation: none;
   max-width: none;
   min-height: 420px;
+  justify-content: center;
+  align-items: center;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -63,6 +66,7 @@
 .login-form {
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .login-input {
@@ -255,4 +259,37 @@
 [data-theme="dark"] .login-input {
   background: var(--bg-tertiary);
   border-color: var(--card-border);
+}
+@media (max-width: 768px) {
+  .login-content {
+    padding: 0 10px;
+  }
+}
+
+/* Мобильная версия формы в модалке регистрации */
+@media (max-width: 640px) {
+  .login-content--inline {
+    min-height: 0;
+    padding: 0;
+    justify-content: flex-start;
+  }
+
+  .login-content--inline .login-title {
+    font-size: var(--text-2xl);
+    margin-bottom: var(--space-1);
+  }
+
+  .login-content--inline .login-subtitle {
+    font-size: var(--text-base);
+    margin-bottom: var(--space-5);
+  }
+
+  .login-content--inline .login-input {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3);
+  }
+
+  .login-content--inline .login-button {
+    margin-top: var(--space-2);
+  }
 }

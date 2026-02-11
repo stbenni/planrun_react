@@ -67,7 +67,7 @@ function createEmptyPlan($userId, $startDate, $endDate = null) {
             throw new Exception("Ошибка создания недели {$weekNum}");
         }
         
-        // Создаем пустые дни
+        // Создаем пустые дни: type='free' = «свободный день» (добавить тренировку), не «отдых»
         for ($dayNum = 1; $dayNum <= 7; $dayNum++) {
             $dayDate = clone $weekStart;
             $dayDate->modify('+' . ($dayNum - 1) . ' days');
@@ -76,7 +76,7 @@ function createEmptyPlan($userId, $startDate, $endDate = null) {
             $insertDayStmt = $db->prepare("
                 INSERT INTO training_plan_days 
                 (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                VALUES (?, ?, ?, 'rest', '', 0, ?)
+                VALUES (?, ?, ?, 'free', '', 0, ?)
             ");
             $insertDayStmt->bind_param('iiis', $userId, $weekId, $dayNum, $dayDateStr);
             $insertDayStmt->execute();

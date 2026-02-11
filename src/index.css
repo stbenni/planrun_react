@@ -1,6 +1,8 @@
 /* Импорты должны быть в самом начале файла */
-@import './styles/sports-colors.css'; /* Новая спортивная цветовая схема */
+@import './styles/sports-colors.css'; /* Дизайн-токены и темы */
 @import './styles/dark-mode.css';
+@import './styles/buttons.css';       /* Единая система кнопок .btn, .btn-primary, .btn-secondary */
+@import './styles/cards.css';        /* Базовый класс карточек .card */
 @import './styles/animations.css';
 
 /* Локальные шрифты Montserrat */

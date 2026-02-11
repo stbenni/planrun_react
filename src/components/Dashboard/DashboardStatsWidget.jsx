@@ -55,7 +55,13 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
 
   if (loading && !stats) {
     return (
-      <div className="dashboard-stats-widget">
+      <div
+        className="dashboard-stats-widget"
+        role={onNavigate ? 'button' : undefined}
+        tabIndex={onNavigate ? 0 : undefined}
+        onClick={onNavigate ? () => onNavigate('stats') : undefined}
+        onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate('stats'); } } : undefined}
+      >
         <div className="dashboard-stats-widget-loading">Загрузка...</div>
       </div>
     );
@@ -69,8 +75,14 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
   };
 
   return (
-    <div className="dashboard-stats-widget">
-      <div className="dashboard-stats-time-range">
+    <div
+      className="dashboard-stats-widget"
+      role={onNavigate ? 'button' : undefined}
+      tabIndex={onNavigate ? 0 : undefined}
+      onClick={onNavigate ? () => onNavigate('stats') : undefined}
+      onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate('stats'); } } : undefined}
+    >
+      <div className="dashboard-stats-time-range" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           className={`dashboard-time-range-btn ${timeRange === 'week' ? 'active' : ''}`}
@@ -102,43 +114,46 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
       </div>
       <div className="dashboard-stats-metrics-grid">
         <div className="dashboard-stat-metric-card">
-          <div className="metric-icon">🏃</div>
-          <div className="metric-content">
-            <div className="metric-value">{s.totalDistance}</div>
-            <div className="metric-unit">км</div>
-            <div className="metric-label">Дистанция</div>
+          <div className="dashboard-stat-metric-card__label">
+            <span className="dashboard-stat-metric-card__icon" aria-hidden>🏃</span>
+            <span>Дистанция</span>
+          </div>
+          <div className="dashboard-stat-metric-card__value">
+            <span className="dashboard-stat-metric-card__number">{s.totalDistance}</span>
+            <span className="dashboard-stat-metric-card__unit">км</span>
           </div>
         </div>
         <div className="dashboard-stat-metric-card">
-          <div className="metric-icon">⏱️</div>
-          <div className="metric-content">
-            <div className="metric-value">{Math.round(s.totalTime / 60)}</div>
-            <div className="metric-unit">часов</div>
-            <div className="metric-label">Время</div>
+          <div className="dashboard-stat-metric-card__label">
+            <span className="dashboard-stat-metric-card__icon" aria-hidden>⏱️</span>
+            <span>Время</span>
+          </div>
+          <div className="dashboard-stat-metric-card__value">
+            <span className="dashboard-stat-metric-card__number">{Math.round(s.totalTime / 60)}</span>
+            <span className="dashboard-stat-metric-card__unit">часов</span>
           </div>
         </div>
         <div className="dashboard-stat-metric-card">
-          <div className="metric-icon">📅</div>
-          <div className="metric-content">
-            <div className="metric-value">{s.totalWorkouts}</div>
-            <div className="metric-unit">тренировок</div>
-            <div className="metric-label">Активность</div>
+          <div className="dashboard-stat-metric-card__label">
+            <span className="dashboard-stat-metric-card__icon" aria-hidden>📅</span>
+            <span>Активность</span>
+          </div>
+          <div className="dashboard-stat-metric-card__value">
+            <span className="dashboard-stat-metric-card__number">{s.totalWorkouts}</span>
+            <span className="dashboard-stat-metric-card__unit">тренировок</span>
           </div>
         </div>
         <div className="dashboard-stat-metric-card">
-          <div className="metric-icon">📍</div>
-          <div className="metric-content">
-            <div className="metric-value">{s.avgPace}</div>
-            <div className="metric-unit">/км</div>
-            <div className="metric-label">Средний темп</div>
+          <div className="dashboard-stat-metric-card__label">
+            <span className="dashboard-stat-metric-card__icon" aria-hidden>📍</span>
+            <span>Средний темп</span>
+          </div>
+          <div className="dashboard-stat-metric-card__value">
+            <span className="dashboard-stat-metric-card__number">{s.avgPace}</span>
+            <span className="dashboard-stat-metric-card__unit">/км</span>
           </div>
         </div>
       </div>
-      {onNavigate && (
-        <button type="button" className="dashboard-module-link-btn" onClick={() => onNavigate('stats')}>
-          Вся статистика →
-        </button>
-      )}
     </div>
   );
 };

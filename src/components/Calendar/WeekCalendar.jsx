@@ -2,17 +2,71 @@
  * WeekCalendar - Недельный календарь в стиле OMY! Sports
  * Показывает неделю с цветовыми индикаторами и карточками тренировок
  * Поддерживает swipe-жесты для навигации между неделями
+ * При пустом плане всегда показывается виртуальная текущая неделя (пустая сетка).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import WorkoutCard from './WorkoutCard';
 import './WeekCalendar.css';
 
-const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDayPress, currentWeekNumber }) => {
-  const [currentWeek, setCurrentWeek] = useState(null);
-  const [weeks, setWeeks] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(null); // Выбранная дата, по умолчанию сегодня
-  const [dayDetails, setDayDetails] = useState({}); // Данные о днях: {date: {plan, dayExercises, workouts}}
+const EMPTY_DAYS = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+
+/** Добавить дни к дате YYYY-MM-DD, вернуть новую YYYY-MM-DD */
+function addDays(dateStr, delta) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Понедельник текущей недели в формате YYYY-MM-DD */
+function getMondayOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayOfWeek = today.getDay();
+  const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + diff);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, '0');
+  const d = String(monday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Неделя для отображения: понедельник + пустая сетка дней (календарь не привязан к плану) */
+function getVirtualWeekForStartDate(startDateStr) {
+  return {
+    number: 0,
+    start_date: startDateStr,
+    total_volume: '',
+    days: { ...EMPTY_DAYS },
+  };
+}
+
+/** Неделя для отображения: из плана, если есть на эту дату, иначе просто календарная неделя */
+function getWeekForStartDate(plan, startDateStr) {
+  const weeksData = plan?.weeks_data;
+  if (Array.isArray(weeksData)) {
+    const found = weeksData.find((w) => w.start_date === startDateStr);
+    if (found) return { ...found };
+  }
+  return getVirtualWeekForStartDate(startDateStr);
+}
+
+function getVirtualCurrentWeek() {
+  return getVirtualWeekForStartDate(getMondayOfToday());
+}
+
+const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber }) => {
+  const [currentWeek, setCurrentWeek] = useState(getVirtualCurrentWeek);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  });
+  const [dayDetails, setDayDetails] = useState({});
   const [loadingDays, setLoadingDays] = useState(false);
   const [isSwiping, setIsSwiping] = useState(false);
   const swipeStartX = useRef(0);
@@ -20,52 +74,15 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
   const containerRef = useRef(null);
 
   useEffect(() => {
-    if (plan && plan.phases) {
-      const allWeeks = [];
-      plan.phases.forEach(phase => {
-        if (phase.weeks_data) {
-          phase.weeks_data.forEach(week => {
-            allWeeks.push({
-              ...week,
-              phaseName: phase.name
-            });
-          });
-        }
-      });
-      setWeeks(allWeeks);
-      
-      // Находим текущую неделю
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const foundWeek = allWeeks.find(week => {
-        if (!week.start_date) return false;
-        const startDate = new Date(week.start_date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(startDate);
-        endDate.setDate(endDate.getDate() + 6);
-        endDate.setHours(23, 59, 59, 999);
-        return today >= startDate && today <= endDate;
-      });
-      
-      if (foundWeek) {
-        setCurrentWeek(foundWeek);
-        // Устанавливаем выбранную дату на сегодня
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        setSelectedDate(`${year}-${month}-${day}`);
-      } else if (allWeeks.length > 0) {
-        setCurrentWeek(allWeeks[0]);
-        // Если сегодняшний день не найден, выбираем первый день первой недели
-        const firstWeek = allWeeks[0];
-        if (firstWeek && firstWeek.start_date) {
-          setSelectedDate(firstWeek.start_date);
-        }
-      }
-    }
+    const todayStr = (() => {
+      const t = new Date();
+      t.setHours(0, 0, 0, 0);
+      return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    })();
+    const mondayStr = getMondayOfToday();
+    const week = getWeekForStartDate(plan, mondayStr);
+    setCurrentWeek(week);
+    setSelectedDate(todayStr);
   }, [plan]);
 
   const getWeekDays = (week) => {
@@ -94,7 +111,12 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
       // i=1 → вторник → 'tue'
       // и т.д.
       const dayKey = dayKeys[i];
-      const dayData = week.days && week.days[dayKey];
+      const rawDay = week.days && week.days[dayKey];
+      const dayData = Array.isArray(rawDay)
+        ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || null
+        : rawDay && rawDay.type !== 'rest' && rawDay.type !== 'free'
+          ? rawDay
+          : null;
       
       const isToday = (() => {
         const today = new Date();
@@ -103,7 +125,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
       })();
       
       const isCompleted = progressData[dateStr] || false;
-      const status = isCompleted ? 'completed' : (dayData && dayData.type !== 'rest' ? 'planned' : 'rest');
+      const status = isCompleted ? 'completed' : (dayData ? 'planned' : 'rest');
       
       days.push({
         date: dateStr,
@@ -120,89 +142,71 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
     return days;
   };
 
-  // Загружаем детальные данные для выбранной даты
-  useEffect(() => {
-    if (!selectedDate || !api) return;
-    
-    const loadDayData = async () => {
-      // Проверяем, не загружены ли уже данные для этой даты
-      if (dayDetails[selectedDate]) return;
-      
-      setLoadingDays(true);
-      
-      try {
-        const response = await api.getDay(selectedDate);
-        const data = response?.data || response;
-        if (data && !data.error) {
-          setDayDetails(prev => ({
-            ...prev,
-            [selectedDate]: {
-              plan: data.plan || data.planHtml || '',
-              dayExercises: data.dayExercises || [],
-              workouts: data.workouts || []
-            }
-          }));
-        }
-      } catch (error) {
-        console.error(`Error loading day ${selectedDate}:`, error);
-      } finally {
-        setLoadingDays(false);
+  const loadDayDataForDate = useCallback(async (date) => {
+    if (!date || !api?.getDay) return;
+    setLoadingDays(true);
+    try {
+      const response = await api.getDay(date);
+      const data = response?.data || response;
+      if (data && !data.error) {
+        setDayDetails(prev => ({
+          ...prev,
+          [date]: {
+            plan: data.plan || data.planHtml || '',
+            planHtml: data.planHtml || null,
+            planDays: data.planDays || [],
+            dayExercises: data.dayExercises || [],
+            workouts: data.workouts || []
+          }
+        }));
       }
-    };
-    
-    loadDayData();
-  }, [selectedDate, api]);
+    } catch (error) {
+      console.error(`Error loading day ${date}:`, error);
+    } finally {
+      setLoadingDays(false);
+    }
+  }, [api]);
+
+  // Загрузка/обновление дня при смене даты или при обновлении плана (после добавления/удаления тренировки)
+  useEffect(() => {
+    if (!selectedDate) return;
+    loadDayDataForDate(selectedDate);
+  }, [plan, selectedDate, loadDayDataForDate]);
+
+  const handleDeletePlanDay = async (dayId) => {
+    if (!dayId || !api?.deleteTrainingDay) return;
+    if (!window.confirm('Удалить эту тренировку из плана?')) return;
+    try {
+      await api.deleteTrainingDay(dayId);
+      onTrainingAdded?.();
+      await loadDayDataForDate(selectedDate);
+    } catch (err) {
+      console.error('Error deleting plan day:', err);
+      alert('Ошибка удаления: ' + (err?.message || 'Не удалось удалить тренировку'));
+    }
+  };
 
   const goToPreviousWeek = () => {
-    if (!currentWeek) return;
-    const currentIndex = weeks.findIndex(w => w.number === currentWeek.number);
-    if (currentIndex > 0) {
-      const prevWeek = weeks[currentIndex - 1];
-      setCurrentWeek(prevWeek);
-      // Выбираем первый день предыдущей недели
-      if (prevWeek && prevWeek.start_date) {
-        setSelectedDate(prevWeek.start_date);
-      }
-    }
+    if (!currentWeek?.start_date) return;
+    const prevStart = addDays(currentWeek.start_date, -7);
+    setCurrentWeek(getWeekForStartDate(plan, prevStart));
+    setSelectedDate(prevStart);
   };
 
   const goToNextWeek = () => {
-    if (!currentWeek) return;
-    const currentIndex = weeks.findIndex(w => w.number === currentWeek.number);
-    if (currentIndex < weeks.length - 1) {
-      const nextWeek = weeks[currentIndex + 1];
-      setCurrentWeek(nextWeek);
-      // Выбираем первый день следующей недели
-      if (nextWeek && nextWeek.start_date) {
-        setSelectedDate(nextWeek.start_date);
-      }
-    }
+    if (!currentWeek?.start_date) return;
+    const nextStart = addDays(currentWeek.start_date, 7);
+    setCurrentWeek(getWeekForStartDate(plan, nextStart));
+    setSelectedDate(nextStart);
   };
 
   const goToCurrentWeek = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const foundWeek = weeks.find(week => {
-      if (!week.start_date) return false;
-      const startDate = new Date(week.start_date);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
-      return today >= startDate && today <= endDate;
-    });
-    
-    if (foundWeek) {
-      setCurrentWeek(foundWeek);
-      // Устанавливаем выбранную дату на сегодня
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      setSelectedDate(`${year}-${month}-${day}`);
-    }
+    const mondayStr = getMondayOfToday();
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    setCurrentWeek(getWeekForStartDate(plan, mondayStr));
+    setSelectedDate(todayStr);
   };
 
   // Swipe жесты для мобильных устройств
@@ -260,7 +264,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [currentWeek, weeks]);
+  }, [currentWeek]);
 
   if (!currentWeek) {
     return (
@@ -278,42 +282,32 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
     <div className={`week-calendar-container ${isSwiping ? 'swiping' : ''}`} ref={containerRef}>
       <div className="week-calendar-header">
         <div className="week-calendar-title">
-          <div className="week-title-main">
-            Неделя {currentWeek.number}
-            {currentWeek.phaseName && (
-              <span className="week-phase-name"> • {currentWeek.phaseName}</span>
-            )}
-          </div>
-          <div className="week-title-dates">
-            {weekDays[0] && weekDays[6] && (
-              <>
-                {weekDays[0].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} - 
-                {weekDays[6].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-              </>
-            )}
-          </div>
+          {weekDays[0] && weekDays[6] && (
+            <div className="week-title-main">
+              {weekDays[0].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} – {weekDays[6].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+            </div>
+          )}
         </div>
         
         <div className="week-calendar-nav">
-          <button 
+          <button
+            type="button"
             className="week-nav-btn"
             onClick={goToPreviousWeek}
-            disabled={weeks.findIndex(w => w.number === currentWeek.number) === 0}
             aria-label="Предыдущая неделя"
           />
-          
-          <button 
+          <button
+            type="button"
             className="week-current-btn"
             onClick={goToCurrentWeek}
             title="Перейти к текущей неделе"
           >
             Сегодня
           </button>
-          
-          <button 
-            className="week-nav-btn"
+          <button
+            type="button"
+            className="week-nav-btn week-nav-btn-next"
             onClick={goToNextWeek}
-            disabled={weeks.findIndex(w => w.number === currentWeek.number) === weeks.length - 1}
             aria-label="Следующая неделя"
           />
         </div>
@@ -323,7 +317,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
         {weekDays.map((day, index) => (
           <div
             key={day.date}
-            className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${selectedDate === day.date ? 'selected' : ''}`}
+            className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${selectedDate === day.date ? 'selected active' : ''}`}
             onClick={() => {
               setSelectedDate(day.date);
             }}
@@ -335,7 +329,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
               </div>
             </div>
             
-            {day.dayData && day.dayData.type !== 'rest' && (
+            {day.dayData && day.dayData.type !== 'rest' && day.dayData.type !== 'free' && (
               <div className="week-day-workout">
                 <div className="workout-type-icon">
                   {day.status === 'completed' ? '✅' : 
@@ -352,7 +346,6 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
                    day.dayData.type === 'sbu' ? 'СБУ' :
                    day.dayData.type === 'fartlek' ? 'Фартлек' :
                    day.dayData.type === 'race' ? 'Соревнование' :
-                   day.dayData.type === 'free' ? 'Свободная' :
                    day.dayData.text || 'Тренировка'}
                 </div>
               </div>
@@ -360,12 +353,11 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
             
             {day.dayData && day.dayData.type === 'rest' && (
               <div className="week-day-rest">
-                <span className="rest-icon">😴</span>
                 <span className="rest-text">Отдых</span>
               </div>
             )}
             
-            {!day.dayData && (
+            {(!day.dayData || day.dayData.type === 'free') && (
               <div className="week-day-empty">—</div>
             )}
           </div>
@@ -407,11 +399,6 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
               date={selectedDay.date}
               status={selectedDay.status}
               isToday={selectedDay.isToday}
-              onPress={() => {
-                if (onDayPress) {
-                  onDayPress(selectedDay.date, selectedDay.weekNumber, selectedDay.dayKey);
-                }
-              }}
               dayDetail={dayDetail}
               workoutMetrics={workout ? {
                 distance: workout.distance,
@@ -419,7 +406,35 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, onDa
                 pace: workout.pace
               } : null}
               results={results}
+              planDays={dayDetail.planDays || []}
+              onDeletePlanDay={canEdit ? handleDeletePlanDay : undefined}
+              onEditPlanDay={canEdit && onEditTraining ? (planDay) => onEditTraining(planDay, selectedDay.date) : undefined}
+              onPress={canEdit && onOpenResultModal && selectedDay.status === 'missed' ? () => onOpenResultModal(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey) : undefined}
+              canEdit={!!canEdit}
             />
+            {canEdit && (onAddTraining || (onOpenResultModal && (selectedDay.dayData || (dayDetail.planDays && dayDetail.planDays.length > 0)))) && (
+              <div className="week-selected-day-actions">
+                {onAddTraining && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => onAddTraining(selectedDay.date)}
+                  >
+                    <span className="week-add-training-btn-icon" aria-hidden>+</span>
+                    Запланировать тренировку
+                  </button>
+                )}
+                {onOpenResultModal && (selectedDay.dayData || (dayDetail.planDays && dayDetail.planDays.length > 0)) && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => onOpenResultModal(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey)}
+                  >
+                    Отметить выполненной
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}

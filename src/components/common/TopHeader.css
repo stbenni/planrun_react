@@ -177,6 +177,39 @@
   flex-shrink: 0;
 }
 
+/* Кнопка «Настроить план» — в стиле dashboard-customize (primary-50, primary-200, оранжевая палитра) */
+.top-header-onboarding-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--primary-600);
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-base), color var(--transition-base), border-color var(--transition-base);
+}
+
+.top-header-onboarding-btn:hover {
+  background: var(--primary-100);
+  color: var(--primary-700);
+  border-color: var(--primary-300);
+}
+
+[data-theme="dark"] .top-header-onboarding-btn {
+  color: var(--primary-400);
+  background: rgba(255, 107, 61, 0.15);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .top-header-onboarding-btn:hover {
+  background: rgba(255, 107, 61, 0.25);
+  color: var(--primary-300);
+  border-color: var(--primary-400);
+}
+
 .header-avatar-wrap {
   position: relative;
 }
