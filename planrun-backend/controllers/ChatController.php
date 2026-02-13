@@ -86,6 +86,7 @@ class ChatController extends BaseController {
     public function sendMessageStream() {
         if (!$this->requireAuth()) return;
         set_time_limit(300);
+        ignore_user_abort(true); // ответ ИИ сохраняем в БД даже если пользователь ушёл со страницы
 
         $data = $this->getJsonBody();
         $content = trim($data['content'] ?? $data['message'] ?? '');
@@ -322,6 +323,63 @@ class ChatController extends BaseController {
         try {
             $this->chatService->markAsRead($this->currentUserId, $conversationId);
             $this->returnSuccess(['ok' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Админ: отметить диалог с пользователем как прочитанный (при открытии чата с ним)
+     * POST chat_admin_mark_conversation_read { "user_id": 123 }
+     */
+    public function markAdminConversationRead() {
+        if (!$this->requireAdmin()) return;
+
+        $data = $this->getJsonBody();
+        $targetUserId = (int)($data['user_id'] ?? 0);
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID пользователя', 400);
+            return;
+        }
+
+        try {
+            $this->chatService->markAdminConversationRead($targetUserId);
+            $this->returnSuccess(['ok' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Добавить сообщение от AI пользователю (досыл, напоминание).
+     * POST chat_add_ai_message { "user_id": 123, "content": "..." }
+     * Только для администратора (или в будущем — вызов от AI-сервиса по ключу).
+     */
+    public function addAIMessage() {
+        if (!$this->requireAdmin()) return;
+
+        $data = $this->getJsonBody();
+        $targetUserId = (int)($data['user_id'] ?? 0);
+        $content = trim($data['content'] ?? $data['message'] ?? '');
+
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID пользователя', 400);
+            return;
+        }
+        if ($content === '') {
+            $this->returnError('Сообщение не может быть пустым', 400);
+            return;
+        }
+        if (mb_strlen($content) > 4000) {
+            $this->returnError('Сообщение слишком длинное', 400);
+            return;
+        }
+
+        try {
+            $result = $this->chatService->addAIMessageToUser($targetUserId, $content);
+            $this->returnSuccess($result);
+        } catch (\InvalidArgumentException $e) {
+            $this->returnError($e->getMessage(), 400);
         } catch (Exception $e) {
             $this->handleException($e);
         }

@@ -1027,10 +1027,10 @@ class ApiClient {
    * Отправить сообщение AI с streaming
    * @param {string} content
    * @param {function(string)} onChunk - callback для каждого чанка
-   * @param {object} opts - { onFirstChunk?: () => void, timeoutMs?: number }
+   * @param {object} opts - { onFirstChunk?: () => void, timeoutMs?: number, signal?: AbortSignal }
    */
   async chatSendMessageStream(content, onChunk, opts = {}) {
-    const { onFirstChunk, timeoutMs = 180000 } = opts;
+    const { onFirstChunk, timeoutMs = 180000, signal: externalSignal } = opts;
     const urlParams = new URLSearchParams({ action: 'chat_send_message_stream' });
     const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
@@ -1040,6 +1040,15 @@ class ApiClient {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        clearTimeout(timeoutId);
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      externalSignal.addEventListener('abort', () => {
+        controller.abort();
+      });
+    }
 
     const response = await fetch(url, {
       method: 'POST',
@@ -1060,6 +1069,7 @@ class ApiClient {
     const decoder = new TextDecoder();
     let buffer = '';
     let firstChunkFired = false;
+    let fullContent = '';
 
     try {
       while (true) {
@@ -1076,12 +1086,15 @@ class ApiClient {
             if (obj.error) {
               throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
             }
-            if (obj.chunk && typeof onChunk === 'function') {
-              if (!firstChunkFired && typeof onFirstChunk === 'function') {
-                firstChunkFired = true;
-                onFirstChunk();
+            if (obj.chunk) {
+              fullContent += obj.chunk;
+              if (typeof onChunk === 'function') {
+                if (!firstChunkFired && typeof onFirstChunk === 'function') {
+                  firstChunkFired = true;
+                  onFirstChunk();
+                }
+                onChunk(obj.chunk);
               }
-              onChunk(obj.chunk);
             }
           } catch (e) {
             if (e instanceof ApiError) throw e;
@@ -1091,14 +1104,18 @@ class ApiClient {
       if (buffer.trim()) {
         const obj = JSON.parse(buffer.trim());
         if (obj.error) throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
-        if (obj.chunk && typeof onChunk === 'function') {
-          if (!firstChunkFired && typeof onFirstChunk === 'function') onFirstChunk();
-          onChunk(obj.chunk);
+        if (obj.chunk) {
+          fullContent += obj.chunk;
+          if (typeof onChunk === 'function') {
+            if (!firstChunkFired && typeof onFirstChunk === 'function') onFirstChunk();
+            onChunk(obj.chunk);
+          }
         }
       }
     } finally {
       reader.releaseLock?.();
     }
+    return fullContent;
   }
 
   /**
@@ -1163,6 +1180,23 @@ class ApiClient {
    */
   async chatAdminGetMessages(userId, limit = 50, offset = 0) {
     return this.request('chat_admin_get_messages', { user_id: userId, limit, offset }, 'GET');
+  }
+
+  /**
+   * Админ: отметить диалог с пользователем как прочитанный (при открытии чата с ним)
+   * @param {number} userId - ID пользователя
+   */
+  async chatAdminMarkConversationRead(userId) {
+    return this.request('chat_admin_mark_conversation_read', { user_id: userId }, 'POST');
+  }
+
+  /**
+   * Добавить сообщение от AI пользователю (досыл, напоминание). Только для админа.
+   * @param {number} userId - ID пользователя
+   * @param {string} content - текст сообщения
+   */
+  async chatAddAIMessage(userId, content) {
+    return this.request('chat_add_ai_message', { user_id: userId, content: (content || '').trim() }, 'POST');
   }
 
   /**

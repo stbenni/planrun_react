@@ -4,16 +4,16 @@
  */
 
 import React from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import TopHeader from './common/TopHeader';
 import BottomNav from './common/BottomNav';
 import Notifications from './common/Notifications';
 import SpecializationModal from './SpecializationModal';
 import PageTransition from './common/PageTransition';
-import SkeletonScreen from './common/SkeletonScreen';
+import AppTabsContent from './AppTabsContent';
 import useAuthStore from '../stores/useAuthStore';
 
-const AppLayout = () => {
+const AppLayout = ({ onLogout }) => {
   const location = useLocation();
   const { api, user, showOnboardingModal, setShowOnboardingModal } = useAuthStore();
   const isAdmin = user?.role === 'admin';
@@ -31,15 +31,9 @@ const AppLayout = () => {
         />
       )}
       <PageTransition>
-        <React.Suspense fallback={
-          <div className="loading-container">
-            <SkeletonScreen type="dashboard" />
-          </div>
-        }>
-          <div key={location.pathname} className="page-transition-content">
-            <Outlet />
-          </div>
-        </React.Suspense>
+        <div className="page-transition-content">
+          <AppTabsContent onLogout={onLogout} />
+        </div>
       </PageTransition>
       {showBottomNav && <BottomNav />}
     </>

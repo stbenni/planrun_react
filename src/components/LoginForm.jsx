@@ -33,7 +33,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username || !password) {
-      setError('Введите логин и пароль');
+      setError('Введите логин или email и пароль');
       return;
     }
     setLoading(true);
@@ -164,7 +164,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
         <input
           type="text"
           className="login-input"
-          placeholder="Логин"
+          placeholder="Логин или email"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoCapitalize="none"

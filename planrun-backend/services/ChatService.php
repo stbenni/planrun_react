@@ -1138,6 +1138,35 @@ class ChatService extends BaseService {
     }
 
     /**
+     * Админ: отметить сообщения конкретного пользователя как прочитанные (при открытии чата с ним)
+     */
+    public function markAdminConversationRead(int $targetUserId): void {
+        $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
+        $this->repository->markUserMessagesReadByAdmin($conversation['id']);
+    }
+
+    /**
+     * Добавить сообщение от AI в чат пользователя (без ответа пользователя).
+     * Используется для «досыла» сообщений, напоминаний, рассылок от AI.
+     * Вызывается админом или AI-сервисом.
+     *
+     * @return array ['message_id' => int]
+     */
+    public function addAIMessageToUser(int $userId, string $content): array {
+        $content = trim($content);
+        if ($content === '') {
+            throw new InvalidArgumentException('Сообщение не может быть пустым');
+        }
+        if (mb_strlen($content) > 4000) {
+            throw new InvalidArgumentException('Сообщение слишком длинное');
+        }
+        $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
+        $messageId = $this->repository->addMessage($conversation['id'], 'ai', null, $content);
+        $this->repository->touchConversation($conversation['id']);
+        return ['message_id' => $messageId];
+    }
+
+    /**
      * Админ: массовая рассылка сообщения пользователям
      * @param int $adminUserId ID админа (отправителя)
      * @param string $content Текст сообщения

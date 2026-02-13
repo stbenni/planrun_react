@@ -32,3 +32,20 @@
     animation: none;
   }
 }
+
+/* Вкладки: все панели смонтированы, неактивные скрыты */
+.app-tabs-content {
+  width: 100%;
+  min-height: 100%;
+  position: relative;
+}
+
+.app-tab-pane {
+  display: none;
+  width: 100%;
+  min-height: 100%;
+}
+
+.app-tab-pane.app-tab-pane--active {
+  display: block;
+}

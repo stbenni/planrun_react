@@ -13,6 +13,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
   const navigate = useNavigate();
   const [upcomingWorkouts, setUpcomingWorkouts] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
+  const [aiMessages, setAiMessages] = useState([]);
   const [dismissed, setDismissed] = useState(() => new Set());
   const [dismissedLoaded, setDismissedLoaded] = useState(false);
 
@@ -106,7 +107,22 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
       }
     };
 
-    await Promise.all([loadUpcomingWorkouts(), loadAdminMessages()]);
+    const loadAiMessages = async () => {
+      if (isAdmin) {
+        setAiMessages([]);
+        return;
+      }
+      try {
+        const data = await api.chatGetMessages('ai', 5, 0);
+        const list = Array.isArray(data?.messages) ? data.messages : [];
+        const unread = list.filter((m) => m.sender_type === 'ai' && !m.read_at);
+        setAiMessages(unread.map((m) => ({ ...m, type: 'chat_ai', id: `ai_chat_${m.id}` })));
+      } catch {
+        setAiMessages([]);
+      }
+    };
+
+    await Promise.all([loadUpcomingWorkouts(), loadAdminMessages(), loadAiMessages()]);
   }, [api, isAdmin]);
 
   useEffect(() => {
@@ -130,7 +146,10 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
   const chatItems = adminMessages
     .filter((m) => !dismissed.has(m.id))
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  const allItems = [...chatItems, ...workoutItems];
+  const aiChatItems = aiMessages
+    .filter((m) => !dismissed.has(m.id))
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  const allItems = [...chatItems, ...aiChatItems, ...workoutItems];
 
   if (!dismissedLoaded || allItems.length === 0) {
     return null;
@@ -139,6 +158,39 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
   return (
     <div className="notifications-container">
       {allItems.map((item, index) => {
+        if (item.type === 'chat_ai') {
+          const timeStr = item.created_at
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+            : '';
+          const content = (item.content || '').slice(0, 60);
+          const truncated = content.length >= 60 ? content + '…' : content;
+          return (
+            <div key={item.id} className="notification-card notification-card--chat notification-card--ai" style={{ animationDelay: `${index * 100}ms` }}>
+              <div className="notification-icon">🤖</div>
+              <div className="notification-content">
+                <div className="notification-title">Новое сообщение от AI-тренера</div>
+                <div className="notification-date">{timeStr}</div>
+                <div className="notification-workout">{truncated || 'Сообщение'}</div>
+              </div>
+              <div className="notification-actions">
+                <button
+                  className="notification-btn"
+                  onClick={() => navigate('/chat', { state: { openAITab: true } })}
+                >
+                  Открыть
+                </button>
+                <button
+                  className="notification-dismiss"
+                  onClick={() => handleDismiss(item.id)}
+                  aria-label="Закрыть"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         if (item.type === 'chat') {
           const timeStr = item.created_at
             ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })

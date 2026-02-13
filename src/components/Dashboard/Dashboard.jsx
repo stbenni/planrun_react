@@ -427,25 +427,32 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
     }
     try {
       if (!silent) setLoading(true);
-      
-      // Проверяем статус плана (включая ошибки)
-      try {
-        const planStatus = await api.checkPlanStatus();
-        // API может вернуть success: true с error в ответе (это нормально для check_plan_status)
-        if (planStatus && (planStatus.error || (!planStatus.has_plan && planStatus.error))) {
-          setPlanError(planStatus.error);
-          setPlanExists(false);
-          setShowPlanMessage(false);
-          setLoading(false);
-          return;
-        }
-      } catch (error) {
-        console.error('Error checking plan status:', error);
-        // Продолжаем загрузку плана даже если проверка статуса не удалась
+
+      // Все три запроса параллельно — время загрузки = max, а не сумма
+      const [planStatus, plan, allResults] = await Promise.all([
+        api.checkPlanStatus().catch((error) => {
+          console.error('Error checking plan status:', error);
+          return null;
+        }),
+        api.getPlan().catch((error) => {
+          console.error('Error loading plan:', error);
+          return null;
+        }),
+        api.getAllResults().catch((error) => {
+          console.error('Error loading results:', error);
+          return { results: [] };
+        }),
+      ]);
+
+      // API может вернуть success: true с error в ответе (это нормально для check_plan_status)
+      if (planStatus && (planStatus.error || (!planStatus.has_plan && planStatus.error))) {
+        setPlanError(planStatus.error);
+        setPlanExists(false);
+        setShowPlanMessage(false);
+        setLoading(false);
+        return;
       }
-      
-      // Загружаем план
-      const plan = await api.getPlan();
+
       const weeksData = plan?.weeks_data;
       if (!plan || !Array.isArray(weeksData)) {
         setPlanExists(false);
@@ -453,13 +460,12 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
         setHasAnyPlannedWorkout(false);
         setPlanError(null);
         setLoading(false);
-        // Если это новая регистрация, показываем сообщение о генерации
         if (isNewRegistration || registrationMessage) {
           setShowPlanMessage(true);
         }
         return;
       }
-      
+
       setPlanExists(true);
       setPlanError(null);
       setShowPlanMessage(false);
@@ -478,15 +484,6 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
         if (anyWorkout) break;
       }
       setHasAnyPlannedWorkout(anyWorkout);
-
-      // Загружаем все результаты ОДИН РАЗ для всех целей
-      let allResults = null;
-      try {
-        allResults = await api.getAllResults();
-      } catch (error) {
-        console.error('Error loading results:', error);
-        allResults = { results: [] };
-      }
 
       // Загружаем прогресс для определения статусов
       let progressDataMap = {};

@@ -45,6 +45,7 @@ const ChatScreen = () => {
   const [selectedChat, setSelectedChat] = useState(() => {
     if (openAdminModeFromState) return TAB_ADMIN_MODE;
     if (openAdminTabFromState) return TAB_ADMIN;
+    if (location.state?.openAITab === true) return TAB_AI;
     return TAB_AI;
   });
   const [messages, setMessages] = useState([]);
@@ -67,6 +68,13 @@ const ChatScreen = () => {
   const messagesEndRef = useRef(null);
   const tabRef = useRef(selectedChat);
   tabRef.current = selectedChat;
+  const isMountedRef = useRef(true);
+  const isChatTabVisibleRef = useRef(location.pathname === '/chat');
+  isChatTabVisibleRef.current = location.pathname === '/chat';
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -152,11 +160,33 @@ const ChatScreen = () => {
     loadMessages();
   }, [loadMessages]);
 
+  // При возврате в чат — подгружаем свежие сообщения с сервера (ответ ИИ мог прийти в фоне)
   useEffect(() => {
-    if (selectedChat === TAB_ADMIN && conversationId && api) {
+    if (location.pathname === '/chat' && api) loadMessages();
+  }, [location.pathname, api, loadMessages]);
+
+  // При открытии чата (AI или «От администрации») помечаем сообщения прочитанными
+  useEffect(() => {
+    if ((selectedChat === TAB_AI || selectedChat === TAB_ADMIN) && conversationId && api) {
       api.chatMarkRead(conversationId).catch(() => {});
     }
   }, [selectedChat, conversationId, api]);
+
+  // Автопрочитывание: когда в открытом чате приходят новые сообщения (SSE), помечаем их прочитанными
+  useEffect(() => {
+    if (!api) return;
+    const onUnread = () => {
+      if (selectedChat === TAB_AI && conversationId) {
+        api.chatMarkRead(conversationId).catch(() => {});
+      } else if (selectedChat === TAB_ADMIN && conversationId) {
+        api.chatMarkRead(conversationId).catch(() => {});
+      } else if (isAdmin && selectedChat === TAB_ADMIN_MODE && selectedChatUser?.id) {
+        api.chatAdminMarkConversationRead(selectedChatUser.id).catch(() => {});
+      }
+    };
+    ChatSSE.subscribe(onUnread);
+    return () => ChatSSE.unsubscribe(onUnread);
+  }, [api, selectedChat, conversationId, isAdmin, selectedChatUser?.id]);
 
   useEffect(() => {
     if (scrollToMessageId && messages.length > 0 && selectedChat === TAB_ADMIN) {
@@ -240,47 +270,61 @@ const ChatScreen = () => {
     setMessages((prev) => [...prev, aiPlaceholder]);
     setStreamPhase('connecting');
 
-    try {
-      let fullContent = '';
-      await api.chatSendMessageStream(
-        content,
-        (chunk) => {
-          fullContent += chunk;
-          setMessages((prev) => {
-            const next = [...prev];
-            const idx = next.findIndex((m) => m.id === aiPlaceholder.id);
-            if (idx >= 0) {
-              next[idx] = { ...next[idx], content: fullContent };
-            }
-            return next;
+    // Запрос в фоне: не блокируем UI; батчим обновления по кадрам, чтобы не грузить главный поток
+    setSending(false);
+
+    let accumulated = '';
+    let flushScheduled = false;
+    const flushToState = () => {
+      if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+      const text = accumulated;
+      setMessages((prev) => {
+        const next = [...prev];
+        const idx = next.findIndex((m) => m.id === aiPlaceholder.id);
+        if (idx >= 0) next[idx] = { ...next[idx], content: text };
+        return next;
+      });
+    };
+    api.chatSendMessageStream(
+      content,
+      (chunk) => {
+        if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+        accumulated += chunk;
+        if (!flushScheduled) {
+          flushScheduled = true;
+          requestAnimationFrame(() => {
+            flushScheduled = false;
+            flushToState();
           });
-        },
-        {
-          onFirstChunk: () => setStreamPhase('streaming'),
-          timeoutMs: 180000,
         }
-      );
-      if (!fullContent) {
-        setStreamPhase('connecting');
-        const res = await api.chatSendMessage(content);
-        fullContent = res?.content ?? '';
-      }
-      setStreamPhase('done');
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === aiPlaceholder.id ? { ...m, sender_type: 'ai', content: fullContent } : m
-        )
-      );
-      if (!fullContent) {
-        setError('AI не вернул ответ. Попробуйте ещё раз.');
-      }
-    } catch (e) {
-      setError(e.message || 'Ошибка отправки');
-      setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
-    } finally {
-      setSending(false);
-      setStreamPhase(null);
-    }
+      },
+      { onFirstChunk: () => isChatTabVisibleRef.current && setStreamPhase('streaming'), timeoutMs: 180000 }
+    )
+      .then((fullContent) => {
+        if (!fullContent) {
+          return api.chatSendMessage(content).then((r) => r?.content ?? '');
+        }
+        return fullContent;
+      })
+      .then((fullContent) => {
+        if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiPlaceholder.id ? { ...m, sender_type: 'ai', content: fullContent } : m
+          )
+        );
+        setStreamPhase('done');
+        if (!fullContent) setError('AI не вернул ответ. Попробуйте ещё раз.');
+      })
+      .catch((e) => {
+        if (isMountedRef.current && isChatTabVisibleRef.current) {
+          setError(e?.message || 'Ошибка отправки');
+          setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
+        }
+      })
+      .finally(() => {
+        if (isMountedRef.current && isChatTabVisibleRef.current) setStreamPhase(null);
+      });
   };
 
   const handleClearAiChat = useCallback(async () => {

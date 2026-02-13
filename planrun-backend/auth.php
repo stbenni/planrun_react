@@ -19,15 +19,16 @@ function isAuthenticated() {
 // getCurrentUserId() и getCurrentUser() перенесены в user_functions.php для избежания дублирования
 
 /**
- * Авторизация пользователя (проверка в БД)
+ * Авторизация пользователя (проверка в БД).
+ * В качестве идентификатора принимается логин или email.
  */
 function login($username, $password) {
     $db = getDBConnection();
-    $username = trim($username);
+    $loginOrEmail = trim($username);
     $password = trim($password); // консистентность с регистрацией
-    
-    $stmt = $db->prepare('SELECT id, username, password FROM users WHERE username = ?');
-    $stmt->bind_param('s', $username);
+
+    $stmt = $db->prepare('SELECT id, username, password FROM users WHERE username = ? OR (email IS NOT NULL AND email != "" AND email = ?)');
+    $stmt->bind_param('ss', $loginOrEmail, $loginOrEmail);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
     $stmt->close();
@@ -41,10 +42,10 @@ function login($username, $password) {
     }
     
     // Fallback для старой системы (обратная совместимость)
-    if ($username === 'st_benni' && $password === 'aApzbz8h2ben') {
+    if ($loginOrEmail === 'st_benni' && $password === 'aApzbz8h2ben') {
         $_SESSION['authenticated'] = true;
         $_SESSION['user_id'] = 1; // Дефолтный пользователь
-        $_SESSION['username'] = $username;
+        $_SESSION['username'] = $loginOrEmail;
         $_SESSION['login_time'] = time();
         return true;
     }

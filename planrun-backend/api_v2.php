@@ -530,6 +530,12 @@ try {
             break;
 
         case 'chat_mark_all_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->markAllRead();
+            break;
 
         case 'chat_admin_mark_all_read':
             if ($method !== 'POST') {
@@ -594,7 +600,23 @@ try {
             $controller = new ChatController($db);
             $controller->getAdminMessages();
             break;
-            
+
+        case 'chat_admin_mark_conversation_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->markAdminConversationRead();
+            break;
+
+        case 'chat_add_ai_message':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->addAIMessage();
+            break;
+
         default:
             // Действие не найдено в новом API
             ErrorHandler::returnJsonError('Действие не найдено: ' . htmlspecialchars($action), 404);

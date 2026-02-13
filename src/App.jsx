@@ -13,16 +13,10 @@ import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
 
-// Lazy loading для тяжелых компонентов
-const DashboardScreen = lazy(() => import('./screens/DashboardScreen'));
-const CalendarScreen = lazy(() => import('./screens/CalendarScreen'));
-const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
-const StatsScreen = lazy(() => import('./screens/StatsScreen'));
+// Lazy для страниц вне основных вкладок
 const UserProfileScreen = lazy(() => import('./screens/UserProfileScreen'));
 const ForgotPasswordScreen = lazy(() => import('./screens/ForgotPasswordScreen'));
 const ResetPasswordScreen = lazy(() => import('./screens/ResetPasswordScreen'));
-const AdminScreen = lazy(() => import('./screens/AdminScreen'));
-const ChatScreen = lazy(() => import('./screens/ChatScreen'));
 
 function App() {
   const { user, api, loading, isAuthenticated, initialize, logout, updateUser } = useAuthStore();
@@ -148,25 +142,17 @@ function App() {
             )
           }
         />
-        {/* Авторизованная зона: один layout с хедером, при навигации меняется только контент (Outlet) */}
+        {/* Авторизованная зона: вкладки (все экраны смонтированы, переключение без перезагрузки) */}
         <Route
-          element={isAuthenticated ? <AppLayout /> : <Navigate to="/landing" replace />}
+          element={isAuthenticated ? <AppLayout onLogout={handleLogout} /> : <Navigate to="/landing" replace />}
+          path="/"
         >
-          <Route path="/" element={<DashboardScreen />} />
-          <Route path="/calendar" element={<CalendarScreen />} />
-          <Route path="/settings" element={<SettingsScreen onLogout={handleLogout} />} />
-          <Route path="/stats" element={<StatsScreen />} />
-          <Route path="/chat" element={<ChatScreen />} />
-          <Route
-            path="/admin"
-            element={
-              isAdmin ? (
-                <AdminScreen />
-              ) : (
-                <Navigate to="/" replace />
-              )
-            }
-          />
+          <Route index element={null} />
+          <Route path="calendar" element={null} />
+          <Route path="stats" element={null} />
+          <Route path="chat" element={null} />
+          <Route path="settings" element={null} />
+          <Route path="admin" element={isAdmin ? null : <Navigate to="/" replace />} />
         </Route>
         {/* Публичный маршрут профиля пользователя — без хедера */}
         <Route
