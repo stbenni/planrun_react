@@ -130,11 +130,23 @@ function saveTrainingPlan($db, $userId, $planData, $startDate) {
                 }
                 
                 // Описание
-                $description = $day['description'] ?? '';
+                $description = trim($day['description'] ?? '');
                 if (empty($description) && isset($day['distance_km'])) {
                     $description = "Бег {$day['distance_km']} км";
                     if (isset($day['pace'])) {
                         $description .= " в темпе {$day['pace']}";
+                    }
+                }
+                
+                // Исправление: если модель вернула type=rest, но в описании бег или указана дистанция — день беговой (easy)
+                if ($type === 'rest') {
+                    $hasDistance = isset($day['distance_km']) && (float)$day['distance_km'] > 0;
+                    $descRunLike = $description !== '' && preg_match('/бег|км|темп|мин\/км|трусцой|лёгкий|легкий|дистанция|интервал/i', $description);
+                    if ($hasDistance || $descRunLike) {
+                        $type = 'easy';
+                        error_log("saveTrainingPlan: День с type=rest но с описанием/дистанцией бега — переопределён в easy");
+                    } else {
+                        $description = ''; // для настоящего отдыха описание пустое
                     }
                 }
                 
@@ -159,9 +171,8 @@ function saveTrainingPlan($db, $userId, $planData, $startDate) {
                     continue;
                 }
                 
-                // Сохраняем упражнения (если есть дистанция)
-                // Используем только разрешенные типы из ENUM
-                if (isset($day['distance_km']) && $day['distance_km'] > 0 && in_array($type, ['easy', 'long', 'tempo', 'interval', 'fartlek', 'race', 'other', 'free'])) {
+                // Сохраняем упражнения (если есть дистанция) — бег
+                if (isset($day['distance_km']) && $day['distance_km'] > 0 && in_array($type, ['easy', 'long', 'tempo', 'interval', 'fartlek', 'race'])) {
                     $distanceM = (float)$day['distance_km'] * 1000;
                     
                     $insertExerciseStmt = $db->prepare("
@@ -186,6 +197,35 @@ function saveTrainingPlan($db, $userId, $planData, $startDate) {
                     
                     // Обновляем общий объем недели
                     $totalVolume += (float)$day['distance_km'];
+                }
+                
+                // ОФП и СБУ: парсим description построчно (формат «как в чате») и сохраняем отдельные упражнения
+                if (in_array($type, ['other', 'sbu']) && $description !== '') {
+                    require_once __DIR__ . '/description_parser.php';
+                    $parsed = parseOfpSbuDescription($description, $type);
+                    $category = ($type === 'sbu') ? 'sbu' : 'ofp';
+                    $insOfpSbu = $db->prepare("
+                        INSERT INTO training_day_exercises 
+                        (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
+                        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                    ");
+                    foreach ($parsed as $idx => $ex) {
+                        $sets = $ex['sets'] !== null ? (string)$ex['sets'] : null;
+                        $reps = $ex['reps'] !== null ? (string)$ex['reps'] : null;
+                        $distM = $ex['distance_m'];
+                        $durSec = $ex['duration_sec'];
+                        $wKg = $ex['weight_kg'];
+                        $notes = $ex['notes'];
+                        $insOfpSbu->bind_param('iissiiidisi',
+                            $userId, $dayId, $category, $ex['name'],
+                            $sets, $reps, $distM, $durSec, $wKg, $notes, $idx
+                        );
+                        $insOfpSbu->execute();
+                        if ($insOfpSbu->error) {
+                            error_log("Ошибка сохранения ОФП/СБУ упражнения: " . $insOfpSbu->error);
+                        }
+                    }
+                    $insOfpSbu->close();
                 }
             }
             

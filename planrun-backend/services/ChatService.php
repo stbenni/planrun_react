@@ -327,7 +327,7 @@ class ChatService extends BaseService {
             $systemContent .= "Формат ответа при подтверждении: краткий текст + на новой строке блок. description в кавычках; несколько упражнений ОФП/СБУ — с новой строки в description. Примеры:\n";
             $systemContent .= "ОФП: Понял, тренировку установил на 11 февраля.\n<!-- ACTION add_training_day date=2026-02-11 type=other description=\"Приседания — 3×10, 20 кг\nВыпрыгивания — 2×15\nПланка — 1 мин\" -->\n";
             $systemContent .= "СБУ: Понял, тренировку установил на 13 февраля.\n<!-- ACTION add_training_day date=2026-02-13 type=sbu description=\"Бег с высоким подниманием бедра — 30 м\nЗахлёст голени — 50 м\" -->\n";
-            $systemContent .= "date — Y-m-d. type: easy|long|tempo|interval|fartlek|rest|other|sbu|race.\n";
+            $systemContent .= "date — Y-m-d. type: easy|long|tempo|interval|fartlek|rest|other|sbu|race|marathon|control|free.\n";
             $systemContent .= "Маппинг: лёгкий→easy, темповый→tempo, длительный→long, интервалы→interval, фартлек→fartlek, соревнование→race, ОФП→other, СБУ→sbu, отдых→rest.\n";
             $systemContent .= "description — СТРОГО по формату ниже (иначе не распарсится при редактировании). Включай ВСЕ поля:\n";
             $systemContent .= "--- ПРОСТОЙ БЕГ (easy/tempo/long/race) ---\n";

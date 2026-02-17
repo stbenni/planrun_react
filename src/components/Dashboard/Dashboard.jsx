@@ -293,7 +293,12 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
 
 const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistration }) => {
   const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
-  const needsOnboarding = !!(user && user.onboarding_completed === false);
+  const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
+  const needsOnboarding = !!(user && !user.onboarding_completed);
+
+  const clearPlanMessage = useCallback(() => {
+    setPlanGenerationMessage(null);
+  }, [setPlanGenerationMessage]);
 
   const [todayWorkout, setTodayWorkout] = useState(null);
   const [weekProgress, setWeekProgress] = useState({ completed: 0, total: 0 });
@@ -454,7 +459,8 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       }
 
       const weeksData = plan?.weeks_data;
-      if (!plan || !Array.isArray(weeksData)) {
+      const hasNoPlan = !plan || !Array.isArray(weeksData) || weeksData.length === 0;
+      if (hasNoPlan) {
         setPlanExists(false);
         setPlan(null);
         setHasAnyPlannedWorkout(false);
@@ -469,6 +475,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       setPlanExists(true);
       setPlanError(null);
       setShowPlanMessage(false);
+      clearPlanMessage();
       setPlan(plan);
 
       // Есть ли в плане хотя бы одна запланированная тренировка (дни могут быть массивом)
@@ -632,7 +639,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       setLoading(false);
       return;
     }
-    if (user && user.onboarding_completed === false) {
+    if (user && !user.onboarding_completed) {
       setLoading(false);
       return;
     }
@@ -745,10 +752,12 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
       } else {
         setPlanError(result?.error || 'Ошибка при запуске генерации плана');
         setShowPlanMessage(false);
+        clearPlanMessage();
       }
     } catch (error) {
       setPlanError(error.message || 'Ошибка при запуске генерации плана');
       setShowPlanMessage(false);
+      clearPlanMessage();
     } finally {
       setRegenerating(false);
     }
@@ -804,35 +813,15 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
     <div className="dashboard" ref={dashboardRef}>
       {/* Уведомление об ошибке генерации плана */}
       {planError && (
-        <div className="plan-generation-notice" style={{
-          margin: '20px',
-          padding: '20px',
-          backgroundColor: '#fef2f2',
-          border: '2px solid #ef4444',
-          borderRadius: '12px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '48px', marginBottom: '10px' }}>⚠️</div>
-          <h3 style={{ margin: '0 0 10px', color: '#dc2626', fontSize: '18px' }}>
-            Ошибка генерации плана
-          </h3>
-          <p style={{ margin: '0 0 15px', color: '#64748b', fontSize: '14px' }}>
-            {planError}
-          </p>
-          <button 
+        <div className="plan-generation-notice plan-generation-notice--error">
+          <div className="plan-generation-notice__icon">⚠️</div>
+          <h3 className="plan-generation-notice__title">Ошибка генерации плана</h3>
+          <p className="plan-generation-notice__message">{planError}</p>
+          <button
+            type="button"
+            className="plan-generation-notice__btn"
             onClick={handleRegeneratePlan}
             disabled={regenerating}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#3b82f6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: regenerating ? 'not-allowed' : 'pointer',
-              fontSize: '15px',
-              fontWeight: '600',
-              opacity: regenerating ? 0.6 : 1
-            }}
           >
             {regenerating ? 'Генерируется...' : 'Сгенерировать план заново'}
           </button>
@@ -841,53 +830,23 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
 
       {/* Уведомление о генерации плана */}
       {(showPlanMessage || registrationMessage) && !planExists && !planError && (
-        <div className="plan-generation-notice" style={{
-          margin: '20px',
-          padding: '20px',
-          backgroundColor: '#f0f9ff',
-          border: '2px solid #3b82f6',
-          borderRadius: '12px',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '48px', marginBottom: '10px' }}>🤖</div>
-          <h3 style={{ margin: '0 0 10px', color: '#1e40af', fontSize: '18px' }}>
-            План тренировок генерируется
-          </h3>
-          <p style={{ margin: '0 0 15px', color: '#64748b', fontSize: '14px' }}>
+        <div className="plan-generation-notice plan-generation-notice--generating">
+          <div className="plan-generation-notice__icon">🤖</div>
+          <h3 className="plan-generation-notice__title">План тренировок генерируется</h3>
+          <p className="plan-generation-notice__message">
             {registrationMessage || 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.'}
           </p>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            gap: '10px',
-            color: '#64748b',
-            fontSize: '13px'
-          }}>
-            <div className="spinner" style={{ 
-              width: '16px', 
-              height: '16px', 
-              border: '2px solid #e2e8f0',
-              borderTop: '2px solid #3b82f6',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite'
-            }}></div>
+          <div className="plan-generation-notice__spinner-row">
+            <div className="spinner-dash" />
             <span>Ожидайте...</span>
           </div>
-          <button 
+          <button
+            type="button"
+            className="plan-generation-notice__btn"
             onClick={() => {
               setShowPlanMessage(false);
+              clearPlanMessage();
               loadDashboardData();
-            }}
-            style={{
-              marginTop: '15px',
-              padding: '8px 16px',
-              backgroundColor: '#3b82f6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '14px'
             }}
           >
             Обновить

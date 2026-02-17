@@ -4,6 +4,7 @@
   "webDir": "dist",
   "android": {
     "allowMixedContent": true,
-    "captureInput": true
+    "captureInput": true,
+    "adjustMarginsForEdgeToEdge": "force"
   }
 }

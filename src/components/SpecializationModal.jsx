@@ -9,9 +9,12 @@ import RegisterScreen from '../screens/RegisterScreen';
 import useAuthStore from '../stores/useAuthStore';
 
 const SpecializationModal = ({ isOpen, onClose }) => {
-  const { updateUser, api } = useAuthStore();
+  const { updateUser, api, setPlanGenerationMessage } = useAuthStore();
 
-  const handleSuccess = async () => {
+  const handleSuccess = async (result) => {
+    if (result?.plan_message) {
+      setPlanGenerationMessage(result.plan_message);
+    }
     try {
       const userData = api ? await api.getCurrentUser() : null;
       if (userData) updateUser(userData);

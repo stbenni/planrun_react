@@ -44,7 +44,7 @@ function generatePlanViaPlanRunAI($userId) {
             weight_goal_kg, weight_goal_date, health_program, health_plan_weeks,
             current_running_level, running_experience, easy_pace_sec,
             is_first_race_at_distance, last_race_distance, last_race_distance_km,
-            last_race_time, last_race_date
+            last_race_time, last_race_date, device_type
         FROM users 
         WHERE id = ?
     ");

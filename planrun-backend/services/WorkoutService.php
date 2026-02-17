@@ -301,7 +301,7 @@ class WorkoutService extends BaseService {
                         }
                     }
                     // Поддержка старого формата: плановые дни без записей в training_day_exercises
-                    // (только type + description) показываем как одно «синтетическое» упражнение
+                    // ОФП/СБУ: парсим description построчно (формат «как в чате») — в попапе отдельные упражнения
                     $typeLabels = [
                         'easy' => 'Легкий бег', 'long' => 'Длительный бег', 'long-run' => 'Длительный бег',
                         'tempo' => 'Темповый бег', 'interval' => 'Интервалы', 'other' => 'ОФП',
@@ -316,8 +316,49 @@ class WorkoutService extends BaseService {
                         }
                         $type = $pd['type'] ?? '';
                         $desc = strip_tags(str_replace('<br>', "\n", $pd['description'] ?? ''));
-                        $name = $typeLabels[$type] ?? $type ?: 'Тренировка';
                         $category = $typeCategory[$type] ?? 'run';
+                        if (($type === 'other' || $type === 'sbu') && $desc !== '') {
+                            require_once __DIR__ . '/../planrun_ai/description_parser.php';
+                            $parsed = parseOfpSbuDescription($desc, $type);
+                            if (count($parsed) > 0) {
+                                foreach ($parsed as $idx => $ex) {
+                                    $notes = $ex['notes'];
+                                    if ($ex['sets'] !== null || $ex['reps'] !== null || $ex['weight_kg'] !== null || $ex['duration_sec'] !== null || $ex['distance_m'] !== null) {
+                                        $parts = [];
+                                        if ($ex['sets'] !== null && $ex['reps'] !== null) {
+                                            $parts[] = $ex['sets'] . '×' . $ex['reps'];
+                                        }
+                                        if ($ex['weight_kg'] !== null) {
+                                            $parts[] = $ex['weight_kg'] . ' кг';
+                                        }
+                                        if ($ex['duration_sec'] !== null) {
+                                            $parts[] = (int)($ex['duration_sec'] / 60) . ' мин';
+                                        }
+                                        if ($ex['distance_m'] !== null) {
+                                            $parts[] = $ex['distance_m'] . ' м';
+                                        }
+                                        $notes = implode(', ', $parts) . ($notes ? ' — ' . $notes : '');
+                                    }
+                                    $dayExercises[] = [
+                                        'id' => 0,
+                                        'exercise_id' => null,
+                                        'plan_day_id' => $pid,
+                                        'category' => $category,
+                                        'name' => $ex['name'],
+                                        'sets' => $ex['sets'] !== null ? (string)$ex['sets'] : null,
+                                        'reps' => $ex['reps'] !== null ? (string)$ex['reps'] : null,
+                                        'distance_m' => $ex['distance_m'],
+                                        'duration_sec' => $ex['duration_sec'],
+                                        'weight_kg' => $ex['weight_kg'],
+                                        'pace' => null,
+                                        'notes' => $notes,
+                                        'order_index' => $idx
+                                    ];
+                                }
+                                continue;
+                            }
+                        }
+                        $name = $typeLabels[$type] ?? $type ?: 'Тренировка';
                         $dayExercises[] = [
                             'id' => 0,
                             'exercise_id' => null,

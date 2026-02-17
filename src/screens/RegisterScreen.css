@@ -41,6 +41,53 @@
   margin-bottom: var(--space-8);
 }
 
+/* Блок «План запущен на генерацию» после отправки специализации */
+.register-plan-started {
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  background: var(--primary-50);
+  border-radius: var(--radius-xl);
+  border: 2px solid var(--primary-500);
+  text-align: center;
+}
+
+.register-plan-started__icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: var(--space-3);
+}
+
+.register-plan-started__title {
+  margin: 0 0 var(--space-2);
+  color: var(--primary-700);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.register-plan-started__message {
+  margin: 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.register-plan-started__btn {
+  min-width: 140px;
+}
+
+[data-theme="dark"] .register-plan-started {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-500);
+}
+
+[data-theme="dark"] .register-plan-started__title {
+  color: var(--primary-400);
+}
+
+[data-theme="dark"] .register-plan-started__message {
+  color: var(--text-secondary);
+}
+
 /* Прогресс шагов (уникальное имя, не конфликтует с .progress-bar в Dashboard) */
 .register-step-progress {
   width: 100%;

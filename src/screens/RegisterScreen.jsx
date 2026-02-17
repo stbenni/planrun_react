@@ -60,6 +60,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     training_time_pref: '',
     has_treadmill: false,
     health_notes: '',
+    device_type: '',
     
     // Расширенный профиль (для race/time_improvement)
     easy_pace_min: '', // формат MM:SS
@@ -77,6 +78,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const [showWeightLossFields, setShowWeightLossFields] = useState(false);
   const [showHealthFields, setShowHealthFields] = useState(false);
   const [showHealthPlanWeeks, setShowHealthPlanWeeks] = useState(false);
+  /** После успешной отправки специализации с генерацией плана — показать оповещение перед закрытием */
+  const [planSubmitResult, setPlanSubmitResult] = useState(null);
   const [goalStepFieldsHeight, setGoalStepFieldsHeight] = useState(0);
   const goalStepFieldsInnerRef = useRef(null);
 
@@ -401,7 +404,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         has_treadmill: formData.has_treadmill ? 1 : 0,
         is_first_race_at_distance: formData.is_first_race_at_distance ? 1 : 0,
         sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || null,
-        device_type: undefined,
       };
       
       const result = await currentApi.register(submitData);
@@ -536,8 +538,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
       if (result.success) {
         const userData = await currentApi.getCurrentUser();
         if (userData) updateUser(userData);
-        onSpecializationSuccess?.();
-        onClose?.();
+        if (result.plan_message && specializationOnly) {
+          setPlanSubmitResult(result);
+        } else {
+          onSpecializationSuccess?.(result);
+          onClose?.();
+        }
       } else {
         setError(result.error || 'Ошибка сохранения');
       }
@@ -660,8 +666,29 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         <p className="register-subtitle">
           {isMinimalFlow ? 'Логин, email и пароль — потом настроите план на дашборде' : 'Выберите режим, цель и заполните профиль'}
         </p>
-        
-        {!isMinimalFlow && (
+
+        {!isMinimalFlow && specializationOnly && planSubmitResult && (
+          <div className="register-plan-started">
+            <div className="register-plan-started__icon">🤖</div>
+            <h3 className="register-plan-started__title">План тренировок запущен на генерацию</h3>
+            <p className="register-plan-started__message">
+              {planSubmitResult.plan_message || 'Это займёт 3–5 минут. На дашборде отобразится статус.'}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary register-plan-started__btn"
+              onClick={() => {
+                onSpecializationSuccess?.(planSubmitResult);
+                setPlanSubmitResult(null);
+                onClose?.();
+              }}
+            >
+              Закрыть
+            </button>
+          </div>
+        )}
+
+        {!isMinimalFlow && !planSubmitResult && (
         <>
         <div className="register-step-progress">
           <div className="register-step-progress-fill" style={{ width: `${progress}%` }}></div>
@@ -700,6 +727,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
 
         {error && <div className="register-error">{error}</div>}
 
+        {!(specializationOnly && planSubmitResult) && (
         <form
           onSubmit={(e) => { e.preventDefault(); handleNext(); }}
           onFocusCapture={() => error && setError('')}
@@ -1506,6 +1534,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
             </div>
           )}
         </form>
+        )}
       </div>
     );
 

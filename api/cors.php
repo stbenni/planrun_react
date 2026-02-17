@@ -26,7 +26,11 @@ if ($origin && $currentHost) {
     $localDev = strpos($origin, 'http://localhost') === 0
         || strpos($origin, 'http://127.0.0.1') === 0
         || strpos($origin, 'http://192.168.') === 0;
-    $ok = $sameDomain || $localDev;
+    // Мобильное приложение (Capacitor): origin capacitor://localhost или https://localhost
+    $capacitorApp = strpos($origin, 'capacitor://') === 0
+        || strpos($origin, 'https://localhost') === 0
+        || strpos($origin, 'http://localhost') === 0;
+    $ok = $sameDomain || $localDev || $capacitorApp;
 }
 
 // Preflight OPTIONS

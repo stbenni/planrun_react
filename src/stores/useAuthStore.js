@@ -17,6 +17,11 @@ const useAuthStore = create(
       loading: true,
       isAuthenticated: false,
       showOnboardingModal: false,
+      /** Сообщение о генерации плана после специализации (показывается на дашборде) */
+      planGenerationMessage: null,
+      /** Открыто ли боковое меню профиля (мобильное приложение) */
+      drawerOpen: false,
+      setDrawerOpen: (open) => set({ drawerOpen: typeof open === 'function' ? open(get().drawerOpen) : open }),
 
       // Инициализация
       initialize: async () => {
@@ -189,6 +194,7 @@ const useAuthStore = create(
       },
 
       setShowOnboardingModal: (value) => set({ showOnboardingModal: value }),
+      setPlanGenerationMessage: (message) => set({ planGenerationMessage: message }),
 
       // Обновление данных пользователя
       updateUser: (userData) => {

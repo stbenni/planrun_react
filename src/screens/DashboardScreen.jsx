@@ -21,16 +21,17 @@ const DashboardScreen = () => {
     }
   };
 
-  // Передаем сообщение о регистрации в Dashboard
+  // Сообщение о генерации плана: из state (полная регистрация) или из store (специализация)
   const registrationMessage = location.state?.planMessage;
   const isNewRegistration = location.state?.registrationSuccess;
+  const planGenerationMessage = useAuthStore((s) => s.planGenerationMessage);
 
   return (
     <Dashboard
       api={api}
       user={user}
       onNavigate={handleNavigate}
-      registrationMessage={registrationMessage}
+      registrationMessage={registrationMessage || planGenerationMessage}
       isNewRegistration={isNewRegistration}
     />
   );

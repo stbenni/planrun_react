@@ -16,6 +16,13 @@
   min-height: 100%;
 }
 
+/* Мобильное приложение: отступ под фиксированный хедер (гамбургер + лого) */
+@media (max-width: 1023px) {
+  .page-transition-content {
+    padding-top: calc(56px + env(safe-area-inset-top, 0px) + 12px);
+  }
+}
+
 @keyframes contentFadeIn {
   from {
     opacity: 0;

@@ -1,13 +1,14 @@
 {
   "name": "planrun-web",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "PlanRun Web App - React",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext js,jsx"
+    "lint": "eslint . --ext js,jsx",
+    "apk": "npm run build && rm -rf android/app/src/main/assets/public && cp -r dist android/app/src/main/assets/public && cp capacitor.config.json android/app/src/main/assets/ && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleDebug && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk test.apk"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",

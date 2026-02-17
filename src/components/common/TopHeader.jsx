@@ -21,15 +21,26 @@ const initials = (user) => {
   return '?';
 };
 
+/** Узкий экран = мобильный хедер (только лого) и drawer. Широкий = полный хедер как на десктопе. */
+const isNarrowViewport = () => typeof window !== 'undefined' && window.innerWidth < 1024;
+
 const TopHeader = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, api, setShowOnboardingModal } = useAuthStore();
-  const needsOnboarding = !!(user && user.onboarding_completed === false);
+  const { user, logout, api, setShowOnboardingModal, drawerOpen, setDrawerOpen } = useAuthStore();
+  const needsOnboarding = !!(user && !user.onboarding_completed);
   const [menuOpen, setMenuOpen] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => isNarrowViewport());
   const menuRef = useRef(null);
   const triggerRef = useRef(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(isNarrowViewport());
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     if (!user?.user_id || user.avatar_path != null || !api) return;
@@ -75,8 +86,21 @@ const TopHeader = () => {
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleEscape = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [drawerOpen]);
+
   const handleMenuAction = async (action) => {
     setMenuOpen(false);
+    setDrawerOpen(false);
     if (action === 'profile') navigate('/settings?tab=profile');
     if (action === 'training') navigate('/settings?tab=training');
     if (action === 'privacy') navigate('/settings?tab=social');
@@ -87,8 +111,15 @@ const TopHeader = () => {
     }
   };
 
+  const closeDrawer = () => setDrawerOpen(false);
+  const onAvatarClick = () => {
+    if (isMobile) setDrawerOpen((o) => !o);
+    else setMenuOpen((o) => !o);
+  };
+
   return (
-    <header className="top-header">
+    <>
+      <header className={`top-header ${isMobile ? 'top-header-mobile' : ''}`}>
       <div className="top-header-container">
         <div className="top-header-logo" onClick={() => navigate('/')}>
           <span className="logo-icon">🏃</span>
@@ -109,6 +140,7 @@ const TopHeader = () => {
           ))}
         </nav>
 
+        {!isMobile && (
         <div className="top-header-actions">
           {user && (
             <>
@@ -124,8 +156,8 @@ const TopHeader = () => {
               <button
                 type="button"
                 className="header-avatar-btn"
-                onClick={() => setMenuOpen((o) => !o)}
-                aria-expanded={menuOpen}
+                onClick={onAvatarClick}
+                aria-expanded={isMobile ? drawerOpen : menuOpen}
                 aria-haspopup="true"
                 aria-label="Меню профиля"
               >
@@ -141,7 +173,7 @@ const TopHeader = () => {
                   <span className="header-avatar-initials">{initials(user)}</span>
                 )}
               </button>
-              {menuOpen && (
+              {!isMobile && menuOpen && (
                 <div className="header-avatar-dropdown" ref={menuRef} role="menu">
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('profile')}>
                     <span className="header-dropdown-icon">👤</span>
@@ -176,8 +208,62 @@ const TopHeader = () => {
             </>
           )}
         </div>
+        )}
       </div>
     </header>
+
+      {isMobile && (
+        <>
+          <div
+            className={`app-drawer-backdrop ${drawerOpen ? 'app-drawer-backdrop-open' : ''}`}
+            onClick={closeDrawer}
+            aria-hidden="true"
+          />
+          <aside className={`app-drawer ${drawerOpen ? 'app-drawer-open' : ''}`} role="dialog" aria-label="Меню">
+            <div className="app-drawer-inner">
+              <div className="app-drawer-header">
+                <span className="logo-icon">🏃</span>
+                <span className="logo-text">PlanRun</span>
+                <button type="button" className="app-drawer-close" onClick={closeDrawer} aria-label="Закрыть меню">
+                  ✕
+                </button>
+              </div>
+              {user && (
+                <div className="app-drawer-nav">
+                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('profile')}>
+                      <span className="app-drawer-icon">👤</span>
+                      <span className="app-drawer-label">Профиль</span>
+                    </button>
+                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('training')}>
+                      <span className="app-drawer-icon">🏃</span>
+                      <span className="app-drawer-label">Настройки тренировок</span>
+                    </button>
+                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('privacy')}>
+                      <span className="app-drawer-icon">🔒</span>
+                      <span className="app-drawer-label">Конфиденциальность</span>
+                    </button>
+                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('integrations')}>
+                      <span className="app-drawer-icon">🔗</span>
+                      <span className="app-drawer-label">Интеграции</span>
+                    </button>
+                    {user?.role === 'admin' && (
+                      <button type="button" className="app-drawer-item" onClick={() => { closeDrawer(); navigate('/admin'); }}>
+                        <span className="app-drawer-icon">⚙️</span>
+                        <span className="app-drawer-label">Админка</span>
+                      </button>
+                    )}
+                    <div className="app-drawer-divider" />
+                    <button type="button" className="app-drawer-item app-drawer-item-danger" onClick={() => handleMenuAction('logout')}>
+                      <span className="app-drawer-icon">🚪</span>
+                      <span className="app-drawer-label">Выйти</span>
+                    </button>
+                </div>
+              )}
+            </div>
+          </aside>
+        </>
+      )}
+    </>
   );
 };
 

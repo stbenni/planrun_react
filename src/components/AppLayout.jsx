@@ -17,7 +17,7 @@ const AppLayout = ({ onLogout }) => {
   const location = useLocation();
   const { api, user, showOnboardingModal, setShowOnboardingModal } = useAuthStore();
   const isAdmin = user?.role === 'admin';
-  const needsOnboarding = !!(user && user.onboarding_completed === false);
+  const needsOnboarding = !!(user && !user.onboarding_completed);
   const showBottomNav = location.pathname !== '/admin';
 
   return (

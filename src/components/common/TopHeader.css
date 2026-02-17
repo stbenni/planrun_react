@@ -358,4 +358,207 @@
   }
 }
 
+/* ---------- Мобильный хедер (приложение / узкий экран) ---------- */
+.top-header-mobile {
+  display: flex !important;
+  height: 56px;
+  padding-top: env(safe-area-inset-top, 0);
+  align-items: center;
+}
+
+.top-header-mobile .top-header-container {
+  justify-content: start;
+  margin: 0;
+  padding: 0 12px;
+  gap: 12px;
+}
+
+.top-header-mobile .top-header-nav {
+  display: none;
+}
+
+.top-header-mobile .top-header-onboarding-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ---------- Боковое меню (drawer) ---------- */
+.app-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1200;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.app-drawer-backdrop-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.app-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(300px, 85vw);
+  max-width: 300px;
+  background: var(--card-bg);
+  z-index: 1300;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-drawer-open {
+  transform: translateX(0);
+}
+
+.app-drawer-inner {
+  padding: env(safe-area-inset-top, 0) 0 max(16px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  flex: 1;
+}
+
+.app-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.app-drawer-header .logo-icon {
+  font-size: 24px;
+}
+
+.app-drawer-header .logo-text {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--primary-500);
+  flex: 1;
+}
+
+.app-drawer-close {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 20px;
+  color: var(--gray-600);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-drawer-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-900);
+}
+
+[data-theme="dark"] .app-drawer {
+  background: var(--card-bg);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .app-drawer-header {
+  border-bottom-color: var(--card-border);
+}
+
+[data-theme="dark"] .app-drawer-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.app-drawer-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  gap: 2px;
+}
+
+.app-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-drawer-item:hover {
+  background: var(--gray-100);
+}
+
+.app-drawer-item.active {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.app-drawer-item.active .app-drawer-icon {
+  color: var(--primary-500);
+}
+
+[data-theme="dark"] .app-drawer-item:hover {
+  background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .app-drawer-item.active {
+  background: rgba(255, 107, 61, 0.15);
+  color: var(--primary-400);
+}
+
+.app-drawer-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+  color: var(--gray-600);
+}
+
+[data-theme="dark"] .app-drawer-icon {
+  color: var(--text-secondary);
+}
+
+.app-drawer-label {
+  white-space: nowrap;
+}
+
+.app-drawer-item-danger:hover {
+  background: var(--danger-50);
+  color: var(--danger-600);
+}
+
+[data-theme="dark"] .app-drawer-item-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger-500);
+}
+
+.app-drawer-divider {
+  height: 1px;
+  margin: 8px 20px;
+  background: var(--gray-200);
+}
+
+[data-theme="dark"] .app-drawer-divider {
+  background: var(--gray-600);
+}
+
 /* Адаптация для очень больших экранов - теперь базовый размер уже 1400px */
