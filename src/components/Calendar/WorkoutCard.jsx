@@ -20,6 +20,46 @@ const TYPE_NAMES = {
   free: 'Пустой день',
 };
 
+/** Цветовая группа для полоски — те же классы, что в легенде дашборда (easy, tempo, interval, long, race, other, sbu, rest). */
+function getWorkoutStripColorClass(type) {
+  if (!type) return null;
+  const stripByType = {
+    easy: 'easy',
+    tempo: 'tempo',
+    interval: 'interval',
+    fartlek: 'interval',
+    long: 'long',
+    'long-run': 'long',
+    race: 'race',
+    other: 'other',
+    sbu: 'sbu',
+    rest: 'rest',
+  };
+  return stripByType[type] || (type === 'free' ? null : 'run');
+}
+
+/** Ограничить описание до maxItems пунктов (по <li> или по строкам), вернуть { html, hasMore } */
+function limitDescription(description, maxItems) {
+  if (!description || !maxItems || typeof document === 'undefined') {
+    return { html: description || '', hasMore: false };
+  }
+  const div = document.createElement('div');
+  div.innerHTML = description;
+  const lis = div.querySelectorAll('li');
+  if (lis.length > maxItems) {
+    const ul = document.createElement('ul');
+    for (let i = 0; i < maxItems; i++) ul.appendChild(lis[i].cloneNode(true));
+    return { html: ul.outerHTML, hasMore: true };
+  }
+  const text = (div.textContent || '').trim();
+  const lines = text.split(/\r?\n|<br\s*\/?>/i).map((s) => s.trim()).filter(Boolean);
+  if (lines.length > maxItems) {
+    const limited = lines.slice(0, maxItems).join('<br/>');
+    return { html: limited, hasMore: true };
+  }
+  return { html: description, hasMore: false };
+}
+
 const WorkoutCard = ({ 
   workout, 
   date, 
@@ -34,6 +74,8 @@ const WorkoutCard = ({
   onDeletePlanDay, // (dayId) => void
   onEditPlanDay, // (planDay) => void — открыть модалку редактирования
   canEdit = false,
+  extraActions = null, // React node — кнопки дашборда (развернуть, «Отметить выполнение») рендерятся внутри карточки
+  maxDescriptionItems = null, // при числе (напр. 3) — показывать только первые N пунктов + «и др.» (для двух виджетов в строку)
 }) => {
   const items = (planDays && planDays.length > 0) ? planDays : null;
   const statusConfig = {
@@ -149,20 +191,24 @@ const WorkoutCard = ({
       }}
       onClick={onPress}
     >
-      <div className="workout-card-header">
-        <div className="workout-date-wrapper">
-          <span className="workout-date">{formatDate(date)}</span>
-          {isToday && <span className="workout-badge-today">Сегодня</span>}
+      <div className="workout-card-content">
+        <div className="workout-card-header">
+          <div className="workout-date-wrapper">
+            <span className="workout-date">{formatDate(date)}</span>
+            {isToday && <span className="workout-badge-today">Сегодня</span>}
+          </div>
         </div>
-        {(!isRest || hasPlanDays) && <span className="workout-status-icon">{config.icon}</span>}
-      </div>
 
-      {/* Список всех тренировок дня с возможностью удаления */}
-      {hasPlanDays && (
-        <div className="workout-card-plan-days">
-          <div className="workout-card-plan-days-title">Тренировки:</div>
-          {items.map((planDay) => (
-            <div key={planDay.id} className="workout-card-plan-day-block">
+        {/* Список всех тренировок дня с возможностью удаления */}
+        {hasPlanDays && (
+          <div className="workout-card-plan-days">
+          {items.map((planDay) => {
+            const stripClass = getWorkoutStripColorClass(planDay.type);
+            return (
+            <div
+              key={planDay.id}
+              className={`workout-card-plan-day-block${stripClass ? ` workout-card-plan-day-block--${stripClass}` : ''}`}
+            >
               <div className="workout-card-plan-day-head">
                 <span className="workout-card-plan-day-type">{TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}</span>
                 {canEdit && (
@@ -190,11 +236,20 @@ const WorkoutCard = ({
                   </div>
                 )}
               </div>
-              {planDay.description && (
-                <div className="workout-card-plan-day-text" dangerouslySetInnerHTML={{ __html: planDay.description }} />
-              )}
+              {planDay.description && (() => {
+                const { html, hasMore } = maxDescriptionItems
+                  ? limitDescription(planDay.description, maxDescriptionItems)
+                  : { html: planDay.description, hasMore: false };
+                return (
+                  <>
+                    <div className="workout-card-plan-day-text" dangerouslySetInnerHTML={{ __html: html }} />
+                    {hasMore && <span className="workout-card-plan-day-more">и др.</span>}
+                  </>
+                );
+              })()}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
       
@@ -294,17 +349,22 @@ const WorkoutCard = ({
           </span>
         </div>
       )}
+      </div>
 
-      <div className="workout-actions">
-        {status === 'completed' && (
-          <button className="btn-workout btn-details" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
-            Детали
-          </button>
-        )}
-        {status === 'missed' && (
-          <button className="btn-workout btn-missed btn btn-primary" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
-            Отметить выполненной
-          </button>
+      <div className={`workout-actions${extraActions ? ' workout-card-extra-actions' : ''}`}>
+        {extraActions ?? (
+          <>
+            {status === 'completed' && (
+              <button className="btn-workout btn-details" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
+                Детали
+              </button>
+            )}
+            {status === 'missed' && (
+              <button className="btn-workout btn-missed btn btn-primary" onClick={(e) => { e.stopPropagation(); onPress?.(); }}>
+                Отметить выполненной
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -4,7 +4,7 @@
  */
 
 .settings-container {
-    max-width: 1400px;
+    max-width: var(--page-max-width);
     margin: 0 auto;
     padding: 0;
     background: var(--gray-50);
@@ -49,8 +49,9 @@
     color: white;
 }
 
+/* Горизонтальные отступы как у хедера (--page-padding-x) */
 .settings-content {
-    padding: var(--space-8) var(--space-12);
+    padding: var(--space-8) var(--page-padding-x);
 }
 
 .settings-section {

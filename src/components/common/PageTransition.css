@@ -16,10 +16,41 @@
   min-height: 100%;
 }
 
-/* Мобильное приложение: отступ под фиксированный хедер (гамбургер + лого) */
+/* Мобильное приложение: отступы под хедер и под нижний навбар */
 @media (max-width: 1023px) {
   .page-transition-content {
-    padding-top: calc(56px + env(safe-area-inset-top, 0px) + 12px);
+    padding-top: calc(64px + env(safe-area-inset-top, 0px) + 12px);
+    padding-bottom: var(--mobile-content-padding-bottom, 100px);
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+
+  /* Чат: фиксированная высота = ровно между хедером и навбаром; flex-цепочка до контейнера чата */
+  .page-transition-content--chat {
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  @supports (height: 100dvh) {
+    .page-transition-content--chat {
+      height: 100dvh;
+      min-height: 100dvh;
+      max-height: 100dvh;
+    }
+  }
+  .page-transition-content--chat .app-tabs-content {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .page-transition-content--chat .app-tab-pane--chat {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 }
 

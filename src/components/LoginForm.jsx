@@ -23,12 +23,16 @@ const LoginForm = ({ onSuccess, onLogin }) => {
 
   const { login, biometricLogin, checkBiometricAvailability } = useAuthStore();
 
+  const platform = typeof window !== 'undefined' && window.Capacitor?.getPlatform?.();
+  const isNativeApp = platform === 'android' || platform === 'ios';
+
   useEffect(() => {
+    if (!isNativeApp) return;
     checkBiometricAvailability().then((result) => {
       setBiometricAvailable(result?.available ?? false);
       setBiometricEnabled(result?.enabled ?? false);
     }).catch(() => {});
-  }, [checkBiometricAvailability]);
+  }, [checkBiometricAvailability, isNativeApp]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -194,26 +198,34 @@ const LoginForm = ({ onSuccess, onLogin }) => {
         </button>
       </form>
 
-      {biometricAvailable && biometricEnabled && (
+      {isNativeApp && (
         <div className="biometric-section">
           <div className="biometric-divider">
             <span>или</span>
           </div>
-          <button
-            type="button"
-            className="biometric-button"
-            onClick={handleBiometricLogin}
-            disabled={biometricLoading || loading}
-          >
-            {biometricLoading ? (
-              'Проверка...'
-            ) : (
-              <>
-                <span className="biometric-icon">👆</span>
-                <span>Войти через биометрию</span>
-              </>
-            )}
-          </button>
+          {biometricAvailable && biometricEnabled ? (
+            <button
+              type="button"
+              className="biometric-button"
+              onClick={handleBiometricLogin}
+              disabled={biometricLoading || loading}
+            >
+              {biometricLoading ? (
+                'Проверка...'
+              ) : (
+                <>
+                  <span className="biometric-icon">👆</span>
+                  <span>Войти по отпечатку пальца</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <p className="biometric-hint">
+              {biometricAvailable
+                ? 'После входа по паролю можно будет входить по отпечатку пальца.'
+                : 'Вход по отпечатку пальца будет доступен после первого входа по паролю (если устройство поддерживает).'}
+            </p>
+          )}
         </div>
       )}
     </div>

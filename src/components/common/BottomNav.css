@@ -1,91 +1,148 @@
 /**
  * Стили для Bottom Navigation
+ * Фиксированные размеры без env() в базе — одинаково в эмуляторе и на реальном Android.
  */
 
+/* Парящая панель: высота и отступы только из переменных, без calc/env */
 .bottom-nav {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: var(--bottom-nav-floating-gap, 12px);
+  left: var(--bottom-nav-floating-gap, 12px);
+  right: var(--bottom-nav-floating-gap, 12px);
   height: var(--bottom-nav-height);
   min-height: var(--bottom-nav-height);
   padding-top: 8px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-bottom: 8px;
+  padding-left: 4px;
+  padding-right: 4px;
   box-sizing: border-box;
-  background: white;
-  border-top: 1px solid var(--gray-200);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--glass-shadow), var(--glass-shadow-inset), 0 8px 32px rgba(0, 0, 0, 0.12);
   z-index: 1000;
-  backdrop-filter: blur(10px);
-  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  isolation: isolate;
+  overflow: visible;
+  --pill-left: 0;
+  --pill-width: 60px;
+}
+
+/* Таблетка: фиксированные 8px сверху/снизу, min-height чтобы не схлопывалась на Android */
+.nav-pill {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  min-height: 48px;
+  width: var(--pill-width);
+  transform: translateX(var(--pill-left));
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1), width 0.28s cubic-bezier(0.33, 1, 0.68, 1);
+  border-radius: 9999px;
+  background: var(--glass-bg-strong);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: 0;
+}
+
+[data-theme="dark"] .nav-pill {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 [data-theme="dark"] .bottom-nav {
-  background: rgba(37, 37, 37, 0.95);
-  border-top-color: var(--card-border);
+  box-shadow: var(--glass-shadow), var(--glass-shadow-inset), 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .nav-item {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 8px 16px;
+  padding: 8px 12px;
+  margin: 0 2px;
   border: none;
+  border-radius: 24px;
   background: transparent;
   cursor: pointer;
-  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), color 0.2s ease;
   flex: 1;
   min-width: 0;
   -webkit-tap-highlight-color: transparent;
 }
 
 .nav-item:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
+}
+
+/* Активная вкладка — только цвет иконки; фон даёт sliding .nav-pill */
+.nav-item.active {
+  background: transparent;
 }
 
 .nav-icon {
-  font-size: 24px;
-  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--gray-600);
+  transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), color 0.2s ease;
+}
+
+.nav-icon svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 .nav-label {
-  display: none;
-  font-size: 11px;
+  display: block;
+  font-size: 12px;
+  line-height: 1.2;
   color: var(--gray-600);
-  font-weight: 500;
+  font-weight: 300;
   transition: color 200ms cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 [data-theme="dark"] .nav-icon {
-  color: var(--text-primary);
+  color: #fff;
 }
 
 [data-theme="dark"] .nav-label {
-  color: var(--text-primary);
+  color: #fff;
 }
 
 .nav-item.active .nav-icon {
-  transform: scale(1.1);
   color: var(--primary-500);
 }
 
 .nav-item.active .nav-label {
   color: var(--primary-500);
-  font-weight: 600;
+  font-weight: 300;
+}
+
+[data-theme="dark"] .nav-item.active .nav-icon {
+  color: var(--primary-500);
+}
+
+[data-theme="dark"] .nav-item.active .nav-label {
+  color: var(--primary-500);
+  font-weight: 300;
 }
 
 /* Аватар в последней вкладке (профиль) */
 .nav-icon-avatar {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   overflow: hidden;
   display: flex;
@@ -117,7 +174,11 @@
 }
 
 [data-theme="dark"] .nav-avatar-initials {
-  color: var(--primary-400);
+  color: #fff;
+}
+
+[data-theme="dark"] .nav-item.active .nav-avatar-initials {
+  color: var(--primary-500);
 }
 
 /* Только на мобильных устройствах */
@@ -127,10 +188,115 @@
   }
 }
 
-/* Высота и safe-area только на мобильных (переменная в variables.css) */
+/* Мобильные: та же фиксированная высота (без env), чтобы совпадало с реальным устройством */
 @media (max-width: 1023px) {
   .bottom-nav {
-    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
-    min-height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+    height: var(--bottom-nav-height);
+    min-height: var(--bottom-nav-height);
+    left: var(--bottom-nav-floating-gap, 12px);
+    right: var(--bottom-nav-floating-gap, 12px);
+    bottom: var(--bottom-nav-floating-gap, 12px);
   }
+}
+
+/* На реальных мобильных устройствах — явно те же значения (fallback для Android) */
+@media (max-device-width: 1023px) {
+  .bottom-nav {
+    display: flex;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    height: var(--bottom-nav-height);
+    min-height: var(--bottom-nav-height);
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .bottom-nav .nav-pill {
+    top: 8px;
+    bottom: 8px;
+    min-height: 48px;
+  }
+}
+
+/*
+ * Нативное приложение (Capacitor) — стиль как в Telegram для Android (Liquid Glass, 2026):
+ * плавающая панель, скругления, непрозрачный фон (WebView не поддерживает backdrop-filter),
+ * капсула активной вкладки.
+ */
+html.native-app .bottom-nav {
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  height: var(--bottom-nav-height);
+  min-height: var(--bottom-nav-height);
+  bottom: calc(var(--bottom-nav-floating-gap, 12px) + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+  display: flex;
+  justify-content: space-around;
+}
+
+html.native-app[data-theme="dark"] .bottom-nav {
+  background: rgba(28, 28, 28, 0.98);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* В приложении: такой же размер вкладок и таблетки, как на сайте */
+html.native-app .bottom-nav .nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  gap: 4px;
+  align-self: stretch;
+  min-height: 0;
+  border-radius: 9999px;
+  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+html.native-app .bottom-nav .nav-item:active {
+  transform: none;
+}
+
+/* В приложении активная вкладка без фона — индикатор даёт sliding .nav-pill */
+html.native-app .bottom-nav .nav-item.active {
+  background: transparent;
+}
+
+html.native-app .bottom-nav .nav-pill {
+  top: 8px;
+  bottom: 8px;
+  min-height: 48px;
+  min-width: 82px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+}
+
+html.native-app[data-theme="dark"] .bottom-nav .nav-pill {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+html.native-app .bottom-nav .nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 22px;
+  line-height: 24px;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+html.native-app .bottom-nav .nav-icon-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
 }

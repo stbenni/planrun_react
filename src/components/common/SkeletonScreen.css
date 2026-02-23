@@ -3,14 +3,14 @@
  */
 
 .skeleton-container {
-  padding: 24px;
-  max-width: 1400px;
+  padding: var(--page-padding);
+  max-width: var(--page-max-width);
   margin: 0 auto;
 }
 
 @media (min-width: 1024px) {
   .skeleton-container {
-    padding-top: 88px;
+    padding-top: var(--page-top-desktop);
   }
 }
 

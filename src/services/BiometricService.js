@@ -32,6 +32,10 @@ class BiometricService {
       this.isAvailable = result.isAvailable;
       this.biometricType = result.biometricType || null;
 
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Biometric] checkAvailability result:', { isAvailable: result.isAvailable, biometricType: result.biometricType, error: result.error });
+      }
+
       return {
         available: result.isAvailable,
         type: result.biometricType || null,
@@ -46,7 +50,7 @@ class BiometricService {
           error: null
         };
       }
-      console.error('Biometric availability check failed:', error);
+      console.error('[Biometric] availability check failed:', error);
       return {
         available: false,
         type: null,
@@ -66,7 +70,7 @@ class BiometricService {
         throw new Error('Not in Capacitor environment');
       }
 
-      const result = await BiometricAuth.authenticate({
+      await BiometricAuth.authenticate({
         reason: reason,
         title: 'Биометрическая аутентификация',
         subtitle: 'Используйте отпечаток пальца или Face ID',
@@ -75,15 +79,13 @@ class BiometricService {
         cancelTitle: 'Отмена'
       });
 
-      return {
-        success: result.succeeded,
-        error: result.error || null
-      };
+      // Плагин при успехе ничего не возвращает (resolve без значения)
+      return { success: true, error: null };
     } catch (error) {
       console.error('Biometric authentication failed:', error);
       return {
         success: false,
-        error: error.message
+        error: error?.message ?? String(error)
       };
     }
   }

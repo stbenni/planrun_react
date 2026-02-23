@@ -64,17 +64,6 @@
   color: var(--text-primary) !important;
 }
 
-.workout-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  background: var(--primary-500);
-  transition: width 200ms ease;
-}
-
 .workout-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -103,7 +92,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 0px;
 }
 
 .workout-date-wrapper {
@@ -340,38 +329,63 @@
 
 /* Список тренировок дня с кнопками удаления */
 .workout-card-plan-days {
-  margin-top: 16px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.workout-card-plan-days-title {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--gray-800);
-  margin-bottom: 8px;
-  letter-spacing: -0.01em;
-}
-
-[data-theme="dark"] .workout-card-plan-days-title {
-  color: var(--text-primary);
-}
-
 .workout-card-plan-day-block {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  background: var(--gray-50);
-  border-radius: 12px;
-  border: 1px solid var(--gray-200);
+  padding: 0;
+  margin-bottom: 0;
+  overflow: hidden;
 }
 
-[data-theme="dark"] .workout-card-plan-day-block {
-  background: var(--bg-tertiary);
-  border-color: var(--gray-600);
+/* Полоска по типу тренировки — те же цвета, что в легенде дашборда */
+.workout-card-plan-day-block--easy::before,
+.workout-card-plan-day-block--tempo::before,
+.workout-card-plan-day-block--interval::before,
+.workout-card-plan-day-block--long::before,
+.workout-card-plan-day-block--race::before,
+.workout-card-plan-day-block--other::before,
+.workout-card-plan-day-block--sbu::before,
+.workout-card-plan-day-block--rest::before,
+.workout-card-plan-day-block--run::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 100%;
+  transition: width 200ms ease;
 }
+
+.workout-card-plan-day-block--easy::before { background: var(--workout-easy); }
+.workout-card-plan-day-block--tempo::before { background: var(--workout-tempo); }
+.workout-card-plan-day-block--interval::before { background: var(--workout-interval); }
+.workout-card-plan-day-block--long::before { background: var(--workout-long); }
+.workout-card-plan-day-block--race::before { background: var(--primary-500); }
+.workout-card-plan-day-block--other::before { background: var(--workout-strip-ofp); }
+.workout-card-plan-day-block--sbu::before { background: var(--workout-strip-sbu); }
+.workout-card-plan-day-block--rest::before { background: var(--workout-rest); }
+.workout-card-plan-day-block--run::before { background: var(--workout-strip-run); }
+
+.workout-card-plan-day-block--easy,
+.workout-card-plan-day-block--tempo,
+.workout-card-plan-day-block--interval,
+.workout-card-plan-day-block--long,
+.workout-card-plan-day-block--race,
+.workout-card-plan-day-block--other,
+.workout-card-plan-day-block--sbu,
+.workout-card-plan-day-block--rest,
+.workout-card-plan-day-block--run {
+  padding-left: 16px;
+}
+
 
 .workout-card-plan-day-head {
   display: flex;
@@ -428,7 +442,7 @@
 
 .workout-card-plan-day-text {
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.2;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--gray-700);
@@ -436,6 +450,17 @@
 
 [data-theme="dark"] .workout-card-plan-day-text {
   color: var(--text-secondary);
+}
+
+.workout-card-plan-day-more {
+  display: block;
+  font-size: 12px;
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+[data-theme="dark"] .workout-card-plan-day-more {
+  color: var(--text-tertiary);
 }
 
 .workout-card-plan-day-text p {
@@ -488,11 +513,23 @@
   color: var(--gray-700);
 }
 
+.workout-card-content {
+  min-height: 0;
+}
+
 .workout-actions {
   display: flex;
   gap: 12px;
   margin-top: 16px;
 }
+
+.workout-card-extra-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 12px;
+}
+
 
 .btn-workout {
   flex: 1;

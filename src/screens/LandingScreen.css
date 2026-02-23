@@ -7,7 +7,15 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(135deg, #00a8e8 0%, #ff6b35 100%);
+    background: var(--gradient-hero);
+}
+
+/* Мобильное приложение: отступы под статус-бар и навбар (safe-area) */
+@media (max-width: 1023px) {
+    .landing-container {
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
 }
 
 .landing-notice {
@@ -571,7 +579,7 @@
     
     .btn-landing-primary:active {
         transform: scale(0.98);
-        box-shadow: 0 4px 10px rgba(0, 168, 232, 0.2);
+        box-shadow: 0 4px 10px rgba(252, 76, 2, 0.25);
     }
     
     .btn-landing-secondary:active {

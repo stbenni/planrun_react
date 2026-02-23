@@ -3,22 +3,27 @@
  */
 
 .stats-screen {
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--page-padding);
   background: var(--gray-50);
   min-height: 100vh;
-  padding-bottom: 100px;
+  padding-bottom: var(--page-padding-bottom);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   position: relative;
   box-sizing: border-box;
 }
 
-/* Отступ сверху для TopHeader на десктопах */
+@media (max-width: 1023px) {
+  .stats-screen {
+    padding-bottom: var(--mobile-content-padding-bottom);
+  }
+}
+
 @media (min-width: 1024px) {
   .stats-screen {
-    padding-top: 88px; /* 64px header + 24px отступ */
+    padding-top: var(--page-top-desktop);
   }
 }
 
@@ -231,13 +236,6 @@
 
 [data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__unit {
   color: var(--text-secondary);
-}
-
-.section-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--gray-900);
-  margin-bottom: 16px;
 }
 
 .stats-chart-section {
@@ -1753,7 +1751,7 @@
 /* Мобильная адаптация */
 @media (max-width: 768px) {
   .stats-screen {
-    padding: 16px;
+    padding: var(--page-padding-mobile);
   }
 
   .stats-header {

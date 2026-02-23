@@ -2,7 +2,8 @@
  * Экран календаря тренировок (веб-версия)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import WeekCalendar from '../components/Calendar/WeekCalendar';
 import MonthlyCalendar from '../components/Calendar/MonthlyCalendar';
@@ -15,10 +16,12 @@ import '../assets/css/short-desc.css';
 import './CalendarScreen.css';
 
 const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, hideHeader = false, viewMode: externalViewMode = null }) => {
+  const location = useLocation();
   const { api, user } = useAuthStore();
   // Используем targetUserId если передан, иначе текущего пользователя
   const calendarUserId = targetUserId || user?.id;
   const [plan, setPlan] = useState(null);
+  const openedFromStateRef = useRef(false);
   const [progressData, setProgressData] = useState({});
   const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
@@ -63,6 +66,19 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   useEffect(() => {
     loadPlan();
   }, [calendarUserId]); // Перезагружаем при смене пользователя
+
+  // Переход с дашборда с датой (карточка «Сегодня» / «Следующая») — открыть день в модалке
+  useEffect(() => {
+    const stateDate = location.state?.date;
+    if (!stateDate || !plan || openedFromStateRef.current) return;
+    openedFromStateRef.current = true;
+    setDayModal({
+      isOpen: true,
+      date: stateDate,
+      week: location.state?.week ?? null,
+      day: location.state?.day ?? null,
+    });
+  }, [plan, location.state]);
 
   const loadPlan = async (options = {}) => {
     const silent = options.silent === true; // обновление без показа загрузки (после add/delete)
@@ -259,6 +275,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             onEditTraining={(planDay, date) => setAddTrainingModal({ isOpen: true, date, planDay })}
             onTrainingAdded={() => loadPlan({ silent: true })}
             currentWeekNumber={getCurrentWeekNumber(planData)}
+            initialDate={location.state?.date}
           />
         ) : (
           <div className="week-calendar-container">

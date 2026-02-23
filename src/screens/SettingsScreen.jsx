@@ -3,11 +3,11 @@
  * Полная реализация с вкладками и всеми полями профиля
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import BiometricService from '../services/BiometricService';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import Modal from '../components/common/Modal';
 import './SettingsScreen.css';
 
 function getSystemTheme() {
@@ -37,7 +37,13 @@ const SettingsScreen = ({ onLogout }) => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [csrfToken, setCsrfToken] = useState('');
+  const skipNextAutoSaveRef = useRef(true); // не сохранять при первой установке formData из loadProfile
   const [themePreference, setThemePreference] = useState(getThemePreference);
+  const [showBiometricSection, setShowBiometricSection] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricDisabling, setBiometricDisabling] = useState(false);
+  const [biometricEnabling, setBiometricEnabling] = useState(false);
 
   // Вспомогательная функция для нормализации значений
   const normalizeValue = (value) => {
@@ -111,6 +117,25 @@ const SettingsScreen = ({ onLogout }) => {
     if (tabFromUrl && VALID_TABS.includes(tabFromUrl)) setActiveTab(tabFromUrl);
   }, [searchParams]);
 
+  // Статус биометрии (только на Android/iOS в Capacitor; блок показываем всегда, при недоступности — подсказка)
+  useEffect(() => {
+    const platform = typeof window !== 'undefined' && window.Capacitor?.getPlatform?.();
+    if (!platform || !['android', 'ios'].includes(platform)) return;
+    setShowBiometricSection(true);
+    BiometricService.checkAvailability()
+      .then((r) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[Biometric] checkAvailability:', r);
+        }
+        setBiometricAvailable(r?.available ?? false);
+      })
+      .catch((err) => {
+        console.warn('[Biometric] Settings availability check failed:', err);
+        setBiometricAvailable(false);
+      });
+    BiometricService.isBiometricEnabled().then(setBiometricEnabled);
+  }, []);
+
   // Загрузка профиля
   useEffect(() => {
     const loadProfileData = async () => {
@@ -172,9 +197,10 @@ const SettingsScreen = ({ onLogout }) => {
       formData.ofp_preference, formData.training_time_pref, formData.health_program,
       formData.last_race_distance]);
 
-  const loadProfile = async (apiClient = null) => {
+  const loadProfile = async (apiClient = null, options = {}) => {
     const currentApi = apiClient || api || useAuthStore.getState().api;
-    
+    const silent = options.silent === true;
+
     if (!currentApi) {
       console.error('API client not initialized');
       setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
@@ -183,8 +209,8 @@ const SettingsScreen = ({ onLogout }) => {
     }
 
     try {
-      setLoading(true);
-      
+      if (!silent) setLoading(true);
+
       // Получаем CSRF токен
       const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
       if (csrfResponse && csrfResponse.csrf_token) {
@@ -322,6 +348,7 @@ const SettingsScreen = ({ onLogout }) => {
           privacy_level: String(userData.privacy_level || 'public'),
           telegram_id: userData.telegram_id ? String(userData.telegram_id) : '',
         };
+        skipNextAutoSaveRef.current = true;
         setFormData(newFormData);
       } else {
         console.error('Invalid user data:', userData);
@@ -329,9 +356,9 @@ const SettingsScreen = ({ onLogout }) => {
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-      setMessage({ type: 'error', text: 'Ошибка загрузки профиля: ' + (error.message || 'Неизвестная ошибка') });
+      if (!silent) setMessage({ type: 'error', text: 'Ошибка загрузки профиля: ' + (error.message || 'Неизвестная ошибка') });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -350,14 +377,18 @@ const SettingsScreen = ({ onLogout }) => {
     }
   };
 
-  const closeMessagePopup = () => setMessage({ type: '', text: '' });
-
-  // Автозакрытие попапа успеха через 5 сек (хук должен вызываться до любого условного return)
+  // Автосохранение при изменении полей (debounce 800 ms), без сохранения при загрузке профиля
   useEffect(() => {
-    if (!message.text || message.type !== 'success') return;
-    const t = setTimeout(() => setMessage({ type: '', text: '' }), 5000);
-    return () => clearTimeout(t);
-  }, [message.text, message.type]);
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
+    if (loading) return;
+    const timerId = setTimeout(() => {
+      handleSave();
+    }, 800);
+    return () => clearTimeout(timerId);
+  }, [formData]);
 
   const handleSave = async () => {
     const currentApi = api || useAuthStore.getState().api;
@@ -451,10 +482,8 @@ const SettingsScreen = ({ onLogout }) => {
       console.log('Response:', response);
       
       if (response && response.success !== false) {
-        setMessage({ type: 'success', text: 'Настройки успешно сохранены' });
-        
-        // Перезагружаем профиль после успешного сохранения
-        await loadProfile(currentApi);
+        skipNextAutoSaveRef.current = true;
+        await loadProfile(currentApi, { silent: true });
       } else {
         throw new Error(response?.error || 'Ошибка обновления профиля');
       }
@@ -469,6 +498,67 @@ const SettingsScreen = ({ onLogout }) => {
   const handleLogout = async () => {
     await onLogout();
     navigate('/login');
+  };
+
+  const handleEnableBiometric = async () => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) {
+      setMessage({ type: 'error', text: 'Войдите в аккаунт, затем включите вход по отпечатку' });
+      return;
+    }
+    setBiometricEnabling(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const authPromise = BiometricService.authenticate('Подтвердите отпечаток для входа в PlanRun');
+      const timeoutMs = 15000;
+      const authResult = await Promise.race([
+        authPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут: диалог отпечатка не открылся')), timeoutMs))
+      ]);
+      if (!authResult?.success) {
+        const err = authResult?.error || '';
+        if (err.includes('enrolled') || err.includes('none') || err.includes('not enrolled')) {
+          setMessage({ type: 'error', text: 'Добавьте отпечаток в настройках устройства' });
+        } else if (err.includes('cancel') || err.includes('Cancel') || err.includes('user')) {
+          setMessage({ type: 'error', text: 'Проверка отпечатка отменена' });
+        } else {
+          setMessage({ type: 'error', text: err || 'Не удалось проверить отпечаток' });
+        }
+        return;
+      }
+      const accessToken = await currentApi.getToken();
+      const refreshToken = await currentApi.getRefreshToken();
+      if (!accessToken) {
+        setMessage({ type: 'error', text: 'Нет сохранённой сессии. Войдите по паролю, затем включите отпечаток.' });
+        return;
+      }
+      await BiometricService.saveTokens(accessToken, refreshToken || '');
+      setBiometricEnabled(true);
+      setBiometricAvailable(true);
+      setMessage({ type: 'success', text: 'Вход по отпечатку включён' });
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (msg.includes('enrolled') || msg.includes('none') || msg.includes('not enrolled')) {
+        setMessage({ type: 'error', text: 'Добавьте отпечаток в настройках устройства' });
+      } else {
+        setMessage({ type: 'error', text: msg || 'Не удалось включить вход по отпечатку' });
+      }
+    } finally {
+      setBiometricEnabling(false);
+    }
+  };
+
+  const handleDisableBiometric = async () => {
+    setBiometricDisabling(true);
+    try {
+      await BiometricService.clearTokens();
+      setBiometricEnabled(false);
+      setMessage({ type: 'success', text: 'Вход по отпечатку отключён' });
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Не удалось отключить биометрию' });
+    } finally {
+      setBiometricDisabling(false);
+    }
   };
 
   const handleAvatarUpload = async (e) => {
@@ -650,24 +740,20 @@ const SettingsScreen = ({ onLogout }) => {
 
   return (
     <div className="settings-container settings-page">
-      <Modal
-        isOpen={!!message.text}
-        onClose={closeMessagePopup}
-        title={message.type === 'success' ? 'Готово' : 'Ошибка'}
-        size="small"
-        centerBody
-      >
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ marginBottom: 'var(--space-4)' }}>{message.text}</p>
-          <div style={{ marginTop: 'var(--space-5)' }}>
-            <button type="button" className="btn btn-primary" onClick={closeMessagePopup} style={{ display: 'inline-block' }}>
-              Закрыть
+      <div className="settings-content">
+        {message.type === 'error' && message.text && (
+          <div className="settings-message settings-message--error" role="alert">
+            <span>{message.text}</span>
+            <button
+              type="button"
+              className="settings-message-close"
+              onClick={() => setMessage({ type: '', text: '' })}
+              aria-label="Закрыть"
+            >
+              ×
             </button>
           </div>
-        </div>
-      </Modal>
-
-      <div className="settings-content">
+        )}
         <div className="settings-tabs">
           <button
             className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
@@ -692,16 +778,6 @@ const SettingsScreen = ({ onLogout }) => {
             onClick={() => handleTabChange('integrations')}
           >
             🔗 Интеграции
-          </button>
-        </div>
-
-        <div className="settings-save-row">
-          <button
-            className="btn btn-primary settings-save-btn"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
         </div>
 
@@ -851,51 +927,65 @@ const SettingsScreen = ({ onLogout }) => {
             </div>
             <div className="settings-section">
               <h2>🎨 Внешний вид</h2>
-              <p>Тема оформления приложения</p>
-              <div className="form-group">
-                <label>Тема</label>
-                <div className="theme-options" role="radiogroup" aria-label="Выбор темы">
-                  {[
-                    { value: 'system', label: 'Как в системе', desc: 'Светлая или тёмная по настройкам устройства' },
-                    { value: 'light', label: 'Светлая', desc: 'Всегда светлая тема' },
-                    { value: 'dark', label: 'Тёмная', desc: 'Всегда тёмная тема' },
-                  ].map(({ value, label, desc }) => (
-                    <label key={value} className={`theme-option ${themePreference === value ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="theme"
-                        value={value}
-                        checked={themePreference === value}
-                        onChange={() => {
-                          setThemePreference(value);
-                          if (value === 'system') {
-                            localStorage.removeItem('theme');
-                            applyTheme(getSystemTheme());
-                          } else {
-                            localStorage.setItem('theme', value);
-                            applyTheme(value);
-                          }
-                        }}
-                      />
-                      <span className="theme-option-label">{label}</span>
-                      <span className="theme-option-desc">{desc}</span>
-                    </label>
-                  ))}
-                </div>
+              <div className="theme-options" role="radiogroup" aria-label="Тема оформления">
+                {[
+                  { value: 'system', label: 'Как в системе' },
+                  { value: 'light', label: 'Светлая' },
+                  { value: 'dark', label: 'Тёмная' },
+                ].map(({ value, label }) => (
+                  <label key={value} className={`theme-option ${themePreference === value ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="theme"
+                      value={value}
+                      checked={themePreference === value}
+                      onChange={() => {
+                        setThemePreference(value);
+                        if (value === 'system') {
+                          localStorage.removeItem('theme');
+                          applyTheme(getSystemTheme());
+                        } else {
+                          localStorage.setItem('theme', value);
+                          applyTheme(value);
+                        }
+                      }}
+                    />
+                    <span className="theme-option-label">{label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            <div className="settings-section settings-logout-section">
-              <h2>Аккаунт</h2>
-              <p>Выход из аккаунта на этом устройстве</p>
-              <button
-                type="button"
-                className="btn btn-secondary settings-logout-btn"
-                onClick={handleLogout}
-              >
-                Выйти из аккаунта
-              </button>
-            </div>
+            {showBiometricSection && (
+              <div className="settings-section settings-biometric-section">
+                <h2>Отпечаток пальца</h2>
+                <div className="settings-biometric-row">
+                  <p>Вход по отпечатку: {biometricEnabled ? 'включён' : 'выключен'}</p>
+                  {biometricEnabled ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleDisableBiometric}
+                      disabled={biometricDisabling}
+                    >
+                      {biometricDisabling ? '…' : 'Отключить'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={handleEnableBiometric}
+                      disabled={biometricEnabling}
+                    >
+                      {biometricEnabling ? '…' : 'Включить'}
+                    </button>
+                  )}
+                </div>
+                {!biometricAvailable && !biometricEnabled && (
+                  <p className="settings-biometric-hint">На некоторых устройствах проверка может не срабатывать — нажмите «Включить» и подтвердите отпечаток.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

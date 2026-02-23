@@ -194,6 +194,15 @@
   font-size: var(--text-xl);
 }
 
+.biometric-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.5;
+  padding: 0 var(--space-2);
+}
+
 /* Сброс пароля (встроенный в форму входа) */
 .login-forgot-link {
   display: block;

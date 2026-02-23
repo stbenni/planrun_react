@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -17,6 +17,14 @@ import './App.css';
 const UserProfileScreen = lazy(() => import('./screens/UserProfileScreen'));
 const ForgotPasswordScreen = lazy(() => import('./screens/ForgotPasswordScreen'));
 const ResetPasswordScreen = lazy(() => import('./screens/ResetPasswordScreen'));
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [pathname]);
+  return null;
+}
 
 function App() {
   const { user, api, loading, isAuthenticated, initialize, logout, updateUser } = useAuthStore();
@@ -88,6 +96,7 @@ function App() {
 
   return (
     <Router>
+      <ScrollToTop />
       <Suspense fallback={
         <div className="loading-container">
           <SkeletonScreen type="dashboard" />
@@ -151,6 +160,7 @@ function App() {
           <Route path="calendar" element={null} />
           <Route path="stats" element={null} />
           <Route path="chat" element={null} />
+          <Route path="trainers" element={null} />
           <Route path="settings" element={null} />
           <Route path="admin" element={isAdmin ? null : <Navigate to="/" replace />} />
         </Route>

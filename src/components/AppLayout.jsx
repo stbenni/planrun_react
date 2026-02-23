@@ -18,7 +18,7 @@ const AppLayout = ({ onLogout }) => {
   const { api, user, showOnboardingModal, setShowOnboardingModal } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const needsOnboarding = !!(user && !user.onboarding_completed);
-  const showBottomNav = location.pathname !== '/admin';
+  const showBottomNav = true;
 
   return (
     <>
@@ -31,7 +31,7 @@ const AppLayout = ({ onLogout }) => {
         />
       )}
       <PageTransition>
-        <div className="page-transition-content">
+        <div className={`page-transition-content ${location.pathname.startsWith('/chat') ? 'page-transition-content--chat' : ''}`}>
           <AppTabsContent onLogout={onLogout} />
         </div>
       </PageTransition>

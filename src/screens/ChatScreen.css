@@ -1,6 +1,6 @@
-/* Страница чата — ровно на один экран, без скролла страницы */
+/* Страница чата — ровно на один экран, без скролла страницы; скролл только у списка сообщений */
 .container.chat-page {
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 0 var(--space-4) var(--space-4) var(--space-4);
   height: 100vh;
@@ -9,29 +9,29 @@
   display: flex;
   flex-direction: column;
   background: var(--gray-50);
+  box-sizing: border-box;
 }
 
 [data-theme="dark"] .container.chat-page {
   background: var(--bg-primary);
 }
 
-/* Десктоп: TopHeader 64px + отступ 24px */
 @media (min-width: 1024px) {
   .container.chat-page {
-    padding-top: 88px;
-    height: calc(100vh - 88px);
-    max-height: calc(100vh - 88px);
+    padding-top: var(--page-top-desktop);
+    height: calc(100vh - var(--page-top-desktop));
+    max-height: calc(100vh - var(--page-top-desktop));
   }
 }
 
-/* Мобильный: 100vh минус высота bottom-nav (переменная --bottom-nav-height + safe-area), контейнер на всю ширину */
+/* Мобильный: высота 100% от родителя (цепочка задаётся в PageTransition при .page-transition-content--chat) */
 @media (max-width: 1023px) {
   .container.chat-page {
-    padding-left: 0;
-    padding-right: 0;
-    padding-bottom: 0;
-    height: calc(100vh - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px));
-    max-height: calc(100vh - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px));
+    flex: 1 1 0;
+    min-height: 0;
+    padding: 0;
+    height: 100%;
+    max-height: 100%;
   }
 }
 
@@ -50,6 +50,8 @@
   .container.chat-page .chat-layout {
     border-radius: 0;
     box-shadow: none;
+    flex: 1 1 0;
+    min-height: 0;
   }
 }
 
@@ -282,13 +284,14 @@
   line-height: 1;
 }
 
-/* Правая колонка: выбранный чат */
+/* Правая колонка: выбранный чат — только .chat-messages скроллится, хедер и форма всегда видны */
 .chat-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-primary);
 }
 
@@ -406,19 +409,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-
-/* Мобильный: жёсткий max-height = 100vh − хедер − bottom-nav − строка ввода, чтобы блок не растягивал и форма не уезжала под навбар */
-@media (max-width: 1023px) {
-  .chat-messages {
-    max-height: calc(
-      100vh
-      - var(--bottom-nav-height)
-      - env(safe-area-inset-bottom, 0px)
-      - 72px   /* .chat-main-header min-height */
-      - 80px   /* .chat-input-form: padding + строка ввода ~48px + padding */
-    );
-  }
+  -webkit-overflow-scrolling: touch;
 }
 
 .chat-loading,
@@ -522,7 +513,7 @@
 }
 
 .chat-message-error-text {
-  color: var(--red-500, #dc2626);
+  color: var(--accent-600);
 }
 
 .chat-typing-dots {
@@ -570,6 +561,7 @@
 }
 
 .chat-error {
+  flex-shrink: 0;
   padding: var(--space-2) var(--space-4);
   background: var(--danger-50);
   color: var(--danger-600);
@@ -595,12 +587,15 @@
   padding: var(--space-4);
   border-top: 1px solid var(--card-border);
   flex-shrink: 0;
+  min-height: 0;
+  background: var(--card-bg);
 }
 
 @media (max-width: 1023px) {
   .chat-input-form {
     flex-shrink: 0;
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
+    background: var(--bg-primary);
   }
 }
 

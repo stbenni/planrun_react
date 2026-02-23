@@ -15,8 +15,7 @@ const PublicHeader = () => {
       <div className="public-header-container">
         {/* Логотип */}
         <div className="public-header-logo" onClick={() => navigate('/landing')}>
-          <span className="logo-icon">🏃</span>
-          <span className="logo-text">PlanRun</span>
+          <span className="logo-text">planRUN</span>
         </div>
 
         {/* Кнопка регистрации */}

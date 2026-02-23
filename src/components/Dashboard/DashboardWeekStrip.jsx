@@ -1,19 +1,25 @@
 /**
  * Компактная полоска недели для блока «Календарь» на дашборде
- * Использует те же стили и разметку, что и страница недельного календаря (WeekCalendar)
+ * Два квадрата: дата + минималистичная SVG (бег / ОФП / СБУ)
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from '../Calendar/WeekCalendarIcons';
 import '../Calendar/WeekCalendar.css';
 
-/** API может вернуть day как массив { type, text, id }. Нормализуем: один объект для отображения (первый). */
-function normalizeDayData(dayData) {
-  if (!dayData) return null;
-  if (Array.isArray(dayData)) {
-    const first = dayData.find((d) => d && d.type !== 'rest' && d.type !== 'free');
-    return first || null;
-  }
-  return dayData.type !== 'rest' && dayData.type !== 'free' ? dayData : null;
+const MOBILE_BREAKPOINT = '(max-width: 640px)';
+
+/** API может вернуть day как массив { type, text, id } или один объект. Возвращаем массив активностей дня для отображения всех иконок. */
+function normalizeDayActivities(rawDayData) {
+  if (!rawDayData) return [];
+  const list = Array.isArray(rawDayData) ? rawDayData : [rawDayData];
+  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({ type: d.type }));
+}
+
+/** Первый не-rest тип дня (для класса ячейки и точки на мобилке). */
+function firstNonRestType(activities) {
+  const a = activities.find((d) => d.type !== 'rest' && d.type !== 'free');
+  return a ? a.type : null;
 }
 
 function getWeekDaysFromPlan(plan, progressDataMap) {
@@ -24,12 +30,13 @@ function getWeekDaysFromPlan(plan, progressDataMap) {
   let currentWeek = null;
   for (const week of weeksData) {
     if (!week.start_date || !week.days) continue;
-    const startDate = new Date(week.start_date + 'T00:00:00');
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 6);
-    endDate.setHours(23, 59, 59, 999);
-    if (today >= startDate && today <= endDate) {
+    const [wy, wm, wd] = week.start_date.split('-').map(Number);
+    const weekStart = new Date(wy, wm - 1, wd);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+    if (today >= weekStart && today <= weekEnd) {
       currentWeek = week;
       break;
     }
@@ -38,30 +45,35 @@ function getWeekDaysFromPlan(plan, progressDataMap) {
 
   const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-  const startDate = new Date(currentWeek.start_date + 'T00:00:00');
+  /* Парсим start_date как локальную дату (YYYY-MM-DD в части браузеров иначе даёт UTC и сдвиг дня) */
+  const [sy, sm, sd] = currentWeek.start_date.split('-').map(Number);
+  const startDate = new Date(sy, sm - 1, sd);
   startDate.setHours(0, 0, 0, 0);
   const days = [];
   for (let i = 0; i < 7; i++) {
-    const date = new Date(startDate);
-    date.setDate(startDate.getDate() + i);
+    const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+    date.setHours(0, 0, 0, 0);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
     const dayKey = dayKeys[i];
     const rawDayData = currentWeek.days && currentWeek.days[dayKey];
-    const dayData = normalizeDayData(rawDayData);
+    const dayActivities = normalizeDayActivities(rawDayData);
     const isToday = date.getTime() === today.getTime();
     const isCompleted = progressDataMap[dateStr];
-    const status = isCompleted ? 'completed' : (dayData ? 'planned' : 'rest');
+    const hasPlanned = dayActivities.some((a) => a.type !== 'rest' && a.type !== 'free');
+    const status = isCompleted ? 'completed' : (hasPlanned ? 'planned' : 'rest');
+    const cellType = firstNonRestType(dayActivities);
     days.push({
       date: dateStr,
       dateObj: date,
       dayLabel: dayLabels[i],
       dayKey,
-      dayData,
+      dayActivities,
       isToday,
       status,
+      cellType,
       weekNumber: currentWeek.number,
     });
   }
@@ -87,7 +99,31 @@ function getDayTypeLabel(dayData, status) {
   return labels[dayData.type] || dayData.text || 'Тренировка';
 }
 
+/** Порядок и подписи для легенды типов тренировок (цвета из sports-colors.css / WeekCalendar.css) */
+const LEGEND_ITEMS = [
+  { type: 'easy', label: 'Легкий' },
+  { type: 'tempo', label: 'Темп' },
+  { type: 'interval', label: 'Интервалы' },
+  { type: 'long', label: 'Длительный' },
+  { type: 'race', label: 'Соревнование' },
+  { type: 'other', label: 'ОФП' },
+  { type: 'sbu', label: 'СБУ' },
+  { type: 'rest', label: 'Отдых' },
+];
+
 const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
+  const [isMobile, setIsMobile] = useState(
+    () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const m = window.matchMedia(MOBILE_BREAKPOINT);
+    const fn = () => setIsMobile(m.matches);
+    m.addEventListener('change', fn);
+    fn();
+    return () => m.removeEventListener('change', fn);
+  }, []);
+
   const weekDays = useMemo(
     () => getWeekDaysFromPlan(plan, progressDataMap || {}),
     [plan, progressDataMap]
@@ -110,13 +146,14 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
   return (
     <div className="dashboard-week-strip">
       <div className="week-calendar-container dashboard-week-calendar-wrap">
+        <div className="dashboard-week-strip-content">
         <div className="week-days-grid">
           {weekDays.map((day) => (
             <div
               key={day.date}
               role="button"
               tabIndex={0}
-              className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status}`}
+              className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${day.cellType ? `type-${day.cellType}` : ''}`}
               onClick={() => onNavigate && onNavigate('calendar', { date: day.date, week: day.weekNumber, day: day.dayKey })}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -125,38 +162,66 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
                 }
               }}
             >
-              <div className="week-day-header">
-                <div className="week-day-label">{day.dayLabel}</div>
-                <div className={`week-day-number ${day.isToday ? 'today-number' : ''}`}>
+              <div className="week-day-date-square">
+                <span className={`week-day-number ${day.isToday ? 'today-number' : ''}`}>
                   {day.dateObj.getDate()}
-                </div>
+                </span>
+                <span className="week-day-date-sep">/</span>
+                <span className="week-day-label">{day.dayLabel}</span>
               </div>
 
-              {day.dayData && day.dayData.type !== 'rest' && day.dayData.type !== 'free' && (
-                <div className="week-day-workout">
-                  <div className="workout-type-icon">
-                    {day.status === 'completed' ? '✅' :
-                     day.dayData.type === 'other' ? '💪' :
-                     day.dayData.type === 'sbu' ? '🏋️' : '🏃'}
+              <div className="week-day-icons-grid">
+                {day.status === 'completed' && (
+                  <div className="week-day-icon-square">
+                    <CompletedIcon className="week-day-svg-icon week-day-svg-icon--completed" aria-hidden />
                   </div>
-                  <div className="workout-type-text">
-                    {getDayTypeLabel(day.dayData, day.status)}
+                )}
+                {day.status !== 'completed' && day.dayActivities.length === 0 && (
+                  <div className="week-day-icon-square">
+                    <span className="week-day-empty-dash">—</span>
                   </div>
-                </div>
-              )}
-
-              {day.dayData && day.dayData.type === 'rest' && (
-                <div className="week-day-rest">
-                  <span className="rest-icon">😴</span>
-                  <span className="rest-text">Отдых</span>
-                </div>
-              )}
-
-              {(!day.dayData || day.dayData.type === 'free') && (
-                <div className="week-day-empty">—</div>
-              )}
+                )}
+                {day.status !== 'completed' && day.dayActivities.length > 0 && (() => {
+                  const activities = day.dayActivities;
+                  const mobileShowTwo = isMobile && activities.length > 2;
+                  const hasMore = isMobile ? activities.length > 2 : activities.length > 4;
+                  const show = isMobile
+                    ? (mobileShowTwo ? [activities[0], { type: '_more' }] : activities.slice(0, 2))
+                    : (hasMore ? activities.slice(0, 3) : activities);
+                  return (
+                    <>
+                      {show.map((activity, idx) => (
+                        <div key={idx} className={`week-day-icon-square${activity.type === '_more' ? ' week-day-icon-square--more' : ''}${activity.type !== '_more' && activity.type ? ` week-day-icon-square--${activity.type}` : ''}`} aria-label={activity.type === '_more' ? `Ещё ${activities.length - 1} тренировок` : undefined}>
+                          {activity.type === '_more' && <span className="week-day-more-dots">…</span>}
+                          {activity.type !== '_more' && activity.type === 'rest' && <span className="week-day-empty-dash">—</span>}
+                          {activity.type !== '_more' && activity.type === 'free' && <span className="week-day-empty-dash">—</span>}
+                          {activity.type !== '_more' && activity.type === 'other' && <OFPIcon className="week-day-svg-icon" aria-hidden />}
+                          {activity.type !== '_more' && activity.type === 'sbu' && <SbuIcon className="week-day-svg-icon" aria-hidden />}
+                          {activity.type !== '_more' && activity.type !== 'rest' && activity.type !== 'free' && activity.type !== 'other' && activity.type !== 'sbu' && (
+                            <RunIcon className="week-day-svg-icon" aria-hidden />
+                          )}
+                        </div>
+                      ))}
+                      {!isMobile && hasMore && (
+                        <div className="week-day-icon-square week-day-icon-square--more" aria-label={`Ещё ${day.dayActivities.length - 3} тренировок`}>
+                          <span className="week-day-more-dots">…</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           ))}
+        </div>
+        <div className="dashboard-week-strip-legend" aria-label="Легенда типов тренировок">
+          {LEGEND_ITEMS.map(({ type, label }) => (
+            <span key={type} className="dashboard-week-strip-legend-item">
+              <span className={`dashboard-week-strip-legend-dot dashboard-week-strip-legend-dot--${type}`} aria-hidden />
+              <span className="dashboard-week-strip-legend-label">{label}</span>
+            </span>
+          ))}
+        </div>
         </div>
       </div>
     </div>

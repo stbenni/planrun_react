@@ -1,0 +1,52 @@
+/**
+ * TrainersScreen — заглушка
+ */
+
+.trainers-screen {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: var(--page-padding);
+  background: var(--gray-50);
+  min-height: 100vh;
+  padding-bottom: var(--page-padding-bottom);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1023px) {
+  .trainers-screen {
+    padding-bottom: var(--mobile-content-padding-bottom);
+  }
+}
+
+@media (min-width: 1024px) {
+  .trainers-screen {
+    padding-top: var(--page-top-desktop);
+  }
+}
+
+[data-theme="dark"] .trainers-screen {
+  background: var(--bg-primary);
+}
+
+.trainers-placeholder {
+  text-align: center;
+  padding: var(--space-12) var(--space-6);
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.trainers-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.trainers-text {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}

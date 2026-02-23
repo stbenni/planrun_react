@@ -16,6 +16,11 @@
   box-sizing: border-box;
 }
 
+/* Чтобы подсветка при hover была видна у всех дней, не обрезалась (как на дашборде) */
+.week-calendar-container:has(.week-days-grid) {
+  overflow: visible;
+}
+
 [data-theme="dark"] .week-calendar-container {
   background: transparent !important;
   border-color: var(--gray-300) !important;
@@ -215,23 +220,22 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 16px;
-  margin-bottom: 24px;
 }
 
 .week-day-cell {
-  background: white;
+  background: transparent;
   border-radius: 18px;
   padding: 16px 12px;
   cursor: pointer;
   transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  border: 2px solid var(--gray-200);
+  border: none;
   min-height: 120px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   position: relative;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: none;
   overflow: visible;
 }
 
@@ -245,92 +249,204 @@
   background: var(--gradient-primary);
   transform: scaleX(0);
   transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
 }
 
+/* Hover и active — единый стандарт для страницы календаря и виджета на дашборде: оранжевое свечение + черточка снизу */
 .week-day-cell:hover {
-  background: var(--gray-50);
-  border-color: var(--primary-400);
+  background: transparent;
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 24px rgba(252, 76, 2, 0.2), 0 4px 8px rgba(252, 76, 2, 0.12);
 }
 
 .week-day-cell:hover::before {
   transform: scaleX(1);
 }
 
+.week-day-cell:active {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.18), 0 2px 4px rgba(252, 76, 2, 0.1);
+}
+
+.week-day-cell:active::before {
+  transform: scaleX(1);
+}
+
 [data-theme="dark"] .week-day-cell {
-  background: var(--bg-secondary) !important;
-  border-color: var(--gray-400) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 [data-theme="dark"] .week-day-cell:hover {
-  background: var(--bg-tertiary) !important;
-  border-color: var(--primary-500) !important;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 4px 8px rgba(0, 0, 0, 0.4) !important;
+  background: transparent !important;
+  box-shadow: 0 8px 28px rgba(255, 107, 61, 0.3), 0 4px 8px rgba(255, 107, 61, 0.2) !important;
   transform: translateY(-4px);
 }
 
-.week-day-cell.today {
-  background: linear-gradient(135deg, var(--primary-50) 0%, rgba(255, 107, 61, 0.1) 100%);
-  border-color: var(--primary-500);
-  border-width: 3px;
-  box-shadow: 0 6px 20px rgba(252, 76, 2, 0.25), 0 2px 8px rgba(252, 76, 2, 0.15);
-  position: relative;
+[data-theme="dark"] .week-day-cell:active {
+  box-shadow: 0 4px 16px rgba(255, 107, 61, 0.25), 0 2px 6px rgba(255, 107, 61, 0.15) !important;
+  transform: translateY(-2px);
 }
 
-/* Подчёркивание только у активного (выбранного) дня — при клике переходит на выбранную дату */
+.week-day-cell.today {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  position: relative;
+}
+.week-day-cell.today:hover {
+  box-shadow: 0 8px 24px rgba(252, 76, 2, 0.2), 0 4px 8px rgba(252, 76, 2, 0.12);
+  transform: translateY(-4px);
+}
+.week-day-cell.today:active {
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.18), 0 2px 4px rgba(252, 76, 2, 0.1);
+  transform: translateY(-2px);
+}
+[data-theme="dark"] .week-day-cell.today:hover {
+  box-shadow: 0 8px 28px rgba(255, 107, 61, 0.3), 0 4px 8px rgba(255, 107, 61, 0.2) !important;
+  transform: translateY(-4px);
+}
+[data-theme="dark"] .week-day-cell.today:active {
+  box-shadow: 0 4px 16px rgba(255, 107, 61, 0.25), 0 2px 6px rgba(255, 107, 61, 0.15) !important;
+  transform: translateY(-2px);
+}
+
+.week-day-cell.today .week-day-number,
+.week-day-cell.today .week-day-date-sep,
+.week-day-cell.today .week-day-label {
+  color: var(--primary-500) !important;
+  text-shadow: none;
+}
+
+[data-theme="dark"] .week-day-cell.today .week-day-number,
+[data-theme="dark"] .week-day-cell.today .week-day-date-sep,
+[data-theme="dark"] .week-day-cell.today .week-day-label {
+  color: var(--primary-500) !important;
+  text-shadow: none;
+}
+
+/* Скрываем подчеркивание, так как теперь есть заливка у selected */
 .week-day-cell.selected::before {
-  transform: scaleX(1);
-  height: 3px;
+  display: none;
 }
 
 [data-theme="dark"] .week-day-cell.today {
-  background: linear-gradient(135deg, rgba(255, 107, 61, 0.25) 0%, rgba(255, 107, 61, 0.15) 100%) !important;
-  border-color: var(--primary-500) !important;
-  border-width: 3px !important;
-  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.35), 0 2px 8px rgba(255, 107, 61, 0.2) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* В виджете на дашборде: «сегодня» — как на странице календаря: оранжевые дата/день и мягкое оранжевое свечение */
+.dashboard-week-strip .week-day-cell.today {
+  box-shadow: 0 0 0 2px rgba(252, 76, 2, 0.5);
+}
+
+.dashboard-week-strip .week-day-cell.today .week-day-number,
+.dashboard-week-strip .week-day-cell.today .week-day-date-sep,
+.dashboard-week-strip .week-day-cell.today .week-day-label {
+  color: var(--primary-500) !important;
+}
+
+[data-theme="dark"] .dashboard-week-strip .week-day-cell.today {
+  box-shadow: 0 0 0 2px rgba(255, 107, 61, 0.6) !important;
+}
+
+[data-theme="dark"] .dashboard-week-strip .week-day-cell.today .week-day-number,
+[data-theme="dark"] .dashboard-week-strip .week-day-cell.today .week-day-date-sep,
+[data-theme="dark"] .dashboard-week-strip .week-day-cell.today .week-day-label {
+  color: var(--primary-500) !important;
 }
 
 .week-day-cell.completed {
-  background: linear-gradient(135deg, var(--success-50) 0%, rgba(34, 197, 94, 0.1) 100%);
-  border-color: var(--success-500);
-  border-width: 2px;
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.15);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 [data-theme="dark"] .week-day-cell.completed {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(34, 197, 94, 0.15) 100%) !important;
-  border-color: var(--success-500) !important;
-  border-width: 2px !important;
-  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.25) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  border-width: 1px !important;
+  box-shadow: none !important;
 }
 
 .week-day-cell.planned {
-  background: linear-gradient(135deg, var(--primary-50) 0%, rgba(255, 107, 61, 0.08) 100%);
-  border-color: var(--primary-500);
-  border-width: 2px;
-  box-shadow: 0 3px 10px rgba(252, 76, 2, 0.12);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 [data-theme="dark"] .week-day-cell.planned {
-  background: linear-gradient(135deg, rgba(255, 107, 61, 0.2) 0%, rgba(255, 107, 61, 0.12) 100%) !important;
-  border-color: var(--primary-500) !important;
-  border-width: 2px !important;
-  box-shadow: 0 3px 12px rgba(255, 107, 61, 0.2) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  border-width: 1px !important;
+  box-shadow: none !important;
 }
 
 .week-day-cell.rest {
-  background: var(--gray-100);
-  border-color: var(--gray-300);
-  opacity: 0.8;
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.7;
+}
+
+/* Hover должен работать для всех статусов (planned/completed/rest), иначе переопределяют box-shadow */
+.week-day-cell.planned:hover,
+.week-day-cell.completed:hover,
+.week-day-cell.rest:hover {
+  background: transparent;
+  box-shadow: 0 8px 24px rgba(252, 76, 2, 0.2), 0 4px 8px rgba(252, 76, 2, 0.12);
+  transform: translateY(-4px);
+}
+.week-day-cell.planned:active,
+.week-day-cell.completed:active,
+.week-day-cell.rest:active {
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.18), 0 2px 4px rgba(252, 76, 2, 0.1);
+  transform: translateY(-2px);
+}
+[data-theme="dark"] .week-day-cell.planned:hover,
+[data-theme="dark"] .week-day-cell.completed:hover,
+[data-theme="dark"] .week-day-cell.rest:hover {
+  background: transparent !important;
+  box-shadow: 0 8px 28px rgba(255, 107, 61, 0.3), 0 4px 8px rgba(255, 107, 61, 0.2) !important;
+  transform: translateY(-4px);
+}
+[data-theme="dark"] .week-day-cell.planned:active,
+[data-theme="dark"] .week-day-cell.completed:active,
+[data-theme="dark"] .week-day-cell.rest:active {
+  box-shadow: 0 4px 16px rgba(255, 107, 61, 0.25), 0 2px 6px rgba(255, 107, 61, 0.15) !important;
+  transform: translateY(-2px);
 }
 
 .week-day-cell.selected {
+  background: var(--primary-500);
   border-color: var(--primary-500);
-  border-width: 3px;
-  box-shadow: 0 4px 16px rgba(252, 76, 2, 0.2), 0 2px 6px rgba(252, 76, 2, 0.1);
-  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+}
+
+.week-day-cell.selected .week-day-number,
+.week-day-cell.selected .week-day-date-sep,
+.week-day-cell.selected .week-day-label {
+  color: var(--primary-400) !important;
+}
+
+.week-day-cell.selected .workout-type-text,
+.week-day-cell.selected .rest-text,
+.week-day-cell.selected .week-day-empty {
+  color: white !important;
+}
+
+/* Точка под числом для индикации тренировки */
+.week-day-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--gray-300);
+  margin-top: 4px;
+}
+
+.week-day-cell.selected .week-day-dot {
+  background-color: white !important;
 }
 
 [data-theme="dark"] .week-day-cell.selected {
@@ -338,10 +454,192 @@
   box-shadow: 0 4px 20px rgba(255, 107, 61, 0.3), 0 2px 6px rgba(255, 107, 61, 0.2) !important;
 }
 
+[data-theme="dark"] .week-day-cell.selected .week-day-number,
+[data-theme="dark"] .week-day-cell.selected .week-day-date-sep,
+[data-theme="dark"] .week-day-cell.selected .week-day-label {
+  color: var(--primary-400) !important;
+}
+
 [data-theme="dark"] .week-day-cell.rest {
-  background: var(--bg-tertiary);
-  border-color: var(--gray-400);
+  background: transparent !important;
+  border: none !important;
   opacity: 0.9;
+}
+
+/* Два квадрата: дата + иконка (дашборд и календарь) */
+.week-day-date-square {
+  width: 100%;
+  max-width: 100%;
+  height: 40px;
+  min-height: 40px;
+  margin: 0 auto 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--gray-100);
+  border: none;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .week-day-date-square {
+  background: var(--bg-tertiary);
+  border: none;
+}
+
+.week-day-date-square .week-day-number,
+.week-day-date-square .week-day-date-sep,
+.week-day-date-square .week-day-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.week-day-date-square .week-day-number {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.week-day-date-square .week-day-date-sep {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--gray-500);
+  opacity: 0.85;
+  user-select: none;
+}
+
+.week-day-date-square .week-day-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gray-600);
+}
+
+[data-theme="dark"] .week-day-date-square .week-day-number {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .week-day-date-square .week-day-date-sep {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .week-day-date-square .week-day-label {
+  color: var(--text-secondary);
+}
+
+.week-day-icon-square {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 100%;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-50);
+  border: none;
+  border-radius: 12px;
+  flex-shrink: 0;
+  color: var(--gray-600);
+}
+
+/* Сетка иконок: на мобилке — колонка, на десктопе (в полоске дашборда) — два столбца */
+.week-day-icons-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.week-day-icon-square + .week-day-icon-square {
+  margin-top: 0;
+}
+
+.week-day-icons-grid .week-day-icon-square {
+  margin-top: 0;
+}
+
+/* Несколько блоков иконок в ячейке — чуть мельче (мобилка, вертикальный стек) */
+
+.week-day-cell:has(.week-day-icons-grid .week-day-icon-square:nth-child(3)) .week-day-svg-icon {
+  width: 20px;
+  height: 20px;
+}
+
+[data-theme="dark"] .week-day-icon-square {
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-secondary);
+}
+
+.week-day-svg-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.week-day-svg-icon--completed {
+  color: var(--success-500);
+}
+
+.week-day-svg-icon--rest {
+  opacity: 0.6;
+}
+
+/* Цвет SVG по типу тренировки (переменные из sports-colors.css) */
+.week-day-icon-square--easy .week-day-svg-icon { color: var(--workout-easy); }
+.week-day-icon-square--tempo .week-day-svg-icon { color: var(--workout-tempo); }
+.week-day-icon-square--interval .week-day-svg-icon { color: var(--workout-interval); }
+.week-day-icon-square--long .week-day-svg-icon,
+.week-day-icon-square--long-run .week-day-svg-icon { color: var(--workout-long); }
+.week-day-icon-square--fartlek .week-day-svg-icon { color: var(--workout-interval); }
+.week-day-icon-square--race .week-day-svg-icon { color: var(--primary-500); }
+.week-day-icon-square--other .week-day-svg-icon { color: var(--workout-strip-ofp); }
+.week-day-icon-square--sbu .week-day-svg-icon { color: var(--workout-strip-sbu); }
+.week-day-icon-square--rest .week-day-svg-icon,
+.week-day-icon-square--free .week-day-svg-icon { color: var(--workout-rest); }
+
+.week-day-empty-dash {
+  font-size: 18px;
+  color: var(--gray-400);
+  line-height: 1;
+}
+
+.week-day-more-dots {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gray-500);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.week-day-cell.selected .week-day-date-square {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.week-day-cell.selected .week-day-icon-square {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.week-day-cell.selected .week-day-svg-icon--completed,
+.week-day-cell.selected .week-day-icon-square .week-day-svg-icon {
+  color: white;
+}
+
+.week-day-cell.selected .week-day-empty-dash {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.week-day-cell.selected .week-day-more-dots {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .week-day-header {
@@ -353,12 +651,13 @@
 }
 
 .week-day-label {
-  font-size: 11px;
-  color: var(--gray-600);
+  font-family: var(--font-stats);
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 6px;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  color: var(--gray-500);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
 }
 
 [data-theme="dark"] .week-day-label {
@@ -367,11 +666,12 @@
 }
 
 .week-day-number {
-  font-size: 26px;
-  font-weight: 800;
+  font-family: var(--font-stats);
+  font-size: 24px;
+  font-weight: 700;
   color: var(--gray-900);
   line-height: 1;
-  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 [data-theme="dark"] .week-day-number {
@@ -380,7 +680,7 @@
 
 .week-day-number.today-number {
   color: var(--primary-500);
-  font-size: 28px;
+  text-shadow: none;
 }
 
 .week-day-workout {
@@ -454,6 +754,7 @@
   animation: slideUp 300ms ease;
 }
 
+
 .week-selected-day-actions {
   display: flex;
   flex-wrap: wrap;
@@ -493,6 +794,90 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Десктоп: сетка иконок как в виджете — 1 во весь ряд, 2 в ряд, 3 = 2+1, 4 = 2×2 (общее для страницы календаря и виджета) */
+@media (min-width: 641px) {
+  .week-day-cell {
+    min-height: 100px;
+  }
+
+  .week-day-date-square,
+  .week-day-icon-square {
+    max-width: 100%;
+  }
+
+  .week-day-icons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    align-content: center;
+  }
+
+  .week-day-icons-grid .week-day-icon-square:only-child {
+    grid-column: 1 / -1;
+    aspect-ratio: 1;
+  }
+
+  /* Две тренировки: 1-я — верхняя строка (ячейки 1+2), 2-я — нижняя (ячейки 3+4) */
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) {
+    aspect-ratio: 1 / 1;
+    grid-template-rows: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) .week-day-icon-square:nth-child(1) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) .week-day-icon-square:nth-child(2) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)) {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    grid-template-rows: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(1),
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(2) {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(3) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .week-day-icons-grid:has(.week-day-icon-square:nth-child(4)) .week-day-icon-square {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .week-day-svg-icon {
+    width: 28px;
+    height: 28px;
   }
 }
 
@@ -537,29 +922,104 @@
 }
 
 @media (max-width: 640px) {
+  /* Убираем контейнер у дней — во всю ширину, прибираем отступы */
+  .week-calendar-container {
+    padding: 8px 0 12px;
+    margin-bottom: 0;
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+  }
+
+  [data-theme="dark"] .week-calendar-container {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
   .week-days-grid {
     grid-template-columns: repeat(7, 1fr);
     gap: 4px;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
   }
 
   .week-day-cell {
-    min-height: 70px;
-    padding: 6px;
+    min-height: 64px;
+    padding: 8px 4px;
+    border-radius: 6px;
+    border: none;
+  }
+
+  .week-day-date-square,
+  .week-day-icon-square {
+    border-radius: 6px;
+  }
+
+  /* Мобилка: число и день на двух строках, без «/» */
+  .week-day-date-square {
+    flex-direction: column;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .week-day-date-square .week-day-date-sep {
+    display: none;
   }
 
   .week-day-label {
     font-size: 10px;
+    margin-bottom: 0;
+    line-height: 1.1;
   }
 
   .week-day-number {
     font-size: 18px;
+    line-height: 1.1;
   }
 
-  .workout-type-text {
+  /* Скрываем текст и иконки, показываем точку */
+  .workout-type-text,
+  .workout-type-icon,
+  .rest-text,
+  .week-day-empty {
     display: none;
   }
-
-  .rest-text {
+  
+  /* Точка под числом только если нет нового layout с иконкой-SVG */
+  .week-day-cell:has(.week-day-icon-square) .week-day-number::after {
     display: none;
+  }
+  .week-day-cell:has(.workout-type-icon) .week-day-number::after {
+    content: '';
+    display: block;
+    width: 5px;
+    height: 5px;
+    background: var(--primary-500);
+    border-radius: 50%;
+    margin: 4px auto 0;
+  }
+  
+  /* Цвета точек по типу тренировки */
+  .week-day-cell.type-easy .week-day-number::after { background: var(--workout-easy, #22C55E) !important; }
+  .week-day-cell.type-tempo .week-day-number::after { background: var(--workout-tempo, #EAB308) !important; }
+  .week-day-cell.type-interval .week-day-number::after { background: var(--workout-interval, #EF4444) !important; }
+  .week-day-cell.type-long .week-day-number::after, 
+  .week-day-cell.type-long-run .week-day-number::after { background: var(--workout-long, #3B82F6) !important; }
+  .week-day-cell.type-sbu .week-day-number::after { background: var(--workout-strip-sbu, #7C3AED) !important; }
+  .week-day-cell.type-other .week-day-number::after { background: var(--workout-strip-ofp, #EF4444) !important; }
+  .week-day-cell.type-fartlek .week-day-number::after { background: var(--workout-interval, #EF4444) !important; }
+  .week-day-cell.type-race .week-day-number::after { background: var(--primary-500) !important; }
+  
+  /* Точка для выполненной (зеленая) — перекрывает тип */
+  .week-day-cell.completed .week-day-number::after {
+    background: var(--success-500) !important;
+  }
+  
+  /* Белая точка на выбранном (самый высокий приоритет) */
+  .week-day-cell.selected .week-day-number::after {
+    background: white !important;
   }
 }

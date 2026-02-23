@@ -2,27 +2,33 @@
  * Стили для Dashboard (OMY! Sports style)
  */
 
+/* Единый отступ контента во всех карточках дашборда */
 .dashboard {
-  max-width: 1400px;
+  --dashboard-card-padding: 24px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: var(--space-6) var(--space-5);
+  padding: var(--page-padding);
   background: var(--gray-50);
   min-height: 100vh;
-  padding-bottom: 100px; /* место под BottomNav */
+  padding-bottom: var(--page-padding-bottom);
   overflow-y: auto;
   position: relative;
-  -webkit-overflow-scrolling: touch; /* Плавный скролл на iOS */
-  color: var(--gray-900);
+  -webkit-overflow-scrolling: touch;
+  color: var(--text-primary);
+}
+
+@media (max-width: 1023px) {
+  .dashboard {
+    padding-bottom: var(--mobile-content-padding-bottom);
+  }
 }
 
 [data-theme="dark"] .dashboard {
   background: var(--bg-primary);
   color: var(--text-primary);
-  /* Увеличенные отступы, чтобы оранжевое свечение карточек не обрезалось скролл-контейнером */
-  padding-left: calc(var(--space-5) + 40px);
-  padding-right: calc(var(--space-5) + 40px);
-  padding-top: calc(var(--space-6) + 40px);
-  padding-bottom: calc(100px + 40px);
+  /* Горизонтальные отступы как у хедера (--page-padding-x) */
+  padding-left: var(--page-padding-x);
+  padding-right: var(--page-padding-x);
 }
 
 .pull-to-refresh-indicator {
@@ -229,10 +235,12 @@
 }
 
 .dashboard-empty-onboarding-title {
+  font-family: var(--font-stats), sans-serif;
   font-size: var(--text-2xl);
   font-weight: var(--font-extrabold);
   color: var(--text-primary);
   margin: 0 0 var(--space-4);
+  text-transform: uppercase;
 }
 
 .dashboard-empty-onboarding-text {
@@ -277,42 +285,48 @@
   gap: 16px;
 }
 
+/* Прозрачный фон по умолчанию; светлая тема — тёмные обводка и текст, тёмная — белые; при наведении — оранжевый фон */
 .dashboard-customize-btn {
   flex-shrink: 0;
   padding: 8px 14px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--primary-600);
-  background: var(--primary-50);
-  border: 1px solid var(--primary-200);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--gray-600);
   border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .dashboard-customize-btn:hover {
-  background: var(--primary-100);
-  color: var(--primary-700);
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: #fff;
 }
 
 [data-theme="dark"] .dashboard-customize-btn {
-  color: var(--primary-400);
-  background: rgba(255, 107, 61, 0.15);
-  border-color: var(--primary-500);
+  color: #fff;
+  background: transparent;
+  border-color: #fff;
 }
 
 [data-theme="dark"] .dashboard-customize-btn:hover {
-  background: rgba(255, 107, 61, 0.25);
-  color: var(--primary-300);
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: #fff;
 }
 
 .dashboard-greeting {
+  font-family: var(--font-stats), sans-serif;
   font-size: var(--text-3xl);
   font-weight: var(--font-extrabold);
   color: var(--gray-900);
   margin-bottom: 4px;
   line-height: 1.1;
   letter-spacing: -0.5px;
+  text-transform: uppercase;
 }
 
 [data-theme="dark"] .dashboard-greeting {
@@ -320,9 +334,10 @@
 }
 
 .dashboard-date {
+  font-family: var(--font-stats), sans-serif;
   font-size: var(--text-base);
   color: var(--gray-600);
-  text-transform: capitalize;
+  text-transform: uppercase;
   font-weight: var(--font-medium);
 }
 
@@ -765,42 +780,76 @@ body.dashboard-customizer-dragging {
   margin-bottom: 40px;
 }
 
-/* По умолчанию высота по контенту; в ряду из двух — одинаковая высота */
+/* По умолчанию высота по контенту; без карточек — прозрачный фон, без тени */
 .dashboard-module-card {
   height: auto;
   min-height: 0;
   overflow: visible;
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.02),
-    0 8px 16px rgba(0, 0, 0, 0.03),
-    0 16px 32px rgba(0, 0, 0, 0.02);
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   transition: box-shadow 0.25s ease;
 }
 
-/* Вдвоём в строке — одинаковая высота, контент обрезается */
+/* Вдвоём в строке — одинаковая высота (увеличена под одну тренировку + кнопка разворота / «Отметить выполнение») */
 .dashboard-row-two .dashboard-module-card {
-  height: 230px;
-  min-height: 230px;
+  height: 280px;
+  min-height: 280px;
   overflow: hidden;
 }
 
-.dashboard-module-card:hover {
-  box-shadow:
-    0 4px 8px rgba(0, 0, 0, 0.03),
-    0 12px 24px rgba(0, 0, 0, 0.05),
-    0 24px 48px rgba(0, 0, 0, 0.03);
+/* Чтобы подсветка при hover не обрезалась в уголках — у виджетов с контейнером разрешаем overflow */
+.dashboard-row-two .dashboard-module-card--workout,
+.dashboard-row-two .dashboard-module-card--week-progress,
+.dashboard-row-two .dashboard-module-card:has(.dashboard-week-strip),
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget),
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) {
+  overflow: visible;
 }
 
-/* Движение при наведении — на общий контейнер карточек «Сегодня» и «Следующая», а не на внутреннюю WorkoutCard */
-.dashboard-module-card--workout {
+/* Hover только у «обычных» карточек без оформления — не трогаем виджеты с контейнером */
+.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):hover {
+  box-shadow: none;
+}
+
+/* Единый transition и hover для всех виджетов с контейнером (движение + усиление подсветки) */
+.dashboard-module-card--workout,
+.dashboard-module-card--week-progress,
+.dashboard-module-card:has(.dashboard-week-strip),
+.dashboard-module-card:has(.dashboard-stats-widget),
+.dashboard-module-card:has(.dashboard-metrics-grid) {
   transition: box-shadow 0.25s ease, transform 0.25s ease;
 }
 
-.dashboard-module-card--workout:hover {
+/* У виджета тренировки контейнер прозрачный — задаём border-radius, чтобы тень при hover повторяла скругление */
+.dashboard-module-card--workout {
+  border-radius: 20px;
+}
+
+.dashboard-module-card--workout:hover,
+.dashboard-module-card--week-progress:hover,
+.dashboard-module-card:has(.dashboard-week-strip):hover,
+.dashboard-module-card:has(.dashboard-stats-widget):hover,
+.dashboard-module-card:has(.dashboard-metrics-grid):hover {
   transform: translateY(-4px);
+  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4);
+}
+
+[data-theme="dark"] .dashboard-module-card--workout:hover,
+[data-theme="dark"] .dashboard-module-card--week-progress:hover,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip):hover,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget):hover,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid):hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4) !important;
+}
+
+/* Свечение контейнера у «Сегодня» и «Следующая» в тёмной теме (как у остальных виджетов) */
+[data-theme="dark"] .dashboard-module-card--workout .workout-card {
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
 }
 
 .dashboard-module-card--workout .workout-card:hover,
@@ -812,6 +861,16 @@ body.dashboard-customizer-dragging {
 
 .dashboard-module-card--workout .workout-card {
   transition: none;
+  border-left: none !important;
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+}
+
+/* Убираем оранжевый бордер у «Сегодняшняя тренировка» на дашборде */
+.dashboard-module-card--workout .workout-card-today {
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-today {
+  border-color: var(--card-border);
 }
 
 [data-theme="dark"] .dashboard-module-card--workout .workout-card:hover,
@@ -821,17 +880,13 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-card {
-  box-shadow:
-    0 2px 4px rgba(255, 107, 61, 0.07),
-    0 8px 20px rgba(255, 107, 61, 0.1),
-    0 20px 40px rgba(255, 107, 61, 0.07);
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-[data-theme="dark"] .dashboard-module-card:hover {
-  box-shadow:
-    0 4px 8px rgba(255, 107, 61, 0.12),
-    0 12px 28px rgba(255, 107, 61, 0.16),
-    0 28px 56px rgba(255, 107, 61, 0.1);
+/* Не гасить подсветку у виджетов с контейнером — только у «пустых» карточек */
+[data-theme="dark"] .dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):hover {
+  box-shadow: none !important;
 }
 
 /* Обёртка карточек «Сегодня» и «Следующая» — кликабельна; в ряду контент обрезается */
@@ -846,11 +901,104 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-row-two .dashboard-workout-card-wrapper {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .dashboard-workout-card-wrapper .dashboard-top-card {
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Карточка в виджете — единый padding, стрелка всегда absolute у нижней границы */
+.dashboard-module-card--workout .workout-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: var(--dashboard-card-padding);
+  padding-top: var(--dashboard-card-padding);
+}
+
+/* Контент и кнопка — с отступами по бокам */
+.dashboard-module-card--workout .workout-card-header,
+.dashboard-module-card--workout .workout-card-plan-days {
+  padding-left: var(--dashboard-card-padding);
+  padding-right: var(--dashboard-card-padding);
+}
+
+.dashboard-module-card--workout .workout-card-extra-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Полный вид (десктоп, виджет на всю ширину): список тренировок — две колонки; мобилка и «в ряду» — как было, одна колонка */
+@media (min-width: 641px) {
+  .dashboard-section:not(.dashboard-section-inline) .dashboard-module-card--workout .workout-card-plan-days {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+/* Два виджета в строке: контент прокручивается, кнопка и стрелка зафиксированы внизу */
+.dashboard-row-two .dashboard-module-card--workout .workout-card .workout-card-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dashboard-row-two .dashboard-module-card--workout .workout-card-extra-actions {
+  flex-shrink: 0;
+}
+
+/* Кнопка «Отметить выполнение» / «Открыть в календаре» — с отступами по бокам, на всю доступную ширину */
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar,
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done {
+  margin-left: var(--dashboard-card-padding);
+  margin-right: var(--dashboard-card-padding);
+  width: calc(100% - 2 * var(--dashboard-card-padding));
+}
+
+/* По умолчанию — оранжевый бордер и текст; при hover — заливка как сейчас */
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar,
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done {
+  background: transparent;
+  color: var(--primary-500);
+  border: 1.5px solid var(--primary-500);
+}
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar:hover:not(:disabled),
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done:hover:not(:disabled) {
+  background: var(--primary-500);
+  color: white;
+  border-color: var(--primary-500);
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+}
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar:hover:not(:disabled):active,
+.dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done:hover:not(:disabled):active {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+}
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar,
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done {
+  background: transparent !important;
+  color: var(--primary-500) !important;
+  border: 1.5px solid var(--primary-500) !important;
+}
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar:hover:not(:disabled),
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done:hover:not(:disabled) {
+  background: var(--primary-500) !important;
+  color: white !important;
+  border-color: var(--primary-500) !important;
+  box-shadow: 0 4px 12px rgba(255, 107, 61, 0.3);
+}
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-open-calendar:hover:not(:disabled):active,
+[data-theme="dark"] .dashboard-module-card--workout .workout-card-extra-actions .dashboard-workout-mark-done:hover:not(:disabled):active {
+  background: var(--primary-600) !important;
+  border-color: var(--primary-600) !important;
 }
 
 /* Раскрытие карточки тренировки по стрелке */
@@ -883,6 +1031,17 @@ body.dashboard-customizer-dragging {
   z-index: 1;
 }
 
+/* Стрелка внутри карточки — всегда прижата к низу виджета (absolute), не участвует в потоке */
+.workout-card-extra-actions .dashboard-workout-expand-arrow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: transparent;
+  padding: 6px 8px;
+  margin: 0;
+}
+
 /* Стрелку показываем только когда карточка в ряду с другим блоком (сужена по высоте) */
 .dashboard-section:not(.dashboard-section-inline) .dashboard-module-card--workout .dashboard-workout-expand-arrow {
   display: none;
@@ -902,10 +1061,17 @@ body.dashboard-customizer-dragging {
   transition: transform 0.25s ease;
 }
 
+.dashboard-workout-expand-arrow {
+  gap: 6px;
+}
+
+.dashboard-workout-expand-hint {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 .dashboard-module-card--expanded .dashboard-workout-expand-arrow {
-  position: static;
   background: transparent;
-  margin-top: 8px;
 }
 
 .dashboard-module-card--expanded .dashboard-workout-expand-arrow-icon {
@@ -944,8 +1110,8 @@ body.dashboard-customizer-dragging {
   }
 
   .dashboard-module-card:has(.dashboard-metrics-grid) {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: var(--dashboard-card-padding);
+    padding-right: var(--dashboard-card-padding);
   }
 }
 
@@ -955,7 +1121,7 @@ body.dashboard-customizer-dragging {
   align-items: center;
   gap: 16px;
   width: 100%;
-  padding: 20px 24px;
+  padding: 20px var(--dashboard-card-padding);
   background: white;
   border: 1px solid var(--gray-200);
   border-radius: 20px;
@@ -1025,7 +1191,7 @@ body.dashboard-customizer-dragging {
 
 .dashboard-week-strip-empty {
   text-align: center;
-  padding: 24px;
+  padding: var(--dashboard-card-padding);
   color: var(--text-secondary);
   background: var(--card-bg);
   border-radius: 20px;
@@ -1033,21 +1199,381 @@ body.dashboard-customizer-dragging {
   cursor: pointer;
 }
 
+/* Карточка календаря — фон, бордер, свечение (transition и hover — в общем блоке выше) */
+.dashboard-module-card:has(.dashboard-week-strip) {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: var(--dashboard-card-padding);
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip) {
+  background: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+}
+
 .dashboard-week-calendar-wrap {
   margin: 0;
 }
 
-/* Виджет статистики на дашборде — клик по виджету ведёт в раздел «Статистика» */
-/* Карточка, в которой виджет статистики — фон и граница здесь */
-.dashboard-module-card:has(.dashboard-stats-widget) {
-  background: white;
+/* Контент полоски: сетка дней + легенда внизу */
+.dashboard-week-strip-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-week-strip-content .week-days-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Легенда типов тренировок (цвета как у иконок в sports-colors.css / WeekCalendar.css) */
+.dashboard-week-strip-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: center;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.dashboard-week-strip-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-family: 'Jost', sans-serif;
+}
+
+.dashboard-week-strip-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dashboard-week-strip-legend-dot--easy { background-color: var(--workout-easy); }
+.dashboard-week-strip-legend-dot--tempo { background-color: var(--workout-tempo); }
+.dashboard-week-strip-legend-dot--interval { background-color: var(--workout-interval); }
+.dashboard-week-strip-legend-dot--long { background-color: var(--workout-long); }
+.dashboard-week-strip-legend-dot--race { background-color: var(--primary-500); }
+.dashboard-week-strip-legend-dot--other { background-color: var(--workout-strip-ofp); }
+.dashboard-week-strip-legend-dot--sbu { background-color: var(--workout-strip-sbu); }
+.dashboard-week-strip-legend-dot--rest { background-color: var(--workout-rest); }
+
+.dashboard-week-strip-legend-label {
+  white-space: nowrap;
+}
+
+/* Светлая тема: граница квадратов даты и тренировок — лучше видно */
+:root:not([data-theme="dark"]) .dashboard-week-strip .week-day-date-square,
+:root:not([data-theme="dark"]) .dashboard-week-strip .week-day-icon-square {
   border: 1px solid var(--gray-200);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+/* Убираем внутреннюю «карточку» у полоски календаря — фон и бордер уже у .dashboard-module-card */
+.dashboard-week-strip .week-calendar-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  padding: 0;
+  overflow: visible; /* чтобы бордер/тень выбранного дня не обрезались */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+[data-theme="dark"] .dashboard-week-strip .week-calendar-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Десктоп: тот же вид что на мобилке, но крупные квадраты; иконки в два столбца (1 — во весь ряд, 2 — в ряд, 3 — 2+1 и т.д.) */
+@media (min-width: 641px) {
+  /* Убираем оранжевое подчёркивание в полоске — не показывать ::before */
+  /* Черточка снизу и оранжевое свечение — как на странице еженедельного календаря (стили в WeekCalendar.css) */
+
+  /* Одинаковая высота ячеек — ряд дат выровнен по вертикали */
+  .dashboard-week-strip .week-day-cell {
+    min-height: 100px;
+  }
+
+  .dashboard-week-strip .week-day-date-square,
+  .dashboard-week-strip .week-day-icon-square {
+    max-width: 100%;
+  }
+
+  .dashboard-week-strip .week-day-icons-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    align-content: center;
+  }
+
+  /* Одна иконка — ровный квадрат на всю ширину */
+  .dashboard-week-strip .week-day-icons-grid .week-day-icon-square:only-child {
+    grid-column: 1 / -1;
+    aspect-ratio: 1;
+  }
+
+  /* Две иконки — тот же квадрат поделён на 2 одинаковых */
+  /* Две тренировки: 1-я — верхняя строка (ячейки 1+2), 2-я — нижняя (ячейки 3+4) */
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) {
+    aspect-ratio: 1 / 1;
+    grid-template-rows: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) .week-day-icon-square:nth-child(1) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) .week-day-icon-square:nth-child(2) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  /*
+   * Большой квадрат = 4 равные доли (2×2).
+   * 3 тренировки: доли 1 и 2 — первые две в ряд, доля 3+4 — третья во всю длину.
+   * 4 тренировки: все 4 доли поровну.
+   */
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)) {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    grid-template-rows: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  /* Три иконки: 1 и 2 — по одной доле (квадратики), 3 — на доли 3 и 4 (во всю длину) */
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(1),
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(2) {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)):not(:has(.week-day-icon-square:nth-child(4))) .week-day-icon-square:nth-child(3) {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  /* Четыре иконки — все 4 доли равные */
+  .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(4)) .week-day-icon-square {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .dashboard-week-strip .week-day-svg-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .dashboard-week-strip .week-day-number {
+    font-size: 20px;
+  }
+
+  .dashboard-week-strip .week-day-label {
+    font-size: 11px;
+  }
+}
+
+/* Календарь в ряду: карточка той же высоты (280px), блок даты и блок тренировки одинаковой высоты */
+@media (min-width: 641px) {
+  .dashboard-row-two .dashboard-module-card:has(.dashboard-week-strip) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .dashboard-row-two .dashboard-week-strip {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .dashboard-week-calendar-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-days-grid {
+    flex: 1;
+    min-height: 0;
+    gap: 5px;
+    margin-bottom: 8px;
+    align-items: flex-start; /* ячейки по высоте = только два квадрата, бордер без пустого места внизу */
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-cell {
+    min-height: 0;
+    padding: 5px 4px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  /* Квадрат даты того же размера, что и квадрат с тренировками */
+  .dashboard-row-two .dashboard-week-strip .week-day-date-square {
+    flex: 0 0 auto;
+    height: auto;
+    width: 100%;
+    aspect-ratio: 1;
+    margin-bottom: 4px;
+    border-radius: 8px;
+    padding: 4px 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Блок с иконками — всегда один и тот же квадрат (ширина = высота), не зависит от 1/2/3/4 тренировок */
+  .dashboard-row-two .dashboard-week-strip .week-day-icons-grid {
+    flex: 0 0 auto;
+    width: 100%;
+    aspect-ratio: 1;
+    gap: 3px;
+    min-height: 0; /* иначе grid не сжимается до aspect-ratio из-за min-height: auto у строк */
+    overflow: hidden;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(2)):not(:has(.week-day-icon-square:nth-child(3))) {
+    aspect-ratio: 1;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-icons-grid:has(.week-day-icon-square:nth-child(3)) {
+    aspect-ratio: 1;
+  }
+
+  /* Разрешаем сжатие grid-ячеек внутри квадрата (иначе 2/3/4 иконки растягивают сетку по высоте) */
+  .dashboard-row-two .dashboard-week-strip .week-day-icons-grid .week-day-icon-square {
+    min-height: 0;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-number {
+    font-size: 16px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-label {
+    font-size: 10px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-date-sep {
+    font-size: 10px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-svg-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-empty-dash {
+    font-size: 14px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-more-dots {
+    font-size: 16px;
+  }
+
+  .dashboard-row-two .dashboard-week-strip .week-day-cell:has(.week-day-icons-grid .week-day-icon-square:nth-child(3)) .week-day-svg-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-section:has(.dashboard-week-strip) {
+    margin-bottom: 24px;
+  }
+
+  .dashboard-week-strip .dashboard-week-calendar-wrap {
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+  }
+}
+
+/* Прогресс недели — контейнер (transition и hover — в общем блоке) */
+.dashboard-module-card--week-progress {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: var(--dashboard-card-padding);
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+}
+
+[data-theme="dark"] .dashboard-module-card--week-progress {
+  background: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+}
+
+/* Внутри контейнера прогресса недели — без своей карточки, один общий контейнер */
+.dashboard-module-card--week-progress .progress-card,
+.dashboard-module-card--week-progress .dashboard-top-card.dashboard-empty {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0;
+}
+
+[data-theme="dark"] .dashboard-module-card--week-progress .progress-card,
+[data-theme="dark"] .dashboard-module-card--week-progress .dashboard-top-card.dashboard-empty {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.dashboard-module-card--week-progress .dashboard-top-card {
+  min-height: 0;
+}
+
+/* Виджет статистики — контейнер (transition и hover — в общем блоке) */
+.dashboard-module-card:has(.dashboard-stats-widget) {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: var(--dashboard-card-padding);
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
 }
 
 .dashboard-stats-widget {
@@ -1055,13 +1581,13 @@ body.dashboard-customizer-dragging {
   border: none;
   border-radius: 0;
   box-shadow: none;
-  padding: 16px;
+  padding: 0;
   cursor: pointer;
 }
 
 .dashboard-stats-widget-loading {
   text-align: center;
-  padding: 24px;
+  padding: var(--dashboard-card-padding);
   color: var(--text-secondary);
 }
 
@@ -1089,10 +1615,13 @@ body.dashboard-customizer-dragging {
   color: var(--primary-500);
 }
 
+/* Активная кнопка периода — Liquid Glass, в тон блоку */
 .dashboard-time-range-btn.active {
-  background: var(--primary-500);
-  border-color: var(--primary-500);
-  color: white;
+  background: var(--glass-bg-strong);
+  border: var(--glass-border);
+  color: var(--primary-500);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
 }
 
 .dashboard-stats-metrics-grid {
@@ -1151,8 +1680,10 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-stat-metric-card__number {
+  font-family: var(--font-stats);
+  font-weight: 700;
+  font-style: italic;
   font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
   color: var(--gray-900);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -1176,9 +1707,10 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-time-range-btn.active {
-  background: var(--primary-500);
-  border-color: var(--primary-500);
-  color: white;
+  background: var(--glass-bg-strong);
+  border: var(--glass-border);
+  color: var(--primary-400);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 [data-theme="dark"] .dashboard-stat-metric-card {
@@ -1232,82 +1764,125 @@ body.dashboard-customizer-dragging {
   flex-direction: column;
 }
 
+/* Заголовок секции — в виде вкладки «файла» (скругление только сверху) */
 .section-title {
-  font-size: var(--text-xl);
-  font-weight: var(--font-bold);
-  color: var(--gray-900);
-  margin-bottom: 20px;
+  width: 40%;
+  min-width: 200px;
+  font-family: var(--font-stats), sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 24px 24px 0 0;
+  background: var(--primary-500);
+  color: #fff;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   gap: 10px;
   letter-spacing: -0.3px;
+  text-transform: uppercase;
 }
 
 [data-theme="dark"] .section-title {
-  color: var(--text-primary);
+  color: #fff;
+  background: var(--primary-500);
 }
 
-/* Единый стиль карточек верхней секции */
+/* В ряду с другим виджетом — плашка не уже 350px */
+.dashboard-section-inline .section-title {
+  min-width: 400px;
+}
+
+/* Карточка под вкладкой — без скругления сверху, поднимаем на 1px, z-index чтобы верх перекрывал край вкладки */
+.section-title + .dashboard-module-card {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-top: -1px;
+  position: relative;
+  z-index: 1;
+}
+.section-title + .dashboard-module-card.dashboard-module-card--workout,
+.section-title + .dashboard-module-card.dashboard-module-card--metrics,
+.section-title + .dashboard-module-card:has(.dashboard-metrics-grid) {
+  border-top-left-radius: 0 !important;
+}
+.section-title {
+  position: relative;
+  z-index: 0;
+}
+
+/* Прогресс недели — один блок на всю ширину карточки (и во всю строку, и в паре с виджетом) */
 .progress-card {
-  background: white;
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
 }
 
 [data-theme="dark"] .progress-card {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: transparent;
   color: var(--text-primary);
 }
 
-.progress-card-desc {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-  margin-bottom: 12px;
-  line-height: 1.4;
-  font-weight: var(--font-medium);
-}
-
-[data-theme="dark"] .progress-card-desc {
-  color: var(--text-secondary);
-}
-
-/* Строка «Выполнено» + число — чёткая вертикальная связка */
-.progress-stat {
+.progress-card-head {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
+  gap: 2px;
 }
 
-.progress-label {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-  font-weight: var(--font-medium);
-  line-height: 1.4;
-}
-
-[data-theme="dark"] .progress-label {
-  color: var(--text-secondary);
-}
-
+/* Число «X из Y» — акцент на выполненных */
 .progress-value {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-extrabold);
-  color: var(--gray-900);
+  margin: 0;
+  font-style: italic;
+  font-family: var(--font-stats), sans-serif;
+  font-weight: 700;
+  font-size: var(--text-5xl);
   line-height: 1.2;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
+  color: var(--gray-900);
 }
 
 [data-theme="dark"] .progress-value {
   color: var(--text-primary);
 }
 
-/* Строка: полоса прогресса + процент — в одну линию */
-.progress-bar-row {
+.progress-value-current {
+  color: var(--primary-500);
+}
+
+.progress-value-sep {
+  color: var(--gray-500);
+  font-weight: 600;
+}
+
+[data-theme="dark"] .progress-value-sep {
+  color: var(--text-secondary);
+}
+
+.progress-value-total {
+  color: var(--gray-700);
+}
+
+[data-theme="dark"] .progress-value-total {
+  color: var(--text-secondary);
+}
+
+.progress-subtitle {
+  margin: 0;
+  font-size: 1.75rem;
+  color: var(--gray-500);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+[data-theme="dark"] .progress-subtitle {
+  color: var(--text-secondary);
+}
+
+/* Полоса прогресса + процент в одну строку на всю ширину */
+.progress-bar-wrap {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1315,7 +1890,7 @@ body.dashboard-customizer-dragging {
 
 .progress-bar {
   flex: 1;
-  min-width: 0;
+  min-width: 80px;
   height: 10px;
   background: var(--gray-200);
   border-radius: 6px;
@@ -1324,7 +1899,7 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .progress-bar {
-  background: var(--bg-tertiary);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .progress-bar-fill {
@@ -1340,10 +1915,12 @@ body.dashboard-customizer-dragging {
 }
 
 .progress-percentage {
+  font-family: var(--font-stats);
+  font-weight: 700;
+  font-style: italic;
   flex-shrink: 0;
   font-size: var(--text-sm);
   color: var(--gray-700);
-  font-weight: var(--font-bold);
   letter-spacing: -0.3px;
   min-width: 4ch;
   text-align: right;
@@ -1359,39 +1936,126 @@ body.dashboard-customizer-dragging {
   gap: 12px;
 }
 
-/* Во всю строку — блоки по размеру контента */
+/* С прогрессом — 4 карточки в ряд */
+.dashboard-metrics-grid--with-progress {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Во всю строку: 1-я карточка на всю ширину, остальные на второй строке */
 .dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid {
-  grid-template-columns: repeat(3, auto);
-  width:100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  width: 100%;
   max-width: 100%;
 }
-
-/* В строке с кем-то: первые две пополам, третья во всю ширину следующей строки */
-.dashboard-row-two .dashboard-metrics-grid {
-  grid-template-columns: 1fr 1fr;
+.dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid .metric-card:nth-child(1) {
+  grid-column: 1 / -1;
 }
-
-.dashboard-row-two .dashboard-metrics-grid .metric-card:nth-child(3) {
+/* С прогрессом — 4 карточки: одна во всю ширину, три в ряд снизу */
+.dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid--with-progress {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid--with-progress .metric-card:nth-child(1) {
   grid-column: 1 / -1;
 }
 
-/* Контейнер быстрых метрик — фон и стиль карточки, контент по центру по высоте */
+/* В строке с другим виджетом: та же раскладка — 1 карточка во всю ширину, три в ряд снизу (компактные отступы и шрифты) */
+.dashboard-row-two .dashboard-metrics-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+}
+.dashboard-row-two .dashboard-metrics-grid .metric-card:nth-child(1) {
+  grid-column: 1 / -1;
+}
+.dashboard-row-two .dashboard-metrics-grid--with-progress {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.dashboard-row-two .dashboard-metrics-grid--with-progress .metric-card:nth-child(1) {
+  grid-column: 1 / -1;
+}
+
+/* Контейнер быстрых метрик (transition и hover — в общем блоке) */
 .dashboard-module-card:has(.dashboard-metrics-grid) {
-  background: white;
-  border: 1px solid var(--gray-200);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: var(--dashboard-card-padding);
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
   justify-content: center;
 }
 
-/* У быстрых метрик — небольшой паддинг по бокам в ряду с другим виджетом или при низком разрешении */
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) {
-  padding-left: 12px;
-  padding-right: 12px;
+  padding: 14px;
 }
 
+/* Компактные размеры быстрых метрик в ряду с другим виджетом */
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+  padding: 10px 12px;
+  gap: 6px;
+  border-radius: 12px;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+  font-size: var(--text-xs);
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__number,
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
+  font-size: var(--text-xl);
+}
+/* Карточка прогресса в ряду: разнести по сторонам (1fr 1fr), компактная высота */
+.dashboard-row-two .metric-card--progress {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  min-height: 72px;
+  padding: 14px 12px;
+}
+.dashboard-row-two .metric-card--progress .metric-card__value--progress {
+  display: contents;
+}
+.dashboard-row-two .metric-card--progress .progress-card-head {
+  grid-column: 1;
+  grid-row: 1;
+}
+.dashboard-row-two .metric-card--progress .progress-bar-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) {
+  min-height: 72px;
+  padding: 12px 10px;
+  justify-content: center;
+}
+.dashboard-row-two .metric-card--progress .progress-subtitle {
+  font-size: var(--text-xs);
+}
+.dashboard-row-two .metric-card--progress .progress-bar {
+  height: 8px;
+  border-radius: 4px;
+}
+.dashboard-row-two .metric-card--progress .progress-bar-fill {
+  border-radius: 4px;
+}
+.dashboard-row-two .metric-card--progress .progress-percentage {
+  font-size: var(--text-xs);
+  min-width: 3ch;
+}
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
 }
 
 /* У быстрых метрик — границы у каждой .metric-card как раньше (контейнер с фоном карточки) */
@@ -1424,15 +2088,93 @@ body.dashboard-customizer-dragging {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* Быстрые метрики: подпись сверху, значение снизу (как в блоке Статистика) */
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+/* Быстрые метрики: карточки Дистанция/Активность/Время — подпись в левом верхнем углу, значение в правом нижнем */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__label {
+  align-self: flex-start;
+  justify-content: flex-start;
+}
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__value {
+  align-self: flex-end;
+  justify-content: flex-end;
+  flex-direction: row;
+  gap: 4px;
+}
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__number,
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
+  font-size: var(--text-3xl);
+  font-style: italic;
+}
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card--progress {
   flex-direction: column;
   align-items: center;
   gap: 8px;
   text-align: center;
 }
+.dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid .metric-card:not(.metric-card--progress) {
+  min-height: 88px;
+  padding: 18px 16px;
+}
+
+/* Карточка «Прогресс недели» — значение с числом и полосой */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card--progress .metric-card__value--progress {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+}
+/* Длинный вид (во всю строку): разнести по сторонам — слева цифры, справа полоса и проценты; карточка выше */
+.dashboard-section:not(.dashboard-section-inline) .metric-card--progress {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: center;
+  text-align: left;
+  min-height: 88px;
+  padding: 20px var(--dashboard-card-padding);
+}
+.dashboard-section:not(.dashboard-section-inline) .metric-card--progress .metric-card__value--progress {
+  display: contents;
+}
+.dashboard-section:not(.dashboard-section-inline) .metric-card--progress .progress-card-head {
+  grid-column: 1;
+  grid-row: 1;
+}
+.dashboard-section:not(.dashboard-section-inline) .metric-card--progress .progress-bar-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: end;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .dashboard-section:not(.dashboard-section-inline) .metric-card--progress {
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+  }
+  .dashboard-section:not(.dashboard-section-inline) .metric-card--progress .metric-card__value--progress {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dashboard-section:not(.dashboard-section-inline) .metric-card--progress .progress-bar-wrap {
+    align-self: stretch;
+  }
+}
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+  text-transform: uppercase;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1443,9 +2185,10 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
-  font-size: 1rem;
-  line-height: 1;
+  width: 1rem;
+  height: 1rem;
   flex-shrink: 0;
+  color: var(--gray-600);
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__value {
@@ -1457,8 +2200,10 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number {
+  font-family: var(--font-stats);
+  font-weight: 700;
+  font-style: italic;
   font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
   color: var(--primary-500);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
@@ -1471,6 +2216,10 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
   color: var(--text-secondary);
 }
 
@@ -1574,7 +2323,7 @@ body.dashboard-customizer-dragging {
 .dashboard-top-card.dashboard-empty {
   background: white;
   border-radius: 20px;
-  padding: 24px;
+  padding: var(--dashboard-card-padding);
   text-align: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.04);
@@ -1627,6 +2376,7 @@ body.dashboard-customizer-dragging {
 
 /* WorkoutCard внутри верхней секции — компактный вид в едином стиле */
 .dashboard-top-card > .workout-card {
+  border-top-left-radius: 0;
   flex: 1;
   min-height: 0;
   margin-bottom: 0;
@@ -1707,22 +2457,20 @@ body.dashboard-customizer-dragging {
 /* Десктопная адаптация */
 @media (min-width: 1024px) {
   .dashboard {
-    padding-top: 88px; /* Отступ для TopHeader */
+    padding-top: var(--page-top-desktop);
   }
 }
 
 /* Мобильная адаптация (единый брейкпоинт 640px) */
 @media (max-width: 640px) {
   .dashboard {
-    padding: 16px;
-    padding-bottom: 100px;
+    padding: var(--page-padding-mobile);
+    padding-bottom: var(--mobile-content-padding-bottom);
   }
 
   [data-theme="dark"] .dashboard {
-    padding-left: 16px;
-    padding-right: 16px;
-    padding-top: 16px;
-    padding-bottom: 100px;
+    padding-left: var(--page-padding-mobile);
+    padding-right: var(--page-padding-mobile);
   }
 
   .dashboard-header-row {
@@ -1739,9 +2487,8 @@ body.dashboard-customizer-dragging {
     padding: 10px 16px;
   }
 
-  /* Быстрые метрики: контейнер — padding 12px со всех сторон */
   .dashboard-module-card:has(.dashboard-metrics-grid) {
-    padding: 12px;
+    padding: var(--dashboard-card-padding);
   }
 
   /* Быстрые метрики: первый ряд — 2 карточки, вторая строка — третья на всю ширину */
@@ -1759,6 +2506,12 @@ body.dashboard-customizer-dragging {
   .dashboard-metrics-grid .metric-card:nth-child(3) {
     grid-column: 1 / -1;
   }
+  .dashboard-metrics-grid--with-progress .metric-card:nth-child(3) {
+    grid-column: auto;
+  }
+  .dashboard-metrics-grid--with-progress {
+    grid-template-columns: 1fr 1fr;
+  }
 
   /* Карточки растягиваются: первая строка — по половине каждая, третья — на всю ширину */
   .dashboard-metrics-grid .metric-card {
@@ -1768,12 +2521,9 @@ body.dashboard-customizer-dragging {
     padding: 10px 12px;
   }
 
-  .dashboard-metrics-grid .metric-card__number {
+  .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__number,
+  .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
     font-size: var(--text-xl);
-  }
-
-  .dashboard-metrics-grid .metric-card__unit {
-    font-size: var(--text-xs);
   }
 
   .metric-card {

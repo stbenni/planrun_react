@@ -25,28 +25,28 @@
 }
 
 .day.easy {
-  background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%);
+  background: linear-gradient(135deg, var(--info-100) 0%, var(--info-50) 100%);
   border-color: var(--info-500);
 }
 
 .day.long-run {
-  background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%);
+  background: linear-gradient(135deg, var(--success-100) 0%, var(--success-50) 100%);
   border-color: var(--success-600);
 }
 
 .day.tempo {
-  background: linear-gradient(135deg, #DBEAFE 0%, #93C5FD 100%);
+  background: linear-gradient(135deg, var(--info-100) 0%, var(--info-50) 100%);
   border-color: var(--info-600);
 }
 
 .day.interval {
-  background: linear-gradient(135deg, #FED7AA 0%, #FDBA74 100%);
+  background: linear-gradient(135deg, var(--warning-100) 0%, var(--primary-200) 100%);
   border-color: var(--warning-600);
 }
 
 .day.key-session {
-  background: linear-gradient(135deg, #E9D5FF 0%, #C4B5FD 100%);
-  border-color: #8B5CF6;
+  background: linear-gradient(135deg, var(--primary-100) 0%, var(--primary-50) 100%);
+  border-color: var(--primary-500);
   border-width: 2px;
 }
 
@@ -56,7 +56,7 @@
 }
 
 .day.free-training {
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  background: linear-gradient(135deg, var(--warning-100) 0%, var(--warning-50) 100%);
   border-color: var(--primary-500);
 }
 
@@ -65,15 +65,15 @@
 }
 
 .date-cell {
-  font-size: 12px;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
 }
 
 .training-content {
   font-size: 10px;
-  color: #1f2937;
+  color: var(--text-primary);
   line-height: 14px;
   overflow: hidden;
   text-overflow: ellipsis;

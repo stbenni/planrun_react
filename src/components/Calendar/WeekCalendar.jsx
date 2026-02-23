@@ -7,9 +7,23 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import WorkoutCard from './WorkoutCard';
+import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
 import './WeekCalendar.css';
 
 const EMPTY_DAYS = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+
+/** API может вернуть day как массив { type, text, id } или один объект. Возвращаем массив активностей дня. */
+function normalizeDayActivities(rawDayData) {
+  if (!rawDayData) return [];
+  const list = Array.isArray(rawDayData) ? rawDayData : [rawDayData];
+  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({ type: d.type }));
+}
+
+/** Первый не-rest тип дня (для класса ячейки). */
+function firstNonRestType(activities) {
+  const a = activities.find((d) => d.type !== 'rest' && d.type !== 'free');
+  return a ? a.type : null;
+}
 
 /** Добавить дни к дате YYYY-MM-DD, вернуть новую YYYY-MM-DD */
 function addDays(dateStr, delta) {
@@ -33,6 +47,15 @@ function getMondayOfToday() {
   const m = String(monday.getMonth() + 1).padStart(2, '0');
   const d = String(monday.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** Понедельник недели для произвольной даты YYYY-MM-DD */
+function getMondayForDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setHours(0, 0, 0, 0);
+  const dayOfWeek = d.getDay();
+  const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  return addDays(dateStr, diff);
 }
 
 /** Неделя для отображения: понедельник + пустая сетка дней (календарь не привязан к плану) */
@@ -59,7 +82,21 @@ function getVirtualCurrentWeek() {
   return getVirtualWeekForStartDate(getMondayOfToday());
 }
 
-const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber }) => {
+const MOBILE_BREAKPOINT = '(max-width: 640px)';
+
+const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
+  const [isMobile, setIsMobile] = useState(
+    () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const m = window.matchMedia(MOBILE_BREAKPOINT);
+    const fn = () => setIsMobile(m.matches);
+    m.addEventListener('change', fn);
+    fn();
+    return () => m.removeEventListener('change', fn);
+  }, []);
+
   const [currentWeek, setCurrentWeek] = useState(getVirtualCurrentWeek);
   const [selectedDate, setSelectedDate] = useState(() => {
     const t = new Date();
@@ -79,66 +116,56 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
       t.setHours(0, 0, 0, 0);
       return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
     })();
-    const mondayStr = getMondayOfToday();
+    const useDate = initialDate || todayStr;
+    const mondayStr = useDate === todayStr ? getMondayOfToday() : getMondayForDate(useDate);
     const week = getWeekForStartDate(plan, mondayStr);
     setCurrentWeek(week);
-    setSelectedDate(todayStr);
-  }, [plan]);
+    setSelectedDate(useDate);
+  }, [plan, initialDate]);
 
   const getWeekDays = (week) => {
     if (!week || !week.start_date) return [];
-    
     const days = [];
-    // ВАЖНО: парсим дату правильно, чтобы избежать проблем с часовыми поясами
-    const startDate = new Date(week.start_date + 'T00:00:00');
+    const [sy, sm, sd] = week.start_date.split('-').map(Number);
+    const startDate = new Date(sy, sm - 1, sd);
     startDate.setHours(0, 0, 0, 0);
-    
-    // ВАЖНО: start_date в БД ВСЕГДА понедельник недели (см. api.php:1507-1510)
-    // Поэтому мы можем просто использовать индекс i для определения dayKey
     const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     for (let i = 0; i < 7; i++) {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + i);
-      // Используем UTC для правильного форматирования даты
+      const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+      date.setHours(0, 0, 0, 0);
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
-      
-      // i=0 → понедельник → 'mon'
-      // i=1 → вторник → 'tue'
-      // и т.д.
       const dayKey = dayKeys[i];
       const rawDay = week.days && week.days[dayKey];
-      const dayData = Array.isArray(rawDay)
-        ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || null
-        : rawDay && rawDay.type !== 'rest' && rawDay.type !== 'free'
-          ? rawDay
-          : null;
-      
-      const isToday = (() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return date.getTime() === today.getTime();
-      })();
-      
+      const dayActivities = normalizeDayActivities(rawDay);
+      const cellType = firstNonRestType(dayActivities);
+      const dayData = dayActivities.length
+        ? (Array.isArray(rawDay) ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || rawDay[0] : rawDay)
+        : null;
+      const isToday = date.getTime() === today.getTime();
       const isCompleted = progressData[dateStr] || false;
-      const status = isCompleted ? 'completed' : (dayData ? 'planned' : 'rest');
-      
+      const hasPlanned = dayActivities.some((a) => a.type !== 'rest' && a.type !== 'free');
+      const status = isCompleted ? 'completed' : (hasPlanned ? 'planned' : 'rest');
+
       days.push({
         date: dateStr,
         dateObj: date,
         dayKey,
         dayLabel: dayLabels[i],
         dayData,
+        dayActivities,
+        cellType,
         isToday,
         status,
         weekNumber: week.number
       });
     }
-    
     return days;
   };
 
@@ -314,52 +341,61 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
       </div>
 
       <div className="week-days-grid">
-        {weekDays.map((day, index) => (
+        {weekDays.map((day) => (
           <div
             key={day.date}
-            className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${selectedDate === day.date ? 'selected active' : ''}`}
-            onClick={() => {
-              setSelectedDate(day.date);
-            }}
+            className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${selectedDate === day.date ? 'selected active' : ''} ${day.cellType ? `type-${day.cellType}` : ''}`}
+            onClick={() => setSelectedDate(day.date)}
           >
-            <div className="week-day-header">
-              <div className="week-day-label">{day.dayLabel}</div>
-              <div className={`week-day-number ${day.isToday ? 'today-number' : ''}`}>
+            <div className="week-day-date-square">
+              <span className={`week-day-number ${day.isToday ? 'today-number' : ''}`}>
                 {day.dateObj.getDate()}
-              </div>
+              </span>
+              <span className="week-day-date-sep">/</span>
+              <span className="week-day-label">{day.dayLabel}</span>
             </div>
-            
-            {day.dayData && day.dayData.type !== 'rest' && day.dayData.type !== 'free' && (
-              <div className="week-day-workout">
-                <div className="workout-type-icon">
-                  {day.status === 'completed' ? '✅' : 
-                   day.dayData.type === 'other' ? '💪' :
-                   day.dayData.type === 'sbu' ? '🏋️' :
-                   '🏃'}
+
+            <div className="week-day-icons-grid">
+              {day.status === 'completed' && (
+                <div className="week-day-icon-square">
+                  <CompletedIcon className="week-day-svg-icon week-day-svg-icon--completed" aria-hidden />
                 </div>
-                <div className="workout-type-text">
-                  {day.dayData.type === 'long' || day.dayData.type === 'long-run' ? 'Длительный' :
-                   day.dayData.type === 'interval' ? 'Интервалы' :
-                   day.dayData.type === 'tempo' ? 'Темп' :
-                   day.dayData.type === 'easy' ? 'Легкий' :
-                   day.dayData.type === 'other' ? 'ОФП' :
-                   day.dayData.type === 'sbu' ? 'СБУ' :
-                   day.dayData.type === 'fartlek' ? 'Фартлек' :
-                   day.dayData.type === 'race' ? 'Соревнование' :
-                   day.dayData.text || 'Тренировка'}
+              )}
+              {day.status !== 'completed' && day.dayActivities.length === 0 && (
+                <div className="week-day-icon-square">
+                  <span className="week-day-empty-dash">—</span>
                 </div>
-              </div>
-            )}
-            
-            {day.dayData && day.dayData.type === 'rest' && (
-              <div className="week-day-rest">
-                <span className="rest-text">Отдых</span>
-              </div>
-            )}
-            
-            {(!day.dayData || day.dayData.type === 'free') && (
-              <div className="week-day-empty">—</div>
-            )}
+              )}
+              {day.status !== 'completed' && day.dayActivities.length > 0 && (() => {
+                const activities = day.dayActivities;
+                const mobileShowTwo = isMobile && activities.length > 2;
+                const hasMore = isMobile ? activities.length > 2 : activities.length > 4;
+                const show = isMobile
+                  ? (mobileShowTwo ? [activities[0], { type: '_more' }] : activities.slice(0, 2))
+                  : (hasMore ? activities.slice(0, 3) : activities);
+                return (
+                  <>
+                    {show.map((activity, idx) => (
+                      <div key={idx} className={`week-day-icon-square${activity.type === '_more' ? ' week-day-icon-square--more' : ''}${activity.type !== '_more' && activity.type ? ` week-day-icon-square--${activity.type}` : ''}`} aria-label={activity.type === '_more' ? `Ещё ${activities.length - 1} тренировок` : undefined}>
+                        {activity.type === '_more' && <span className="week-day-more-dots">…</span>}
+                        {activity.type !== '_more' && activity.type === 'rest' && <span className="week-day-empty-dash">—</span>}
+                        {activity.type !== '_more' && activity.type === 'free' && <span className="week-day-empty-dash">—</span>}
+                        {activity.type !== '_more' && activity.type === 'other' && <OFPIcon className="week-day-svg-icon" aria-hidden />}
+                        {activity.type !== '_more' && activity.type === 'sbu' && <SbuIcon className="week-day-svg-icon" aria-hidden />}
+                        {activity.type !== '_more' && activity.type !== 'rest' && activity.type !== 'free' && activity.type !== 'other' && activity.type !== 'sbu' && (
+                          <RunIcon className="week-day-svg-icon" aria-hidden />
+                        )}
+                      </div>
+                    ))}
+                    {!isMobile && hasMore && (
+                      <div className="week-day-icon-square week-day-icon-square--more" aria-label={`Ещё ${day.dayActivities.length - 3} тренировок`}>
+                        <span className="week-day-more-dots">…</span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         ))}
       </div>

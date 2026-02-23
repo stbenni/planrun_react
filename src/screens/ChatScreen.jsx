@@ -51,7 +51,7 @@ const ChatScreen = () => {
   const [messages, setMessages] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [streamPhase, setStreamPhase] = useState(null);
   const [error, setError] = useState(null);
@@ -81,19 +81,30 @@ const ChatScreen = () => {
   };
 
   const loadMessages = useCallback(async () => {
-    if (!api || selectedChat === TAB_ADMIN_MODE) return;
+    if (!api || selectedChat === TAB_ADMIN_MODE) {
+      setLoading(false);
+      return;
+    }
     const loadingFor = selectedChat;
+    const LOAD_TIMEOUT_MS = 15000;
+    let timeoutId = null;
     try {
       setLoading(true);
       setError(null);
-      const data = await api.chatGetMessages(loadingFor, 50, 0);
+      const dataPromise = api.chatGetMessages(loadingFor, 50, 0);
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error('timeout')), LOAD_TIMEOUT_MS);
+      });
+      const data = await Promise.race([dataPromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
       if (loadingFor !== tabRef.current) return;
       const list = Array.isArray(data?.messages) ? data.messages : [];
       setMessages([...list].reverse());
       if (data?.conversation_id) setConversationId(data.conversation_id);
     } catch (e) {
+      if (timeoutId) clearTimeout(timeoutId);
       if (loadingFor !== tabRef.current) return;
-      setError(e.message || 'Ошибка загрузки сообщений');
+      setError(e?.message === 'timeout' ? 'Загрузка сообщений заняла слишком много времени. Проверьте интернет.' : (e?.message || 'Ошибка загрузки сообщений'));
       setMessages([]);
     } finally {
       if (loadingFor === tabRef.current) setLoading(false);

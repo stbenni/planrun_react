@@ -60,10 +60,7 @@ body:not([data-theme])[data-theme="dark"],
   background: var(--bg-primary);
 }
 
-[data-theme="dark"] .bottom-nav {
-  background: var(--card-bg);
-  border-top-color: var(--card-border);
-}
+/* .bottom-nav в тёмной теме использует Liquid Glass (--glass-bg) из sports-colors.css, не переопределяем */
 
 [data-theme="dark"] .modal-modern-content {
   background: var(--card-bg);

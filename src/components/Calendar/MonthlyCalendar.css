@@ -4,7 +4,7 @@
 
 .monthly-calendar {
   width: 100%;
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 20px;
 }

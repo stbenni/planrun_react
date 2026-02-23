@@ -62,7 +62,8 @@ const TopHeader = () => {
   const navItems = [
     { id: 'home', path: '/', icon: '🏠', label: 'Главная' },
     { id: 'calendar', path: '/calendar', icon: '📅', label: 'Календарь' },
-    { id: 'stats', path: '/stats', icon: '📊', label: 'Статистика' }
+    { id: 'stats', path: '/stats', icon: '📊', label: 'Статистика' },
+    { id: 'trainers', path: '/trainers', icon: '👟', label: 'Тренеры' }
   ];
 
   const isActive = (path) => {
@@ -122,8 +123,7 @@ const TopHeader = () => {
       <header className={`top-header ${isMobile ? 'top-header-mobile' : ''}`}>
       <div className="top-header-container">
         <div className="top-header-logo" onClick={() => navigate('/')}>
-          <span className="logo-icon">🏃</span>
-          <span className="logo-text">PlanRun</span>
+          <span className="logo-text">planRUN</span>
         </div>
 
         <nav className="top-header-nav">
@@ -140,10 +140,8 @@ const TopHeader = () => {
           ))}
         </nav>
 
-        {!isMobile && (
+        {user && (
         <div className="top-header-actions">
-          {user && (
-            <>
             {needsOnboarding && (
               <button type="button" className="top-header-onboarding-btn" onClick={() => setShowOnboardingModal(true)}>
                 Настроить план
@@ -205,8 +203,6 @@ const TopHeader = () => {
                 </div>
               )}
             </div>
-            </>
-          )}
         </div>
         )}
       </div>
@@ -222,8 +218,7 @@ const TopHeader = () => {
           <aside className={`app-drawer ${drawerOpen ? 'app-drawer-open' : ''}`} role="dialog" aria-label="Меню">
             <div className="app-drawer-inner">
               <div className="app-drawer-header">
-                <span className="logo-icon">🏃</span>
-                <span className="logo-text">PlanRun</span>
+                <span className="logo-text">planRUN</span>
                 <button type="button" className="app-drawer-close" onClick={closeDrawer} aria-label="Закрыть меню">
                   ✕
                 </button>

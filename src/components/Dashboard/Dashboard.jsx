@@ -20,12 +20,12 @@ import useAuthStore from '../../stores/useAuthStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
+import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
 import './Dashboard.css';
 
-const DASHBOARD_MODULE_IDS = ['today_workout', 'week_progress', 'quick_metrics', 'next_workout', 'calendar', 'stats'];
+const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'calendar', 'stats'];
 const DASHBOARD_MODULE_LABELS = {
   today_workout: 'Сегодняшняя тренировка',
-  week_progress: 'Прогресс недели',
   quick_metrics: 'Быстрые метрики',
   next_workout: 'Следующая тренировка',
   calendar: 'Календарь',
@@ -63,7 +63,7 @@ function getStoredLayout() {
   }
 }
 
-const PAIRABLE_MODULE_IDS = new Set(['today_workout', 'next_workout', 'week_progress', 'stats']);
+const PAIRABLE_MODULE_IDS = new Set(['today_workout', 'next_workout', 'stats']);
 
 /** API возвращает week.days[dayKey] как массив { type, text, id } или один объект. Нормализуем в массив. */
 function getDayItems(dayData) {
@@ -895,9 +895,9 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
             type="button"
             className="dashboard-customize-btn"
             onClick={() => setCustomizerOpen(true)}
-            aria-label="Настроить блоки дашборда"
+            aria-label="Настроить виджеты дашборда"
           >
-            ⚙️ Настроить
+            Виджеты
           </button>
         </div>
       </div>
@@ -931,8 +931,8 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                       className="dashboard-workout-card-wrapper"
                       role="button"
                       tabIndex={0}
-                      onClick={() => setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today'))}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); } }}
+                      onClick={() => handleWorkoutPress(todayWorkout)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorkoutPress(todayWorkout); } }}
                     >
                       <div className="dashboard-top-card">
                         <WorkoutCard
@@ -940,27 +940,46 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                           date={todayWorkout.date}
                           status={progressDataMap[todayWorkout.date] ? 'completed' : 'planned'}
                           isToday={true}
-                          compact={expandedWorkoutCard !== 'today'}
-                          planDays={todayWorkout.planDays || []}
+                          compact={row.type === 'double' ? (expandedWorkoutCard !== 'today') : false}
+                          planDays={row.type === 'single' ? (todayWorkout.planDays || []) : (expandedWorkoutCard === 'today' ? (todayWorkout.planDays || []) : ((todayWorkout.planDays?.length > 1) ? (todayWorkout.planDays.slice(0, 1)) : (todayWorkout.planDays || [])))}
+                          maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'today' ? 3 : null}
+                          extraActions={
+                            <>
+                              {!progressDataMap[todayWorkout.date] && (row.type === 'single' || expandedWorkoutCard !== 'today') && (
+                                <button
+                                  type="button"
+                                  className="btn btn-primary dashboard-workout-mark-done dashboard-workout-open-calendar"
+                                  onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
+                                >
+                                  Отметить выполнение
+                                </button>
+                              )}
+                              {((row.type === 'single' && progressDataMap[todayWorkout.date]) || (row.type === 'double' && expandedWorkoutCard === 'today')) && (
+                                <button
+                                  type="button"
+                                  className="btn btn-primary dashboard-workout-open-calendar"
+                                  onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
+                                >
+                                  {progressDataMap[todayWorkout.date] ? 'Открыть в календаре' : 'Отметить выполнение'}
+                                </button>
+                              )}
+                              {row.type === 'double' && (todayWorkout.planDays?.length > 1 || expandedWorkoutCard === 'today') && (
+                                <button
+                                  type="button"
+                                  className="dashboard-workout-expand-arrow"
+                                  onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); }}
+                                  aria-label={expandedWorkoutCard === 'today' ? 'Свернуть' : 'Развернуть'}
+                                >
+                                  <span className="dashboard-workout-expand-arrow-icon">▼</span>
+                                  {(todayWorkout.planDays?.length > 1) && expandedWorkoutCard !== 'today' && (
+                                    <span className="dashboard-workout-expand-hint">Ещё {todayWorkout.planDays.length - 1}</span>
+                                  )}
+                                </button>
+                              )}
+                            </>
+                          }
                         />
                       </div>
-                      <button
-                        type="button"
-                        className="dashboard-workout-expand-arrow"
-                        onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); }}
-                        aria-label={expandedWorkoutCard === 'today' ? 'Свернуть' : 'Развернуть'}
-                      >
-                        <span className="dashboard-workout-expand-arrow-icon">▼</span>
-                      </button>
-                      {expandedWorkoutCard === 'today' && (
-                        <button
-                          type="button"
-                          className="btn btn-primary dashboard-workout-open-calendar"
-                          onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
-                        >
-                          Открыть в календаре
-                        </button>
-                      )}
                     </div>
                   ) : (
                     <div className="dashboard-top-card dashboard-empty">
@@ -973,55 +992,35 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
               </div>
             );
           }
-          if (moduleId === 'week_progress') {
-            return (
-              <div key="week_progress" className={sectionClass}>
-                <h2 className="section-title">📊 Прогресс недели</h2>
-                <div className="dashboard-module-card">
-                {!hasAnyPlannedWorkout ? (
-                  <div className="dashboard-top-card dashboard-empty">
-                    <div className="empty-icon">📊</div>
-                    <div className="empty-text">Кажется, у вас нет ни одной тренировки</div>
-                    <div className="empty-subtext">Перейдите в календарь и запланируйте тренировку</div>
-                    {onNavigate && (
-                      <button
-                        type="button"
-                        className="btn btn-primary dashboard-empty-btn"
-                        style={{ marginTop: '12px' }}
-                        onClick={() => onNavigate('calendar')}
-                      >
-                        Открыть календарь
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="dashboard-top-card progress-card">
-                    <p className="progress-card-desc">Тренировок выполнено из плана на неделю</p>
-                    <div className="progress-stat">
-                      <span className="progress-label">Выполнено</span>
-                      <span className="progress-value">{weekProgress.completed} из {weekProgress.total}</span>
-                    </div>
-                    <div className="progress-bar-row">
-                      <div className="progress-bar" role="progressbar" aria-valuenow={progressPercentage} aria-valuemin={0} aria-valuemax={100} title={`${progressPercentage}%`}>
-                        <div className="progress-bar-fill" style={{ width: `${progressPercentage}%` }} />
-                      </div>
-                      <span className="progress-percentage">{progressPercentage}% плана</span>
-                    </div>
-                  </div>
-                )}
-                </div>
-              </div>
-            );
-          }
           if (moduleId === 'quick_metrics') {
             return (
               <div key="quick_metrics" className={sectionClass}>
                 <h2 className="section-title">⚡ Быстрые метрики</h2>
-                <div className="dashboard-module-card">
-                <div className="dashboard-metrics-grid">
+                <div className="dashboard-module-card dashboard-module-card--metrics">
+                <div className={`dashboard-metrics-grid ${hasAnyPlannedWorkout ? 'dashboard-metrics-grid--with-progress' : ''}`}>
+                {hasAnyPlannedWorkout ? (
+                  <div className="metric-card metric-card--progress">
+                    <div className="metric-card__value metric-card__value--progress">
+                      <div className="progress-card-head">
+                        <p className="progress-value" aria-label={`Выполнено ${weekProgress.completed} из ${weekProgress.total} тренировок`}>
+                          <span className="progress-value-current">{weekProgress.completed}</span>
+                          <span className="progress-value-sep"> из </span>
+                          <span className="progress-value-total">{weekProgress.total}</span>
+                        </p>
+                        <p className="progress-subtitle">тренировок за неделю</p>
+                      </div>
+                      <div className="progress-bar-wrap">
+                        <div className="progress-bar" role="progressbar" aria-valuenow={progressPercentage} aria-valuemin={0} aria-valuemax={100} title={`${progressPercentage}%`}>
+                          <div className="progress-bar-fill" style={{ width: `${progressPercentage}%` }} />
+                        </div>
+                        <span className="progress-percentage">{progressPercentage}%</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                   <div className="metric-card">
                     <div className="metric-card__label">
-                      <span className="metric-card__icon" aria-hidden>🏃</span>
+                      <MetricDistanceIcon className="metric-card__icon" />
                       <span>Дистанция</span>
                     </div>
                     <div className="metric-card__value">
@@ -1031,7 +1030,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                   </div>
                   <div className="metric-card">
                     <div className="metric-card__label">
-                      <span className="metric-card__icon" aria-hidden>📅</span>
+                      <MetricActivityIcon className="metric-card__icon" />
                       <span>Активность</span>
                     </div>
                     <div className="metric-card__value">
@@ -1041,7 +1040,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                   </div>
                   <div className="metric-card">
                     <div className="metric-card__label">
-                      <span className="metric-card__icon" aria-hidden>⏱️</span>
+                      <MetricTimeIcon className="metric-card__icon" />
                       <span>Время</span>
                     </div>
                     <div className="metric-card__value">
@@ -1064,35 +1063,45 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
                     className="dashboard-workout-card-wrapper"
                     role="button"
                     tabIndex={0}
-                    onClick={() => setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next'))}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next')); } }}
+                    onClick={() => handleWorkoutPress(nextWorkout)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorkoutPress(nextWorkout); } }}
                   >
                     <div className="dashboard-top-card">
                       <WorkoutCard
                         workout={nextWorkout}
                         date={nextWorkout.date}
                         status="planned"
-                        compact={expandedWorkoutCard !== 'next'}
-                        planDays={nextWorkout.planDays || []}
+                        compact={row.type === 'double' ? (expandedWorkoutCard !== 'next') : false}
+                        planDays={row.type === 'single' ? (nextWorkout.planDays || []) : (expandedWorkoutCard === 'next' ? (nextWorkout.planDays || []) : ((nextWorkout.planDays?.length > 1) ? (nextWorkout.planDays.slice(0, 1)) : (nextWorkout.planDays || [])))}
+                        maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'next' ? 3 : null}
+                        extraActions={
+                          <>
+                            {(row.type === 'single' || expandedWorkoutCard !== 'next') && (
+                              <button
+                                type="button"
+                                className="btn btn-primary dashboard-workout-mark-done dashboard-workout-open-calendar"
+                                onClick={(e) => { e.stopPropagation(); handleWorkoutPress(nextWorkout); }}
+                              >
+                                Открыть в календаре
+                              </button>
+                            )}
+                            {row.type === 'double' && (nextWorkout.planDays?.length > 1 || expandedWorkoutCard === 'next') && (
+                              <button
+                                type="button"
+                                className="dashboard-workout-expand-arrow"
+                                onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next')); }}
+                                aria-label={expandedWorkoutCard === 'next' ? 'Свернуть' : 'Развернуть'}
+                              >
+                                <span className="dashboard-workout-expand-arrow-icon">▼</span>
+                                {(nextWorkout.planDays?.length > 1) && expandedWorkoutCard !== 'next' && (
+                                  <span className="dashboard-workout-expand-hint">Ещё {nextWorkout.planDays.length - 1}</span>
+                                )}
+                              </button>
+                            )}
+                          </>
+                        }
                       />
                     </div>
-                    <button
-                      type="button"
-                      className="dashboard-workout-expand-arrow"
-                      onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'next' ? null : 'next')); }}
-                      aria-label={expandedWorkoutCard === 'next' ? 'Свернуть' : 'Развернуть'}
-                    >
-                      <span className="dashboard-workout-expand-arrow-icon">▼</span>
-                    </button>
-                    {expandedWorkoutCard === 'next' && (
-                      <button
-                        type="button"
-                        className="btn btn-primary dashboard-workout-open-calendar"
-                        onClick={(e) => { e.stopPropagation(); handleWorkoutPress(nextWorkout); }}
-                      >
-                        Открыть в календаре
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <div className="dashboard-top-card dashboard-empty">

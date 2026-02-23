@@ -97,6 +97,11 @@
   --gradient-energy: linear-gradient(135deg, #FC4C02 0%, #EAB308 50%, #22C55E 100%);
   
   /* ========================================
+     TYPOGRAPHY - Шрифт для цифр и статистики (спортивный, чёткий)
+     ======================================== */
+  --font-stats: 'Jost', sans-serif;
+  
+  /* ========================================
      SPORTS SPECIFIC COLORS
      ======================================== */
   /* Типы тренировок */
@@ -105,6 +110,11 @@
   --workout-interval: #EF4444;   /* Интервалы - красный */
   --workout-long: #3B82F6;      /* Длительный - синий */
   --workout-rest: #A3A3A3;      /* Отдых - серый */
+
+  /* Полоски типа тренировки (::before на блоке) — бег / СБУ / ОФП */
+  --workout-strip-run: var(--primary-500);   /* Бег — оранжевый */
+  --workout-strip-sbu: #7C3AED;              /* СБУ — фиолетовый (violet-600) */
+  --workout-strip-ofp: var(--accent-500);   /* ОФП — красный */
   
   /* Статусы */
   --status-completed: #22C55E;
@@ -175,8 +185,30 @@
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 
+  /* Страницы приложения: единый контейнер (ширина и отступы совпадают у хедера и контента). Классическая ширина 1440px. */
+  --page-max-width: 1440px;
+  --page-padding-x: var(--space-5);   /* горизонтальный отступ контейнера — один для хедера и контента */
+  --page-padding: var(--space-6) var(--page-padding-x);
+  --page-padding-mobile: var(--space-4);
+  --page-padding-bottom: 100px;
+  --page-top-desktop: 88px;
+
   /* Высота нижней навигации (мобильные) — 100vh минус это значение для чата */
-  --bottom-nav-height: 72px;
+  --bottom-nav-height: 78px;
+  /* Парящий навбар: отступ от краёв экрана (Liquid Glass) */
+  --bottom-nav-floating-gap: 12px;
+  /* Отступ контента снизу: ровно чтобы последний блок не уходил под парящий навбар (без лишнего зазора) */
+  --mobile-content-padding-bottom: calc(var(--bottom-nav-floating-gap) + var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+
+  /* ========================================
+     LIQUID GLASS (мобильный UI, Apple-style)
+     ======================================== */
+  --glass-bg: rgba(255, 255, 255, 0.22);
+  --glass-bg-strong: rgba(255, 255, 255, 0.35);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.45);
+  --glass-blur: 20px;
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
 }
 
 /* ========================================
@@ -239,12 +271,24 @@
   --danger-500: #FF5252;
   --danger-600: #EF4444;
 
+  /* Полоски типа тренировки — чуть ярче на тёмном фоне */
+  --workout-strip-run: var(--primary-500);
+  --workout-strip-sbu: #8B5CF6;
+  --workout-strip-ofp: var(--accent-500);
+
   /* Shadows для темной темы - более мягкие */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+
+  /* Liquid Glass — тёмная тема */
+  --glass-bg: rgba(28, 28, 28, 0.72);
+  --glass-bg-strong: rgba(38, 38, 38, 0.85);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 }
 
 /* Автоматическое определение системной темы */
@@ -287,5 +331,16 @@
     --danger-50: rgba(239, 68, 68, 0.15);
     --danger-500: #FF5252;
     --danger-600: #EF4444;
+    --glass-bg: rgba(28, 28, 28, 0.72);
+    --glass-bg-strong: rgba(38, 38, 38, 0.85);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+    --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   }
+}
+
+/* В приложении: высота навбара с учётом подписей под иконками */
+html.native-app {
+  --bottom-nav-height: 78px;
+  --bottom-nav-floating-gap: 8px;
 }

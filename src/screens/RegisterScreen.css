@@ -16,7 +16,7 @@
   background: var(--card-bg);
   border-radius: var(--radius-xl);
   padding: var(--space-10);
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   width: 100%;
   box-shadow: var(--shadow-xl);
 }

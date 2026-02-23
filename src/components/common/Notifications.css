@@ -12,6 +12,11 @@
   gap: 12px;
   max-width: 360px;
   animation: slideInRight 300ms ease-out;
+  pointer-events: none;
+}
+
+.notifications-container > * {
+  pointer-events: auto;
 }
 
 .notification-card {
@@ -27,7 +32,7 @@
 }
 
 .notification-card--chat {
-  border-left-color: #3b82f6;
+  border-left-color: var(--info-500);
 }
 
 .notification-icon {
@@ -139,13 +144,15 @@
   }
 }
 
-/* Мобильная адаптация */
+/* Мобильная: ниже статус-бара и шапки (header + safe-area), выше нижней нав-панели */
 @media (max-width: 640px) {
   .notifications-container {
-    top: 16px;
-    right: 16px;
-    left: 16px;
+    top: calc(64px + env(safe-area-inset-top, 0px) + 12px);
+    right: max(16px, env(safe-area-inset-right, 0px));
+    left: max(16px, env(safe-area-inset-left, 0px));
     max-width: none;
+    max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 88px - 24px);
+    overflow-y: auto;
   }
 
   .notification-card {

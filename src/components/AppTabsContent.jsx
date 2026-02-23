@@ -9,6 +9,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import StatsScreen from '../screens/StatsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import TrainersScreen from '../screens/TrainersScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import useAuthStore from '../stores/useAuthStore';
 
@@ -34,8 +35,11 @@ const AppTabsContent = ({ onLogout }) => {
       <div className={`app-tab-pane ${isActive('/stats') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/stats')}>
         <StatsScreen />
       </div>
-      <div className={`app-tab-pane ${isActive('/chat') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/chat')}>
+      <div className={`app-tab-pane ${isActive('/chat') ? 'app-tab-pane--active app-tab-pane--chat' : ''}`} aria-hidden={!isActive('/chat')}>
         <ChatScreen />
+      </div>
+      <div className={`app-tab-pane ${isActive('/trainers') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/trainers')}>
+        <TrainersScreen />
       </div>
       <div className={`app-tab-pane ${isActive('/settings') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/settings')}>
         <SettingsScreen onLogout={onLogout} />

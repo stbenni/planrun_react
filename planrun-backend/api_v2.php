@@ -6,6 +6,28 @@
  * Все действия мигрированы на контроллеры
  */
 
+// Публичная раздача аватара — до любых заголовков и require, иначе ответ уходит с Content-Type: application/json и картинка на сайте не показывается
+$action = $_GET['action'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if ($action === 'get_avatar' && $method === 'GET') {
+    $file = isset($_GET['file']) ? basename($_GET['file']) : '';
+    if ($file !== '' && preg_match('/^avatar_\d+_\d+\.(jpe?g|png|gif|webp)$/i', $file)) {
+        $path = __DIR__ . '/uploads/avatars/' . $file;
+        if (is_file($path) && is_readable($path)) {
+            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            $mimes = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+            header('Content-Type: ' . ($mimes[$ext] ?? 'application/octet-stream'));
+            header('Cache-Control: public, max-age=86400');
+            readfile($path);
+            exit;
+        }
+    }
+    http_response_code(404);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'error' => 'Not found'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 // CORS: при вызове через api_wrapper CORS уже отправлен (cors.php)
@@ -75,10 +97,10 @@ try {
         ErrorHandler::returnJsonError('Ошибка подключения к базе данных', 500);
     }
     
-    // Получаем действие и метод
+    // Получаем действие и метод (get_avatar уже обработан в начале файла)
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'];
-    
+
     // Публичные настройки сайта — без авторизации и без контроллера
     if ($action === 'get_site_settings' && $method === 'GET') {
         $defaults = [
@@ -363,13 +385,10 @@ try {
             break;
             
         case 'get_avatar':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->getAvatar();
+            // Обрабатывается выше (публичный блок без авторизации)
+            ErrorHandler::returnJsonError('Метод не поддерживается', 405);
             break;
-            
+
         case 'update_privacy':
             if ($method !== 'POST') {
                 ErrorHandler::returnJsonError('Метод не поддерживается', 405);
