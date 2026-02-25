@@ -176,6 +176,30 @@ try {
             $controller->regeneratePlanWithProgress();
             break;
             
+        case 'recalculate_plan':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new TrainingPlanController($db);
+            $controller->recalculatePlan();
+            break;
+
+        case 'generate_next_plan':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new TrainingPlanController($db);
+            $controller->generateNextPlan();
+            break;
+
+        case 'reactivate_plan':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new TrainingPlanController($db);
+            $controller->reactivatePlan();
+            break;
+
         case 'clear_plan_generation_message':
             $controller = new TrainingPlanController($db);
             $controller->clearPlanGenerationMessage();

@@ -80,6 +80,7 @@ const useWorkoutStore = create((set, get) => ({
   },
 
   // Сохранение результата тренировки
+  // api.saveResult ожидает один объект { date, week, day, activity_type_id?, ... }
   saveResult: async (date, result) => {
     const { api } = useAuthStore.getState();
     if (!api) {
@@ -90,7 +91,8 @@ const useWorkoutStore = create((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      await api.saveResult(date, result);
+      const payload = typeof result === 'object' && result !== null ? { ...result, date } : { date };
+      await api.saveResult(payload);
       
       // Обновляем локальное состояние
       const { workouts } = get();

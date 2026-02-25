@@ -21,6 +21,7 @@ import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
+import SkeletonScreen from '../common/SkeletonScreen';
 import './Dashboard.css';
 
 const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'calendar', 'stats'];
@@ -139,7 +140,12 @@ function orderToLayout(order) {
 }
 
 function getDefaultLayout() {
-  return orderToLayout(DASHBOARD_MODULE_IDS.slice());
+  /* По умолчанию на десктопе: сегодня + следующая в одну строку, календарь и статистика во всю ширину; быстрые метрики только если пользователь добавит через «Виджеты». */
+  return [
+    ['today_workout', 'next_workout'],
+    ['calendar'],
+    ['stats'],
+  ];
 }
 
 function layoutToOrder(layout) {
@@ -291,7 +297,7 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
   );
 }
 
-const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistration }) => {
+const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMessage, isNewRegistration }) => {
   const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
   const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
   const needsOnboarding = !!(user && !user.onboarding_completed);
@@ -649,6 +655,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
 
   // Обновление при возврате на вкладку (тихо, без спиннера)
   useEffect(() => {
+    if (!isTabActive) return;
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && api) {
         loadDashboardData({ silent: true });
@@ -656,7 +663,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [api, loadDashboardData]);
+  }, [api, isTabActive, loadDashboardData]);
   
   // Показываем сообщение о генерации плана при новой регистрации
   useEffect(() => {
@@ -804,7 +811,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
   if (loading) {
     return (
       <div className="dashboard">
-        <div className="dashboard-loading">Загрузка...</div>
+        <SkeletonScreen type="dashboard" />
       </div>
     );
   }
@@ -843,13 +850,9 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           <button
             type="button"
             className="plan-generation-notice__btn"
-            onClick={() => {
-              setShowPlanMessage(false);
-              clearPlanMessage();
-              loadDashboardData();
-            }}
+            onClick={() => loadDashboardData()}
           >
-            Обновить
+            Проверить готовность
           </button>
         </div>
       )}
@@ -908,7 +911,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           if (moduleId === 'today_workout') {
             return (
               <div key="today_workout" className={sectionClass}>
-                <h2 className="section-title">📅 Сегодняшняя тренировка</h2>
+                <h2 className="section-title">Сегодняшняя тренировка</h2>
                 <div className={`dashboard-module-card ${todayWorkout ? 'dashboard-module-card--workout' : ''} ${todayWorkout && expandedWorkoutCard === 'today' ? 'dashboard-module-card--expanded' : ''}`}>
                   {!hasAnyPlannedWorkout ? (
                     <div className="dashboard-top-card dashboard-empty">
@@ -995,7 +998,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           if (moduleId === 'quick_metrics') {
             return (
               <div key="quick_metrics" className={sectionClass}>
-                <h2 className="section-title">⚡ Быстрые метрики</h2>
+                <h2 className="section-title">Быстрые метрики</h2>
                 <div className="dashboard-module-card dashboard-module-card--metrics">
                 <div className={`dashboard-metrics-grid ${hasAnyPlannedWorkout ? 'dashboard-metrics-grid--with-progress' : ''}`}>
                 {hasAnyPlannedWorkout ? (
@@ -1056,7 +1059,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           if (moduleId === 'next_workout') {
             return (
               <div key="next_workout" className={sectionClass}>
-                <h2 className="section-title">⏭️ Следующая тренировка</h2>
+                <h2 className="section-title">Следующая тренировка</h2>
                 <div className={`dashboard-module-card ${nextWorkout ? 'dashboard-module-card--workout' : ''} ${nextWorkout && expandedWorkoutCard === 'next' ? 'dashboard-module-card--expanded' : ''}`}>
                 {nextWorkout ? (
                   <div
@@ -1117,7 +1120,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           if (moduleId === 'calendar') {
             return (
               <div key="calendar" className={sectionClass}>
-                <h2 className="section-title">📅 Календарь</h2>
+                <h2 className="section-title">Календарь</h2>
                 <div className="dashboard-module-card">
                 <DashboardWeekStrip
                   plan={plan}
@@ -1131,7 +1134,7 @@ const Dashboard = ({ api, user, onNavigate, registrationMessage, isNewRegistrati
           if (moduleId === 'stats') {
             return (
               <div key="stats" className={sectionClass}>
-                <h2 className="section-title">📊 Статистика</h2>
+                <h2 className="section-title">Статистика</h2>
                 <div className="dashboard-module-card">
                 <DashboardStatsWidget api={api} onNavigate={onNavigate} />
                 </div>

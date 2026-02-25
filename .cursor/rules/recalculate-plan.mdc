@@ -1,0 +1,224 @@
+# Инструменты управления планами: Пересчёт и Новый план
+
+Два инструмента для работы с планами после их создания:
+
+- **Пересчёт (Recalculate)** — коррекция текущего плана: прошлые недели сохраняются, будущие пересчитываются.
+- **Новый план (Next Plan)** — генерация полностью нового плана после завершения предыдущего с учётом всей истории тренировок.
+
+---
+
+## 1. ПЕРЕСЧЁТ ПЛАНА (Recalculate)
+
+### Ключевой принцип: коррекция, не замена
+
+```
+  Недели 1–7 (прошлые)     │  Сохраняются КАК ЕСТЬ в БД
+  ─────────────────────────────────────────────────────
+  Неделя 8+ (текущая+)     │  Удаляются → AI генерирует заново
+                            │  Нумерация продолжается (8, 9, 10...)
+```
+
+- **Cutoff = понедельник текущей недели.** Всё с `start_date < cutoff` остаётся.
+- **workout_log** (фактические результаты) — отдельная таблица, никогда не затрагивается.
+- **Нумерация недель** продолжается: AI генерирует с 1, `normalizeTrainingPlan(data, cutoffDate, weekNumberOffset=N)` перенумерует.
+
+### Поток данных
+
+```
+CalendarScreen  →  usePlanStore.recalculatePlan(reason)
+                        →  ApiClient.recalculatePlan(reason)  POST
+                              →  TrainingPlanController::recalculatePlan()
+                                    →  TrainingPlanService::recalculatePlan($userId, $reason)
+                                          1. clearErrorMessage
+                                          2. SET is_active = FALSE
+                                          3. reason → temp-файл
+                                          4. exec generate_plan_async.php --recalculate [--reason-file=...]
+
+generate_plan_async.php --recalculate:
+    → recalculatePlanViaPlanRunAI($userId, $userReason)
+        1. cutoffDate = monday this week
+        2. keptWeeks = MAX(week_number) WHERE start_date < cutoff
+        3. weeksToGenerate = totalPlanWeeks - keptWeeks (или до goalDate), cap 30
+        4. Контекст: getRecentWorkouts(20), getWeeklyCompliance, history4w
+        5. buildRecalculationPrompt() → AI
+    → saveRecalculatedPlan($db, $userId, $planData, $cutoffDate)
+    → SET is_active = TRUE
+
+Frontend poll (5 сек × 40 попыток = ~3.5 мин)
+```
+
+### Промпт для пересчёта
+
+Базовый промпт + два блока:
+
+1. **buildRecalcContextBlock**: detraining factor, compliance 2 нед., avg 4 нед., последние тренировки, причина пересчёта
+2. **ЗАДАЧА: ПЕРЕСЧЁТ ПЛАНА**: "Это КОРРЕКЦИЯ, не генерация с нуля. Первые N нед. СОХРАНЕНЫ."
+
+### Detraining Factor
+
+| Дней без тренировки | Фактор | Рекомендация |
+|---------------------|--------|--------------|
+| ≤ 3 | 1.0 | Продолжать |
+| ≤ 7 | 0.95 | Минимальная пауза |
+| ≤ 14 | 0.85 | Лёгкое снижение |
+| ≤ 21 | 0.75 | Заметная потеря |
+| > 21 | max(0.5, 1 − days×0.015) | Мягкий старт |
+| null | — | Не показывается |
+
+---
+
+## 2. НОВЫЙ ПЛАН (Next Plan)
+
+### Ключевой принцип: полная замена с учётом истории
+
+Когда предыдущий план **завершён** (последняя неделя в прошлом), пользователь может создать новый. В отличие от первой генерации (по профилю), здесь AI получает **полную историю тренировок** предыдущего плана.
+
+```
+  Старый план (все недели)  │  Удаляется целиком (saveTrainingPlan)
+  ─────────────────────────────────────────────────────
+  Новый план                │  Генерируется с нуля, нумерация с 1
+                            │  AI знает ВСЮ историю тренировок
+```
+
+- **workout_log** НЕ удаляется — только plan weeks/days/exercises.
+- **training_start_date** в users обновляется на понедельник текущей недели.
+- Используется `saveTrainingPlan()` (полная замена), не `saveRecalculatedPlan()`.
+
+### Поток данных
+
+```
+CalendarScreen  →  usePlanStore.generateNextPlan(goals)
+                        →  ApiClient.generateNextPlan(goals)  POST
+                              →  TrainingPlanController::generateNextPlan()
+                                    →  TrainingPlanService::generateNextPlan($userId, $goals)
+                                          1. clearErrorMessage
+                                          2. SET is_active = FALSE
+                                          3. goals → temp-файл (если есть)
+                                          4. exec generate_plan_async.php --next-plan [--goals-file=...]
+
+generate_plan_async.php --next-plan:
+    → generateNextPlanViaPlanRunAI($userId, $userGoals)
+        1. Период старого плана: MIN/MAX(start_date) из training_plan_weeks
+        2. ПОЛНАЯ история: getWorkoutsHistory(historyFrom, today, limit=500)
+        3. Понедельная статистика объёмов, прогрессия (1-я vs последняя четверть)
+        4. Лучшие показатели: long run, tempo pace, interval pace
+        5. Ключевые тренировки (последние 6)
+        6. Текущая форма: recent4w (средний объём и темп)
+        7. Compliance за 2 нед.
+        8. Последние 10 тренировок детально
+        9. buildNextPlanPrompt() → AI
+    → saveTrainingPlan($db, $userId, $planData, $newStartDate)
+    → UPDATE users SET training_start_date = $newStartDate
+    → SET is_active = TRUE
+
+Frontend poll (5 сек × 50 попыток = ~4 мин)
+```
+
+### Данные, передаваемые AI для нового плана
+
+```
+═══ ИСТОРИЯ ПРЕДЫДУЩЕГО ПЛАНА ═══
+- Старт, длительность (недель)
+- Выполнено тренировок, суммарный набег (км)
+- Средний и пиковый недельный объём
+- Прогрессия: начало плана ~X км/нед → конец ~Y км/нед (+Z%)
+- Лучшие показатели: длительный (макс км), темповый (лучший темп), интервалы
+- Средний пульс, самочувствие
+- Compliance
+- Ключевые тренировки (факт)
+
+═══ ТЕКУЩАЯ ФОРМА (последние 4 недели) ═══
+- Средний объём
+- Средний темп
+→ ПЕРВАЯ НЕДЕЛЯ НОВОГО ПЛАНА СТАРТУЕТ ОТ ЭТОГО ОБЪЁМА (-15% recovery)
+
+═══ ПОЖЕЛАНИЯ ПОЛЬЗОВАТЕЛЯ ═══
+(текст из модалки, если введён)
+```
+
+### Промпт: ЗАДАЧА
+
+```
+═══ ЗАДАЧА: НОВЫЙ ПЛАН (ПРОДОЛЖЕНИЕ ТРЕНИРОВОЧНОГО ЦИКЛА) ═══
+Пользователь ЗАВЕРШИЛ предыдущий план. Это НЕ план для новичка.
+Стартовый объём = реальный из последних 4 недель.
+Неделя 1 — recovery (80-85%).
+Со 2-й — стандартная прогрессия (+5-10%/нед), разгрузка каждую 4-ю.
+```
+
+### Определение «план завершён» (фронтенд)
+
+```javascript
+const isPlanCompleted = hasPlan && (() => {
+    const lastWeek = plan.weeks_data[plan.weeks_data.length - 1];
+    const lastWeekEnd = new Date(lastWeek.start_date);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
+    return lastWeekEnd < new Date(new Date().toDateString());
+})();
+```
+
+Когда план завершён:
+- Появляется баннер «План завершён! Создайте новый план»
+- Кнопка «Пересчитать» заменяется на «Новый план»
+
+---
+
+## 3. Общие файлы
+
+| Слой | Файл | Пересчёт | Новый план |
+|------|-------|----------|------------|
+| Frontend UI | `CalendarScreen.jsx` | Кнопка «Пересчитать» + модалка | Кнопка «Новый план» + модалка + баннер |
+| Frontend CSS | `CalendarScreen.css` | `.btn-recalculate`, `.recalc-confirm-modal` | `.btn-next-plan`, `.plan-completed-banner` |
+| Store | `usePlanStore.js` | `recalculatePlan(reason)`, `recalculating` | `generateNextPlan(goals)`, `generatingNext` |
+| API-клиент | `ApiClient.js` | `recalculatePlan(reason)` | `generateNextPlan(goals)` |
+| Роутер | `api_v2.php` | `recalculate_plan` | `generate_next_plan` |
+| Контроллер | `TrainingPlanController.php` | `recalculatePlan()` | `generateNextPlan()` |
+| Сервис | `TrainingPlanService.php` | `recalculatePlan()` | `generateNextPlan()` |
+| Async | `generate_plan_async.php` | `--recalculate` + `--reason-file=` | `--next-plan` + `--goals-file=` |
+| Генератор | `plan_generator.php` | `recalculatePlanViaPlanRunAI()` | `generateNextPlanViaPlanRunAI()` |
+| Промпт | `prompt_builder.php` | `buildRecalculationPrompt()`, `buildRecalcContextBlock()` | `buildNextPlanPrompt()`, `buildPreviousPlanHistoryBlock()` |
+| Сохранение | `plan_saver.php` | `saveRecalculatedPlan()` | `saveTrainingPlan()` (полная замена) |
+| Контекст | `ChatContextBuilder.php` | `getRecentWorkouts()`, `getWeeklyCompliance()`, `getWorkoutsHistory()` | То же + расширенный запрос (limit=500) |
+| Recovery | `reactivate_plan` endpoint | Общий для обоих | Общий для обоих |
+
+---
+
+## 4. saveRecalculatedPlan vs saveTrainingPlan
+
+| | `saveTrainingPlan` | `saveRecalculatedPlan` |
+|---|---|---|
+| Когда | Первая генерация / **новый план** | Пересчёт |
+| Удаляет | ВСЕ weeks/days/exercises | Только WHERE start_date >= cutoff |
+| Нумерация | С week_number = 1 | С weekNumberOffset (продолжение) |
+| Прошлые недели | Удаляются | Сохраняются |
+
+---
+
+## 5. Поллинг, защита и recovery
+
+1. **Перед** запуском async: `SET is_active = FALSE`
+2. `checkPlanStatus()`: `is_active = FALSE` и нет error → `{ has_plan: false, generating: true }`
+3. **После** успешного сохранения: `is_active = TRUE`, `Cache::delete`
+4. При ошибке: `is_active = FALSE`, `error_message = ...`
+5. **Recovery при таймауте:**
+   - Пересчёт: 40 × 5 сек = ~3.5 мин. Новый план: 50 × 5 сек = ~4 мин.
+   - При таймауте → `POST reactivate_plan` → `SET is_active = TRUE, error_message = NULL` → Cache::delete
+   - После reactivate → loadPlan → пользователь видит текущий план
+6. **JSON Schema + Pydantic** — Python AI-сервис валидирует ответ через constrained decoding
+
+---
+
+## 6. Критические правила при доработке
+
+1. **Не удалять деактивацию `is_active = FALSE`** перед async — защита от ложного поллинга
+2. **cutoffDate = monday this week** — для пересчёта. Для нового плана — тоже monday this week.
+3. **Cache::delete** обязателен после сохранения — иначе до 15 мин отдаётся старый кэш
+4. **Если avgWeeklyKm = 0** → "нет тренировок, используй weekly_base_km × 50-60%" (пересчёт) / "начни с базового" (новый)
+5. **reason/goals** передаются через temp-файл — не CLI-аргументом (безопасность)
+6. **workout_log** никогда не удаляется ни при пересчёте, ни при новом плане
+7. **normalizeTrainingPlan** третий параметр `weekNumberOffset` — обязателен при пересчёте, не нужен для нового
+8. **weeksToGenerate cap = 30** — в обоих инструментах
+9. **training_start_date** обновляется при создании нового плана
+10. **reactivate_plan** — общая recovery-стратегия для обоих инструментов
+11. **Новый план**: при сборе истории limit=500 — чтобы покрыть весь период предыдущего плана
+12. **Первая неделя нового плана** — recovery (80-85% от последнего реального объёма), не старт с нуля

@@ -51,6 +51,9 @@ self.onmessage = async (e) => {
             fullContent += obj.chunk;
             self.postMessage({ type: 'chunk', chunk: obj.chunk });
           }
+          if (obj.plan_updated) {
+            self.postMessage({ type: 'plan_updated' });
+          }
         } catch (_) {}
       }
     }
@@ -64,6 +67,9 @@ self.onmessage = async (e) => {
         if (obj.chunk) {
           fullContent += obj.chunk;
           self.postMessage({ type: 'chunk', chunk: obj.chunk });
+        }
+        if (obj.plan_updated) {
+          self.postMessage({ type: 'plan_updated' });
         }
       } catch (_) {}
     }

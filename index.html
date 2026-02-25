@@ -7,17 +7,6 @@
     <title>PlanRun - Календарь тренировок</title>
     <script>
       (function() {
-        var theme = localStorage.getItem('theme');
-        if (theme !== 'dark' && theme !== 'light') {
-          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
-        document.documentElement.setAttribute('data-theme', theme);
-      })();
-    </script>
-  </head>
-  <body>
-    <script>
-      (function() {
         function getSystemTheme() {
           return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
@@ -27,9 +16,12 @@
         }
         function applyTheme(theme) {
           document.documentElement.setAttribute('data-theme', theme);
-          document.body.setAttribute('data-theme', theme);
+          if (document.body) document.body.setAttribute('data-theme', theme);
         }
         applyTheme(getTheme());
+        document.addEventListener('DOMContentLoaded', function() {
+          if (document.body) document.body.setAttribute('data-theme', getTheme());
+        });
         var m = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
         if (m && m.addEventListener) {
           m.addEventListener('change', function() {
@@ -40,6 +32,8 @@
         }
       })();
     </script>
+  </head>
+  <body>
     <div id="root"></div>
     <div id="modal-root"></div>
     <script type="module" src="/src/main.jsx"></script>

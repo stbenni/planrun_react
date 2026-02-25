@@ -19,14 +19,16 @@ const TYPES_BY_CATEGORY = {
     { value: 'long', label: 'Длительный бег' },
     { value: 'interval', label: 'Интервалы' },
     { value: 'fartlek', label: 'Фартлек' },
+    { value: 'control', label: 'Контрольный забег' },
     { value: 'race', label: 'Соревнование' },
   ],
   ofp: [{ value: 'other', label: 'ОФП' }],
   sbu: [{ value: 'sbu', label: 'СБУ' }],
 };
 
-const SIMPLE_RUN_TYPES = ['easy', 'tempo', 'long', 'race'];
-const TYPE_NAMES = { easy: 'Легкий бег', tempo: 'Темповый бег', long: 'Длительный бег', race: 'Соревнование' };
+const RUN_TYPES = ['easy', 'tempo', 'long', 'long-run', 'interval', 'fartlek', 'control', 'race'];
+const SIMPLE_RUN_TYPES = ['easy', 'tempo', 'long', 'control', 'race'];
+const TYPE_NAMES = { easy: 'Легкий бег', tempo: 'Темповый бег', long: 'Длительный бег', control: 'Контрольный забег', race: 'Соревнование' };
 
 // Время: парсинг ЧЧ:ММ:СС или ММ:СС → секунды
 function parseTime(timeStr) {
@@ -103,9 +105,12 @@ const TYPE_TO_CATEGORY = {
   other: 'ofp', sbu: 'sbu', rest: 'running', free: 'running',
 };
 
-const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }) => {
+const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, editResultData }) => {
   const isEdit = !!(initialData && initialData.id);
-  const effectiveDate = isEdit ? (initialData.date || date) : date;
+  const isEditResult = !!(editResultData && editResultData.date);
+  const effectiveDate = isEditResult
+    ? editResultData.date
+    : (isEdit ? (initialData.date || date) : date);
 
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState(null);
@@ -197,6 +202,28 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
       initializedEditRunRef.current = null;
       return;
     }
+    if (editResultData?.date && editResultData?.result != null) {
+      const { result, dayData } = editResultData;
+      const planDay = dayData?.planDays?.[0];
+      const cat = planDay ? (TYPE_TO_CATEGORY[planDay.type] || 'running') : 'running';
+      const types = TYPES_BY_CATEGORY[cat] || [];
+      const typeVal = planDay && types.some((t) => t.value === planDay.type) ? planDay.type : (types[0]?.value || 'easy');
+      setStep(2);
+      setCategory(cat);
+      setType(typeVal);
+      const dist = result.result_distance ?? result.distance_km;
+      if (dist != null && dist !== '') setRunDistance(String(dist));
+      const timeRaw = result.result_time;
+      if (timeRaw) {
+        const sec = parseTime(timeRaw);
+        setRunDuration(sec != null ? formatTime(sec) : String(timeRaw));
+      }
+      const paceVal = result.pace ?? result.result_pace ?? result.avg_pace;
+      if (paceVal) setRunPace(String(paceVal));
+      const notes = result.notes;
+      if (notes) setDescription(notes);
+      return;
+    }
     if (initialData && initialData.id) {
       const cat = TYPE_TO_CATEGORY[initialData.type] || 'running';
       const types = TYPES_BY_CATEGORY[cat] || [];
@@ -207,76 +234,100 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
       setDescription(typeof initialData.description === 'string' ? initialData.description.replace(/<[^>]*>/g, '').trim() : '');
       setIsKeyWorkout(!!initialData.is_key_workout);
     }
-  }, [isOpen, initialData, resetForm]);
+  }, [isOpen, initialData, editResultData, resetForm]);
 
-  // В режиме редактирования ОФП/СБУ: восстанавливаем выбранные упражнения из библиотеки и кастомные из описания
+  // В режиме редактирования ОФП/СБУ: восстанавливаем упражнения из структурированных данных или из описания (fallback)
   useEffect(() => {
     if (!isOpen || !isEdit || !initialData?.id || (category !== 'ofp' && category !== 'sbu')) return;
     if (initializedEditExercisesRef.current === initialData.id) return;
-    const raw = typeof initialData.description === 'string' ? initialData.description.replace(/<[^>]*>/g, ' ') : '';
-    const lines = raw.split(/\n/).map((s) => s.trim()).filter(Boolean);
+
     const ids = new Set();
     const distOverrides = {};
     const ofpOverrides = {};
     const customList = [];
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      const line = lines[lineIndex];
-      const namePart = (line.split('—')[0] || line.split(' – ')[0] || line).trim();
-      const rest = (line.split('—')[1] || line.split(' – ')[1] || '').trim();
-      const found = libraryExercises.length > 0 && libraryExercises.find((e) => {
-        const n = (e.name || '').trim();
-        if (!n) return false;
-        return namePart === n || namePart.startsWith(n) || n.startsWith(namePart) || line.startsWith(n);
-      });
-      if (found) {
-        ids.add(found.id);
-        if (category === 'sbu') {
-          const distMatch = rest.match(/([\d.,]+)\s*(км|м)/);
-          if (distMatch) {
-            const num = parseFloat(distMatch[1].replace(',', '.'));
-            const meters = distMatch[2] === 'км' ? Math.round(num * 1000) : Math.round(num);
-            if (!Number.isNaN(meters) && meters > 0) distOverrides[found.id] = meters;
+
+    // Структурированные данные из базы (exercises массив с name, sets, reps, weight_kg, exercise_id и т.д.)
+    if (initialData.exercises && initialData.exercises.length > 0) {
+      for (const ex of initialData.exercises) {
+        const libMatch = ex.exercise_id
+          ? libraryExercises.find((e) => e.id === ex.exercise_id)
+          : libraryExercises.find((e) => (e.name || '').trim().toLowerCase() === (ex.name || '').trim().toLowerCase());
+
+        if (libMatch) {
+          ids.add(libMatch.id);
+          if (category === 'sbu' && ex.distance_m) {
+            distOverrides[libMatch.id] = Number(ex.distance_m);
           }
+          if (category === 'ofp') {
+            const o = {};
+            if (ex.sets) o.sets = Number(ex.sets);
+            if (ex.reps) o.reps = Number(ex.reps);
+            if (ex.weight_kg != null) o.weightKg = Number(ex.weight_kg);
+            if (Object.keys(o).length > 0) ofpOverrides[libMatch.id] = o;
+          }
+        } else {
+          const item = { id: `custom-edit-${ex.order_index ?? customList.length}`, name: ex.name || '' };
+          if (category === 'sbu' && ex.distance_m) item.distanceM = Number(ex.distance_m);
+          if (category === 'ofp') {
+            if (ex.sets) item.sets = Number(ex.sets);
+            if (ex.reps) item.reps = Number(ex.reps);
+            if (ex.weight_kg != null) item.weightKg = Number(ex.weight_kg);
+          }
+          customList.push(item);
         }
-        if (category === 'ofp') {
-          const setsRepsMatch = rest.match(/(\d+)\s*[×x]\s*(\d+)/i);
-          const weightMatch = rest.match(/([\d.,]+)\s*кг/);
-          const o = {};
-          if (setsRepsMatch) {
-            o.sets = parseInt(setsRepsMatch[1], 10);
-            o.reps = parseInt(setsRepsMatch[2], 10);
+      }
+    } else {
+      // Fallback: парсинг из description (для старых данных без exercises)
+      const raw = typeof initialData.description === 'string' ? initialData.description.replace(/<[^>]*>/g, ' ') : '';
+      const lines = raw.split(/\n/).map((s) => s.trim()).filter(Boolean);
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const line = lines[lineIndex];
+        const namePart = (line.split('—')[0] || line.split(' – ')[0] || line).trim();
+        const rest = (line.split('—')[1] || line.split(' – ')[1] || '').trim();
+        const found = libraryExercises.length > 0 && libraryExercises.find((e) => {
+          const n = (e.name || '').trim();
+          if (!n) return false;
+          return namePart === n || namePart.startsWith(n) || n.startsWith(namePart) || line.startsWith(n);
+        });
+        if (found) {
+          ids.add(found.id);
+          if (category === 'sbu') {
+            const distMatch = rest.match(/([\d.,]+)\s*(км|м)/);
+            if (distMatch) {
+              const num = parseFloat(distMatch[1].replace(',', '.'));
+              const meters = distMatch[2] === 'км' ? Math.round(num * 1000) : Math.round(num);
+              if (!Number.isNaN(meters) && meters > 0) distOverrides[found.id] = meters;
+            }
           }
-          if (weightMatch) {
-            const w = parseFloat(weightMatch[1].replace(',', '.'));
-            if (!Number.isNaN(w) && w >= 0) o.weightKg = w;
+          if (category === 'ofp') {
+            const setsRepsMatch = rest.match(/(\d+)\s*[×x]\s*(\d+)/i);
+            const weightMatch = rest.match(/([\d.,]+)\s*кг/);
+            const o = {};
+            if (setsRepsMatch) { o.sets = parseInt(setsRepsMatch[1], 10); o.reps = parseInt(setsRepsMatch[2], 10); }
+            if (weightMatch) { const w = parseFloat(weightMatch[1].replace(',', '.')); if (!Number.isNaN(w) && w >= 0) o.weightKg = w; }
+            if (Object.keys(o).length > 0) ofpOverrides[found.id] = o;
           }
-          if (Object.keys(o).length > 0) ofpOverrides[found.id] = o;
+        } else if (namePart) {
+          const item = { id: `custom-edit-${lineIndex}`, name: namePart };
+          if (category === 'sbu') {
+            const distMatch = rest.match(/([\d.,]+)\s*(км|м)/);
+            if (distMatch) {
+              const num = parseFloat(distMatch[1].replace(',', '.'));
+              const meters = distMatch[2] === 'км' ? Math.round(num * 1000) : Math.round(num);
+              if (!Number.isNaN(meters) && meters > 0) item.distanceM = meters;
+            }
+          }
+          if (category === 'ofp') {
+            const setsRepsMatch = rest.match(/(\d+)\s*[×x]\s*(\d+)/i);
+            const weightMatch = rest.match(/([\d.,]+)\s*кг/);
+            if (setsRepsMatch) { item.sets = parseInt(setsRepsMatch[1], 10); item.reps = parseInt(setsRepsMatch[2], 10); }
+            if (weightMatch) { const w = parseFloat(weightMatch[1].replace(',', '.')); if (!Number.isNaN(w) && w >= 0) item.weightKg = w; }
+          }
+          customList.push(item);
         }
-      } else if (namePart) {
-        const item = { id: `custom-edit-${lineIndex}`, name: namePart };
-        if (category === 'sbu') {
-          const distMatch = rest.match(/([\d.,]+)\s*(км|м)/);
-          if (distMatch) {
-            const num = parseFloat(distMatch[1].replace(',', '.'));
-            const meters = distMatch[2] === 'км' ? Math.round(num * 1000) : Math.round(num);
-            if (!Number.isNaN(meters) && meters > 0) item.distanceM = meters;
-          }
-        }
-        if (category === 'ofp') {
-          const setsRepsMatch = rest.match(/(\d+)\s*[×x]\s*(\d+)/i);
-          const weightMatch = rest.match(/([\d.,]+)\s*кг/);
-          if (setsRepsMatch) {
-            item.sets = parseInt(setsRepsMatch[1], 10);
-            item.reps = parseInt(setsRepsMatch[2], 10);
-          }
-          if (weightMatch) {
-            const w = parseFloat(weightMatch[1].replace(',', '.'));
-            if (!Number.isNaN(w) && w >= 0) item.weightKg = w;
-          }
-        }
-        customList.push(item);
       }
     }
+
     setSelectedExerciseIds(ids);
     if (Object.keys(distOverrides).length > 0) setExerciseDistanceOverrides((prev) => ({ ...prev, ...distOverrides }));
     if (Object.keys(ofpOverrides).length > 0) setExerciseOfpOverrides((prev) => ({ ...prev, ...ofpOverrides }));
@@ -285,47 +336,49 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
   }, [isEdit, initialData, category, libraryExercises, isOpen]);
 
   // В режиме редактирования Бег: восстанавливаем поля калькулятора из description (модалка и AI пишут один формат)
+  // Работает и для isEdit (планирование), и для isEditResult (выполненная тренировка — берём описание из плана)
   useEffect(() => {
-    if (!isOpen || !isEdit || !initialData?.id || category !== 'running' || initializedEditRunRef.current === initialData.id) return;
-    const raw = typeof initialData.description === 'string' ? initialData.description.replace(/<[^>]*>/g, ' ').trim() : '';
-    if (!raw) return;
+    if (!isOpen || category !== 'running') return;
+    let raw = '';
+    let trackingId = null;
+    if (isEditResult && editResultData?.dayData) {
+      const planDay = editResultData.dayData.planDays?.find(pd => RUN_TYPES.includes(pd.type));
+      raw = planDay?.description || '';
+      trackingId = `editResult-${editResultData.date}`;
+    } else if (isEdit && initialData?.id) {
+      raw = typeof initialData.description === 'string' ? initialData.description : '';
+      trackingId = initialData.id;
+    }
+    if (!trackingId || initializedEditRunRef.current === trackingId) return;
+    raw = raw.replace(/<[^>]*>/g, ' ').trim();
+    if (!raw) { initializedEditRunRef.current = trackingId; return; }
+
     if (SIMPLE_RUN_TYPES.includes(type)) {
       const distMatch = raw.match(/([\d.,]+)\s*км/);
       const distVal = distMatch ? parseFloat(distMatch[1].replace(',', '.')) : null;
-      if (distMatch) setRunDistance(String(distVal));
+      if (distMatch && !runDistance) setRunDistance(String(distVal));
       const durMatch = raw.match(/или\s+(\d{1,2}:\d{2}(?::\d{2})?)/);
-      if (durMatch) setRunDuration(durMatch[1]);
-      // Темп: «темп 7:30», «темп ~7:30», «(темп ~7:30/км)», «7:30/км»
+      if (durMatch && !runDuration) setRunDuration(durMatch[1]);
       const paceMatch = raw.match(/темп[:\s~]*(?:~?\s*)?(\d{1,2}:\d{2})(?:\s*\/?\s*км)?/i)
         || raw.match(/(?:^|[(\s])(\d{1,2}:\d{2})\s*\/\s*км/i);
-      if (paceMatch) setRunPace(paceMatch[1]);
-      // Если есть дистанция и темп, но нет времени — рассчитываем
-      if (distVal && distVal > 0 && paceMatch && !durMatch) {
+      if (paceMatch && !runPace) setRunPace(paceMatch[1]);
+      if (distVal && distVal > 0 && paceMatch && !durMatch && !runDuration) {
         const paceMinutes = parsePace(paceMatch[1]);
-        if (paceMinutes != null && paceMinutes > 0) {
-          const totalSec = Math.round(distVal * paceMinutes * 60);
-          setRunDuration(formatTime(totalSec));
-        }
+        if (paceMinutes != null && paceMinutes > 0) setRunDuration(formatTime(Math.round(distVal * paceMinutes * 60)));
       }
       const hrMatch = raw.match(/пульс[:\s]+(\d+)/i);
-      if (hrMatch) setRunHR(hrMatch[1]);
+      if (hrMatch && !runHR) setRunHR(hrMatch[1]);
     } else if (type === 'interval') {
       const warmupMatch = raw.match(/Разминка[:\s]*([\d.,]+)\s*км/i);
       if (warmupMatch) setWarmupKm(warmupMatch[1].replace(',', '.'));
       const warmupPaceMatch = raw.match(/Разминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i) || raw.match(/Разминка[^.]*\((\d{1,2}:\d{2})\)/);
       if (warmupPaceMatch) setWarmupPace(warmupPaceMatch[1]);
       const seriesMatch = raw.match(/(\d+)\s*[×x]\s*(\d+)\s*м/i) || raw.match(/(\d+)\s*[×x]\s*(\d+)м/i);
-      if (seriesMatch) {
-        setIntervalReps(seriesMatch[1]);
-        setIntervalDistM(seriesMatch[2]);
-      }
+      if (seriesMatch) { setIntervalReps(seriesMatch[1]); setIntervalDistM(seriesMatch[2]); }
       const intervalPaceMatch = raw.match(/в темпе\s+(\d{1,2}:\d{2})/i) || raw.match(/\((\d{1,2}:\d{2})\)/);
       if (intervalPaceMatch) setIntervalPace(intervalPaceMatch[1]);
       const restMatch = raw.match(/пауза\s+(\d+)\s*м\s+(трусцой|ходьбой|отдых)/i) || raw.match(/отдых\s+(\d+)\s*м\s+(трусцой|ходьбой)/i);
-      if (restMatch) {
-        setRestDistM(restMatch[1]);
-        setRestType(restMatch[2] === 'ходьбой' ? 'walk' : restMatch[2] === 'отдых' ? 'rest' : 'jog');
-      }
+      if (restMatch) { setRestDistM(restMatch[1]); setRestType(restMatch[2] === 'ходьбой' ? 'walk' : restMatch[2] === 'отдых' ? 'rest' : 'jog'); }
       const cooldownMatch = raw.match(/Заминка[:\s]*([\d.,]+)\s*км/i);
       if (cooldownMatch) setCooldownKm(cooldownMatch[1].replace(',', '.'));
       const cooldownPaceMatch = raw.match(/Заминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i);
@@ -335,23 +388,16 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
       if (warmupMatch) setFartlekWarmupKm(warmupMatch[1].replace(',', '.'));
       const cooldownMatch = raw.match(/Заминка[:\s]*([\d.,]+)\s*км/i);
       if (cooldownMatch) setFartlekCooldownKm(cooldownMatch[1].replace(',', '.'));
-      const segmentRegex = /(\d+)\s*[×x]\s*(\d+)\s*м[^.]*?(?:в темпе\s+(\d{1,2}:\d{2}))?[^.]*?(?:восстановление\s+(\d+)\s*м\s+(трусцой|ходьбой|легким бегом))?/gi;
+      const segmentRegex = /(\d+)\s*[×x]\s*(\d+)\s*м\s*(?:в темпе\s+(\d{1,2}:\d{2}))?\s*,?\s*(?:восстановление\s+(\d+)\s*м\s+(трусцой|ходьбой|легким бегом))?/gi;
       const segments = [];
       let m;
       while ((m = segmentRegex.exec(raw)) !== null) {
-        segments.push({
-          id: segments.length + 1,
-          reps: m[1],
-          accelDistM: m[2],
-          accelPace: m[3] || '',
-          recoveryDistM: m[4] || '',
-          recoveryType: (m[5] === 'ходьбой' ? 'walk' : 'jog'),
-        });
+        segments.push({ id: segments.length + 1, reps: m[1], accelDistM: m[2], accelPace: m[3] || '', recoveryDistM: m[4] || '', recoveryType: m[5] === 'ходьбой' ? 'walk' : 'jog' });
       }
       if (segments.length > 0) setFartlekSegments(segments);
     }
-    initializedEditRunRef.current = initialData.id;
-  }, [isEdit, initialData, category, type, isOpen]);
+    initializedEditRunRef.current = trackingId;
+  }, [isEdit, isEditResult, initialData, editResultData, category, type, isOpen, runDistance, runDuration, runPace, runHR]);
 
   useEffect(() => {
     prevRunDurationRef.current = runDuration;
@@ -579,6 +625,10 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
     setCustomExercises((prev) => prev.filter((e) => e.id !== id));
   };
 
+  const updateCustomExercise = (id, field, value) => {
+    setCustomExercises((prev) => prev.map((e) => e.id === id ? { ...e, [field]: value } : e));
+  };
+
   const addFartlekSegment = () => {
     setFartlekSegments((prev) => [...prev, { id: Math.max(0, ...prev.map((s) => s.id)) + 1, reps: '', accelDistM: '', accelPace: '', recoveryDistM: '', recoveryType: 'jog' }]);
   };
@@ -592,10 +642,26 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!api) return;
-    if (!isEdit && !effectiveDate) return;
+    if (!isEdit && !isEditResult && !effectiveDate) return;
     setLoading(true);
     setError('');
     try {
+      if (isEditResult) {
+        const payload = {
+          date: editResultData.date,
+          week: editResultData.weekNumber ?? 1,
+          day: editResultData.dayKey ?? null,
+          result_distance: runDistance ? parseFloat(runDistance) : null,
+          result_time: runDuration || null,
+          result_pace: runPace || null,
+          notes: description.trim() || null,
+        };
+        await api.saveResult(payload);
+        onSuccess?.();
+        onClose();
+        setLoading(false);
+        return;
+      }
       const csrfRes = await api.request('get_csrf_token', {}, 'GET');
       const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
       if (!csrfToken) {
@@ -641,10 +707,10 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
   const showLibrary = (category === 'ofp' || category === 'sbu') && step === 2;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? 'Редактировать тренировку' : 'Добавить тренировку'} size="medium" variant="modern">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditResult ? 'Редактировать результат' : (isEdit ? 'Редактировать тренировку' : 'Добавить тренировку')} size="medium" variant="modern">
       <p className="add-training-date">{dateLabel}</p>
 
-      {step === 1 && !isEdit && (
+      {step === 1 && !isEdit && !isEditResult && (
         <div className="add-training-categories">
           <p className="add-training-step-title">Выберите категорию тренировки</p>
           <div className="add-training-cards">
@@ -666,11 +732,13 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
 
       {step === 2 && (
         <form onSubmit={handleSubmit} className="add-training-form">
+          {!isEditResult && (
           <div className="form-group">
             <button type="button" className="btn btn-secondary add-training-back" onClick={backToCategory}>
               ← Назад к выбору категории
             </button>
           </div>
+          )}
           <div className="form-group">
             <label htmlFor="add-training-type">Тип тренировки</label>
             <select
@@ -1065,25 +1133,76 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
                 </button>
               </div>
               {customExercises.length > 0 && (
-                <ul className="add-training-custom-list">
+                <div className="add-training-custom-list">
                   {customExercises.map((ex) => (
-                    <li key={ex.id} className="add-training-custom-list-item">
-                      <span className="add-training-custom-list-name">{ex.name}</span>
-                      {category === 'sbu' && ex.distanceM != null && (
-                        <span className="add-training-custom-list-params">{ex.distanceM >= 1000 ? (ex.distanceM / 1000).toFixed(1) + ' км' : ex.distanceM + ' м'}</span>
+                    <div key={ex.id} className="add-training-library-item add-training-custom-item">
+                      <span className="add-training-library-name">{ex.name}</span>
+                      {category === 'sbu' && (
+                        <div className="add-training-library-sbu-dist">
+                          <input
+                            type="number"
+                            min={10}
+                            max={2000}
+                            step={10}
+                            value={ex.distanceM ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                              updateCustomExercise(ex.id, 'distanceM', v != null && !Number.isNaN(v) ? v : undefined);
+                            }}
+                            placeholder="м"
+                            className="add-training-library-dist-input"
+                          />
+                          <span className="add-training-library-dist-unit">м</span>
+                        </div>
                       )}
-                      {category === 'ofp' && (ex.sets != null || ex.reps != null || ex.weightKg != null) && (
-                        <span className="add-training-custom-list-params">
-                          {ex.sets != null && ex.reps != null && `${ex.sets}×${ex.reps}`}
-                          {ex.weightKg != null && ex.weightKg > 0 && `, ${ex.weightKg} кг`}
-                        </span>
+                      {category === 'ofp' && (
+                        <div className="add-training-library-ofp-params">
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            placeholder="подх."
+                            value={ex.sets ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                              updateCustomExercise(ex.id, 'sets', v != null && !Number.isNaN(v) ? v : undefined);
+                            }}
+                            className="add-training-library-ofp-input"
+                          />
+                          <span className="add-training-library-ofp-sep">×</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            placeholder="повт."
+                            value={ex.reps ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                              updateCustomExercise(ex.id, 'reps', v != null && !Number.isNaN(v) ? v : undefined);
+                            }}
+                            className="add-training-library-ofp-input"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            step={0.5}
+                            placeholder="кг"
+                            value={ex.weightKg ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value === '' ? undefined : parseFloat(e.target.value.replace(',', '.'));
+                              updateCustomExercise(ex.id, 'weightKg', v != null && !Number.isNaN(v) ? v : undefined);
+                            }}
+                            className="add-training-library-ofp-input add-training-library-ofp-weight"
+                          />
+                        </div>
                       )}
-                      <button type="button" className="btn btn-secondary add-training-custom-remove" onClick={() => removeCustomExercise(ex.id)} aria-label="Удалить">
+                      <button type="button" className="add-training-custom-remove-btn" onClick={() => removeCustomExercise(ex.id)} aria-label="Удалить" title="Удалить упражнение">
                         ×
                       </button>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
           )}
@@ -1099,15 +1218,17 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData }
               placeholder="Например: 5 км в лёгком темпе или выберите упражнения выше"
             />
           </div>
+          {!isEditResult && (
           <div className="form-group form-group--row">
             <input type="checkbox" id="add-training-key" checked={isKeyWorkout} onChange={(e) => setIsKeyWorkout(e.target.checked)} />
             <label htmlFor="add-training-key">Ключевая тренировка</label>
           </div>
+          )}
           {error && <div className="add-training-error">{error}</div>}
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Отмена</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Сохранение…' : 'Добавить'}
+              {loading ? 'Сохранение…' : (isEditResult ? 'Сохранить' : 'Добавить')}
             </button>
           </div>
         </form>

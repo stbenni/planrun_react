@@ -3,6 +3,8 @@
  * Один код для всех платформ
  */
 
+import BiometricService from '../services/BiometricService';
+
 class ApiError extends Error {
   constructor({ code, message, attempts_left }) {
     super(message);
@@ -82,39 +84,44 @@ class ApiClient {
     if (this.token) {
       return this.token;
     }
-    
+
     if (typeof localStorage !== 'undefined') {
-      // Для веба (синхронно)
       const token = localStorage.getItem('auth_token');
       const refreshToken = localStorage.getItem('refresh_token');
       if (token) {
         this.token = token;
+        if (refreshToken) this.refreshToken = refreshToken;
+        return token;
       }
-      if (refreshToken) {
-        this.refreshToken = refreshToken;
+      // Capacitor: если localStorage пуст, пробуем восстановить токены из защищённого хранилища
+      if (typeof window !== 'undefined' && window.Capacitor) {
+        try {
+          const stored = await BiometricService.getTokens();
+          if (stored?.accessToken && stored?.refreshToken) {
+            await this.setToken(stored.accessToken, stored.refreshToken);
+            return stored.accessToken;
+          }
+        } catch (e) {
+          // игнорируем
+        }
       }
-      return token;
-    } else {
-      // Для React Native (асинхронно)
-      // AsyncStorage должен быть импортирован в React Native версии
-      try {
-        if (typeof AsyncStorage !== 'undefined') {
-          const token = await AsyncStorage.getItem('auth_token');
-          const refreshToken = await AsyncStorage.getItem('refresh_token');
-          if (token) {
-            this.token = token;
-          }
-          if (refreshToken) {
-            this.refreshToken = refreshToken;
-          }
+      return null;
+    }
+
+    // React Native: AsyncStorage
+    try {
+      if (typeof AsyncStorage !== 'undefined') {
+        const token = await AsyncStorage.getItem('auth_token');
+        const refreshToken = await AsyncStorage.getItem('refresh_token');
+        if (token) {
+          this.token = token;
+          if (refreshToken) this.refreshToken = refreshToken;
           return token;
         }
-      } catch (error) {
-        console.error('Error getting token:', error);
-        return null;
       }
+    } catch (error) {
+      console.error('Error getting token:', error);
     }
-    
     return null;
   }
 
@@ -122,20 +129,36 @@ class ApiClient {
     if (this.refreshToken) {
       return this.refreshToken;
     }
-    
+
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem('refresh_token');
-    } else {
-      try {
-        if (typeof AsyncStorage !== 'undefined') {
-          return await AsyncStorage.getItem('refresh_token');
-        }
-      } catch (error) {
-        console.error('Error getting refresh token:', error);
-        return null;
+      const stored = localStorage.getItem('refresh_token');
+      if (stored) {
+        this.refreshToken = stored;
+        return stored;
       }
+      // Capacitor: пробуем восстановить из защищённого хранилища
+      if (typeof window !== 'undefined' && window.Capacitor) {
+        try {
+          const tokens = await BiometricService.getTokens();
+          if (tokens?.accessToken && tokens?.refreshToken) {
+            await this.setToken(tokens.accessToken, tokens.refreshToken);
+            return tokens.refreshToken;
+          }
+        } catch (e) {
+          // игнорируем
+        }
+      }
+      return null;
     }
-    
+
+    try {
+      if (typeof AsyncStorage !== 'undefined') {
+        return await AsyncStorage.getItem('refresh_token');
+      }
+    } catch (error) {
+      console.error('Error getting refresh token:', error);
+      return null;
+    }
     return null;
   }
 
@@ -235,9 +258,9 @@ class ApiClient {
       options.mode = 'cors';
     }
 
-    // Добавляем токен авторизации если есть
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    // Добавляем токен авторизации если есть (token уже получен выше)
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     // Для POST запросов отправляем JSON в теле запроса
@@ -268,20 +291,30 @@ class ApiClient {
       
       // Обработка ошибок авторизации
       if (response.status === 401) {
-        // Пытаемся обновить токен если есть refresh token
         const refreshToken = await this.getRefreshToken();
-        if (refreshToken && !this.isRefreshing) {
+        // Если уже идёт обновление — ждём его и повторяем запрос с новым токеном
+        if (this.isRefreshing && this.refreshPromise) {
+          try {
+            const newToken = await this.refreshPromise;
+            headers['Authorization'] = `Bearer ${newToken}`;
+            const retryResponse = await fetch(finalUrl, { ...options, headers });
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              return retryData.data || retryData;
+            }
+          } catch (_) {
+            // refresh уже завершился с ошибкой, ниже вызовем onTokenExpired
+          }
+        } else if (refreshToken) {
           try {
             const newToken = await this.refreshAccessToken();
-            // Повторяем запрос с новым токеном
             headers['Authorization'] = `Bearer ${newToken}`;
-            const retryResponse = await fetch(url, { ...options, headers });
+            const retryResponse = await fetch(finalUrl, { ...options, headers });
             if (retryResponse.ok) {
               const retryData = await retryResponse.json();
               return retryData.data || retryData;
             }
           } catch (refreshError) {
-            // Не удалось обновить токен
             console.error('Failed to refresh token:', refreshError);
           }
         }
@@ -897,6 +930,18 @@ class ApiClient {
     return this.request('regenerate_plan_with_progress', {}, 'POST');
   }
 
+  async recalculatePlan(reason = null) {
+    const params = {};
+    if (reason) params.reason = reason;
+    return this.request('recalculate_plan', params, 'POST');
+  }
+
+  async generateNextPlan(goals = null) {
+    const params = {};
+    if (goals) params.goals = goals;
+    return this.request('generate_next_plan', params, 'POST');
+  }
+
   /**
    * Проверка статуса плана (есть ли план, есть ли ошибка)
    */
@@ -1030,7 +1075,7 @@ class ApiClient {
    * @param {object} opts - { onFirstChunk?: () => void, timeoutMs?: number, signal?: AbortSignal }
    */
   async chatSendMessageStream(content, onChunk, opts = {}) {
-    const { onFirstChunk, timeoutMs = 180000, signal: externalSignal } = opts;
+    const { onFirstChunk, onPlanUpdated, onPlanRecalculating, onPlanGeneratingNext, timeoutMs = 180000, signal: externalSignal } = opts;
     const urlParams = new URLSearchParams({ action: 'chat_send_message_stream' });
     const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
@@ -1096,6 +1141,15 @@ class ApiClient {
                 onChunk(obj.chunk);
               }
             }
+            if (obj.plan_updated && typeof onPlanUpdated === 'function') {
+              onPlanUpdated();
+            }
+            if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') {
+              onPlanRecalculating();
+            }
+            if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') {
+              onPlanGeneratingNext();
+            }
           } catch (e) {
             if (e instanceof ApiError) throw e;
           }
@@ -1111,6 +1165,9 @@ class ApiClient {
             onChunk(obj.chunk);
           }
         }
+        if (obj.plan_updated && typeof onPlanUpdated === 'function') onPlanUpdated();
+        if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') onPlanRecalculating();
+        if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') onPlanGeneratingNext();
       }
     } finally {
       reader.releaseLock?.();

@@ -3,8 +3,9 @@
  * Графики, метрики, прогресс, достижения
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import useAuthStore from '../stores/useAuthStore';
+import { useIsTabActive } from '../hooks/useIsTabActive';
 import {
   ActivityHeatmap,
   DistanceChart,
@@ -16,9 +17,11 @@ import {
   processProgressData,
   processAchievementsData
 } from '../components/Stats';
+import SkeletonScreen from '../components/common/SkeletonScreen';
 import './StatsScreen.css';
 
 const StatsScreen = () => {
+  const isTabActive = useIsTabActive('/stats');
   const { api, user } = useAuthStore();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -128,17 +131,16 @@ const StatsScreen = () => {
     }
   }, [api, activeTab, timeRange]);
 
+  const hasLoadedRef = useRef(false);
   useEffect(() => {
+    if (!isTabActive && !hasLoadedRef.current) return;
     if (api && typeof api.getAllWorkoutsSummary === 'function') {
+      hasLoadedRef.current = true;
       loadStats();
     } else {
-      console.warn('StatsScreen: API not ready or missing methods', {
-        api: !!api,
-        hasGetAllWorkoutsSummary: api && typeof api.getAllWorkoutsSummary === 'function'
-      });
       setLoading(false);
     }
-  }, [api, loadStats]);
+  }, [api, isTabActive, loadStats]);
 
   const handleWorkoutClick = async (date) => {
     if (!api || !date) return;
@@ -182,7 +184,7 @@ const StatsScreen = () => {
   if (loading) {
     return (
       <div className="stats-screen">
-        <div className="stats-loading">Загрузка статистики...</div>
+        <SkeletonScreen type="stats" />
       </div>
     );
   }

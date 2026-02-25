@@ -1,14 +1,15 @@
 /**
  * Виджет статистики для дашборда: период + 4 карточки (дистанция, время, тренировки, темп)
- * Как в экране Статистика, только без графиков и списка тренировок
+ * Внешний вид как у быстрых метрик: те же SVG-иконки и стиль карточек.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
+import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from './DashboardMetricIcons';
 import './Dashboard.css';
 
 const DashboardStatsWidget = ({ api, onNavigate }) => {
-  const [timeRange, setTimeRange] = useState('quarter'); // week, month, quarter, year
+  const [timeRange, setTimeRange] = useState('month'); // month, quarter, year
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -85,13 +86,6 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
       <div className="dashboard-stats-time-range" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          className={`dashboard-time-range-btn ${timeRange === 'week' ? 'active' : ''}`}
-          onClick={() => setTimeRange('week')}
-        >
-          Эта неделя
-        </button>
-        <button
-          type="button"
           className={`dashboard-time-range-btn ${timeRange === 'month' ? 'active' : ''}`}
           onClick={() => setTimeRange('month')}
         >
@@ -113,44 +107,44 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
         </button>
       </div>
       <div className="dashboard-stats-metrics-grid">
-        <div className="dashboard-stat-metric-card">
-          <div className="dashboard-stat-metric-card__label">
-            <span className="dashboard-stat-metric-card__icon" aria-hidden>🏃</span>
+        <div className="metric-card">
+          <div className="metric-card__label">
+            <MetricDistanceIcon className="metric-card__icon" />
             <span>Дистанция</span>
           </div>
-          <div className="dashboard-stat-metric-card__value">
-            <span className="dashboard-stat-metric-card__number">{s.totalDistance}</span>
-            <span className="dashboard-stat-metric-card__unit">км</span>
+          <div className="metric-card__value">
+            <span className="metric-card__number">{s.totalDistance}</span>
+            <span className="metric-card__unit">км</span>
           </div>
         </div>
-        <div className="dashboard-stat-metric-card">
-          <div className="dashboard-stat-metric-card__label">
-            <span className="dashboard-stat-metric-card__icon" aria-hidden>⏱️</span>
+        <div className="metric-card">
+          <div className="metric-card__label">
+            <MetricTimeIcon className="metric-card__icon" />
             <span>Время</span>
           </div>
-          <div className="dashboard-stat-metric-card__value">
-            <span className="dashboard-stat-metric-card__number">{Math.round(s.totalTime / 60)}</span>
-            <span className="dashboard-stat-metric-card__unit">часов</span>
+          <div className="metric-card__value">
+            <span className="metric-card__number">{Math.round(s.totalTime / 60)}</span>
+            <span className="metric-card__unit">часов</span>
           </div>
         </div>
-        <div className="dashboard-stat-metric-card">
-          <div className="dashboard-stat-metric-card__label">
-            <span className="dashboard-stat-metric-card__icon" aria-hidden>📅</span>
+        <div className="metric-card">
+          <div className="metric-card__label">
+            <MetricActivityIcon className="metric-card__icon" />
             <span>Активность</span>
           </div>
-          <div className="dashboard-stat-metric-card__value">
-            <span className="dashboard-stat-metric-card__number">{s.totalWorkouts}</span>
-            <span className="dashboard-stat-metric-card__unit">тренировок</span>
+          <div className="metric-card__value">
+            <span className="metric-card__number">{s.totalWorkouts}</span>
+            <span className="metric-card__unit">тренировок</span>
           </div>
         </div>
-        <div className="dashboard-stat-metric-card">
-          <div className="dashboard-stat-metric-card__label">
-            <span className="dashboard-stat-metric-card__icon" aria-hidden>📍</span>
+        <div className="metric-card">
+          <div className="metric-card__label">
+            <MetricPaceIcon className="metric-card__icon" />
             <span>Средний темп</span>
           </div>
-          <div className="dashboard-stat-metric-card__value">
-            <span className="dashboard-stat-metric-card__number">{s.avgPace}</span>
-            <span className="dashboard-stat-metric-card__unit">/км</span>
+          <div className="metric-card__value">
+            <span className="metric-card__number">{s.avgPace}</span>
+            <span className="metric-card__unit">/км</span>
           </div>
         </div>
       </div>

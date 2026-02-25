@@ -42,3 +42,12 @@ export function MetricTimeIcon({ className = '', ...props }) {
     </svg>
   );
 }
+
+/** Средний темп — флажок/маркер */
+export function MetricPaceIcon({ className = '', ...props }) {
+  return (
+    <svg className={className} {...iconProps} {...props}>
+      <path d="M4 20l6-16 2 8 8-4" />
+    </svg>
+  );
+}

@@ -16,7 +16,7 @@ const EMPTY_DAYS = { mon: null, tue: null, wed: null, thu: null, fri: null, sat:
 function normalizeDayActivities(rawDayData) {
   if (!rawDayData) return [];
   const list = Array.isArray(rawDayData) ? rawDayData : [rawDayData];
-  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({ type: d.type }));
+  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({ type: d.type, is_key_workout: !!(d.is_key_workout || d.key) }));
 }
 
 /** Первый не-rest тип дня (для класса ячейки). */
@@ -84,7 +84,7 @@ function getVirtualCurrentWeek() {
 
 const MOBILE_BREAKPOINT = '(max-width: 640px)';
 
-const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
+const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -308,14 +308,6 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
   return (
     <div className={`week-calendar-container ${isSwiping ? 'swiping' : ''}`} ref={containerRef}>
       <div className="week-calendar-header">
-        <div className="week-calendar-title">
-          {weekDays[0] && weekDays[6] && (
-            <div className="week-title-main">
-              {weekDays[0].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} – {weekDays[6].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-            </div>
-          )}
-        </div>
-        
         <div className="week-calendar-nav">
           <button
             type="button"
@@ -323,14 +315,11 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
             onClick={goToPreviousWeek}
             aria-label="Предыдущая неделя"
           />
-          <button
-            type="button"
-            className="week-current-btn"
-            onClick={goToCurrentWeek}
-            title="Перейти к текущей неделе"
-          >
-            Сегодня
-          </button>
+          <span className="week-current-label">
+            {weekDays[0] && weekDays[6]
+              ? `${weekDays[0].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} – ${weekDays[6].dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
+              : 'Сегодня'}
+          </span>
           <button
             type="button"
             className="week-nav-btn week-nav-btn-next"
@@ -353,6 +342,9 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
               </span>
               <span className="week-day-date-sep">/</span>
               <span className="week-day-label">{day.dayLabel}</span>
+              {day.dayActivities.some(a => a.is_key_workout) && (
+                <span className="week-day-key-dot" title="Ключевая тренировка" />
+              )}
             </div>
 
             <div className="week-day-icons-grid">
@@ -444,8 +436,17 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
               results={results}
               planDays={dayDetail.planDays || []}
               onDeletePlanDay={canEdit ? handleDeletePlanDay : undefined}
-              onEditPlanDay={canEdit && onEditTraining ? (planDay) => onEditTraining(planDay, selectedDay.date) : undefined}
-              onPress={canEdit && onOpenResultModal && selectedDay.status === 'missed' ? () => onOpenResultModal(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey) : undefined}
+              onEditPlanDay={canEdit && onEditTraining ? (planDay) => {
+                const exercises = (dayDetail.dayExercises || []).filter(ex => String(ex.plan_day_id) === String(planDay.id));
+                onEditTraining({ ...planDay, exercises }, selectedDay.date);
+              } : undefined}
+              onPress={
+                selectedDay.status === 'missed' && canEdit && onOpenResultModal
+                  ? () => onOpenResultModal(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey)
+                  : selectedDay.status === 'completed' && onOpenWorkoutDetails
+                    ? () => onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey)
+                    : undefined
+              }
               canEdit={!!canEdit}
             />
             {canEdit && (onAddTraining || (onOpenResultModal && (selectedDay.dayData || (dayDetail.planDays && dayDetail.planDays.length > 0)))) && (

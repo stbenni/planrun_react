@@ -1,0 +1,146 @@
+openapi: 3.0.3
+info:
+  title: PlanRun API
+  description: |
+    API приложения PlanRun. Все операции вызываются через один endpoint с query-параметром `action`.
+    Авторизация: веб — cookies (сессия), мобильное приложение — Bearer JWT (Authorization).
+  version: 1.0.0
+
+servers:
+  - url: /api
+    description: Relative (same origin)
+  - url: http://localhost/api
+    description: Local dev
+
+paths:
+  /api_wrapper.php:
+    get:
+      summary: GET-операции
+      description: Передайте нужный action в query. Параметры — в query string.
+      operationId: apiGet
+      tags: [api]
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - get_site_settings
+              - check_auth
+              - load
+              - check_plan_status
+              - regenerate_plan
+              - clear_plan_generation_message
+              - get_day
+              - get_result
+              - get_all_results
+              - get_workout_timeline
+              - stats
+              - get_all_workouts_summary
+              - prepare_weekly_analysis
+              - list_exercise_library
+              - get_profile
+              - get_csrf_token
+              - notifications_dismissed
+              - admin_list_users
+              - admin_get_user
+              - admin_get_settings
+              - chat_get_messages
+              - chat_admin_chat_users
+              - chat_admin_unread_notifications
+              - chat_admin_get_messages
+              - run_weekly_adaptation
+              - request_password_reset
+          description: Имя действия (см. полный список в описании)
+      responses:
+        '200':
+          description: Успех (тело зависит от action)
+        '401':
+          description: Требуется авторизация
+        '404':
+          description: Действие не найдено
+
+    post:
+      summary: POST-операции
+      description: action в query, тело запроса — JSON для операций, которые его принимают.
+      operationId: apiPost
+      tags: [api]
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - login
+              - logout
+              - refresh_token
+              - save
+              - save_result
+              - reset
+              - delete_workout
+              - add_week
+              - delete_week
+              - add_training_day
+              - add_training_day_by_date
+              - update_training_day
+              - delete_training_day
+              - add_day_exercise
+              - update_day_exercise
+              - delete_day_exercise
+              - reorder_day_exercises
+              - regenerate_plan_with_progress
+              - recalculate_plan
+              - clear_plan_generation_message
+              - update_profile
+              - delete_user
+              - upload_avatar
+              - remove_avatar
+              - update_privacy
+              - notifications_dismiss
+              - unlink_telegram
+              - confirm_password_reset
+              - admin_update_user
+              - admin_update_settings
+              - chat_send_message
+              - chat_send_message_stream
+              - chat_clear_ai
+              - chat_mark_read
+              - chat_mark_all_read
+              - chat_send_message_to_admin
+              - chat_admin_send_message
+              - chat_admin_mark_all_read
+              - chat_admin_mark_conversation_read
+              - chat_add_ai_message
+              - chat_admin_broadcast
+          description: Имя действия
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Зависит от action (см. ApiClient.js и контроллеры)
+      responses:
+        '200':
+          description: Успех
+        '401':
+          description: Требуется авторизация
+        '404':
+          description: Действие не найдено
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+      description: Сессия (веб)
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT (мобильное приложение)
+
+security: []
+# Для операций с авторизацией используется либо sessionCookie, либо bearerAuth (зависит от клиента)

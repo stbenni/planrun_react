@@ -187,20 +187,138 @@ class ChatService extends BaseService {
 
         $messages = $this->buildChatMessages($userId, $context, $history, $content);
 
+        $toolsUsed = [];
+        $messages = $this->resolveToolCalls($messages, $userId, $toolsUsed);
+
+        if (in_array('update_training_day', $toolsUsed, true)) {
+            echo json_encode(['plan_updated' => true]) . "\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        }
+        if (in_array('recalculate_plan', $toolsUsed, true)) {
+            echo json_encode(['plan_recalculating' => true]) . "\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        }
+        if (in_array('generate_next_plan', $toolsUsed, true)) {
+            echo json_encode(['plan_generating_next' => true]) . "\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        }
+
         $chunks = [];
-        $this->callLlmStream($messages, function ($chunk) use (&$chunks) {
-            $chunks[] = $chunk;
-            echo json_encode(['chunk' => $chunk]) . "\n";
+        $thinkBuffer = '';
+        $insideThink = false;
+        $this->callLlmStream($messages, function ($chunk) use (&$chunks, &$thinkBuffer, &$insideThink) {
+            $thinkBuffer .= $chunk;
+
+            if ($insideThink) {
+                if (stripos($thinkBuffer, '[/THINK]') !== false) {
+                    $parts = preg_split('/\[\/THINK\]\s*/i', $thinkBuffer, 2);
+                    $thinkBuffer = '';
+                    $insideThink = false;
+                    $after = $parts[1] ?? '';
+                    if ($after !== '') {
+                        $chunks[] = $after;
+                        echo json_encode(['chunk' => $after]) . "\n";
+                        if (ob_get_level()) ob_flush();
+                        flush();
+                    }
+                } elseif (stripos($thinkBuffer, '</think>') !== false) {
+                    $parts = preg_split('/<\/think>\s*/i', $thinkBuffer, 2);
+                    $thinkBuffer = '';
+                    $insideThink = false;
+                    $after = $parts[1] ?? '';
+                    if ($after !== '') {
+                        $chunks[] = $after;
+                        echo json_encode(['chunk' => $after]) . "\n";
+                        if (ob_get_level()) ob_flush();
+                        flush();
+                    }
+                }
+                return;
+            }
+
+            if (preg_match('/\[THINK\]/i', $thinkBuffer) || preg_match('/<think>/i', $thinkBuffer)) {
+                $insideThink = true;
+                $thinkBuffer = preg_replace('/^.*(\[THINK\]|<think>)/is', '', $thinkBuffer);
+                return;
+            }
+
+            $out = $thinkBuffer;
+            $thinkBuffer = '';
+            $chunks[] = $out;
+            echo json_encode(['chunk' => $out]) . "\n";
             if (ob_get_level()) ob_flush();
             flush();
         });
 
         $fullContent = $this->sanitizeResponse(implode('', $chunks));
-        $fullContent = $this->parseAndExecuteActions($fullContent, $userId, $history, $content);
+        $planWasUpdated = false;
+        $fullContent = $this->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
+        if ($planWasUpdated) {
+            echo json_encode(['plan_updated' => true]) . "\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        }
         if ($fullContent !== '') {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, ['model' => $this->llmModel]);
             $this->repository->touchConversation($conversation['id']);
         }
+    }
+
+    /**
+     * Резолвит tool-вызовы (до maxToolRounds раундов) перед стримингом.
+     * Если LLM хочет вызвать tools — выполняем их (non-streaming), добавляем результаты
+     * в messages, и повторяем. Когда tool_calls пусты — messages готовы для стриминга.
+     */
+    private function resolveToolCalls(array $messages, int $userId, array &$toolsUsed = []): array {
+        $toolsEnabled = (int) env('CHAT_TOOLS_ENABLED', 1) === 1;
+        if (!$toolsEnabled) {
+            return $messages;
+        }
+
+        $tools = $this->getChatTools();
+        $maxToolRounds = 5;
+
+        for ($round = 0; $round < $maxToolRounds; $round++) {
+            try {
+                $useTools = ($round === 0) ? $tools : null;
+                $result = $this->callLlmDirect($messages, $useTools);
+            } catch (Throwable $e) {
+                Logger::warning('Tool resolution failed, streaming without tools', ['error' => $e->getMessage()]);
+                return $messages;
+            }
+
+            $msg = $result['message'] ?? null;
+            $toolCalls = $msg['tool_calls'] ?? [];
+
+            if (empty($toolCalls)) {
+                return $messages;
+            }
+
+            $messages[] = [
+                'role' => 'assistant',
+                'content' => $msg['content'] ?? '',
+                'tool_calls' => $toolCalls
+            ];
+
+            foreach ($toolCalls as $tc) {
+                $id = $tc['id'] ?? '';
+                $fn = $tc['function'] ?? [];
+                $name = $fn['name'] ?? '';
+                $argsJson = $fn['arguments'] ?? '{}';
+                $output = $this->executeTool($name, $argsJson, $userId);
+                $toolsUsed[] = $name;
+                $messages[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => $id,
+                    'content' => $output
+                ];
+            }
+        }
+
+        return $messages;
     }
 
     /**
@@ -315,12 +433,58 @@ class ChatService extends BaseService {
         $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
         $todayDow = $daysRu[(int) $now->format('N')] ?? '';
         $tomorrowDow = $daysRu[(int) $tomorrowDt->format('N')] ?? '';
-        $systemContent = "Ты — PlanRun, AI-тренер по бегу. Отвечай ТОЛЬКО на русском языке. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.\n\n";
-        $systemContent .= "ПРАВИЛА: Не выводи внутренние рассуждения, инструкции, мета-комментарии (типа «We need to», «The conversation», «The user»). Отвечай сразу по существу, как тренер пользователю. Даты в ответах пиши в русском формате: «18 февраля», «среда, 18 февраля».\n\n";
-        $systemContent .= "ЯЗЫК: ЗАПРЕЩЕНО использовать английские слова в ответах. Все термины — только по-русски. Например: recuperation → пауза/восстановление, tempowork → темповая работа, practice → практиковать, especially → особенно, focus → фокус, weekly plan → недельный план. Фразы вроде «slightly faster than race pace» заменяй на «чуть быстрее гоночного темпа».\n\n";
-        $systemContent .= "ТОН: Весь контекст ниже (профиль, план, статистика, база знаний, история) — держи в голове, но не вываливай без явного вопроса. Отвечай на то, что спрашивают. Если вопрос общий или приветствие — отвечай кратко (привет, чем могу помочь?). Используй контекст только когда он релевантен запросу.\n\n";
-        $systemContent .= "При вопросе «какой план?», «что на неделю?», «что запланировано на следующую неделю?» — вызывай инструмент get_plan (week_number или date), чтобы получить актуальные данные из БД. Не опирайся только на контекст.\n\n";
-        $systemContent .= "Ниже — контекст пользователя (ID: {$userId}): профиль, план, статистика. Используй эти данные точно — числа, даты и время переписывай как есть, без искажений.\n\n";
+        $systemContent = <<<PROMPT
+Ты — PlanRun, персональный тренер по бегу. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
+
+ПЕРСОНА:
+Ты — опытный тренер по бегу с 15-летним стажем. Ты работаешь с бегунами любого уровня — от начинающих до марафонцев. Твой стиль:
+- Дружелюбный, но профессиональный. Как тренер, который действительно заботится о подопечном.
+- Краткий: не перегружай информацией. 2-4 предложения на простой вопрос, развёрнуто — только когда просят.
+- Конкретный: вместо «бегай побольше» — «добавь 1 км к длительной в воскресенье».
+- Эмпатичный: если пользователь устал/травмирован — прояви понимание, предложи помощь, не дави.
+- Мотивирующий: отмечай прогресс, хвали за выполнение плана, поддерживай при неудачах.
+- Адаптивный: подстраивай тон. Перед забегом — собранность и поддержка. После тяжёлой тренировки — забота о восстановлении. При пропуске — без укоров, мягко помоги вернуться.
+
+ЯЗЫК:
+- Отвечай ТОЛЬКО на русском. Никаких английских слов (recuperation → восстановление, pace → темп, long run → длительный бег, cooldown → заминка).
+- Даты — в русском формате: «18 февраля», «среда, 18 февраля».
+- Не выводи внутренние рассуждения, мета-комментарии, англоязычный reasoning.
+
+ПОВЕДЕНИЕ ТРЕНЕРА:
+- Если пользователь здоровается → коротко поприветствуй, спроси как дела / как прошла тренировка (если есть данные о недавней).
+- Если спрашивает про план → посмотри get_plan, дай конкретный ответ.
+- Если жалуется на усталость/боль/травму:
+  1. Прояви эмпатию («Понимаю, давай разберёмся»).
+  2. Уточни детали если нужно.
+  3. ПРЕДЛОЖИ конкретную корректировку (заменить тяжёлую на лёгкую, добавить отдых).
+  4. Получи подтверждение → update_training_day.
+- Если пропустил тренировки → не укоряй. Скажи «Ничего страшного, давай посмотрим как лучше продолжить».
+- Если показал хороший результат → похвали конкретно: «Отличный темп 5:30 на интервалах — это прогресс по сравнению с прошлой неделей!»
+- Не вываливай весь контекст — используй его точечно, когда релевантно.
+
+ИНСТРУМЕНТЫ (tools):
+Используй их ПРОАКТИВНО — не гадай и не выдумывай цифры:
+1. get_plan(week_number или date) — план на неделю.
+2. get_workouts(date_from, date_to) — история выполненных тренировок (дистанция, время, темп, пульс, ощущения).
+3. get_day_details(date) — полные детали дня: план + упражнения + фактический результат.
+4. get_date(phrase) — преобразование «завтра», «в среду» в дату Y-m-d.
+5. update_training_day(date, type, description) — изменить запланированную тренировку. ОБЯЗАТЕЛЬНО спроси подтверждение перед изменением.
+6. recalculate_plan() — пересчитать весь план с учётом истории, пропусков и текущей формы. Запускает фоновый процесс (3-5 мин). ОБЯЗАТЕЛЬНО спроси подтверждение.
+7. generate_next_plan() — создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился или просит новый цикл. ОБЯЗАТЕЛЬНО спроси подтверждение.
+
+СТРАТЕГИЯ:
+- Вопрос о конкретной тренировке → get_day_details.
+- Вопрос о периоде/прогрессе → get_workouts.
+- Жалоба на самочувствие → get_day_details (ближайшая запланированная) → предложи замену.
+- Длительная пауза (>7 дней) / выполнение <50% → предложи recalculate_plan.
+- План закончился / «хочу новый план» → предложи generate_next_plan.
+- Никогда не выдумывай цифры — если нужны данные, вызови tool.
+
+Ниже — контекст пользователя (ID: {$userId}): профиль, план, статистика, сводка по тренировкам.
+В ТРЕНИРОВКИ (кратко) — только сводка. Для деталей вызывай get_workouts или get_day_details.
+
+PROMPT;
+        $systemContent .= "\n\n";
 
         if ($this->hasAddTrainingIntent($currentQuestion, $history)) {
             $systemContent .= "ДОБАВЛЕНИЕ ТРЕНИРОВКИ: Пользователь просит добавить тренировку. Уточни тип и детали, если не указано. Для даты используй get_date. При подтверждении («да», «супер», «ок», «достаточно») — ОБЯЗАТЕЛЬНО выведи блок ACTION с деталями из своего предыдущего сообщения. Без блока тренировка НЕ попадёт в календарь.\n";
@@ -418,6 +582,12 @@ class ChatService extends BaseService {
         if ($text === '') {
             return '';
         }
+        // Reasoning-блоки моделей: [THINK]...[/THINK], <think>...</think>
+        $text = preg_replace('/\[THINK\][\s\S]*?\[\/THINK\]\s*/i', '', $text);
+        $text = preg_replace('/<think>[\s\S]*?<\/think>\s*/i', '', $text);
+        // Незакрытый [THINK] — обрезать всё от начала до первой кириллицы после него
+        $text = preg_replace('/^\[THINK\][\s\S]*?(?=[\p{Cyrillic}])/iu', '', $text);
+        $text = trim($text);
         // Убрать мусор в начале: точки, тире, многоточие, >, пробелы
         $text = preg_replace('/^[-.\s>…]+/u', '', $text);
         // Служебные токены модели gpt-oss: <|channel|>, <|constrain|>, <|message|>
@@ -490,8 +660,9 @@ class ChatService extends BaseService {
     /**
      * Парсит action-блок из ответа, выполняет действия, возвращает текст без блока.
      * Если блок не найден — fallback: при подтверждении пользователя парсим последнее сообщение AI с предложением.
+     * @param bool $planWasUpdated Выходной: true при успешном add_training_day
      */
-    private function parseAndExecuteActions(string $text, int $userId, array $history = [], ?string $currentUserMessage = null): string {
+    private function parseAndExecuteActions(string $text, int $userId, array $history = [], ?string $currentUserMessage = null, bool &$planWasUpdated = false): string {
         $params = null;
         $replaceRegex = null;
 
@@ -553,6 +724,7 @@ class ChatService extends BaseService {
             require_once __DIR__ . '/WeekService.php';
             $weekService = new WeekService($this->db);
             $weekService->addTrainingDayByDate($params, $userId);
+            $planWasUpdated = true;
             if ($replaceRegex === null) {
                 Logger::info('Chat add_training_day fallback: workout added', ['date' => $params['date'] ?? null, 'type' => $params['type'] ?? null]);
             }
@@ -715,6 +887,104 @@ class ChatService extends BaseService {
                         'required' => []
                     ]
                 ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'get_workouts',
+                    'description' => 'Получить историю выполненных тренировок за период. Вызывай при вопросах «как я бегал на прошлой неделе?», «покажи мои результаты за февраль», «какой у меня прогресс?», «сколько я пробежал?» и т.п.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'date_from' => [
+                                'type' => 'string',
+                                'description' => 'Начало периода Y-m-d (например 2026-02-01)'
+                            ],
+                            'date_to' => [
+                                'type' => 'string',
+                                'description' => 'Конец периода Y-m-d (например 2026-02-28)'
+                            ]
+                        ],
+                        'required' => ['date_from', 'date_to']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'get_day_details',
+                    'description' => 'Получить полные детали конкретного дня: план (тип, описание, упражнения) + фактический результат (дистанция, время, темп, пульс, заметки). Вызывай при вопросах «что было запланировано на вторник?», «как прошла тренировка 15 февраля?», «какой результат вчера?».',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'date' => [
+                                'type' => 'string',
+                                'description' => 'Дата Y-m-d (например 2026-02-18)'
+                            ]
+                        ],
+                        'required' => ['date']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'update_training_day',
+                    'description' => 'Изменить запланированную тренировку на конкретную дату. Используй когда пользователь просит заменить тренировку, снизить нагрузку, поставить отдых из-за травмы/усталости, или скорректировать план. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'date' => [
+                                'type' => 'string',
+                                'description' => 'Дата тренировки Y-m-d'
+                            ],
+                            'type' => [
+                                'type' => 'string',
+                                'description' => 'Новый тип: easy, long, tempo, interval, fartlek, control, rest, other, sbu, race, free',
+                                'enum' => ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free']
+                            ],
+                            'description' => [
+                                'type' => 'string',
+                                'description' => 'Описание тренировки (формат как в add_training_day). Для rest — пустая строка.'
+                            ]
+                        ],
+                        'required' => ['date', 'type']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'recalculate_plan',
+                    'description' => 'Пересчитать весь план тренировок с учётом истории выполненных тренировок, пропусков и текущей формы. Вызывай когда видишь длительную паузу (>5 дней без тренировок), серьёзное отклонение от плана (выполнено <50%), или пользователь просит пересчитать. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'reason' => [
+                                'type' => 'string',
+                                'description' => 'Краткое описание причины пересчёта на основе разговора (травма, болезнь, пауза, изменение целей и т.п.)'
+                            ]
+                        ],
+                        'required' => []
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'generate_next_plan',
+                    'description' => 'Создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился, хочет новый цикл, или просит «создай новый план». AI учтёт всю историю тренировок. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'goals' => [
+                                'type' => 'string',
+                                'description' => 'Пожелания к новому плану на основе разговора (подготовка к забегу, увеличение объёма и т.п.)'
+                            ]
+                        ],
+                        'required' => []
+                    ]
+                ]
             ]
         ];
     }
@@ -742,6 +1012,21 @@ class ChatService extends BaseService {
         if ($name === 'get_plan') {
             return $this->executeGetPlan($args, $userId);
         }
+        if ($name === 'get_workouts') {
+            return $this->executeGetWorkouts($args, $userId);
+        }
+        if ($name === 'get_day_details') {
+            return $this->executeGetDayDetails($args, $userId);
+        }
+        if ($name === 'update_training_day') {
+            return $this->executeUpdateTrainingDay($args, $userId);
+        }
+        if ($name === 'recalculate_plan') {
+            return $this->executeRecalculatePlan($args, $userId);
+        }
+        if ($name === 'generate_next_plan') {
+            return $this->executeGenerateNextPlan($args, $userId);
+        }
         return json_encode(['error' => 'unknown_tool']);
     }
 
@@ -756,6 +1041,15 @@ class ChatService extends BaseService {
             $week = $repo->getWeekByWeekNumber($userId, (int) $args['week_number']);
         } elseif (!empty($args['date'])) {
             $week = $repo->getWeekByDate($userId, $args['date']);
+        } else {
+            $tzName = $userId ? getUserTimezone($userId) : 'Europe/Moscow';
+            try {
+                $tz = new DateTimeZone($tzName);
+            } catch (Exception $e) {
+                $tz = new DateTimeZone('Europe/Moscow');
+            }
+            $today = (new DateTime('now', $tz))->format('Y-m-d');
+            $week = $repo->getWeekByDate($userId, $today);
         }
         if (!$week) {
             return json_encode(['error' => 'week_not_found', 'message' => 'Неделя не найдена в плане']);
@@ -767,8 +1061,8 @@ class ChatService extends BaseService {
         $dayLabels = [1 => 'Пн', 2 => 'Вт', 3 => 'Ср', 4 => 'Чт', 5 => 'Пт', 6 => 'Сб', 7 => 'Вс'];
         $typeRu = [
             'easy' => 'Легкий бег', 'long' => 'Длительный', 'tempo' => 'Темповый',
-            'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'rest' => 'Отдых',
-            'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег', 'free' => 'Пустой'
+            'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
+            'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег', 'free' => 'Пустой'
         ];
         $byDay = [];
         foreach ($days as $d) {
@@ -789,6 +1083,262 @@ class ChatService extends BaseService {
             'days' => $byDay,
             'total_volume' => $week['total_volume'] ?? null
         ]);
+    }
+
+    private function executeGetWorkouts(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $dateFrom = $args['date_from'] ?? '';
+        $dateTo = $args['date_to'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
+        }
+
+        $limit = 100;
+        $workouts = $this->contextBuilder->getWorkoutsHistory($userId, $dateFrom, $dateTo, $limit);
+        if (empty($workouts)) {
+            return json_encode(['workouts' => [], 'message' => 'Нет выполненных тренировок за период']);
+        }
+
+        $typeRu = [
+            'easy' => 'Легкий бег', 'long' => 'Длительный', 'tempo' => 'Темповый',
+            'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
+            'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег'
+        ];
+
+        $formatted = [];
+        $totalKm = 0;
+        foreach ($workouts as $w) {
+            $type = $w['plan_type'] ?? null;
+            $entry = [
+                'date' => $w['date'],
+                'type' => $type ? ($typeRu[$type] ?? $type) : null,
+                'is_key_workout' => !empty($w['is_key_workout']),
+            ];
+            if (!empty($w['distance_km'])) {
+                $entry['distance_km'] = (float) $w['distance_km'];
+                $totalKm += (float) $w['distance_km'];
+            }
+            if (!empty($w['result_time']) && $w['result_time'] !== '0:00:00') {
+                $entry['time'] = $w['result_time'];
+            }
+            if (!empty($w['pace']) && $w['pace'] !== '0:00') {
+                $entry['pace'] = $w['pace'];
+            }
+            if (!empty($w['avg_heart_rate'])) {
+                $entry['avg_hr'] = (int) $w['avg_heart_rate'];
+            }
+            if (!empty($w['rating'])) {
+                $ratingLabels = [1 => 'очень тяжело', 2 => 'тяжело', 3 => 'нормально', 4 => 'хорошо', 5 => 'отлично'];
+                $entry['feeling'] = $ratingLabels[(int) $w['rating']] ?? (int) $w['rating'];
+            }
+            $notes = trim($w['notes'] ?? '');
+            if ($notes !== '') {
+                $entry['notes'] = mb_strlen($notes) > 300 ? mb_substr($notes, 0, 297) . '…' : $notes;
+            }
+            $formatted[] = $entry;
+        }
+
+        $result = [
+            'period' => "{$dateFrom} — {$dateTo}",
+            'total_workouts' => count($formatted),
+            'total_km' => round($totalKm, 1),
+            'workouts' => $formatted,
+        ];
+        if (count($formatted) >= $limit) {
+            $result['note'] = 'Показаны последние ' . $limit . ' тренировок за период.';
+        }
+        return json_encode($result);
+    }
+
+    private function executeGetDayDetails(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $date = $args['date'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
+        }
+
+        $details = $this->contextBuilder->getDayDetails($userId, $date);
+
+        $result = ['date' => $date];
+
+        if ($details['plan']) {
+            $result['plan'] = $details['plan'];
+        } else {
+            $result['plan'] = null;
+            $result['plan_message'] = 'На этот день нет запланированной тренировки';
+        }
+
+        if (!empty($details['exercises'])) {
+            $exFormatted = [];
+            foreach ($details['exercises'] as $ex) {
+                $e = ['category' => $ex['category'], 'name' => $ex['name']];
+                if (!empty($ex['sets'])) $e['sets'] = (int) $ex['sets'];
+                if (!empty($ex['reps'])) $e['reps'] = (int) $ex['reps'];
+                if (!empty($ex['distance_m'])) $e['distance_m'] = (int) $ex['distance_m'];
+                if (!empty($ex['duration_sec'])) $e['duration_sec'] = (int) $ex['duration_sec'];
+                if (!empty($ex['weight_kg'])) $e['weight_kg'] = (float) $ex['weight_kg'];
+                if (!empty($ex['pace'])) $e['pace'] = $ex['pace'];
+                $exFormatted[] = $e;
+            }
+            $result['exercises'] = $exFormatted;
+        }
+
+        if ($details['workout']) {
+            $w = $details['workout'];
+            $workout = ['completed' => true];
+            if (!empty($w['distance_km'])) $workout['distance_km'] = (float) $w['distance_km'];
+            if (!empty($w['result_time']) && $w['result_time'] !== '0:00:00') $workout['time'] = $w['result_time'];
+            if (!empty($w['pace']) && $w['pace'] !== '0:00') $workout['pace'] = $w['pace'];
+            if (!empty($w['avg_heart_rate'])) $workout['avg_hr'] = (int) $w['avg_heart_rate'];
+            if (!empty($w['max_heart_rate'])) $workout['max_hr'] = (int) $w['max_heart_rate'];
+            if (!empty($w['avg_cadence'])) $workout['cadence'] = (int) $w['avg_cadence'];
+            if (!empty($w['elevation_gain'])) $workout['elevation_m'] = (int) $w['elevation_gain'];
+            if (!empty($w['calories'])) $workout['calories'] = (int) $w['calories'];
+            if (!empty($w['rating'])) {
+                $ratingLabels = [1 => 'очень тяжело', 2 => 'тяжело', 3 => 'нормально', 4 => 'хорошо', 5 => 'отлично'];
+                $workout['feeling'] = $ratingLabels[(int) $w['rating']] ?? (int) $w['rating'];
+            }
+            $notes = trim($w['notes'] ?? '');
+            if ($notes !== '') {
+                $workout['notes'] = mb_strlen($notes) > 500 ? mb_substr($notes, 0, 497) . '…' : $notes;
+            }
+            $result['workout'] = $workout;
+        } else {
+            $result['workout'] = null;
+            $result['workout_message'] = 'Тренировка не выполнена';
+        }
+
+        return json_encode($result);
+    }
+
+    /**
+     * Tool: update_training_day — изменить или заменить тренировку на конкретную дату.
+     * Находит day_id по дате, обновляет тип и описание через WeekService.
+     */
+    private function executeUpdateTrainingDay(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $date = $args['date'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
+        }
+        $type = $args['type'] ?? null;
+        $allowed = ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free'];
+        if (!$type || !in_array($type, $allowed, true)) {
+            return json_encode(['error' => 'invalid_type', 'message' => 'Допустимые типы: ' . implode(', ', $allowed)]);
+        }
+
+        $dayId = $this->findDayIdByDate($userId, $date);
+
+        if (!$dayId) {
+            return json_encode([
+                'error' => 'no_plan_for_date',
+                'message' => "На дату {$date} нет запланированной тренировки. Используй add_training_day."
+            ]);
+        }
+
+        try {
+            require_once __DIR__ . '/WeekService.php';
+            $weekService = new WeekService($this->db);
+
+            $data = ['type' => $type];
+            if (isset($args['description'])) {
+                $data['description'] = $args['description'];
+            }
+            if ($type === 'rest') {
+                $data['description'] = $data['description'] ?? 'Отдых';
+                $data['is_key_workout'] = 0;
+            }
+
+            $weekService->updateTrainingDayById($dayId, $userId, $data);
+
+            $typeRu = [
+                'easy' => 'Лёгкий бег', 'long' => 'Длительный бег', 'tempo' => 'Темповый бег',
+                'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
+                'rest' => 'Отдых', 'other' => 'Другое', 'sbu' => 'СБУ/ОФП', 'race' => 'Забег', 'free' => 'Свободная'
+            ];
+            $typeName = $typeRu[$type] ?? $type;
+
+            $dt = DateTime::createFromFormat('Y-m-d', $date);
+            $dateFormatted = $dt ? $dt->format('d.m.Y') : $date;
+
+            return json_encode([
+                'success' => true,
+                'message' => "Тренировка на {$dateFormatted} изменена на «{$typeName}»"
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'update_failed',
+                'message' => 'Не удалось обновить: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Найти day_id плана по дате для заданного пользователя.
+     */
+    private function findDayIdByDate(int $userId, string $date): ?int {
+        $stmt = $this->db->prepare(
+            "SELECT d.id FROM training_plan_days d 
+             JOIN training_plan_weeks w ON d.week_id = w.id 
+             WHERE w.user_id = ? AND d.date = ? 
+             ORDER BY d.id DESC LIMIT 1"
+        );
+        if (!$stmt) return null;
+        $stmt->bind_param('is', $userId, $date);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? (int) $row['id'] : null;
+    }
+
+    private function executeRecalculatePlan(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        try {
+            $reason = !empty($args['reason']) ? trim($args['reason']) : null;
+            require_once __DIR__ . '/TrainingPlanService.php';
+            $planService = new TrainingPlanService($this->db);
+            $result = $planService->recalculatePlan($userId, $reason);
+            return json_encode([
+                'success' => true,
+                'message' => 'Пересчёт плана запущен. Новый план будет готов через 3-5 минут.',
+                'pid' => $result['pid'] ?? null
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'recalculate_failed',
+                'message' => 'Не удалось запустить пересчёт: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    private function executeGenerateNextPlan(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        try {
+            $goals = !empty($args['goals']) ? trim($args['goals']) : null;
+            require_once __DIR__ . '/TrainingPlanService.php';
+            $planService = new TrainingPlanService($this->db);
+            $result = $planService->generateNextPlan($userId, $goals);
+            return json_encode([
+                'success' => true,
+                'message' => 'Генерация нового плана запущена. План будет готов через 3-5 минут.',
+                'pid' => $result['pid'] ?? null
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'generate_next_failed',
+                'message' => 'Не удалось запустить генерацию: ' . $e->getMessage()
+            ]);
+        }
     }
 
     /**

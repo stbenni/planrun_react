@@ -7,9 +7,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import usePlanStore from '../stores/usePlanStore';
 import { useChatUnread } from '../hooks/useChatUnread';
+import { useIsTabActive } from '../hooks/useIsTabActive';
 import { ChatSSE } from '../services/ChatSSE';
 import { getAvatarSrc } from '../utils/avatarUrl';
+import SkeletonScreen from '../components/common/SkeletonScreen';
 import './ChatScreen.css';
 
 const TAB_AI = 'ai';
@@ -24,6 +27,7 @@ const SYSTEM_CHATS = [
 const ADMIN_CHAT = { id: TAB_ADMIN_MODE, label: 'Администраторский', icon: '👥', description: 'Сообщения от пользователей' };
 
 const ChatScreen = () => {
+  const isTabActive = useIsTabActive('/chat');
   const location = useLocation();
   const { api, user } = useAuthStore();
   const { total: unreadTotal = 0, by_type: unreadByType = {} } = useChatUnread();
@@ -55,6 +59,8 @@ const ChatScreen = () => {
   const [sending, setSending] = useState(false);
   const [streamPhase, setStreamPhase] = useState(null);
   const [error, setError] = useState(null);
+  const [recalcMessage, setRecalcMessage] = useState(null);
+  const [nextPlanMessage, setNextPlanMessage] = useState(null);
   const [mobileListVisible, setMobileListVisible] = useState(!openAdminModeFromState && !openAdminTabFromState);
 
   // Admin mode: пользователи и сообщения
@@ -69,8 +75,8 @@ const ChatScreen = () => {
   const tabRef = useRef(selectedChat);
   tabRef.current = selectedChat;
   const isMountedRef = useRef(true);
-  const isChatTabVisibleRef = useRef(location.pathname === '/chat');
-  isChatTabVisibleRef.current = location.pathname === '/chat';
+  const isChatTabVisibleRef = useRef(isTabActive);
+  isChatTabVisibleRef.current = isTabActive;
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
@@ -173,19 +179,20 @@ const ChatScreen = () => {
 
   // При возврате в чат — подгружаем свежие сообщения с сервера (ответ ИИ мог прийти в фоне)
   useEffect(() => {
-    if (location.pathname === '/chat' && api) loadMessages();
-  }, [location.pathname, api, loadMessages]);
+    if (isTabActive && api) loadMessages();
+  }, [isTabActive, api, loadMessages]);
 
   // При открытии чата (AI или «От администрации») помечаем сообщения прочитанными
   useEffect(() => {
+    if (!isTabActive) return;
     if ((selectedChat === TAB_AI || selectedChat === TAB_ADMIN) && conversationId && api) {
       api.chatMarkRead(conversationId).catch(() => {});
     }
-  }, [selectedChat, conversationId, api]);
+  }, [isTabActive, selectedChat, conversationId, api]);
 
   // Автопрочитывание: когда в открытом чате приходят новые сообщения (SSE), помечаем их прочитанными
   useEffect(() => {
-    if (!api) return;
+    if (!api || !isTabActive) return;
     const onUnread = () => {
       if (selectedChat === TAB_AI && conversationId) {
         api.chatMarkRead(conversationId).catch(() => {});
@@ -197,7 +204,7 @@ const ChatScreen = () => {
     };
     ChatSSE.subscribe(onUnread);
     return () => ChatSSE.unsubscribe(onUnread);
-  }, [api, selectedChat, conversationId, isAdmin, selectedChatUser?.id]);
+  }, [api, isTabActive, selectedChat, conversationId, isAdmin, selectedChatUser?.id]);
 
   useEffect(() => {
     if (scrollToMessageId && messages.length > 0 && selectedChat === TAB_ADMIN) {
@@ -309,7 +316,23 @@ const ChatScreen = () => {
           });
         }
       },
-      { onFirstChunk: () => isChatTabVisibleRef.current && setStreamPhase('streaming'), timeoutMs: 180000 }
+      {
+        onFirstChunk: () => isChatTabVisibleRef.current && setStreamPhase('streaming'),
+        onPlanUpdated: () => usePlanStore.getState().loadPlan(),
+        onPlanRecalculating: () => {
+          if (isChatTabVisibleRef.current) {
+            setRecalcMessage('Пересчёт плана запущен. Обновите календарь через 3–5 минут.');
+            setTimeout(() => setRecalcMessage(null), 8000);
+          }
+        },
+        onPlanGeneratingNext: () => {
+          if (isChatTabVisibleRef.current) {
+            setNextPlanMessage('Новый план генерируется. Обновите календарь через 3–5 минут.');
+            setTimeout(() => setNextPlanMessage(null), 8000);
+          }
+        },
+        timeoutMs: 180000,
+      }
     )
       .then((fullContent) => {
         if (!fullContent) {
@@ -442,7 +465,10 @@ const ChatScreen = () => {
         )}
       </div>
       {chatUsersLoading ? (
-        <div className="chat-loading" style={{ padding: 'var(--space-4)' }}>Загрузка...</div>
+        <div className="chat-loading" style={{ padding: 'var(--space-4)' }}>
+          <div className="skeleton-line" style={{ width: '60%', height: 14 }}></div>
+          <div className="skeleton-line" style={{ width: '40%', height: 14 }}></div>
+        </div>
       ) : chatUsers.length === 0 ? (
         <div className="chat-empty" style={{ padding: 'var(--space-4)' }}>Пока никто не написал</div>
       ) : (
@@ -548,7 +574,11 @@ const ChatScreen = () => {
         </div>
         <div className="chat-messages">
           {chatAdminLoading ? (
-            <div className="chat-loading">Загрузка...</div>
+            <div className="chat-loading">
+              <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
+              <div className="skeleton-line" style={{ width: '50%', height: 14 }}></div>
+              <div className="skeleton-line" style={{ width: '60%', height: 14, marginLeft: 'auto' }}></div>
+            </div>
           ) : chatAdminMessages.length === 0 ? (
             <div className="chat-empty">Сообщений пока нет. Напишите первым.</div>
           ) : (
@@ -629,7 +659,11 @@ const ChatScreen = () => {
       </div>
       <div className="chat-messages">
         {loading ? (
-          <div className="chat-loading">Загрузка...</div>
+          <div className="chat-loading">
+            <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
+            <div className="skeleton-line" style={{ width: '45%', height: 14 }}></div>
+            <div className="skeleton-line" style={{ width: '60%', height: 14, marginLeft: 'auto' }}></div>
+          </div>
         ) : messages.length === 0 ? (
           <div className="chat-empty">
             <p>
@@ -698,6 +732,12 @@ const ChatScreen = () => {
         <div className="chat-error" role="alert">
           {error}
           <button type="button" onClick={() => setError(null)} aria-label="Закрыть">×</button>
+        </div>
+      )}
+      {(recalcMessage || nextPlanMessage) && isAiChat && (
+        <div className="chat-info" role="status">
+          {recalcMessage || nextPlanMessage}
+          <button type="button" onClick={() => { setRecalcMessage(null); setNextPlanMessage(null); }} aria-label="Закрыть">×</button>
         </div>
       )}
       <form className="chat-input-form" onSubmit={handleSubmit}>

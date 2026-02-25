@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
+import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -60,10 +61,10 @@ const TopHeader = () => {
   }, [user?.avatar_path]);
 
   const navItems = [
-    { id: 'home', path: '/', icon: '🏠', label: 'Главная' },
-    { id: 'calendar', path: '/calendar', icon: '📅', label: 'Календарь' },
-    { id: 'stats', path: '/stats', icon: '📊', label: 'Статистика' },
-    { id: 'trainers', path: '/trainers', icon: '👟', label: 'Тренеры' }
+    { id: 'home', path: '/', Icon: NavIconHome, label: 'Дэшборд' },
+    { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
+    { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
+    { id: 'trainers', path: '/trainers', Icon: NavIconTrainers, label: 'Тренеры' }
   ];
 
   const isActive = (path) => {
@@ -127,22 +128,25 @@ const TopHeader = () => {
         </div>
 
         <nav className="top-header-nav">
-          {navItems.map(item => (
-            <button
-              key={item.id}
-              className={`top-nav-item ${isActive(item.path) ? 'active' : ''}`}
-              onClick={() => navigate(item.path)}
-              aria-label={item.label}
-            >
-              <span className="top-nav-icon">{item.icon}</span>
-              <span className="top-nav-label">{item.label}</span>
-            </button>
-          ))}
+          {navItems.map(item => {
+            const Icon = item.Icon;
+            return (
+              <button
+                key={item.id}
+                className={`top-nav-item ${isActive(item.path) ? 'active' : ''}`}
+                onClick={() => navigate(item.path)}
+                aria-label={item.label}
+              >
+                <span className="top-nav-icon">{Icon ? <Icon /> : null}</span>
+                <span className="top-nav-label">{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         {user && (
         <div className="top-header-actions">
-            {needsOnboarding && (
+            {needsOnboarding && !isMobile && (
               <button type="button" className="top-header-onboarding-btn" onClick={() => setShowOnboardingModal(true)}>
                 Настроить план
               </button>

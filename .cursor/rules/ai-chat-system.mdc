@@ -1,0 +1,101 @@
+---
+description: Архитектура и правила AI-чата (тренер по бегу)
+globs: planrun-backend/services/ChatService.php,planrun-backend/services/ChatContextBuilder.php,src/screens/ChatScreen.jsx,src/api/ApiClient.js,src/services/ChatStreamWorker.js,src/workers/chatStream.worker.js,api/chat_sse.php
+alwaysApply: false
+---
+
+# AI-чат: архитектура и правила
+
+## 1. Инфраструктура
+
+- **Модель:** `mistralai/ministral-3-14b-reasoning` в LM Studio (`127.0.0.1:1234`), Tesla V100 16GB.
+- **Протокол:** OpenAI-совместимый API (`/v1/chat/completions`), поддержка function calling (tools).
+- **Конфиг:** `planrun-backend/.env` — ключевые переменные:
+  - `CHAT_USE_PLANRUN_AI=0` — напрямую LM Studio (tools работают). `=1` — через PlanRun AI (tools **отключены**).
+  - `CHAT_TOOLS_ENABLED=1` — function calling включён.
+  - `CHAT_MAX_TOKENS=16384` — лимит для V100 16GB.
+  - `CHAT_FALLBACK_TO_PLANRUN_AI=1` — fallback при ошибке LM Studio.
+
+## 2. Поток данных (streaming)
+
+```
+Фронт (ChatScreen) → ApiClient.chatSendMessageStream() → POST /api_wrapper.php?action=chat_send_message_stream
+  → ChatController::sendMessageStream() → ChatService::streamResponse()
+    1. buildContextForUser() — контекст (профиль, план, статистика, coaching insights, память)
+    2. appendChatSearchSnippet() — поиск по истории чата
+    3. appendRagSnippet() — RAG из базы знаний (если CHAT_RAG_ENABLED=1)
+    4. buildChatMessages() — system prompt + контекст + история + текущий вопрос
+    5. resolveToolCalls() — НЕ-streaming вызов LLM с tools, цикл до 5 раундов
+    6. callLlmStream() — streaming финального ответа (NDJSON: {"chunk":"..."})
+    7. sanitizeResponse() — очистка [THINK], английских утечек
+    8. parseAndExecuteActions() — парсинг ACTION-блоков (add_training_day)
+```
+
+Фронт читает NDJSON-чанки через `fetch` + `ReadableStream` (в `ApiClient.js`).
+
+## 3. Tools (function calling)
+
+7 инструментов, определены в `ChatService::getChatTools()`:
+
+| Tool | Тип | Описание |
+|------|-----|----------|
+| `get_date(phrase)` | read | Преобразование «завтра», «в среду» → Y-m-d |
+| `get_plan(week_number\|date)` | read | План на неделю из БД (fallback: date=today при отсутствии аргументов) |
+| `get_workouts(date_from, date_to)` | read | История тренировок за период (лимит 100) |
+| `get_day_details(date)` | read | Полные детали дня: план + упражнения + результат |
+| `update_training_day(date, type, description)` | **write** | Изменить запланированную тренировку |
+| `recalculate_plan(reason?)` | **write** | Пересчёт плана (async 3-5 мин) |
+| `generate_next_plan(goals?)` | **write** | Новый план после завершения предыдущего (async 3-5 мин) |
+
+- Tools работают **только** при `CHAT_USE_PLANRUN_AI=0` и `CHAT_TOOLS_ENABLED=1`.
+- В streaming: tools резолвятся **до** стриминга текста (в `resolveToolCalls`).
+- NDJSON-флаги:
+  - `plan_updated` — при `update_training_day` или успешном `add_training_day` (ACTION) → фронт вызывает `loadPlan()`.
+  - `plan_recalculating` — при `recalculate_plan` → фронт показывает уведомление «Пересчёт плана запущен...».
+  - `plan_generating_next` — при `generate_next_plan` → фронт показывает «Новый план генерируется...».
+
+## 4. Контекст пользователя (ChatContextBuilder)
+
+`buildContextForUser()` собирает блоки:
+
+1. **ПРОФИЛЬ** — пол, возраст, вес, уровень, цель, дата забега, темп, дни бега, ограничения здоровья.
+2. **ТЕКУЩИЙ ПЛАН** — текущая неделя с типами дней и описаниями.
+3. **СТАТИСТИКА** — выполнено X из Y дней плана (Z%).
+4. **ТРЕНЕРСКАЯ СВОДКА** — краткие coaching insights (не полные тренировки!):
+   - Последняя тренировка (когда, тип, дистанция, ощущение).
+   - `⚠` сигналы: пауза > 4 дней, тяжёлое ощущение, пропуски > 3 за 2 недели, скачок нагрузки > 30%.
+   - Км за эту неделю, выполнение плана за 2 недели.
+5. **ПАМЯТЬ** — `chat_user_memory.content` (привычки, решения, предпочтения).
+6. **СУММАРИЗАЦИЯ** — `chat_user_memory.history_summary` (сжатая старая история).
+
+Полные данные тренировок AI получает **через tools**, не через контекст.
+
+## 5. Системный промпт (персона)
+
+Определён в `buildChatMessages()`. Ключевые правила:
+- **Персона:** опытный тренер, дружелюбный, краткий, конкретный, эмпатичный, мотивирующий.
+- **Язык:** только русский, даты в русском формате, без reasoning-утечек.
+- **Поведение:** при жалобах → эмпатия + предложение замены; при пропусках → без укоров; при прогрессе → похвала.
+- **Добавление тренировки:** блок `<!-- ACTION add_training_day ... -->` (парсится в `parseAndExecuteActions`).
+- **Изменение тренировки:** tool `update_training_day` (обязательно подтверждение пользователя).
+
+## 6. Reasoning-фильтрация
+
+Ministral генерирует `[THINK]...[/THINK]` блоки. Фильтрация:
+- **В стриминге:** буферизация чанков внутри `[THINK]`/`<think>`, пользователь не видит.
+- **В sanitizeResponse:** regex-очистка `[THINK]...[/THINK]` и `<think>...</think>`.
+- Также чистятся: `<|channel|>`, англоязычные reasoning-префиксы, термины (recovery → восстановление).
+
+## 7. Добавление нового tool
+
+1. Описать в `getChatTools()` (name, description, parameters).
+2. Добавить dispatch в `executeTool()`.
+3. Добавить метод `executeNewTool()`.
+4. Если tool меняет данные — отправить `{"plan_updated": true}` в stream (как `update_training_day`).
+5. Обновить system prompt в `buildChatMessages()`.
+
+## 8. БД
+
+- `chat_conversations` — разговоры (user_id, type: ai|admin|coach).
+- `chat_messages` — сообщения (conversation_id, sender_type, content, metadata).
+- `chat_user_memory` — постоянная память + history_summary.

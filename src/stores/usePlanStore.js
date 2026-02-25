@@ -130,6 +130,100 @@ const usePlanStore = create((set, get) => ({
     }
   },
 
+  recalculating: false,
+
+  recalculatePlan: async (reason = null) => {
+    const { api } = useAuthStore.getState();
+    if (!api) {
+      set({ error: 'API client not initialized' });
+      return false;
+    }
+
+    set({ recalculating: true, error: null });
+
+    try {
+      await api.recalculatePlan(reason);
+
+      const poll = async (attempts = 0) => {
+        if (attempts >= 40) {
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          await get().loadPlan();
+          set({ recalculating: false, error: 'Время ожидания пересчёта истекло. План восстановлен.' });
+          return false;
+        }
+        await new Promise(r => setTimeout(r, 5000));
+        const status = await api.checkPlanStatus();
+        if (status?.has_plan) {
+          await get().loadPlan();
+          set({ recalculating: false });
+          return true;
+        }
+        if (status?.error) {
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          await get().loadPlan();
+          set({ recalculating: false, error: status.error });
+          return false;
+        }
+        return poll(attempts + 1);
+      };
+
+      return await poll();
+    } catch (error) {
+      set({
+        error: error.message || 'Ошибка пересчёта плана',
+        recalculating: false
+      });
+      return false;
+    }
+  },
+
+  generatingNext: false,
+
+  generateNextPlan: async (goals = null) => {
+    const { api } = useAuthStore.getState();
+    if (!api) {
+      set({ error: 'API client not initialized' });
+      return false;
+    }
+
+    set({ generatingNext: true, error: null });
+
+    try {
+      await api.generateNextPlan(goals);
+
+      const poll = async (attempts = 0) => {
+        if (attempts >= 50) {
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          await get().loadPlan();
+          set({ generatingNext: false, error: 'Время ожидания генерации нового плана истекло. План восстановлен.' });
+          return false;
+        }
+        await new Promise(r => setTimeout(r, 5000));
+        const status = await api.checkPlanStatus();
+        if (status?.has_plan) {
+          await get().loadPlan();
+          set({ generatingNext: false });
+          return true;
+        }
+        if (status?.error) {
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          await get().loadPlan();
+          set({ generatingNext: false, error: status.error });
+          return false;
+        }
+        return poll(attempts + 1);
+      };
+
+      return await poll();
+    } catch (error) {
+      set({
+        error: error.message || 'Ошибка генерации нового плана',
+        generatingNext: false
+      });
+      return false;
+    }
+  },
+
   // Очистка плана
   clearPlan: () => {
     set({ 

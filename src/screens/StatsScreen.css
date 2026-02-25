@@ -1623,8 +1623,8 @@
 }
 
 .progress-value {
-  font-size: 48px;
-  font-weight: 700;
+  font-size: var(--text-5xl);
+  font-weight: var(--font-bold);
   color: var(--primary-500);
   line-height: 1;
 }

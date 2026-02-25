@@ -176,6 +176,22 @@
   color: var(--gray-700, #374151);
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.key-workout-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-500);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .key-workout-dot {
+  background: var(--primary-400);
 }
 
 .workout-distance {

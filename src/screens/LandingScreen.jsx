@@ -88,6 +88,14 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
                 >
                   🔥 Сгенерировать AI‑план
                 </button>
+                <a
+                  href="/planrun.apk"
+                  className="btn-landing btn-landing-secondary"
+                  style={{ marginLeft: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                  download="planrun.apk"
+                >
+                  📱 Скачать приложение Android
+                </a>
               </div>
             </div>
             

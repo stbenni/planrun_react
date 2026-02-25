@@ -258,221 +258,41 @@
   border-top-color: var(--card-border);
 }
 
-/* Модалка «Отметить тренировку» */
-.result-modal-body {
-  padding: var(--space-6);
-}
-
-.result-modal-block-title {
-  font-weight: var(--font-semibold);
-  font-size: var(--text-sm);
-  color: var(--gray-700);
-  margin: var(--space-4) 0 var(--space-2) 0;
-}
-.result-modal-body .result-modal-block-title:first-child {
-  margin-top: 0;
-}
-
-.result-modal-planned {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  background: var(--gray-50);
-  border-radius: var(--radius-md);
-}
-.result-modal-planned-list {
-  margin: 0;
-  padding-left: 1.25rem;
-  font-size: var(--text-sm);
-  color: var(--gray-700);
-}
-.result-modal-planned-list li {
-  margin-bottom: var(--space-1);
-}
-.result-modal-planned-type {
-  font-weight: var(--font-medium);
-}
-.result-modal-planned-desc {
-  color: var(--gray-600);
-}
-.result-modal-planned-desc-multiline {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.result-modal-run-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
+/* Модалка «Отметить тренировку» — теперь variant=modern, стили из AddTrainingModal.css */
+.result-modal-planned-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin: 0 0 var(--space-2) 0;
 }
 
 .result-modal-hint {
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  margin: 0 0 var(--space-2) 0;
-}
-
-.result-modal-add-exercise {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-.result-modal-select-cat {
-  width: 70px;
-  padding: var(--space-2) var(--space-2);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-.result-modal-input-name {
-  flex: 1;
-  min-width: 100px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
-}
-.result-modal-input-small {
-  width: 56px;
-  padding: var(--space-2);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-.result-modal-sep {
-  color: var(--gray-500);
-  font-size: var(--text-sm);
-}
-.result-modal-additional-list {
-  list-style: none;
-  margin: 0 0 var(--space-4) 0;
-  padding: 0;
-  font-size: var(--text-sm);
-}
-.result-modal-additional-list li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-1);
-  background: var(--gray-50);
-  border-radius: var(--radius-md);
-}
-.result-modal-additional-name {
-  flex: 1;
-}
-.result-modal-remove-ex {
-  padding: 0 var(--space-2);
-  font-size: 1.2rem;
-  line-height: 1;
-  min-width: auto;
-  border: none;
-  background: transparent;
-  color: var(--gray-500);
-  cursor: pointer;
-}
-.result-modal-remove-ex:hover {
-  color: var(--gray-800);
-}
-
-.result-modal-section {
-  margin-bottom: var(--space-4);
-    
-}
-
-.result-modal-section .result-modal-block-title {
-  margin-top: var(--space-4);
-}
-.result-modal-planned-block {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  background: var(--gray-50);
-  border-radius: var(--radius-md);
-}
-.result-modal-planned-subtitle {
-  font-size: var(--text-xs);
-  color: var(--gray-500);
-  margin-bottom: var(--space-2);
-}
-.result-modal-checklist {
-  list-style: none;
-  padding-left: 0;
-  margin: 0;
-}
-.result-modal-checklist-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--gray-200);
-  font-size: var(--text-sm);
-}
-.result-modal-checklist-item:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-}
-.result-modal-checklist-name {
-  font-weight: var(--font-medium);
-  min-width: 120px;
-}
-.result-modal-checklist-plan {
-  color: var(--gray-500);
-  font-size: var(--text-xs);
-}
-.result-modal-checklist-done {
-  margin-left: auto;
-  color: var(--gray-600);
-  font-size: var(--text-xs);
-}
-.result-modal-input-tiny {
-  width: 48px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-}
-.result-modal-add-own {
-  margin-top: var(--space-2);
-}
-.result-modal-add-own-label {
-  display: block;
-  font-size: var(--text-xs);
-  color: var(--gray-500);
-  margin-bottom: var(--space-1);
-}
-.result-modal-add-own .result-modal-add-exercise {
-  margin-bottom: var(--space-2);
+  text-align: center;
+  padding: var(--space-6) 0;
 }
 
 .result-modal-add-own-wrap {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 .result-modal-add-own-btn {
   font-size: var(--text-sm);
+  width: 100%;
 }
+
 .result-modal-add-type-wrap {
-  margin-top: var(--space-4);
-  margin-bottom: var(--space-2);
   position: relative;
 }
 .result-modal-add-type-btn {
   width: 100%;
   font-size: var(--text-sm);
 }
-.result-modal-add-type-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 .result-modal-add-type-dropdown {
   margin-top: var(--space-2);
   padding: var(--space-2);
   background: var(--gray-50);
   border: 1px solid var(--gray-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -481,35 +301,28 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: white;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
   cursor: pointer;
   font-size: var(--text-sm);
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 .result-modal-add-type-option:hover {
   border-color: var(--primary-400);
-  background: var(--gray-50);
+  background: var(--primary-50);
 }
 .result-modal-add-type-icon {
   font-size: 1.2em;
 }
 
-/* Анимация появления добавленного типа тренировки */
 .result-modal-type-block-enter {
   animation: resultModalTypeBlockEnter 0.35s ease-out;
 }
 @keyframes resultModalTypeBlockEnter {
-  from {
-    opacity: 0;
-    transform: translateY(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 [data-theme="dark"] .result-modal-add-type-dropdown {
@@ -524,19 +337,6 @@
 [data-theme="dark"] .result-modal-add-type-option:hover {
   border-color: var(--primary-400);
   background: var(--bg-tertiary);
-}
-
-[data-theme="dark"] .result-modal-planned,
-[data-theme="dark"] .result-modal-planned-block,
-[data-theme="dark"] .result-modal-additional-list li {
-  background: var(--bg-tertiary);
-}
-[data-theme="dark"] .result-modal-block-title,
-[data-theme="dark"] .result-modal-planned-type {
-  color: var(--text-primary);
-}
-[data-theme="dark"] .result-modal-planned-desc {
-  color: var(--text-secondary);
 }
 
 .form-actions {

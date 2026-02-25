@@ -88,10 +88,9 @@ function App() {
   };
 
   const handleRegister = async (userData) => {
-    // После регистрации пользователь автоматически авторизован через сессию
-    updateUser(userData || { authenticated: true });
-    // Убеждаемся что isAuthenticated установлен
-    useAuthStore.setState({ isAuthenticated: true });
+    // После регистрации пользователь автоматически авторизован через сессию.
+    // Один источник истины: updateUser выставляет и user, и isAuthenticated.
+    updateUser(userData && typeof userData === 'object' ? { ...userData, authenticated: true } : { authenticated: true });
   };
 
   return (

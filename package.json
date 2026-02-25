@@ -1,6 +1,6 @@
 {
   "name": "planrun-web",
-  "version": "1.0.7",
+  "version": "1.1",
   "description": "PlanRun Web App - React",
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx",
-    "apk": "npm run build && rm -rf android/app/src/main/assets/public && cp -r dist android/app/src/main/assets/public && cp capacitor.config.json android/app/src/main/assets/ && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleDebug && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk test.apk"
+    "apk": "npm run build && rm -rf android/app/src/main/assets/public && cp -r dist android/app/src/main/assets/public && cp capacitor.config.json android/app/src/main/assets/ && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleDebug && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk test.apk && cp test.apk public/planrun.apk && npm run build"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",
@@ -18,8 +18,8 @@
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/preferences": "^8.0.0",
     "@dnd-kit/core": "^6.3.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
     "react-router-dom": "^6.20.0",
     "zustand": "^5.0.10"
   },

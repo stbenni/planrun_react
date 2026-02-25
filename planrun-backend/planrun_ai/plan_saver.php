@@ -1,245 +1,342 @@
 <?php
 /**
- * Сохранение плана тренировок в БД
- * Конвертирует план из формата RAG API в структуру БД
+ * Сохранение плана тренировок в БД.
+ *
+ * Использует plan_normalizer.php для нормализации сырого плана от ИИ,
+ * затем сохраняет нормализованные данные в таблицы:
+ *   training_plan_weeks → training_plan_days → training_day_exercises
+ *
+ * Вся операция обёрнута в транзакцию — при ошибке откатывается,
+ * старый план остаётся нетронутым.
  */
 
 require_once __DIR__ . '/../db_config.php';
+require_once __DIR__ . '/../cache_config.php';
+require_once __DIR__ . '/plan_normalizer.php';
+
+const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek', 'control'];
 
 /**
- * Сохранение плана тренировок в БД
- * 
- * @param mysqli $db Соединение с БД
- * @param int $userId ID пользователя
- * @param array $planData Данные плана из RAG API
+ * Сохранение плана тренировок в БД.
+ *
+ * @param mysqli $db       Соединение с БД
+ * @param int    $userId   ID пользователя
+ * @param array  $planData Данные плана из RAG API (сырой или уже нормализованный)
  * @param string $startDate Дата начала тренировок (YYYY-MM-DD)
  * @return void
  * @throws Exception
  */
 function saveTrainingPlan($db, $userId, $planData, $startDate) {
-    if (!isset($planData['weeks']) || !is_array($planData['weeks'])) {
-        throw new Exception("План не содержит данных о неделях");
+    $normalized = normalizeTrainingPlan($planData, $startDate);
+
+    foreach ($normalized['warnings'] as $w) {
+        error_log("saveTrainingPlan (user {$userId}): {$w}");
     }
-    
-    $startDateTime = new DateTime($startDate);
-    
-    // Удаляем старый план пользователя
-    $deleteDaysStmt = $db->prepare("DELETE FROM training_plan_days WHERE user_id = ?");
-    $deleteDaysStmt->bind_param('i', $userId);
-    $deleteDaysStmt->execute();
-    $deleteDaysStmt->close();
-    
-    $deleteWeeksStmt = $db->prepare("DELETE FROM training_plan_weeks WHERE user_id = ?");
-    $deleteWeeksStmt->bind_param('i', $userId);
-    $deleteWeeksStmt->execute();
-    $deleteWeeksStmt->close();
-    
-    // Маппинг типов тренировок
-    // ВАЖНО: Используем только значения из ENUM колонки type в БД:
-    // 'rest','tempo','interval','long','race','other','free','easy','sbu','fartlek'
-    $typeMap = [
-        'easy_run' => 'easy',
-        'easy' => 'easy',
-        'interval' => 'interval',
-        'tempo' => 'tempo',
-        'long_run' => 'long',
-        'long' => 'long',
-        'rest' => 'rest',
-        'ofp' => 'other',      // ОФП -> other (нет 'ofp' в ENUM)
-        'marathon' => 'long',   // Марафон -> long (нет 'marathon' в ENUM)
-        'control' => 'tempo',   // Контрольная -> tempo (нет 'control' в ENUM)
-        'race' => 'race',
-        'fartlek' => 'fartlek'
-    ];
-    
-    // Разрешенные типы из ENUM колонки
-    $allowedTypes = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek'];
-    
-    // Маппинг дней недели
-    $dayNameToNumber = [
-        'mon' => 1,
-        'tue' => 2,
-        'wed' => 3,
-        'thu' => 4,
-        'fri' => 5,
-        'sat' => 6,
-        'sun' => 7
-    ];
-    
-    // Сохраняем недели
-    foreach ($planData['weeks'] as $weekIndex => $week) {
-        $weekNumber = $week['week_number'] ?? ($weekIndex + 1);
-        
-        // Вычисляем дату начала недели
-        $weekStartDate = clone $startDateTime;
-        $weekStartDate->modify('+' . (($weekNumber - 1) * 7) . ' days');
-        
-        // Находим понедельник этой недели
-        $dayOfWeek = (int)$weekStartDate->format('N'); // 1 = Пн, 7 = Вс
-        if ($dayOfWeek > 1) {
-            $weekStartDate->modify('-' . ($dayOfWeek - 1) . ' days');
-        }
-        
-        // Вставляем неделю
-        $insertWeekStmt = $db->prepare("
-            INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume)
-            VALUES (?, ?, ?, ?)
-        ");
-        $totalVolume = 0;
-        $weekStartDateStr = $weekStartDate->format('Y-m-d');
-        $insertWeekStmt->bind_param('iisd', $userId, $weekNumber, $weekStartDateStr, $totalVolume);
-        $insertWeekStmt->execute();
-        $weekId = $db->insert_id;
-        $insertWeekStmt->close();
-        
-        if (!$weekId) {
-            throw new Exception("Ошибка создания недели {$weekNumber}");
-        }
-        
-        // Сохраняем дни недели
-        if (isset($week['days']) && is_array($week['days'])) {
-            foreach ($week['days'] as $dayIndex => $day) {
-                // Определяем день недели
-                $dayOfWeek = ($dayIndex % 7) + 1; // 1 = Пн, 7 = Вс
-                
-                // Вычисляем дату дня
-                $dayDate = clone $weekStartDate;
-                $dayDate->modify('+' . ($dayOfWeek - 1) . ' days');
-                
-                // Тип тренировки
-                $type = $day['type'] ?? 'rest';
-                $originalType = $type;
-                
-                // Применяем маппинг, если значение есть в мапе
-                if (isset($typeMap[$type])) {
-                    $type = $typeMap[$type];
-                } else {
-                    // Если значения нет в мапе, проверяем, может это уже разрешенное значение
-                    $type = trim(strtolower($type));
-                    if (!in_array($type, $allowedTypes, true)) {
-                        // Неизвестный тип - заменяем на 'rest'
-                        error_log("saveTrainingPlan: Неизвестный тип тренировки '{$originalType}', заменяем на 'rest'");
-                        $type = 'rest';
-                    }
-                }
-                
-                // Финальная валидация: гарантируем, что тип из разрешенного списка
-                if (!in_array($type, $allowedTypes, true)) {
-                    error_log("saveTrainingPlan: Тип '{$type}' не в списке разрешенных, заменяем на 'rest'");
+
+    $db->begin_transaction();
+
+    try {
+        // Удаляем старый план пользователя
+        $stmt = $db->prepare("DELETE FROM training_day_exercises WHERE user_id = ? AND plan_day_id IN (SELECT id FROM training_plan_days WHERE user_id = ?)");
+        $stmt->bind_param('ii', $userId, $userId);
+        $stmt->execute();
+        $stmt->close();
+
+        $stmt = $db->prepare("DELETE FROM training_plan_days WHERE user_id = ?");
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $stmt->close();
+
+        $stmt = $db->prepare("DELETE FROM training_plan_weeks WHERE user_id = ?");
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $stmt->close();
+
+        foreach ($normalized['weeks'] as $week) {
+            $stmt = $db->prepare(
+                "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
+            );
+            $wn = $week['week_number'];
+            $sd = $week['start_date'];
+            $tv = $week['total_volume'];
+            $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
+            $stmt->execute();
+            $weekId = $db->insert_id;
+            $stmt->close();
+
+            if (!$weekId) {
+                throw new Exception("Ошибка создания недели {$wn}");
+            }
+
+            foreach ($week['days'] as $day) {
+                $type = $day['type'];
+                if (!in_array($type, SAVER_ALLOWED_TYPES, true)) {
+                    error_log("saveTrainingPlan: invalid type '{$type}' for user {$userId}, defaulting to 'rest'");
                     $type = 'rest';
                 }
-                
-                // Описание
-                $description = trim($day['description'] ?? '');
-                if (empty($description) && isset($day['distance_km'])) {
-                    $description = "Бег {$day['distance_km']} км";
-                    if (isset($day['pace'])) {
-                        $description .= " в темпе {$day['pace']}";
-                    }
+
+                $stmt = $db->prepare(
+                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
+                $dow  = $day['day_of_week'];
+                $desc = $day['description'];
+                $isKey = $day['is_key_workout'] ? 1 : 0;
+                $date = $day['date'];
+                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
+                $stmt->execute();
+
+                if ($stmt->error) {
+                    $stmt->close();
+                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: " . $stmt->error);
                 }
-                
-                // Исправление: если модель вернула type=rest, но в описании бег или указана дистанция — день беговой (easy)
-                if ($type === 'rest') {
-                    $hasDistance = isset($day['distance_km']) && (float)$day['distance_km'] > 0;
-                    $descRunLike = $description !== '' && preg_match('/бег|км|темп|мин\/км|трусцой|лёгкий|легкий|дистанция|интервал/i', $description);
-                    if ($hasDistance || $descRunLike) {
-                        $type = 'easy';
-                        error_log("saveTrainingPlan: День с type=rest но с описанием/дистанцией бега — переопределён в easy");
-                    } else {
-                        $description = ''; // для настоящего отдыха описание пустое
-                    }
-                }
-                
-                // Ключевая тренировка (используем только разрешенные типы)
-                $isKeyWorkout = in_array($type, ['interval', 'tempo', 'long', 'race']);
-                
-                // Вставляем день
-                $insertDayStmt = $db->prepare("
-                    INSERT INTO training_plan_days 
-                    (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ");
-                $dayDateStr = $dayDate->format('Y-m-d');
-                $isKey = $isKeyWorkout ? 1 : 0;
-                $insertDayStmt->bind_param('iiissis', $userId, $weekId, $dayOfWeek, $type, $description, $isKey, $dayDateStr);
-                $insertDayStmt->execute();
+
                 $dayId = $db->insert_id;
-                $insertDayStmt->close();
-                
+                $stmt->close();
+
                 if (!$dayId) {
-                    error_log("Ошибка создания дня {$dayOfWeek} для недели {$weekNumber}");
-                    continue;
+                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: insert_id = 0");
                 }
-                
-                // Сохраняем упражнения (если есть дистанция) — бег
-                if (isset($day['distance_km']) && $day['distance_km'] > 0 && in_array($type, ['easy', 'long', 'tempo', 'interval', 'fartlek', 'race'])) {
-                    $distanceM = (float)$day['distance_km'] * 1000;
-                    
-                    $insertExerciseStmt = $db->prepare("
-                        INSERT INTO training_day_exercises 
-                        (user_id, plan_day_id, category, name, distance_m, duration_sec, notes)
-                        VALUES (?, ?, 'run', ?, ?, ?, ?)
-                    ");
-                    // Конвертируем минуты в секунды, если указано
-                    $durationSec = null;
-                    if (isset($day['duration_minutes']) && $day['duration_minutes'] > 0) {
-                        $durationSec = (int)($day['duration_minutes'] * 60);
-                    }
-                    $exerciseName = "Бег " . number_format($day['distance_km'], 1) . " км";
-                    $exerciseDesc = $description;
-                    $insertExerciseStmt->bind_param('iisdis', $userId, $dayId, $exerciseName, $distanceM, $durationSec, $exerciseDesc);
-                    $insertExerciseStmt->execute();
-                    if ($insertExerciseStmt->error) {
-                        error_log("Ошибка сохранения упражнения: " . $insertExerciseStmt->error);
-                        throw new Exception("Ошибка сохранения упражнения: " . $insertExerciseStmt->error);
-                    }
-                    $insertExerciseStmt->close();
-                    
-                    // Обновляем общий объем недели
-                    $totalVolume += (float)$day['distance_km'];
-                }
-                
-                // ОФП и СБУ: парсим description построчно (формат «как в чате») и сохраняем отдельные упражнения
-                if (in_array($type, ['other', 'sbu']) && $description !== '') {
-                    require_once __DIR__ . '/description_parser.php';
-                    $parsed = parseOfpSbuDescription($description, $type);
-                    $category = ($type === 'sbu') ? 'sbu' : 'ofp';
-                    $insOfpSbu = $db->prepare("
-                        INSERT INTO training_day_exercises 
-                        (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
-                        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-                    ");
-                    foreach ($parsed as $idx => $ex) {
-                        $sets = $ex['sets'] !== null ? (string)$ex['sets'] : null;
-                        $reps = $ex['reps'] !== null ? (string)$ex['reps'] : null;
-                        $distM = $ex['distance_m'];
-                        $durSec = $ex['duration_sec'];
-                        $wKg = $ex['weight_kg'];
-                        $notes = $ex['notes'];
-                        $insOfpSbu->bind_param('iissiiidisi',
-                            $userId, $dayId, $category, $ex['name'],
-                            $sets, $reps, $distM, $durSec, $wKg, $notes, $idx
+
+                foreach ($day['exercises'] as $ex) {
+                    if ($ex['category'] === 'run') {
+                        $stmt = $db->prepare(
+                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, notes)
+                             VALUES (?, ?, 'run', ?, ?, ?, ?)"
                         );
-                        $insOfpSbu->execute();
-                        if ($insOfpSbu->error) {
-                            error_log("Ошибка сохранения ОФП/СБУ упражнения: " . $insOfpSbu->error);
+                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                        $stmt->bind_param('iisiis',
+                            $userId, $dayId, $ex['name'], $distM, $durSec, $ex['notes']
+                        );
+                        $stmt->execute();
+                        if ($stmt->error) {
+                            error_log("saveTrainingPlan: run exercise error: " . $stmt->error);
                         }
+                        $stmt->close();
+                    } else {
+                        $stmt = $db->prepare(
+                            "INSERT INTO training_day_exercises
+                             (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
+                             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
+                        );
+                        $sets = $ex['sets'] !== null ? (int) $ex['sets'] : null;
+                        $reps = $ex['reps'] !== null ? (int) $ex['reps'] : null;
+                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                        $weightKg = $ex['weight_kg'] !== null ? (float) $ex['weight_kg'] : null;
+                        $orderIdx = (int) ($ex['order_index'] ?? 0);
+                        $stmt->bind_param('iissiiidisi',
+                            $userId, $dayId, $ex['category'], $ex['name'],
+                            $sets, $reps, $distM, $durSec, $weightKg,
+                            $ex['notes'], $orderIdx
+                        );
+                        $stmt->execute();
+                        if ($stmt->error) {
+                            error_log("saveTrainingPlan: exercise error: " . $stmt->error);
+                        }
+                        $stmt->close();
                     }
-                    $insOfpSbu->close();
                 }
             }
-            
-            // Обновляем общий объем недели
-            $updateVolumeStmt = $db->prepare("
-                UPDATE training_plan_weeks 
-                SET total_volume = ? 
-                WHERE id = ?
-            ");
-            $updateVolumeStmt->bind_param('di', $totalVolume, $weekId);
-            $updateVolumeStmt->execute();
-            $updateVolumeStmt->close();
         }
+
+        $db->commit();
+
+        Cache::delete("training_plan_{$userId}");
+
+        error_log("saveTrainingPlan: План сохранён для пользователя {$userId}, недель: " . count($normalized['weeks']));
+
+    } catch (Exception $e) {
+        $db->rollback();
+        error_log("saveTrainingPlan ROLLBACK (user {$userId}): " . $e->getMessage());
+        throw $e;
     }
-    
-    error_log("saveTrainingPlan: План успешно сохранен для пользователя {$userId}, недель: " . count($planData['weeks']));
+}
+
+/**
+ * Пересчёт плана: сохраняет прошлые недели, заменяет текущую и будущие.
+ *
+ * @param mysqli $db
+ * @param int    $userId
+ * @param array  $newPlanData  Новые недели от AI (нумерация с 1 внутри, будет пересчитана)
+ * @param string $cutoffDate   Дата-граница (понедельник текущей недели): всё с этой даты — удаляется и заменяется
+ * @return void
+ * @throws Exception
+ */
+function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate) {
+    $lastKeptWeek = 0;
+    $stmt = $db->prepare(
+        "SELECT MAX(week_number) AS max_wn FROM training_plan_weeks WHERE user_id = ? AND start_date < ?"
+    );
+    $stmt->bind_param('is', $userId, $cutoffDate);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $lastKeptWeek = (int) ($row['max_wn'] ?? 0);
+
+    $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek);
+
+    foreach ($normalized['warnings'] as $w) {
+        error_log("saveRecalculatedPlan (user {$userId}): {$w}");
+    }
+
+    $db->begin_transaction();
+
+    try {
+        $futureWeekIds = [];
+        $stmt = $db->prepare(
+            "SELECT id FROM training_plan_weeks WHERE user_id = ? AND start_date >= ?"
+        );
+        $stmt->bind_param('is', $userId, $cutoffDate);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $futureWeekIds[] = (int) $r['id'];
+        }
+        $stmt->close();
+
+        if (!empty($futureWeekIds)) {
+            $placeholders = implode(',', array_fill(0, count($futureWeekIds), '?'));
+            $types = str_repeat('i', count($futureWeekIds));
+
+            $futureDayIds = [];
+            $stmt = $db->prepare(
+                "SELECT id FROM training_plan_days WHERE user_id = ? AND week_id IN ({$placeholders})"
+            );
+            $stmt->bind_param('i' . $types, $userId, ...$futureWeekIds);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $futureDayIds[] = (int) $r['id'];
+            }
+            $stmt->close();
+
+            if (!empty($futureDayIds)) {
+                $dayPlaceholders = implode(',', array_fill(0, count($futureDayIds), '?'));
+                $dayTypes = str_repeat('i', count($futureDayIds));
+                $stmt = $db->prepare(
+                    "DELETE FROM training_day_exercises WHERE user_id = ? AND plan_day_id IN ({$dayPlaceholders})"
+                );
+                $stmt->bind_param('i' . $dayTypes, $userId, ...$futureDayIds);
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            $stmt = $db->prepare(
+                "DELETE FROM training_plan_days WHERE user_id = ? AND week_id IN ({$placeholders})"
+            );
+            $stmt->bind_param('i' . $types, $userId, ...$futureWeekIds);
+            $stmt->execute();
+            $stmt->close();
+
+            $stmt = $db->prepare(
+                "DELETE FROM training_plan_weeks WHERE user_id = ? AND start_date >= ?"
+            );
+            $stmt->bind_param('is', $userId, $cutoffDate);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        foreach ($normalized['weeks'] as $week) {
+            $stmt = $db->prepare(
+                "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
+            );
+            $wn = $week['week_number'];
+            $sd = $week['start_date'];
+            $tv = $week['total_volume'];
+            $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
+            $stmt->execute();
+            $weekId = $db->insert_id;
+            $stmt->close();
+
+            if (!$weekId) {
+                throw new Exception("Ошибка создания недели {$wn}");
+            }
+
+            foreach ($week['days'] as $day) {
+                $type = $day['type'];
+                if (!in_array($type, SAVER_ALLOWED_TYPES, true)) {
+                    error_log("saveRecalculatedPlan: invalid type '{$type}', defaulting to 'rest'");
+                    $type = 'rest';
+                }
+
+                $stmt = $db->prepare(
+                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
+                $dow  = $day['day_of_week'];
+                $desc = $day['description'];
+                $isKey = $day['is_key_workout'] ? 1 : 0;
+                $date = $day['date'];
+                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
+                $stmt->execute();
+
+                if ($stmt->error) {
+                    $stmt->close();
+                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: " . $stmt->error);
+                }
+
+                $dayId = $db->insert_id;
+                $stmt->close();
+
+                if (!$dayId) {
+                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: insert_id = 0");
+                }
+
+                foreach ($day['exercises'] as $ex) {
+                    if ($ex['category'] === 'run') {
+                        $stmt = $db->prepare(
+                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, notes)
+                             VALUES (?, ?, 'run', ?, ?, ?, ?)"
+                        );
+                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                        $stmt->bind_param('iisiis',
+                            $userId, $dayId, $ex['name'], $distM, $durSec, $ex['notes']
+                        );
+                        $stmt->execute();
+                        if ($stmt->error) {
+                            error_log("saveRecalculatedPlan: run exercise error: " . $stmt->error);
+                        }
+                        $stmt->close();
+                    } else {
+                        $stmt = $db->prepare(
+                            "INSERT INTO training_day_exercises
+                             (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
+                             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
+                        );
+                        $sets = $ex['sets'] !== null ? (int) $ex['sets'] : null;
+                        $reps = $ex['reps'] !== null ? (int) $ex['reps'] : null;
+                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                        $weightKg = $ex['weight_kg'] !== null ? (float) $ex['weight_kg'] : null;
+                        $orderIdx = (int) ($ex['order_index'] ?? 0);
+                        $stmt->bind_param('iissiiidisi',
+                            $userId, $dayId, $ex['category'], $ex['name'],
+                            $sets, $reps, $distM, $durSec, $weightKg,
+                            $ex['notes'], $orderIdx
+                        );
+                        $stmt->execute();
+                        if ($stmt->error) {
+                            error_log("saveRecalculatedPlan: exercise error: " . $stmt->error);
+                        }
+                        $stmt->close();
+                    }
+                }
+            }
+        }
+
+        $db->commit();
+
+        Cache::delete("training_plan_{$userId}");
+
+        error_log("saveRecalculatedPlan: Пересчёт сохранён для пользователя {$userId}. "
+            . "Сохранено старых недель: {$lastKeptWeek}, добавлено новых: " . count($normalized['weeks']));
+
+    } catch (Exception $e) {
+        $db->rollback();
+        error_log("saveRecalculatedPlan ROLLBACK (user {$userId}): " . $e->getMessage());
+        throw $e;
+    }
 }

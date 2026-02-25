@@ -29,13 +29,14 @@ const getCategoryLabel = (cat) => (cat ? (CATEGORY_LABELS[String(cat).toLowerCas
 const getPlanDayTypeLabel = (type) => (type ? (PLAN_DAY_TYPE_LABELS[type] || type) : '');
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
-const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, onOpenResultModal, onTrainingAdded, onEditTraining, refreshKey }) => {
+const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, onOpenResultModal, onTrainingAdded, onEditTraining, refreshKey, openWorkoutDetailsInitially = false }) => {
   const [dayData, setDayData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addTrainingModalOpen, setAddTrainingModalOpen] = useState(false);
   const [workoutDetailsOpen, setWorkoutDetailsOpen] = useState(false);
   const modalBodyRef = useRef(null);
+  const didAutoOpenDetailsRef = useRef(false);
 
   const loadDayData = async () => {
     try {
@@ -96,8 +97,17 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
       setDayData(null);
       setLoading(true);
       setError(null);
+      if (!isOpen) didAutoOpenDetailsRef.current = false;
     }
   }, [isOpen, date, weekNumber, dayKey, refreshKey]);
+
+  // По «Детали» с календаря: после загрузки дня сразу открыть блок «Подробнее о тренировке»
+  useEffect(() => {
+    if (isOpen && openWorkoutDetailsInitially && !loading && dayData && !didAutoOpenDetailsRef.current) {
+      didAutoOpenDetailsRef.current = true;
+      setWorkoutDetailsOpen(true);
+    }
+  }, [isOpen, openWorkoutDetailsInitially, loading, dayData]);
 
   // Обработка кликов внутри модального окна (planHtml или карточки плана по dayExercises)
   useEffect(() => {
@@ -113,7 +123,10 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
         const dayId = btn?.getAttribute('data-plan-day-id');
         if (dayId && date && onEditTraining && dayData?.planDays) {
           const planDay = dayData.planDays.find((d) => String(d.id) === String(dayId));
-          if (planDay) onEditTraining({ id: planDay.id, type: planDay.type, description: planDay.description, is_key_workout: planDay.is_key_workout }, date);
+          if (planDay) {
+            const exercises = dayData.dayExercises?.filter(ex => String(ex.plan_day_id) === String(planDay.id)) || [];
+            onEditTraining({ id: planDay.id, type: planDay.type, description: planDay.description, is_key_workout: planDay.is_key_workout, exercises }, date);
+          }
         }
         return;
       }

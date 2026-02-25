@@ -15,6 +15,7 @@ const TYPE_NAMES = {
   other: 'ОФП',
   sbu: 'СБУ',
   fartlek: 'Фартлек',
+  control: 'Контрольный забег',
   race: 'Соревнование',
   rest: 'День отдыха',
   free: 'Пустой день',
@@ -30,6 +31,7 @@ function getWorkoutStripColorClass(type) {
     fartlek: 'interval',
     long: 'long',
     'long-run': 'long',
+    control: 'control',
     race: 'race',
     other: 'other',
     sbu: 'sbu',
@@ -210,7 +212,10 @@ const WorkoutCard = ({
               className={`workout-card-plan-day-block${stripClass ? ` workout-card-plan-day-block--${stripClass}` : ''}`}
             >
               <div className="workout-card-plan-day-head">
-                <span className="workout-card-plan-day-type">{TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}</span>
+                <span className="workout-card-plan-day-type">
+                  {TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}
+                  {planDay.is_key_workout && <span className="workout-card-key-badge">Ключевая</span>}
+                </span>
                 {canEdit && (
                   <div className="workout-card-plan-day-actions">
                     {onEditPlanDay && (

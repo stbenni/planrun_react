@@ -8,7 +8,7 @@
   max-width: var(--page-max-width);
   margin: 0 auto;
   padding: var(--page-padding);
-  background: var(--gray-50);
+  background: var(--bg-primary);
   min-height: 100vh;
   padding-bottom: var(--page-padding-bottom);
   overflow-y: auto;
@@ -1764,51 +1764,20 @@ body.dashboard-customizer-dragging {
   flex-direction: column;
 }
 
-/* Заголовок секции — в виде вкладки «файла» (скругление только сверху) */
+/* Заголовок секции */
 .section-title {
-  width: 40%;
-  min-width: 200px;
   font-family: var(--font-stats), sans-serif;
-  font-size: 20px;
-  font-weight: 600;
-  padding: 10px 20px;
-  border-radius: 24px 24px 0 0;
-  background: var(--primary-500);
-  color: #fff;
-  margin-bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  letter-spacing: -0.3px;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-1);
+  letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
 [data-theme="dark"] .section-title {
-  color: #fff;
-  background: var(--primary-500);
-}
-
-/* В ряду с другим виджетом — плашка не уже 350px */
-.dashboard-section-inline .section-title {
-  min-width: 400px;
-}
-
-/* Карточка под вкладкой — без скругления сверху, поднимаем на 1px, z-index чтобы верх перекрывал край вкладки */
-.section-title + .dashboard-module-card {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  margin-top: -1px;
-  position: relative;
-  z-index: 1;
-}
-.section-title + .dashboard-module-card.dashboard-module-card--workout,
-.section-title + .dashboard-module-card.dashboard-module-card--metrics,
-.section-title + .dashboard-module-card:has(.dashboard-metrics-grid) {
-  border-top-left-radius: 0 !important;
-}
-.section-title {
-  position: relative;
-  z-index: 0;
+  color: var(--text-secondary);
 }
 
 /* Прогресс недели — один блок на всю ширину карточки (и во всю строку, и в паре с виджетом) */
@@ -1836,12 +1805,12 @@ body.dashboard-customizer-dragging {
   margin: 0;
   font-style: italic;
   font-family: var(--font-stats), sans-serif;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   font-size: var(--text-5xl);
-  line-height: 1.2;
+  line-height: 1;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
-  color: var(--gray-900);
+  color: var(--primary-500);
 }
 
 [data-theme="dark"] .progress-value {
@@ -1854,7 +1823,7 @@ body.dashboard-customizer-dragging {
 
 .progress-value-sep {
   color: var(--gray-500);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 [data-theme="dark"] .progress-value-sep {
@@ -1871,9 +1840,9 @@ body.dashboard-customizer-dragging {
 
 .progress-subtitle {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: var(--text-xl);
   color: var(--gray-500);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   line-height: 1.3;
 }
 
@@ -1916,7 +1885,7 @@ body.dashboard-customizer-dragging {
 
 .progress-percentage {
   font-family: var(--font-stats);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   font-style: italic;
   flex-shrink: 0;
   font-size: var(--text-sm);
@@ -2007,6 +1976,30 @@ body.dashboard-customizer-dragging {
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
   font-size: var(--text-xl);
 }
+
+/* Компактные размеры виджета статистики в ряду с другим виджетом */
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) {
+  padding: 14px;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
+  padding: 10px 12px;
+  gap: 6px;
+  border-radius: 12px;
+  min-height: 72px;
+  justify-content: center;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__label {
+  font-size: var(--text-xs);
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__number,
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__unit {
+  font-size: var(--text-xl);
+}
+
 /* Карточка прогресса в ряду: разнести по сторонам (1fr 1fr), компактная высота */
 .dashboard-row-two .metric-card--progress {
   display: grid;
@@ -2058,56 +2051,67 @@ body.dashboard-customizer-dragging {
   box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
 }
 
-/* У быстрых метрик — границы у каждой .metric-card как раньше (контейнер с фоном карточки) */
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+/* У быстрых метрик и виджета статистики — границы у каждой .metric-card */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
   background: white;
   border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card:hover {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.08);
   transform: translateY(-4px);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 20px 48px rgba(0, 0, 0, 0.35);
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card:active {
   transform: translateY(-2px);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card:active {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* Быстрые метрики: карточки Дистанция/Активность/Время — подпись в левом верхнем углу, значение в правом нижнем */
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) {
+/* Быстрые метрики и виджет статистики: карточки — подпись в левом верхнем углу, значение в правом нижнем */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress),
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
   flex-direction: column;
   align-items: stretch;
   justify-content: space-between;
   gap: 8px;
   text-align: left;
 }
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__label {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__label,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__label {
   align-self: flex-start;
   justify-content: flex-start;
 }
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__value {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__value,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__value {
   align-self: flex-end;
   justify-content: flex-end;
   flex-direction: row;
   gap: 4px;
 }
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__number,
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__number,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__unit {
   font-size: var(--text-3xl);
   font-style: italic;
 }
@@ -2118,6 +2122,10 @@ body.dashboard-customizer-dragging {
   text-align: center;
 }
 .dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid .metric-card:not(.metric-card--progress) {
+  min-height: 88px;
+  padding: 18px 16px;
+}
+.dashboard-section:not(.dashboard-section-inline) .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
   min-height: 88px;
   padding: 18px 16px;
 }
@@ -2173,25 +2181,28 @@ body.dashboard-customizer-dragging {
   }
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card__label {
   text-transform: uppercase;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: 300;
   color: var(--gray-600);
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card__icon {
   width: 1rem;
   height: 1rem;
   flex-shrink: 0;
   color: var(--gray-600);
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__value {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__value,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card__value {
   display: flex;
   align-items: baseline;
   justify-content: center;
@@ -2199,7 +2210,8 @@ body.dashboard-customizer-dragging {
   flex-wrap: wrap;
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card__number {
   font-family: var(--font-stats);
   font-weight: 700;
   font-style: italic;
@@ -2209,25 +2221,30 @@ body.dashboard-customizer-dragging {
   line-height: 1.2;
 }
 
-.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit {
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card__unit {
   font-size: var(--text-sm);
   color: var(--gray-600);
   font-weight: var(--font-medium);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__label,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__label {
   color: var(--text-secondary);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__icon {
   color: var(--text-secondary);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__number {
   color: var(--primary-500);
 }
 
-[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit {
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__unit {
   color: var(--text-secondary);
 }
 
@@ -2376,7 +2393,6 @@ body.dashboard-customizer-dragging {
 
 /* WorkoutCard внутри верхней секции — компактный вид в едином стиле */
 .dashboard-top-card > .workout-card {
-  border-top-left-radius: 0;
   flex: 1;
   min-height: 0;
   margin-bottom: 0;
@@ -2509,12 +2525,16 @@ body.dashboard-customizer-dragging {
   .dashboard-metrics-grid--with-progress .metric-card:nth-child(3) {
     grid-column: auto;
   }
+  .dashboard-metrics-grid--with-progress .metric-card:nth-child(4) {
+    grid-column: 1 / -1;
+  }
   .dashboard-metrics-grid--with-progress {
     grid-template-columns: 1fr 1fr;
   }
 
   /* Карточки растягиваются: первая строка — по половине каждая, третья — на всю ширину */
-  .dashboard-metrics-grid .metric-card {
+  .dashboard-metrics-grid .metric-card,
+  .dashboard-stats-metrics-grid .metric-card {
     min-height: 64px;
     min-width: 0;
     width: 100%;
@@ -2522,7 +2542,9 @@ body.dashboard-customizer-dragging {
   }
 
   .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__number,
-  .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit {
+  .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit,
+  .dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__number,
+  .dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__unit {
     font-size: var(--text-xl);
   }
 

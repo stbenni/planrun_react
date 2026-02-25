@@ -11,7 +11,7 @@
  * @returns {Promise<string>} полный ответ ИИ
  */
 export function runChatStreamInWorker(api, content, onChunk, opts = {}) {
-  const { timeoutMs = 180000 } = opts;
+  const { timeoutMs = 180000, onPlanUpdated } = opts;
 
   return new Promise(async (resolve, reject) => {
     let token;
@@ -38,6 +38,8 @@ export function runChatStreamInWorker(api, content, onChunk, opts = {}) {
       const { type, chunk, fullContent, message } = e.data || {};
       if (type === 'chunk' && typeof onChunk === 'function') {
         onChunk(chunk);
+      } else if (type === 'plan_updated' && typeof onPlanUpdated === 'function') {
+        onPlanUpdated();
       } else if (type === 'done') {
         clearTimeout(timeoutId);
         worker.terminate();

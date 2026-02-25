@@ -6,7 +6,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { useIsTabActive } from '../hooks/useIsTabActive';
 import BiometricService from '../services/BiometricService';
+import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
 import './SettingsScreen.css';
 
@@ -27,6 +29,7 @@ function applyTheme(theme) {
 const VALID_TABS = ['profile', 'training', 'social', 'integrations'];
 
 const SettingsScreen = ({ onLogout }) => {
+  const isTabActive = useIsTabActive('/settings');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { api, updateUser } = useAuthStore();
@@ -137,11 +140,12 @@ const SettingsScreen = ({ onLogout }) => {
   }, []);
 
   // Загрузка профиля
+  const hasLoadedProfileRef = useRef(false);
   useEffect(() => {
+    if (!isTabActive && !hasLoadedProfileRef.current) return;
     const loadProfileData = async () => {
       const currentApi = api || useAuthStore.getState().api;
       if (!currentApi) {
-        // Ждем инициализации API
         const checkApi = setInterval(() => {
           const { api: storeApi } = useAuthStore.getState();
           if (storeApi) {
@@ -149,17 +153,15 @@ const SettingsScreen = ({ onLogout }) => {
             loadProfile(storeApi);
           }
         }, 100);
-        
-        // Останавливаем проверку через 5 секунд
         setTimeout(() => clearInterval(checkApi), 5000);
         return;
       }
-      
+      hasLoadedProfileRef.current = true;
       await loadProfile(currentApi);
     };
     
     loadProfileData();
-  }, [api]);
+  }, [api, isTabActive]);
   
   // Отдельный useEffect для принудительного обновления select'ов после загрузки данных
   useEffect(() => {
@@ -528,11 +530,11 @@ const SettingsScreen = ({ onLogout }) => {
       }
       const accessToken = await currentApi.getToken();
       const refreshToken = await currentApi.getRefreshToken();
-      if (!accessToken) {
+      if (!accessToken || !refreshToken) {
         setMessage({ type: 'error', text: 'Нет сохранённой сессии. Войдите по паролю, затем включите отпечаток.' });
         return;
       }
-      await BiometricService.saveTokens(accessToken, refreshToken || '');
+      await BiometricService.saveTokens(accessToken, refreshToken);
       setBiometricEnabled(true);
       setBiometricAvailable(true);
       setMessage({ type: 'success', text: 'Вход по отпечатку включён' });
@@ -732,7 +734,7 @@ const SettingsScreen = ({ onLogout }) => {
     return (
       <div className="settings-container">
         <div className="settings-content">
-          <div style={{ textAlign: 'center', padding: '40px' }}>Загрузка профиля...</div>
+          <SkeletonScreen type="settings" />
         </div>
       </div>
     );
@@ -1100,13 +1102,27 @@ const SettingsScreen = ({ onLogout }) => {
 
               {formData.goal_type === 'time_improvement' && (
                 <div className="goal-race-section" style={{ display: 'block' }}>
-                  <h3>Целевой марафон</h3>
+                  <h3>Улучшение результата</h3>
                   <p style={{ color: 'var(--gray-600)', fontSize: '14px', marginBottom: '16px' }}>
-                    Укажите дату и целевое время для марафона, к которому вы готовитесь
+                    Укажите дистанцию, дату и целевое время
                   </p>
+                  <div className="form-group">
+                    <label>Целевая дистанция</label>
+                    <select
+                      key={`race_distance_ti-${formData.race_distance || 'empty'}`}
+                      value={formData.race_distance || ''}
+                      onChange={(e) => handleInputChange('race_distance', e.target.value || '')}
+                    >
+                      <option value="">Выберите дистанцию</option>
+                      <option value="5k">5 км</option>
+                      <option value="10k">10 км</option>
+                      <option value="half">Полумарафон (21.1 км)</option>
+                      <option value="marathon">Марафон (42.2 км)</option>
+                    </select>
+                  </div>
                   <div className="form-row">
                     <div className="form-group">
-                      <label>Дата марафона</label>
+                      <label>Дата целевого забега</label>
                       <input
                         type="date"
                         value={formData.target_marathon_date || ''}

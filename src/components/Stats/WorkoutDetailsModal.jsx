@@ -19,7 +19,7 @@ const getActivityTypeLabel = (activityType) => {
   return ACTIVITY_TYPE_LABELS[key] || activityType;
 };
 
-const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading }) => {
+const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumber, dayKey, onEdit }) => {
   const { api } = useAuthStore();
   const [timelineData, setTimelineData] = useState({});
   const [loadingTimeline, setLoadingTimeline] = useState({});
@@ -90,7 +90,19 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading }) => {
               year: 'numeric'
             }) : ''}
           </h2>
-          <button className="workout-details-modal-close" onClick={onClose}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {onEdit && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onEdit}
+                style={{ padding: '8px 16px', fontSize: '14px' }}
+              >
+                Редактировать результат
+              </button>
+            )}
+            <button className="workout-details-modal-close" onClick={onClose}>×</button>
+          </div>
         </div>
         
         <div className="workout-details-modal-body">

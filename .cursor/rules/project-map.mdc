@@ -1,0 +1,194 @@
+---
+description: Детальная карта проекта PlanRun (vladimirov) — структура, стек, маршруты, стили
+alwaysApply: true
+---
+
+# Карта проекта PlanRun (vladimirov)
+
+Веб-приложение для планирования и учёта тренировок (бег, СБУ, ОФП). React SPA + PHP API, поддержка мобильного вида и сборки в Android (Capacitor).
+
+---
+
+## 1. Структура репозитория
+
+```
+vladimirov/
+├── index.html              # Точка входа, тема (data-theme) до загрузки React
+├── src/
+│   ├── main.jsx             # Рендер App, инициализация логгера, класс .native-app для Capacitor
+│   ├── App.jsx              # Роутинг, охрана маршрутов, maintenance, lazy-страницы
+│   ├── index.css            # Глобальные импорты стилей (шрифты, сброс, body)
+│   ├── App.css
+│   ├── api/
+│   │   └── ApiClient.js     # Единый API-клиент: request(), login/logout, JWT/сессии, все методы бэкенда
+│   ├── stores/              # Zustand (persist для auth)
+│   │   ├── useAuthStore.js  # user, api, isAuthenticated, initialize, login, logout, drawerOpen
+│   │   ├── usePlanStore.js
+│   │   └── useWorkoutStore.js
+│   ├── screens/             # Экраны = «страницы» приложения
+│   │   ├── LandingScreen.jsx
+│   │   ├── RegisterScreen.jsx
+│   │   ├── LoginScreen.jsx, LoginForm.jsx, LoginModal.jsx
+│   │   ├── ForgotPasswordScreen.jsx, ResetPasswordScreen.jsx
+│   │   ├── DashboardScreen.jsx
+│   │   ├── CalendarScreen.jsx
+│   │   ├── StatsScreen.jsx
+│   │   ├── ChatScreen.jsx
+│   │   ├── TrainersScreen.jsx
+│   │   ├── SettingsScreen.jsx
+│   │   ├── UserProfileScreen.jsx   # Публичный профиль /:username
+│   │   └── AdminScreen.jsx         # lazy, только role === 'admin'
+│   ├── components/
+│   │   ├── AppLayout.jsx           # Обёртка авторизованной зоны: TopHeader, Notifications, PageTransition, AppTabsContent, BottomNav
+│   │   ├── AppTabsContent.jsx      # Все вкладки смонтированы, переключение по pathname (display: none/block)
+│   │   ├── common/
+│   │   │   ├── TopHeader.jsx       # Десктоп: лого, нав-кнопки, чат, аватар + dropdown. Мобильный: лого + drawer
+│   │   │   ├── BottomNav.jsx       # Мобильный: 4 вкладки (Дэшборд, Календарь, Статистика, Тренеры), плавающая таблетка
+│   │   │   ├── Notifications.jsx, ChatNotificationButton.jsx
+│   │   │   ├── Modal.jsx, PageTransition.jsx, SkeletonScreen.jsx
+│   │   │   ├── PublicHeader.jsx
+│   │   │   └── *\.css
+│   │   ├── Dashboard/              # Dashboard.jsx, DashboardWeekStrip, DashboardStatsWidget, иконки
+│   │   ├── Calendar/               # WeekCalendar, MonthlyCalendar, Day, WorkoutCard, AddTrainingModal, DayModal, ResultModal, RouteMap
+│   │   ├── Stats/                  # Графики, AchievementCard, RecentWorkoutsList, ActivityHeatmap, WorkoutDetailsModal
+│   │   ├── SpecializationModal.jsx, RegisterModal.jsx
+│   │   └── ...
+│   ├── hooks/
+│   │   ├── useIsTabActive.js
+│   │   └── useChatUnread.js
+│   ├── services/
+│   │   ├── ChatStreamWorker.js, ChatSSE.js
+│   │   └── BiometricService.js      # Capacitor
+│   ├── workers/
+│   │   └── chatStream.worker.js
+│   ├── utils/
+│   │   ├── logger.js, avatarUrl.js, calendarHelpers.js, modulePreloader.js
+│   │   └── ...
+│   └── styles/                     # Глобальные токены и утилиты
+│       ├── sports-colors.css       # Источник истины: цвета, типографика, spacing, radius, тени, Liquid Glass, page, dark
+│       ├── dark-mode.css
+│       ├── variables.css           # Дубликат токенов (legacy), не расширять
+│       ├── buttons.css             # .btn, .btn-primary, .btn-secondary, .btn--sm, .btn--lg, .btn--block
+│       ├── cards.css               # .card, .card--compact, .card--interactive
+│       ├── animations.css          # keyframes, классы анимаций, prefers-reduced-motion
+│       └── screens-auth.css
+├── api/                            # PHP-точки входа (корень запросов /api)
+│   ├── cors.php, session_init.php
+│   ├── api_wrapper.php             # Прокси к planrun-backend/api_v2.php (action в GET)
+│   ├── register_api.php, complete_specialization_api.php
+│   ├── login_api.php, logout_api.php
+│   ├── chat_sse.php
+│   └── health.php
+├── planrun-backend/                # Логика API (PHP)
+│   ├── api_v2.php                  # Роутинг по action → контроллеры
+│   ├── auth.php, db_config.php, config/, validators/, exceptions/
+│   ├── controllers/                # AuthController, WorkoutController, ChatController, StatsController, AdminController, ...
+│   ├── services/                  # WorkoutService, ChatService, AuthService, ChatContextBuilder, ...
+│   ├── planrun_ai/                # Генерация/сохранение планов, промпты (не чат с пользователем)
+│   └── scripts/                   # Миграции, утилиты
+├── public/                         # Статика (Vite)
+├── deploy/                         # Конфиги nginx/apache, systemd
+├── vite.config.js                  # proxy /api → VITE_API_PROXY_TARGET
+└── capacitor.config.json           # Android (и при необходимости iOS)
+```
+
+---
+
+## 2. Маршруты (React Router)
+
+- **Публичные (без авторизации):**
+  - `/landing` — лендинг, кнопки «Войти» / «Регистрация».
+  - `/register` — минимальная регистрация (логин, email, пароль, код); при `registration_enabled === '0'` редирект на `/landing`.
+  - `/login` — редирект на `/landing` с `state.openLogin`.
+  - `/forgot-password`, `/reset-password` — сброс пароля.
+  - `/:username` — публичный профиль пользователя (без хедера приложения).
+
+- **Авторизованная зона** (Layout с TopHeader + BottomNav + контентом):
+  - Родительский путь `/`, элемент `<AppLayout>`. Дочерние маршруты без вложенного `<Outlet>` — контент управляется в `AppTabsContent` по `pathname`.
+  - Вкладки (все рендерятся, видима одна по URL):
+    - `/` или `/dashboard` → DashboardScreen
+    - `/calendar` → CalendarScreen
+    - `/stats` → StatsScreen
+    - `/chat` → ChatScreen (доступ из хедера — кнопка чата)
+    - `/trainers` → TrainersScreen
+    - `/settings` → SettingsScreen (доступ из меню аватара/drawer: Профиль, Настройки тренировок, Конфиденциальность, Интеграции → `?tab=profile|training|social|integrations`)
+    - `/admin` → AdminScreen (только если `user.role === 'admin'`, иначе `<Navigate to="/" />`).
+
+Чат и Настройки не в BottomNav; переход в Чат — через кнопку в хедере, в Настройки — через аватар (десктоп: dropdown, мобильный: drawer).
+
+---
+
+## 3. Стек и окружение
+
+- **Фронт:** React 18, React Router 6, Vite 5, Zustand (persist для auth). Без Redux.
+- **Сборка:** `npm run build` → `dist/`. Android: Capacitor, сборка APK через `npm run apk`.
+- **API:** Все запросы к `/api/*`. В dev Vite проксирует `/api` на `VITE_API_PROXY_TARGET` (по умолчанию `http://localhost`). Клиент: `src/api/ApiClient.js`; основной endpoint — `api_wrapper.php?action=...`, который подключает `planrun-backend/api_v2.php`.
+- **Авторизация:** Веб — сессии (cookies) + опционально JWT; мобильное приложение (Capacitor) — JWT; при истечении токена — refresh через `api_wrapper.php` (action `refresh_token`).
+- **Регистрация:** Отдельный поток `register_api.php` (send_verification_code, минимальная регистрация); завершение специализации — `complete_specialization_api.php`.
+
+---
+
+## 4. Стиль оформления фронтенда
+
+### 4.1 Источник истины по дизайну
+
+- **Токены (цвета, типографика, отступы, радиусы, тени, переходы):** `src/styles/sports-colors.css`. Не вводить «магические» hex/rgb для интерфейса — только переменные из этого файла.
+- **Импорты глобальных стилей:** в `src/index.css` подключаются `sports-colors.css`, `dark-mode.css`, `buttons.css`, `cards.css`, `animations.css`.
+
+### 4.2 Цвета и типографика
+
+- Текст: `--text-primary`, `--text-secondary`, `--text-tertiary`.
+- Фоны: `--bg-primary`, `--gray-50`, `--card-bg`.
+- Границы: `--card-border`, `--gray-200` … `--gray-400`.
+- Акценты: `--primary-500` (Strava-оранжевый), `--primary-50`, `--accent-600` (ошибки), `--success-500`, `--info-500`, `--warning-500`.
+- Шкала текста: `--text-xs` … `--text-5xl`; начертания: `--font-normal`, `--font-medium`, `--font-semibold`, `--font-bold`, `--font-extrabold`.
+- Шрифт по умолчанию в body: Montserrat; для цифр/статистики: `--font-stats: 'Jost'`.
+
+### 4.3 Сетка и страницы
+
+- Сетка 4px: `--space-1` … `--space-16`.
+- Контейнер страницы: `max-width: var(--page-max-width)` (1440px), `padding: var(--page-padding)` (или `--page-padding-mobile`), на десктопе `padding-top: var(--page-top-desktop)`, снизу на мобилке — `padding-bottom: var(--mobile-content-padding-bottom)` (под парящий BottomNav).
+- Радиусы: `--radius-sm` … `--radius-full`; тени: `--shadow-sm` … `--shadow-2xl`; переходы: `--transition-fast`, `--transition-base`, `--transition-slow`.
+
+### 4.4 Кнопки и карточки
+
+- Кнопки: классы из `styles/buttons.css` — `.btn`, `.btn-primary`, `.btn-secondary`; модификаторы `.btn--sm`, `.btn--lg`, `.btn--block`.
+- Карточки: `.card` из `styles/cards.css` — фон `--card-bg`, граница `--card-border`, радиус `--radius-xl` / `--radius-2xl`; при необходимости `.card--compact`, `.card--interactive`.
+
+### 4.5 Тёмная тема
+
+- Переключатель: `document.documentElement.setAttribute('data-theme', 'dark'|'light')` (в index.html до загрузки React и при смене в настройках). Все токены для тёмной темы заданы в `sports-colors.css` в `[data-theme="dark"]`; в компонентах не дублировать цвета — при необходимости переопределять только локально.
+
+### 4.6 Мобильный UI — Liquid Glass
+
+- Breakpoint: **1024px**. Ниже — мобильный вид: BottomNav виден, TopHeader в виде узкого хедера + боковое меню (drawer).
+- Для фиксированных панелей на мобильном (TopHeader, BottomNav, drawer) используется стиль **Liquid Glass**: полупрозрачный фон, размытие фона, тонкая граница.
+- Переменные в `sports-colors.css`: `--glass-bg`, `--glass-bg-strong`, `--glass-blur`, `--glass-border`, `--glass-shadow`, `--glass-shadow-inset`. Применять `backdrop-filter: blur(var(--glass-blur))` и `-webkit-backdrop-filter`. Не заменять на сплошной непрозрачный фон без причины.
+- Высота нижней панели и отступ контента: `--bottom-nav-height`, `--bottom-nav-floating-gap`, `--mobile-content-padding-bottom`.
+
+### 4.7 Десктоп
+
+- На ширине ≥ 1024px отображается TopHeader (полная навигация, чат, аватар с dropdown), BottomNav скрыт. Контент в едином контейнере с `--page-max-width` и `--page-padding-x`.
+
+### 4.8 Анимации и доступность
+
+- Общие анимации и клюфреймы — в `styles/animations.css`. Учитывать `prefers-reduced-motion: reduce` (в т.ч. в `PageTransition.css`).
+
+---
+
+## 5. Важные соглашения
+
+- **Документация:** не создавать и не обновлять README/другие .md и гайды, если пользователь явно не попросил.
+- **AI и чат:** эмбеддинги, RAG, генерация планов — в отдельном сервисе `ai/`; чат с ИИ в приложении идёт через LM Studio (напрямую) или через бэкенд; в коде приложения не дублировать логику RAG/планов.
+- **Новые экраны:** контейнер с `max-width: var(--page-max-width)`, стандартные отступы страницы и снизу на мобилке, как в существующих экранах.
+- **API:** все вызовы через `ApiClient` из `useAuthStore().api`; действия задаются параметром `action` в URL для `api_wrapper.php`.
+
+---
+
+## 6. API и OpenAPI
+
+- **Разбор каждой функции в правиле не делается** — карта остаётся компактной. Полный список действий (action): `planrun-backend/api_v2.php` (switch по `$_GET['action']`); методы клиента с сигнатурами: `src/api/ApiClient.js`.
+- **Единый контракт API** описан в **OpenAPI 3**: `openapi.yaml` в корне проекта. Там перечислены все действия, метод (GET/POST), краткое описание; при необходимости — схемы запроса/ответа. Использовать для справки при доработке API или фронта; при необходимости поднять Swagger UI по этому файлу.
+- Добавляя новый `action` в бэкенд: завести case в `api_v2.php`, метод в `ApiClient.js` и операцию в `openapi.yaml`.
+
+Использовать эту карту при навигации по проекту, добавлении экранов/компонентов и при изменении стилей.

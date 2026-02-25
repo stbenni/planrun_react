@@ -25,35 +25,46 @@ const useAuthStore = create(
 
       // Инициализация
       initialize: async () => {
+        const apiClient = new ApiClient();
+        // Обработчик истечения токена выставляем до любых запросов
+        apiClient.onTokenExpired = async () => {
+          await get().logout();
+        };
+        // api в store всегда задаём, чтобы форма логина работала даже при ошибке getCurrentUser
+        set({ api: apiClient });
+
         try {
-          const apiClient = new ApiClient();
-          
-          // Для мобильных приложений проверяем биометрию
-          if (typeof window !== 'undefined' && window.Capacitor) {
+          // На Android не показываем биометрический диалог при старте — он часто зависает.
+          // Токены подхватятся из хранилища в getCurrentUser() без диалога.
+          const isAndroid = typeof window !== 'undefined' && window.Capacitor?.getPlatform?.() === 'android';
+          const canAutoBiometric = typeof window !== 'undefined' && window.Capacitor && !isAndroid;
+
+          if (canAutoBiometric) {
             try {
               const isEnabled = await BiometricService.isBiometricEnabled();
-              
               if (isEnabled) {
-                const result = await BiometricService.authenticateAndGetTokens(
-                  'Войдите в PlanRun'
-                );
-                
-                if (result.success && result.tokens) {
+                const BIOMETRIC_INIT_TIMEOUT_MS = 10000;
+                const result = await Promise.race([
+                  BiometricService.authenticateAndGetTokens('Войдите в PlanRun'),
+                  new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Biometric timeout')), BIOMETRIC_INIT_TIMEOUT_MS)
+                  )
+                ]).catch((err) => {
+                  if (err?.message === 'Biometric timeout') console.log('[Auth] Biometric init timeout');
+                  return { success: false };
+                });
+
+                if (result?.success && result?.tokens) {
                   await apiClient.setToken(result.tokens.accessToken, result.tokens.refreshToken);
                   const userData = await apiClient.getCurrentUser();
-                  if (userData && userData.authenticated) {
-                    set({ 
-                      user: userData, 
-                      api: apiClient, 
-                      isAuthenticated: true,
-                      loading: false 
-                    });
+                  if (userData?.authenticated) {
+                    set({ user: userData, isAuthenticated: true, loading: false });
                     return;
                   }
                 }
               }
             } catch (error) {
-              console.log('Biometric auto-login failed:', error);
+              console.log('Biometric auto-login failed:', error?.message || error);
             }
           }
           
@@ -63,22 +74,15 @@ const useAuthStore = create(
             if (userData && userData.authenticated) {
               set({ 
                 user: userData, 
-                api: apiClient, 
                 isAuthenticated: true 
               });
             }
           } catch (error) {
             console.log('User not authenticated:', error.message);
           }
-          
-          // Обработчик истечения токена
-          apiClient.onTokenExpired = async () => {
-            await get().logout();
-          };
-          
-          set({ api: apiClient, loading: false });
         } catch (error) {
           console.error('Error initializing app:', error);
+        } finally {
           set({ loading: false });
         }
       },
@@ -220,10 +224,8 @@ const useAuthStore = create(
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({
-        // Сохраняем только минимально необходимое
-        // API клиент не сохраняем, так как он не сериализуется
-      })
+      // Намеренно не персистим user/api: авторизация через сессию (cookies) или JWT при инициализации.
+      partialize: (state) => ({})
     }
   )
 );

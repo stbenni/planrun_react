@@ -76,7 +76,8 @@ const MonthlyCalendar = ({
               items,
               weekNumber: week.number,
               type: items[0]?.type,
-              text: items.map((i) => i.text).filter(Boolean).join('\n')
+              text: items.map((i) => i.text).filter(Boolean).join('\n'),
+              is_key_workout: items.some((i) => i.is_key_workout || i.key),
             };
           }
         }
@@ -177,6 +178,7 @@ const MonthlyCalendar = ({
                 'other': 'ОФП',
                 'sbu': 'СБУ',
                 'fartlek': 'Фартлек',
+                'control': 'Контроль',
                 'race': 'Соревнование',
                 'free': '—',
                 'rest': 'Отдых'
@@ -253,6 +255,7 @@ const MonthlyCalendar = ({
                      day.planDay.type === 'other' ? '💪' :
                      day.planDay.type === 'sbu' ? '🏋️' :
                      day.planDay.type === 'fartlek' ? '🎯' :
+                     day.planDay.type === 'control' ? '📊' :
                      day.planDay.type === 'race' ? '🏁' :
                      '📋'}
                   </div>
@@ -268,6 +271,7 @@ const MonthlyCalendar = ({
                   {day.planDay && day.planDay.type !== 'rest' && day.planDay.type !== 'free' && (
                     <div className="workout-type">
                       {getWorkoutTypeName(day.planDay.type)}
+                      {day.planDay.is_key_workout && <span className="key-workout-dot" title="Ключевая тренировка" />}
                     </div>
                   )}
                   

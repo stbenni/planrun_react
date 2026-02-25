@@ -581,6 +581,28 @@
   padding: 0 var(--space-1);
 }
 
+.chat-info {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--primary-50);
+  color: var(--primary-700);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-radius: var(--radius-lg);
+}
+
+.chat-info button {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: inherit;
+  padding: 0 var(--space-1);
+}
+
 .chat-input-form {
   display: flex;
   gap: var(--space-2);

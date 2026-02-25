@@ -30,6 +30,7 @@ class ChatContextBuilder {
         $parts[] = $this->formatProfile($user);
         $parts[] = $this->formatPlanSummary($plan, $userId);
         $parts[] = $this->formatStats($stats);
+        $parts[] = $this->formatCoachingInsights($userId);
         if ($memory !== '') {
             $parts[] = "═══ ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (из прошлых диалогов) ═══\n" . $memory;
         }
@@ -273,9 +274,13 @@ class ChatContextBuilder {
             'tempo' => 'Темповый',
             'interval' => 'Интервалы',
             'fartlek' => 'Фартлек',
+            'control' => 'Контрольный забег',
             'rest' => 'Отдых',
+            'other' => 'ОФП',
             'ofp' => 'ОФП',
-            'race' => 'Забег'
+            'sbu' => 'СБУ',
+            'race' => 'Забег',
+            'free' => 'Свободный',
         ];
         return $map[$type] ?? $type;
     }
@@ -308,5 +313,326 @@ class ChatContextBuilder {
         $lines = ["═══ СТАТИСТИКА ═══"];
         $lines[] = "Выполнено: {$stats['completed']} из {$stats['total']} дней плана ({$stats['percentage']}%)";
         return implode("\n", $lines);
+    }
+
+    /**
+     * Загружает последние N выполненных тренировок с результатами.
+     * Источники: workout_log (результаты заполненные через «Выполнено»)
+     * и training_plan_days (запланированный тип/описание для контекста).
+     */
+    public function getRecentWorkouts(int $userId, int $limit = 10): array {
+        $sql = "SELECT 
+                    wl.training_date AS date,
+                    wl.distance_km,
+                    wl.result_time,
+                    wl.pace,
+                    wl.duration_minutes,
+                    wl.avg_heart_rate,
+                    wl.max_heart_rate,
+                    wl.notes,
+                    wl.rating,
+                    wl.is_completed,
+                    tpd.type AS plan_type,
+                    tpd.description AS plan_description,
+                    tpd.is_key_workout
+                FROM workout_log wl
+                LEFT JOIN training_plan_days tpd 
+                    ON tpd.user_id = wl.user_id 
+                    AND tpd.date = wl.training_date
+                WHERE wl.user_id = ? 
+                    AND wl.is_completed = 1
+                ORDER BY wl.training_date DESC
+                LIMIT ?";
+
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param('ii', $userId, $limit);
+        if (!$stmt->execute()) {
+            return [];
+        }
+        $result = $stmt->get_result();
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+        return $rows;
+    }
+
+    /**
+     * Coaching insights: краткая сводка + сигналы для AI (пропуски, нагрузка, тренд).
+     * Занимает 5-10 строк — экономим токены, но даём AI достаточно для умных ответов.
+     */
+    private function formatCoachingInsights(int $userId): string {
+        $lastWorkout = $this->getRecentWorkouts($userId, 1);
+        $weekData = $this->getThisWeekWorkoutCount($userId);
+        $complianceData = $this->getWeeklyCompliance($userId);
+        $loadTrend = $this->getLoadTrend($userId);
+
+        $lines = ["═══ ТРЕНЕРСКАЯ СВОДКА ═══"];
+
+        if (!empty($lastWorkout)) {
+            $w = $lastWorkout[0];
+            $date = $w['date'] ?? '';
+            $daysAgo = '';
+            if ($date) {
+                $diff = (int) (new DateTime())->diff(new DateTime($date))->days;
+                $daysAgo = $diff === 0 ? 'сегодня' : ($diff === 1 ? 'вчера' : "{$diff} дн. назад");
+            }
+            $type = $w['plan_type'] ? $this->getDayTypeRu($w['plan_type']) : 'тренировка';
+            $brief = "Последняя тренировка: {$daysAgo}, {$type}";
+            $dist = $w['distance_km'] ?? null;
+            if ($dist !== null && $dist > 0) {
+                $brief .= ", {$dist} км";
+            }
+            $rating = $w['rating'] ?? null;
+            if ($rating !== null && $rating > 0) {
+                $ratingLabels = [1 => 'очень тяжело', 2 => 'тяжело', 3 => 'нормально', 4 => 'хорошо', 5 => 'отлично'];
+                $brief .= ' (' . ($ratingLabels[$rating] ?? '') . ')';
+            }
+            $lines[] = $brief;
+
+            if ($diff >= 4) {
+                $lines[] = "⚠ Пауза {$diff} дней — мягко уточни причину, предложи помощь с возвращением.";
+            }
+            if ($rating !== null && $rating <= 2) {
+                $lines[] = "⚠ Последняя тренировка была тяжёлой — спроси про самочувствие, при необходимости предложи снизить нагрузку.";
+            }
+        } else {
+            $lines[] = "Нет выполненных тренировок — пользователь только начинает.";
+        }
+
+        $lines[] = "Эта неделя: {$weekData['completed']} тренировок" .
+            ($weekData['total_km'] > 0 ? ", {$weekData['total_km']} км" : '');
+
+        if ($complianceData['planned'] > 0) {
+            $pct = $complianceData['planned'] > 0 
+                ? round(($complianceData['completed'] / $complianceData['planned']) * 100) 
+                : 0;
+            $lines[] = "Выполнение плана за 2 недели: {$complianceData['completed']}/{$complianceData['planned']} ({$pct}%)";
+            if ($complianceData['missed'] >= 3) {
+                $lines[] = "⚠ Пропущено {$complianceData['missed']} тренировок за 2 недели — узнай причину, предложи адаптацию.";
+            }
+        }
+
+        if ($loadTrend !== null) {
+            if ($loadTrend > 30) {
+                $lines[] = "⚠ Нагрузка выросла на {$loadTrend}% к прошлой неделе — следи за восстановлением.";
+            } elseif ($loadTrend < -30 && $loadTrend !== null) {
+                $lines[] = "Нагрузка снизилась на " . abs($loadTrend) . "% — возможно разгрузочная неделя или пропуски.";
+            }
+        }
+
+        $lines[] = "Для деталей тренировок — используй get_workouts или get_day_details.";
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Выполнение плана за последние 2 недели: сколько тренировок запланировано vs выполнено.
+     */
+    public function getWeeklyCompliance(int $userId): array {
+        $twoWeeksAgo = (new DateTime())->modify('-14 days')->format('Y-m-d');
+        $today = (new DateTime())->format('Y-m-d');
+
+        $planned = 0;
+        $stmtPlan = $this->db->prepare(
+            "SELECT COUNT(*) as cnt FROM training_plan_days d 
+             JOIN training_plan_weeks w ON d.week_id = w.id 
+             WHERE w.user_id = ? AND d.date >= ? AND d.date <= ? AND d.type != 'rest'"
+        );
+        if ($stmtPlan) {
+            $stmtPlan->bind_param('iss', $userId, $twoWeeksAgo, $today);
+            $stmtPlan->execute();
+            $row = $stmtPlan->get_result()->fetch_assoc();
+            $planned = (int) ($row['cnt'] ?? 0);
+            $stmtPlan->close();
+        }
+
+        $completed = 0;
+        $stmtDone = $this->db->prepare(
+            "SELECT COUNT(*) as cnt FROM workout_log 
+             WHERE user_id = ? AND is_completed = 1 AND training_date >= ? AND training_date <= ?"
+        );
+        if ($stmtDone) {
+            $stmtDone->bind_param('iss', $userId, $twoWeeksAgo, $today);
+            $stmtDone->execute();
+            $row = $stmtDone->get_result()->fetch_assoc();
+            $completed = (int) ($row['cnt'] ?? 0);
+            $stmtDone->close();
+        }
+
+        return [
+            'planned' => $planned,
+            'completed' => $completed,
+            'missed' => max(0, $planned - $completed),
+        ];
+    }
+
+    /**
+     * Тренд нагрузки: процент изменения км этой недели vs прошлой.
+     */
+    private function getLoadTrend(int $userId): ?int {
+        $thisMonday = (new DateTime())->modify('monday this week')->format('Y-m-d');
+        $thisSunday = (new DateTime())->modify('sunday this week')->format('Y-m-d');
+        $lastMonday = (new DateTime())->modify('monday last week')->format('Y-m-d');
+        $lastSunday = (new DateTime())->modify('sunday last week')->format('Y-m-d');
+
+        $getKm = function (string $from, string $to) use ($userId): float {
+            $stmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(distance_km), 0) as km FROM workout_log 
+                 WHERE user_id = ? AND is_completed = 1 AND training_date >= ? AND training_date <= ?"
+            );
+            if (!$stmt) return 0.0;
+            $stmt->bind_param('iss', $userId, $from, $to);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            return (float) ($row['km'] ?? 0);
+        };
+
+        $lastKm = $getKm($lastMonday, $lastSunday);
+        $thisKm = $getKm($thisMonday, $thisSunday);
+
+        if ($lastKm < 1) return null;
+        return (int) round((($thisKm - $lastKm) / $lastKm) * 100);
+    }
+
+    /**
+     * Количество тренировок и км за текущую неделю.
+     */
+    private function getThisWeekWorkoutCount(int $userId): array {
+        $monday = (new DateTime())->modify('monday this week')->format('Y-m-d');
+        $sunday = (new DateTime())->modify('sunday this week')->format('Y-m-d');
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) as cnt, COALESCE(SUM(distance_km), 0) as km 
+             FROM workout_log 
+             WHERE user_id = ? AND is_completed = 1 AND training_date >= ? AND training_date <= ?"
+        );
+        if (!$stmt) {
+            return ['completed' => 0, 'total_km' => 0];
+        }
+        $stmt->bind_param('iss', $userId, $monday, $sunday);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return [
+            'completed' => (int) ($row['cnt'] ?? 0),
+            'total_km' => round((float) ($row['km'] ?? 0), 1),
+        ];
+    }
+
+    /**
+     * Загружает детали конкретного дня: план + упражнения + результат.
+     * Используется tool get_day_details.
+     */
+    public function getDayDetails(int $userId, string $date): array {
+        $result = ['date' => $date, 'plan' => null, 'exercises' => [], 'workout' => null];
+
+        // Запланированные данные
+        $stmt = $this->db->prepare(
+            "SELECT id, type, description, is_key_workout, day_of_week 
+             FROM training_plan_days 
+             WHERE user_id = ? AND date = ? 
+             LIMIT 1"
+        );
+        if ($stmt) {
+            $stmt->bind_param('is', $userId, $date);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                $result['plan'] = [
+                    'type' => $row['type'],
+                    'type_ru' => $this->getDayTypeRu($row['type']),
+                    'description' => $row['description'],
+                    'is_key_workout' => (bool) $row['is_key_workout'],
+                ];
+
+                $dayId = (int) $row['id'];
+                $exStmt = $this->db->prepare(
+                    "SELECT category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes
+                     FROM training_day_exercises 
+                     WHERE user_id = ? AND plan_day_id = ?
+                     ORDER BY order_index"
+                );
+                if ($exStmt) {
+                    $exStmt->bind_param('ii', $userId, $dayId);
+                    $exStmt->execute();
+                    $exResult = $exStmt->get_result();
+                    while ($ex = $exResult->fetch_assoc()) {
+                        $result['exercises'][] = $ex;
+                    }
+                    $exStmt->close();
+                }
+            }
+        }
+
+        // Фактический результат
+        $stmt = $this->db->prepare(
+            "SELECT distance_km, result_time, pace, duration_minutes, avg_heart_rate, max_heart_rate, 
+                    notes, rating, is_completed, avg_cadence, elevation_gain, calories
+             FROM workout_log 
+             WHERE user_id = ? AND training_date = ? AND is_completed = 1 
+             LIMIT 1"
+        );
+        if ($stmt) {
+            $stmt->bind_param('is', $userId, $date);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                $result['workout'] = $row;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Загружает историю тренировок за период.
+     * Используется tool get_workouts.
+     */
+    public function getWorkoutsHistory(int $userId, string $dateFrom, string $dateTo, int $limit = 30): array {
+        $sql = "SELECT 
+                    wl.training_date AS date,
+                    wl.distance_km,
+                    wl.result_time,
+                    wl.pace,
+                    wl.duration_minutes,
+                    wl.avg_heart_rate,
+                    wl.notes,
+                    wl.rating,
+                    tpd.type AS plan_type,
+                    tpd.description AS plan_description,
+                    tpd.is_key_workout
+                FROM workout_log wl
+                LEFT JOIN training_plan_days tpd 
+                    ON tpd.user_id = wl.user_id 
+                    AND tpd.date = wl.training_date
+                WHERE wl.user_id = ? 
+                    AND wl.is_completed = 1
+                    AND wl.training_date >= ?
+                    AND wl.training_date <= ?
+                ORDER BY wl.training_date ASC
+                LIMIT ?";
+
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param('issi', $userId, $dateFrom, $dateTo, $limit);
+        if (!$stmt->execute()) {
+            return [];
+        }
+        $result = $stmt->get_result();
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+        return $rows;
     }
 }

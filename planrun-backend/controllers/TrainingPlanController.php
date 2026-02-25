@@ -90,6 +90,60 @@ class TrainingPlanController extends BaseController {
     }
     
     /**
+     * Пересчитать план с учётом истории и текущей формы
+     * POST /api_v2.php?action=recalculate_plan
+     */
+    public function recalculatePlan() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+        
+        try {
+            $reason = $this->getParam('reason', null);
+            if ($reason !== null) {
+                $reason = trim(mb_substr((string) $reason, 0, 1000));
+            }
+            $result = $this->planService->recalculatePlan($this->currentUserId, $reason);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Генерация нового плана после завершения предыдущего
+     * POST /api_v2.php?action=generate_next_plan
+     */
+    public function generateNextPlan() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+
+        try {
+            $goals = $this->getParam('goals', null);
+            if ($goals !== null) {
+                $goals = trim(mb_substr((string) $goals, 0, 2000));
+            }
+            $result = $this->planService->generateNextPlan($this->currentUserId, $goals);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    public function reactivatePlan() {
+        if (!$this->requireAuth()) {
+            return;
+        }
+        try {
+            $this->planService->reactivatePlan($this->currentUserId);
+            $this->returnSuccess(['reactivated' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Очистить сообщение о генерации плана
      * GET /api_v2.php?action=clear_plan_generation_message
      */

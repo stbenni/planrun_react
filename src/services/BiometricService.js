@@ -1,6 +1,7 @@
 /**
  * Сервис для работы с биометрической аутентификацией
  * Использует @aparajita/capacitor-biometric-auth для Capacitor
+ * API: checkBiometry(), authenticate(options), ошибки — BiometryError
  */
 
 import { BiometricAuth } from '@aparajita/capacitor-biometric-auth';
@@ -13,56 +14,51 @@ class BiometricService {
   }
 
   /**
-   * Проверить доступность биометрии на устройстве
-   * @returns {Promise<{available: boolean, type: string|null, error?: string}>}
+   * Проверить доступность биометрии на устройстве.
+   * Использует checkBiometry() (v7+), при отсутствии — checkAvailability() для обратной совместимости.
    */
   async checkAvailability() {
     try {
-      // Проверяем, что мы в Capacitor окружении
       if (typeof window === 'undefined' || !window.Capacitor) {
-        return {
-          available: false,
-          type: null,
-          error: 'Not in Capacitor environment'
-        };
+        return { available: false, type: null, error: 'Not in Capacitor environment' };
       }
 
-      const result = await BiometricAuth.checkAvailability();
-      
-      this.isAvailable = result.isAvailable;
-      this.biometricType = result.biometricType || null;
+      const check = await BiometricAuth.checkBiometry();
+
+      const available = check.isAvailable === true;
+      const type = check.biometryType ?? null;
+      const reason = check.reason ?? '';
+
+      this.isAvailable = available;
+      this.biometricType = type;
 
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[Biometric] checkAvailability result:', { isAvailable: result.isAvailable, biometricType: result.biometricType, error: result.error });
+        console.log('[Biometric] check result:', { available, type, reason, code: check.code });
       }
 
       return {
-        available: result.isAvailable,
-        type: result.biometricType || null,
-        error: result.error || null
+        available,
+        type,
+        error: available ? null : (reason || (check.code ?? '')),
+        code: check.code
       };
     } catch (error) {
-      // Игнорируем ошибки "not implemented on web" - это нормально для веба
-      if (error.message && error.message.includes('not implemented on web')) {
-        return {
-          available: false,
-          type: null,
-          error: null
-        };
+      if (error?.message?.includes('not implemented on web')) {
+        return { available: false, type: null, error: null };
       }
-      console.error('[Biometric] availability check failed:', error);
+      console.error('[Biometric] check failed:', error);
       return {
         available: false,
         type: null,
-        error: error.message
+        error: error?.message ?? String(error)
       };
     }
   }
 
   /**
-   * Аутентификация через биометрию
-   * @param {string} reason - Причина запроса биометрии (отображается пользователю)
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * Запросить биометрическую аутентификацию.
+   * Опции в формате AuthenticateOptions (reason, cancelTitle, allowDeviceCredential, androidTitle и т.д.).
+   * При ошибке плагин выбрасывает BiometryError (message, code).
    */
   async authenticate(reason = 'Подтвердите вашу личность') {
     try {
@@ -70,33 +66,42 @@ class BiometricService {
         throw new Error('Not in Capacitor environment');
       }
 
-      await BiometricAuth.authenticate({
-        reason: reason,
-        title: 'Биометрическая аутентификация',
-        subtitle: 'Используйте отпечаток пальца или Face ID',
-        description: reason,
-        fallbackTitle: 'Использовать пароль',
-        cancelTitle: 'Отмена'
-      });
+      const options = {
+        reason,
+        cancelTitle: 'Отмена',
+        allowDeviceCredential: true,
+        iosFallbackTitle: 'Использовать пароль',
+        androidTitle: 'Биометрическая аутентификация',
+        androidSubtitle: reason,
+        androidConfirmationRequired: false
+      };
 
-      // Плагин при успехе ничего не возвращает (resolve без значения)
+      await BiometricAuth.authenticate(options);
+
       return { success: true, error: null };
     } catch (error) {
-      console.error('Biometric authentication failed:', error);
+      const msg = error?.message ?? String(error);
+      const code = error?.code ?? '';
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Biometric] authenticate failed:', { code, message: msg });
+      }
       return {
         success: false,
-        error: error?.message ?? String(error)
+        error: msg || 'Биометрическая аутентификация не прошла',
+        code
       };
     }
   }
 
   /**
-   * Сохранить JWT токены в защищенном хранилище
-   * @param {string} accessToken - Access token
-   * @param {string} refreshToken - Refresh token
-   * @returns {Promise<boolean>}
+   * Сохранить JWT токены в защищенном хранилище.
+   * Оба токена обязательны; пустой refreshToken не сохраняем.
    */
   async saveTokens(accessToken, refreshToken) {
+    if (!accessToken || !refreshToken) {
+      console.warn('[Biometric] saveTokens: оба токена обязательны');
+      return false;
+    }
     try {
       if (typeof window === 'undefined' || !window.Capacitor) {
         // Для веба используем обычный localStorage

@@ -601,7 +601,7 @@ h1 {
 }
 
 .control {
-    border-left-color: var(--gray-600);
+    border-left-color: var(--workout-control);
 }
 
 .free-training {

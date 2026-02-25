@@ -108,6 +108,10 @@
   letter-spacing: -0.01em;
 }
 
+[data-theme="light"] .workout-date {
+  color: var(--text-primary);
+}
+
 [data-theme="dark"] .workout-date {
   color: var(--text-primary);
 }
@@ -350,6 +354,7 @@
 .workout-card-plan-day-block--tempo::before,
 .workout-card-plan-day-block--interval::before,
 .workout-card-plan-day-block--long::before,
+.workout-card-plan-day-block--control::before,
 .workout-card-plan-day-block--race::before,
 .workout-card-plan-day-block--other::before,
 .workout-card-plan-day-block--sbu::before,
@@ -368,6 +373,7 @@
 .workout-card-plan-day-block--tempo::before { background: var(--workout-tempo); }
 .workout-card-plan-day-block--interval::before { background: var(--workout-interval); }
 .workout-card-plan-day-block--long::before { background: var(--workout-long); }
+.workout-card-plan-day-block--control::before { background: var(--workout-control); }
 .workout-card-plan-day-block--race::before { background: var(--primary-500); }
 .workout-card-plan-day-block--other::before { background: var(--workout-strip-ofp); }
 .workout-card-plan-day-block--sbu::before { background: var(--workout-strip-sbu); }
@@ -378,6 +384,7 @@
 .workout-card-plan-day-block--tempo,
 .workout-card-plan-day-block--interval,
 .workout-card-plan-day-block--long,
+.workout-card-plan-day-block--control,
 .workout-card-plan-day-block--race,
 .workout-card-plan-day-block--other,
 .workout-card-plan-day-block--sbu,
@@ -434,10 +441,36 @@
   font-weight: 600;
   font-size: 15px;
   color: var(--gray-800);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 [data-theme="dark"] .workout-card-plan-day-type {
   color: var(--text-primary);
+}
+
+.workout-card-key-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-radius: 6px;
+  background: var(--primary-50);
+  color: var(--primary-600);
+  border: 1px solid var(--primary-200);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .workout-card-key-badge {
+  background: rgba(252, 76, 2, 0.15);
+  color: var(--primary-400);
+  border-color: rgba(252, 76, 2, 0.3);
 }
 
 .workout-card-plan-day-text {

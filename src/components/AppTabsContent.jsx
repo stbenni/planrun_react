@@ -3,8 +3,9 @@
  * Нет перезагрузки и «загрузки» при смене вкладки — как в браузере.
  */
 
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { useLocation } from 'react-router-dom';
+import SkeletonScreen from './common/SkeletonScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import StatsScreen from '../screens/StatsScreen';
@@ -12,6 +13,8 @@ import ChatScreen from '../screens/ChatScreen';
 import TrainersScreen from '../screens/TrainersScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import useAuthStore from '../stores/useAuthStore';
+
+const AdminScreen = lazy(() => import('../screens/AdminScreen'));
 
 const AppTabsContent = ({ onLogout }) => {
   const location = useLocation();
@@ -46,20 +49,13 @@ const AppTabsContent = ({ onLogout }) => {
       </div>
       {isAdmin && (
         <div className={`app-tab-pane ${isActive('/admin') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/admin')}>
-          <AdminTabPlaceholder />
+          <Suspense fallback={<SkeletonScreen type="default" />}>
+            <AdminScreen />
+          </Suspense>
         </div>
       )}
     </div>
   );
-};
-
-const AdminTabPlaceholder = () => {
-  const [AdminScreen, setAdminScreen] = React.useState(null);
-  React.useEffect(() => {
-    import('../screens/AdminScreen').then((m) => setAdminScreen(() => m.default));
-  }, []);
-  if (!AdminScreen) return <div className="loading-container"><div className="spinner">Загрузка...</div></div>;
-  return <AdminScreen />;
 };
 
 export default AppTabsContent;
