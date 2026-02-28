@@ -1,13 +1,8 @@
-/* Override modal body padding for training modal to reduce whitespace */
-.app-modal-body--modern:has(.add-training-form),
-.app-modal-body--modern:has(.add-training-categories) {
-  padding: var(--space-4) var(--space-5);
-}
-
 .add-training-date {
   margin: 0 0 var(--space-3) 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .add-training-step-title {
@@ -189,6 +184,34 @@
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
+}
+
+/* Несколько бегов в ResultModal */
+.result-modal-run-block {
+  margin-bottom: var(--space-4);
+}
+.result-modal-run-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.result-modal-remove-run {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+}
+.result-modal-remove-run:hover {
+  color: var(--accent-500);
+  background: var(--accent-50);
+}
+.result-modal-add-run-btn {
+  margin-top: var(--space-2);
 }
 
 /* ===== Fartlek segments ===== */
@@ -494,4 +517,45 @@
 [data-theme="dark"] .add-training-form .form-group label[for="add-training-desc"],
 [data-theme="dark"] .add-training-form .form-group--row label[for="add-training-key"] {
   color: white;
+}
+
+/* Мобилка: название сверху (полная ширина), параметры снизу — перенос по пробелам */
+@media (max-width: 640px) {
+  .add-training-library-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .add-training-library-item-label {
+    flex: none;
+    width: 100%;
+    order: 1;
+  }
+
+  .add-training-library-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .add-training-library-sbu-dist,
+  .add-training-library-ofp-params {
+    order: 2;
+    align-self: flex-end;
+  }
+
+  .add-training-custom-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .add-training-custom-item .add-training-library-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
 }

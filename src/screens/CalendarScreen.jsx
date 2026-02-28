@@ -6,7 +6,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePlanStore from '../stores/usePlanStore';
+import usePreloadStore from '../stores/usePreloadStore';
+import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
+import { isNativeCapacitor } from '../services/TokenStorageService';
 import WeekCalendar from '../components/Calendar/WeekCalendar';
 import MonthlyCalendar from '../components/Calendar/MonthlyCalendar';
 import DayModal from '../components/Calendar/DayModal';
@@ -19,16 +22,17 @@ import '../assets/css/short-desc.css';
 import './CalendarScreen.css';
 import './StatsScreen.css';
 
-const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, hideHeader = false, viewMode: externalViewMode = null }) => {
+const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = true, isOwner = true, canView = true, hideHeader = false, viewMode: externalViewMode = null }) => {
   const isTabActive = useIsTabActive('/calendar');
+  const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
   const location = useLocation();
   const { api, user } = useAuthStore();
   // Используем targetUserId если передан, иначе текущего пользователя
   const calendarUserId = targetUserId || user?.id;
   const [plan, setPlan] = useState(null);
   const openedFromStateRef = useRef(false);
-  const [progressData, setProgressData] = useState({});
-  const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам
+  const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам (сводка)
+  const [workoutsListByDate, setWorkoutsListByDate] = useState({}); // Отдельные тренировки по датам (для проверки типов)
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,7 +40,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   const [resultModal, setResultModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [addTrainingModal, setAddTrainingModal] = useState({ isOpen: false, date: null, planDay: null, editResultData: null });
   const [dayModalRefreshKey, setDayModalRefreshKey] = useState(0);
-  const [workoutDetailsModal, setWorkoutDetailsModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null });
+  const [workoutDetailsModal, setWorkoutDetailsModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null, selectedWorkoutId: null });
   const { recalculating, recalculatePlan, generatingNext, generateNextPlan } = usePlanStore();
   const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
   const [recalcReason, setRecalcReason] = useState('');
@@ -46,7 +50,11 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
 
   const isPlanCompleted = hasPlan && (() => {
     const weeks = plan.weeks_data;
-    const lastWeek = weeks[weeks.length - 1];
+    const lastWeek = weeks.reduce((latest, w) => {
+      if (!w?.start_date) return latest;
+      if (!latest) return w;
+      return w.start_date > latest.start_date ? w : latest;
+    }, null);
     if (!lastWeek?.start_date) return false;
     const lastWeekEnd = new Date(lastWeek.start_date);
     lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
@@ -115,12 +123,34 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     return null;
   };
 
+  const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
+  useEffect(() => {
+    if (workoutRefreshVersion <= 0 || !api || isTabActive) return;
+    const t = setTimeout(() => loadPlan({ silent: true }), 250);
+    return () => clearTimeout(t);
+  }, [workoutRefreshVersion, api, isTabActive]);
+
   const hasLoadedRef = useRef(false);
   useEffect(() => {
-    if (!isTabActive && !hasLoadedRef.current) return;
+    const isNative = isNativeCapacitor();
+    const shouldPreload = isNative && preloadTriggered;
+    if (!isTabActive && !hasLoadedRef.current && !viewContext && !shouldPreload) return;
     hasLoadedRef.current = true;
-    loadPlan();
-  }, [calendarUserId, isTabActive]);
+    // silent: предзагрузка или обновление при возврате (данные уже есть)
+    const silent = (shouldPreload && !isTabActive) || !!plan;
+    loadPlan({ silent });
+  }, [calendarUserId, isTabActive, viewContext, preloadTriggered]);
+
+  // Закрыть все модалки при переходе на другую страницу
+  useEffect(() => {
+    const isCalendar = location.pathname === '/calendar' || location.pathname.startsWith('/calendar');
+    if (!isCalendar) {
+      setDayModal({ isOpen: false, date: null, week: null, day: null });
+      setResultModal({ isOpen: false, date: null, week: null, day: null });
+      setAddTrainingModal({ isOpen: false, date: null, planDay: null, editResultData: null });
+      setWorkoutDetailsModal((prev) => ({ ...prev, isOpen: false }));
+    }
+  }, [location.pathname]);
 
   // Переход с дашборда с датой (карточка «Сегодня» / «Следующая») — открыть день в модалке
   useEffect(() => {
@@ -145,8 +175,8 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     try {
       if (!silent) setLoading(true);
       
-      // Загружаем план
-      const planData = await api.getPlan(calendarUserId !== user?.id ? calendarUserId : null);
+      // Загружаем план (viewContext для просмотра чужого профиля, иначе свой)
+      const planData = await api.getPlan(viewContext ? null : (calendarUserId !== user?.id ? calendarUserId : null), viewContext || undefined);
       
       // Проверяем структуру ответа (может быть data.weeks_data)
       // TrainingPlanService возвращает planData с weeks_data
@@ -157,7 +187,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
       // Загружаем все тренировки (из GPX/TCX файлов) - сначала, чтобы потом обновить progressData
       let workouts = {};
       try {
-        const workoutsSummary = await api.getAllWorkoutsSummary(calendarUserId && calendarUserId !== user?.id ? calendarUserId : null);
+        const workoutsSummary = await api.getAllWorkoutsSummary(viewContext || null);
         
         // Проверяем структуру ответа
         // StatsService возвращает объект: {date: {count, distance, duration, pace, hr, workout_url}}
@@ -174,60 +204,28 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         setWorkoutsData({});
       }
       
-      // Загружаем прогресс из getAllResults (результаты из workout_log)
-      // И объединяем с тренировками из workouts (GPX/TCX)
-      // День считается выполненным если есть тренировка ИЛИ результат
+      // Загружаем список отдельных тренировок (для проверки типов при определении выполнения)
+      let workoutsList = [];
       try {
-        const allResults = await api.getAllResults(calendarUserId && calendarUserId !== user?.id ? calendarUserId : null);
-        
-        // Проверяем структуру ответа (может быть data.results или просто results)
-        // WorkoutService возвращает ['results' => $results]
-        // BaseController оборачивает в {success: true, data: {results: [...]}}
-        // ApiClient возвращает data.data || data
-        // Итого: allResults может быть {results: [...]} или просто массив
-        let results = [];
-        
-        if (Array.isArray(allResults)) {
-          // Если это массив напрямую
-          results = allResults;
-        } else if (allResults?.data?.results && Array.isArray(allResults.data.results)) {
-          // Формат: {data: {results: [...]}}
-          results = allResults.data.results;
-        } else if (allResults?.results && Array.isArray(allResults.results)) {
-          // Формат: {results: [...]}
-          results = allResults.results;
-        }
-        
-        // Создаем progressData из результатов workout_log
-        const newProgressData = {};
-        results.forEach(result => {
-          if (result.training_date) {
-            newProgressData[result.training_date] = true;
-          }
-        });
-        
-        // ДОБАВЛЯЕМ тренировки из workouts (GPX/TCX) - день считается выполненным если есть тренировка
-        Object.keys(workouts).forEach(date => {
-          if (workouts[date] && (workouts[date].distance || workouts[date].duration)) {
-            newProgressData[date] = true;
-          }
-        });
-        setProgressData(newProgressData);
+        const listRes = await api.getAllWorkoutsList(viewContext || null, 500);
+        const raw = listRes?.data ?? listRes;
+        workoutsList = Array.isArray(raw?.workouts) ? raw.workouts : (Array.isArray(raw) ? raw : []);
       } catch (error) {
-        console.error('Error loading progress:', error);
-        // Если ошибка загрузки результатов, используем только workouts
-        const fallbackProgress = {};
-        Object.keys(workouts).forEach(date => {
-          if (workouts[date] && (workouts[date].distance || workouts[date].duration)) {
-            fallbackProgress[date] = true;
-          }
-        });
-        setProgressData(fallbackProgress);
+        console.error('Error loading workouts list:', error);
       }
+      const listByDate = {};
+      workoutsList.forEach((w) => {
+        const date = w.start_time ? w.start_time.split('T')[0] : w.date;
+        if (date) {
+          if (!listByDate[date]) listByDate[date] = [];
+          listByDate[date].push(w);
+        }
+      });
+      setWorkoutsListByDate(listByDate);
       
       // Загружаем результаты тренировок для отображения
       try {
-        const allResults = await api.getAllResults(calendarUserId && calendarUserId !== user?.id ? calendarUserId : null);
+        const allResults = await api.getAllResults(viewContext || null);
         
         let results = [];
         if (Array.isArray(allResults)) {
@@ -268,11 +266,11 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     loadPlan();
   };
 
-  const handleOpenWorkoutDetails = async (date, weekNumber = null, dayKey = null) => {
+  const handleOpenWorkoutDetails = async (date, weekNumber = null, dayKey = null, selectedWorkoutId = null) => {
     if (!api || !date) return;
     try {
-      setWorkoutDetailsModal({ isOpen: true, date, dayData: null, loading: true, weekNumber, dayKey });
-      const response = await api.getDay(date);
+      setWorkoutDetailsModal({ isOpen: true, date, dayData: null, loading: true, weekNumber, dayKey, selectedWorkoutId });
+      const response = await api.getDay(date, viewContext || undefined);
       const raw = response?.data != null ? response.data : response;
       const dayData = raw && typeof raw === 'object' ? {
         ...raw,
@@ -288,7 +286,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
   };
 
   const handleCloseWorkoutDetails = () => {
-    setWorkoutDetailsModal({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null });
+    setWorkoutDetailsModal({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null, selectedWorkoutId: null });
   };
 
   const handleEditWorkoutResult = async () => {
@@ -297,7 +295,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
     // Собираем результат: сначала getResult, при отсутствии — из уже загруженных workouts дня (get_day)
     let result = null;
     try {
-      const res = await api.getResult(date);
+      const res = await api.getResult(date, viewContext || undefined);
       const raw = res?.result ?? res?.data?.result ?? res;
       if (raw && (raw.distance_km != null || raw.result_time != null || raw.result_distance != null || raw.notes != null)) {
         result = raw;
@@ -373,23 +371,26 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             <span>{generatingNext ? 'Генерация нового плана...' : 'Пересчёт плана...'} Это займёт 3-5 минут.</span>
           </div>
         )}
+        {(externalViewMode !== 'week' || (hasPlan && canEdit && isOwner)) && (
         <div className="calendar-header-row">
-          <div className="calendar-view-toggle">
-            <button 
-              className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
-              onClick={() => setViewMode('week')}
-              disabled={externalViewMode !== null && externalViewMode !== undefined}
-            >
-              Неделя
-            </button>
-            <button 
-              className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
-              onClick={() => setViewMode('full')}
-              disabled={externalViewMode !== null && externalViewMode !== undefined}
-            >
-              Месяц
-            </button>
-          </div>
+          {externalViewMode !== 'week' && (
+            <div className="calendar-view-toggle">
+              <button 
+                className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
+                onClick={() => setViewMode('week')}
+                disabled={externalViewMode !== null && externalViewMode !== undefined}
+              >
+                Неделя
+              </button>
+              <button 
+                className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
+                onClick={() => setViewMode('full')}
+                disabled={externalViewMode !== null && externalViewMode !== undefined}
+              >
+                Месяц
+              </button>
+            </div>
+          )}
           {hasPlan && canEdit && isOwner && (
             <div className="calendar-plan-actions">
               {isPlanCompleted ? (
@@ -421,14 +422,14 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
                   {recalculating ? (
                     <>
                       <span className="btn-spinner" />
-                      Пересчёт...
+                      <span className="btn-recalculate-text">Пересчёт...</span>
                     </>
                   ) : (
                     <>
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M13.65 2.35A7.96 7.96 0 008 0a8 8 0 100 16 7.97 7.97 0 005.65-2.35l-1.41-1.41A5.98 5.98 0 018 14 6 6 0 118 2c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z" fill="currentColor"/>
                       </svg>
-                      Пересчитать
+                      <span className="btn-recalculate-text">Пересчитать</span>
                     </>
                   )}
                 </button>
@@ -436,6 +437,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
             </div>
           )}
         </div>
+        )}
 
         {showRecalcConfirm && (
           <div className="modal" style={{ display: 'block' }} onClick={() => setShowRecalcConfirm(false)}>
@@ -515,21 +517,26 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         {viewMode === 'week' ? (
           <WeekCalendar
             plan={planData}
-            progressData={progressData}
             workoutsData={workoutsData}
+            workoutsListByDate={workoutsListByDate}
             resultsData={resultsData}
             api={api}
             canEdit={canEdit}
+            canView={canView}
+            viewContext={viewContext}
             onDayPress={(date, weekNumber, dayKey) => {
-              if (canEdit || isOwner) {
+              if (canEdit || isOwner || canView) {
                 setDayModal({ isOpen: true, date, week: weekNumber, day: dayKey });
               }
             }}
-            onOpenWorkoutDetails={(date, weekNumber, dayKey) => handleOpenWorkoutDetails(date, weekNumber, dayKey)}
+            onOpenWorkoutDetails={(date, weekNumber, dayKey, selectedWorkoutId) => handleOpenWorkoutDetails(date, weekNumber, dayKey, selectedWorkoutId)}
             onOpenResultModal={(date, week, day) => setResultModal({ isOpen: true, date, week, day })}
             onAddTraining={(date) => setAddTrainingModal({ isOpen: true, date, planDay: null })}
             onEditTraining={(planDay, date) => setAddTrainingModal({ isOpen: true, date, planDay })}
-            onTrainingAdded={() => loadPlan({ silent: true })}
+            onTrainingAdded={() => {
+              loadPlan({ silent: true });
+              useWorkoutRefreshStore.getState().triggerRefresh();
+            }}
             currentWeekNumber={getCurrentWeekNumber(planData)}
             initialDate={location.state?.date}
           />
@@ -537,11 +544,12 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
           <div className="week-calendar-container">
             <MonthlyCalendar
               workoutsData={workoutsData}
+              workoutsListByDate={workoutsListByDate}
               resultsData={resultsData}
               planData={planData}
               api={api}
               onDateClick={(date) => {
-                if (canEdit || isOwner) {
+                if (canEdit || isOwner || canView) {
                   // Парсим дату для DayModal
                   const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
                   setDayModal({ isOpen: true, date: dateStr, week: null, day: null });
@@ -563,7 +571,11 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         api={api}
         canEdit={canEdit}
         targetUserId={calendarUserId}
-        onTrainingAdded={() => loadPlan({ silent: true })}
+        viewContext={viewContext}
+        onTrainingAdded={() => {
+          loadPlan({ silent: true });
+          useWorkoutRefreshStore.getState().triggerRefresh();
+        }}
         onEditTraining={(planDay, date) => setAddTrainingModal({ isOpen: true, date, planDay })}
         onOpenResultModal={(date, week, day) => setResultModal({ isOpen: true, date, week, day })}
         refreshKey={dayModalRefreshKey}
@@ -578,6 +590,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         api={api}
         onSave={() => {
           loadPlan({ silent: true });
+          useWorkoutRefreshStore.getState().triggerRefresh();
         }}
       />
 
@@ -589,7 +602,9 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         loading={workoutDetailsModal.loading}
         weekNumber={workoutDetailsModal.weekNumber}
         dayKey={workoutDetailsModal.dayKey}
+        selectedWorkoutId={workoutDetailsModal.selectedWorkoutId}
         onEdit={workoutDetailsModal.dayData?.workouts?.length ? handleEditWorkoutResult : undefined}
+        onDelete={canEdit ? () => { handleCloseWorkoutDetails(); loadPlan({ silent: true }); useWorkoutRefreshStore.getState().triggerRefresh(); } : undefined}
       />
 
       <AddTrainingModal
@@ -601,6 +616,7 @@ const CalendarScreen = ({ targetUserId = null, canEdit = true, isOwner = true, h
         editResultData={addTrainingModal.editResultData}
         onSuccess={() => {
           loadPlan({ silent: true });
+          useWorkoutRefreshStore.getState().triggerRefresh();
           setAddTrainingModal({ isOpen: false, date: null, planDay: null, editResultData: null });
           setDayModalRefreshKey((k) => k + 1);
         }}

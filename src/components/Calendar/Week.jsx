@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import Day from './Day';
+import { TrashIcon } from '../common/Icons';
 import { formatDateShort } from '../../utils/calendarHelpers';
 import '../../assets/css/calendar_v2.css';
 
@@ -79,7 +80,7 @@ const Week = ({ week, isCurrentWeek, progressData, workoutsData, resultsData, on
               }}
               title="Удалить неделю"
             >
-              🗑️
+              <TrashIcon size={18} aria-hidden />
             </button>
           )}
         </div>

@@ -10,6 +10,12 @@ export const getDaysFromRange = (range) => {
   today.setHours(0, 0, 0, 0);
   
   switch (range) {
+    case 'last7days': {
+      // Последние 7 дней (скользящее окно)
+      const startDate = new Date(today);
+      startDate.setDate(today.getDate() - 7);
+      return { days: 7, startDate };
+    }
     case 'week': {
       // Эта неделя (с понедельника)
       const dayOfWeek = today.getDay();
@@ -66,11 +72,19 @@ export const formatPace = (seconds) => {
 
 /**
  * Обработка данных для вкладки "Обзор"
+ * @param {Object} workoutsData — { workouts: {...} } от getAllWorkoutsSummary
+ * @param {Object} allResults — { results: [...] } от getAllResults
+ * @param {Object} plan — план тренировок
+ * @param {string} range — week|month|quarter|year
+ * @param {Array} [workoutsList] — массив отдельных тренировок от getAllWorkoutsList (без группировки по дню)
  */
-export const processStatsData = (workoutsData, allResults, plan, range) => {
+export const processStatsData = (workoutsData, allResults, plan, range, workoutsList = null) => {
   const { days, startDate } = getDaysFromRange(range);
-  const cutoffDate = startDate;
+  const cutoffDate = new Date(startDate);
   cutoffDate.setHours(0, 0, 0, 0);
+  const rangeEnd = new Date(cutoffDate);
+  rangeEnd.setDate(rangeEnd.getDate() + Math.max(0, days - 1));
+  rangeEnd.setHours(23, 59, 59, 999);
   
   // getAllWorkoutsSummary возвращает объект вида: { "2026-01-20": { count, distance, duration, pace, hr, workout_url }, ... }
   // Нужно преобразовать в массив для удобной обработки
@@ -81,6 +95,7 @@ export const processStatsData = (workoutsData, allResults, plan, range) => {
     start_time: date + 'T00:00:00', // Для совместимости с существующим кодом
     distance_km: data.distance || 0,
     duration_minutes: data.duration || 0,
+    duration_seconds: data.duration_seconds ?? null,
     avg_pace: data.pace || null
   }));
   
@@ -202,23 +217,49 @@ export const processStatsData = (workoutsData, allResults, plan, range) => {
     };
   }
   
-  // Последние тренировки (преобразуем обратно в формат для списка)
-  // Исключаем дни отдыха и тренировки с нулевой дистанцией
-  const recentWorkouts = workouts
-    .filter(w => {
-      // Исключаем дни отдыха и тренировки с нулевой дистанцией
-      const distance = parseFloat(w.distance_km) || 0;
-      return distance > 0;
-    })
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .map(w => ({
-      date: w.date,
-      start_time: w.start_time || w.date + 'T00:00:00',
-      distance_km: w.distance_km,
-      duration_minutes: w.duration_minutes,
-      avg_pace: w.avg_pace,
-      count: w.count
-    }));
+  // Последние тренировки: если передан workoutsList — каждая тренировка отдельно; иначе — группировка по дню (legacy)
+  let recentWorkouts;
+  if (Array.isArray(workoutsList) && workoutsList.length > 0) {
+    recentWorkouts = workoutsList
+      .filter(w => {
+        const dateStr = w.start_time ? w.start_time.split('T')[0] : w.date;
+        if (!dateStr) return false;
+        const d = new Date(dateStr + 'T00:00:00');
+        return d >= cutoffDate && d <= rangeEnd;
+      })
+      .map(w => ({
+        id: w.id,
+        date: w.date || (w.start_time ? w.start_time.split('T')[0] : null),
+        start_time: w.start_time || (w.date ? w.date + 'T00:00:00' : null),
+        distance_km: w.distance_km ?? 0,
+        duration_minutes: w.duration_minutes ?? null,
+        duration_seconds: w.duration_seconds ?? null,
+        avg_pace: w.avg_pace,
+        avg_heart_rate: w.avg_heart_rate ?? null,
+        max_heart_rate: w.max_heart_rate ?? null,
+        elevation_gain: w.elevation_gain ?? null,
+        activity_type: w.activity_type || 'running',
+        is_manual: w.is_manual ?? false,
+        source: w.source ?? null,
+      }));
+  } else {
+    recentWorkouts = workouts
+      .filter(w => {
+        const distance = parseFloat(w.distance_km) || 0;
+        return distance > 0;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map(w => ({
+        date: w.date,
+        start_time: w.start_time || w.date + 'T00:00:00',
+        distance_km: w.distance_km,
+        duration_minutes: w.duration_minutes,
+        duration_seconds: w.duration_seconds ?? null,
+        avg_pace: w.avg_pace,
+        count: w.count,
+        activity_type: w.activity_type || 'running'
+      }));
+  }
   
   return {
     totalDistance: Math.round(totalDistance * 10) / 10,

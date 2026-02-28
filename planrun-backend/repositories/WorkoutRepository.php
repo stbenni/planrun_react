@@ -35,7 +35,7 @@ class WorkoutRepository extends BaseRepository {
      * Получить тренировки за день
      */
     public function getWorkoutsByDate($userId, $dateStart, $dateEnd) {
-        $sql = "SELECT id, user_id, activity_type, start_time, duration_minutes, 
+        $sql = "SELECT id, user_id, activity_type, source, start_time, duration_minutes, duration_seconds, 
                 distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain
                 FROM workouts 
                 WHERE user_id = ? AND start_time >= ? AND start_time <= ?

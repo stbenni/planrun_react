@@ -7,9 +7,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatSSE } from '../../services/ChatSSE';
+import { BotIcon, MessageCircleIcon, BellIcon } from './Icons';
 import './Notifications.css';
 
-const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
+const userTimezone = (user) => user?.timezone || (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions?.().timeZone) || 'Europe/Moscow';
+
+const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
+  const tz = userTimezone(user);
   const navigate = useNavigate();
   const [upcomingWorkouts, setUpcomingWorkouts] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
@@ -99,8 +103,17 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
         } else {
           const data = await api.chatGetMessages('admin', 5, 0);
           const list = Array.isArray(data?.messages) ? data.messages : [];
-          const unread = list.filter((m) => m.sender_type === 'admin' && !m.read_at);
-          setAdminMessages(unread.map((m) => ({ ...m, type: 'chat', id: `chat_${m.id}` })));
+          const unread = list.filter((m) => !m.read_at && (
+            m.sender_type === 'admin' || (m.sender_type === 'user' && m.sender_id !== user?.id)
+          ));
+          setAdminMessages(unread.map((m) => ({
+            ...m,
+            type: 'chat',
+            id: `chat_${m.id}`,
+            fromUser: m.sender_type === 'user',
+            username: m.sender_username,
+            user_id: m.sender_id,
+          })));
         }
       } catch {
         setAdminMessages([]);
@@ -123,7 +136,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
     };
 
     await Promise.all([loadUpcomingWorkouts(), loadAdminMessages(), loadAiMessages()]);
-  }, [api, isAdmin]);
+  }, [api, isAdmin, user?.id]);
 
   useEffect(() => {
     if (!api) return;
@@ -160,13 +173,13 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
       {allItems.map((item, index) => {
         if (item.type === 'chat_ai') {
           const timeStr = item.created_at
-            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz })
             : '';
           const content = (item.content || '').slice(0, 60);
           const truncated = content.length >= 60 ? content + '…' : content;
           return (
             <div key={item.id} className="notification-card notification-card--chat notification-card--ai" style={{ animationDelay: `${index * 100}ms` }}>
-              <div className="notification-icon">🤖</div>
+              <div className="notification-icon" aria-hidden><BotIcon size={24} /></div>
               <div className="notification-content">
                 <div className="notification-title">Новое сообщение от AI-тренера</div>
                 <div className="notification-date">{timeStr}</div>
@@ -193,7 +206,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
 
         if (item.type === 'chat') {
           const timeStr = item.created_at
-            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz })
             : '';
           const content = (item.content || '').slice(0, 60);
           const truncated = content.length >= 60 ? content + '…' : content;
@@ -202,7 +215,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
             : 'Новое сообщение от администрации';
           return (
             <div key={item.id} className="notification-card notification-card--chat" style={{ animationDelay: `${index * 100}ms` }}>
-              <div className="notification-icon">💬</div>
+              <div className="notification-icon" aria-hidden><MessageCircleIcon size={24} /></div>
               <div className="notification-content">
                 <div className="notification-title">{title}</div>
                 <div className="notification-date">{timeStr}</div>
@@ -212,7 +225,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
                 <button
                   className="notification-btn"
                   onClick={() => {
-                    if (item.fromUser && item.user_id) {
+                    if (isAdmin && item.fromUser && item.user_id) {
                       navigate('/chat', { state: { openAdminMode: true, selectedUserId: item.user_id } });
                     } else {
                       const msgId = typeof item.id === 'number' ? item.id : parseInt(String(item.id).replace(/^chat_/, ''), 10);
@@ -244,7 +257,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress }) => {
 
         return (
           <div key={workout.id} className="notification-card" style={{ animationDelay: `${index * 100}ms` }}>
-            <div className="notification-icon">🔔</div>
+            <div className="notification-icon" aria-hidden><BellIcon size={24} /></div>
             <div className="notification-content">
               <div className="notification-title">Предстоящая тренировка</div>
               <div className="notification-date">{dayLabel}</div>

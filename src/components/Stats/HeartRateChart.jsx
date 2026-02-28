@@ -3,8 +3,11 @@
  */
 
 import React, { useMemo, useState, useRef } from 'react';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { HeartIcon } from '../common/Icons';
 
-const HeartRateChart = ({ timeline }) => {
+const HeartRateChart = ({ timeline, hideTitle = false }) => {
+  const isMobile = useMediaQuery('(max-width: 768px)');
   const [tooltip, setTooltip] = useState(null);
   const svgRef = useRef(null);
 
@@ -28,7 +31,10 @@ const HeartRateChart = ({ timeline }) => {
 
     // Прореживаем данные для лучшей производительности (максимум 500 точек)
     const step = Math.max(1, Math.floor(dataPoints.length / 500));
-    const sampledData = dataPoints.filter((_, i) => i % step === 0);
+    const sampledIndices = new Set();
+    for (let i = 0; i < dataPoints.length; i += step) sampledIndices.add(i);
+    if (dataPoints.length > 1) sampledIndices.add(dataPoints.length - 1);
+    const sampledData = dataPoints.filter((_, i) => sampledIndices.has(i));
 
     const minHR = Math.min(...sampledData.map(d => d.heartRate));
     const maxHR = Math.max(...sampledData.map(d => d.heartRate));
@@ -47,8 +53,8 @@ const HeartRateChart = ({ timeline }) => {
       adjustedMinHR,
       adjustedMaxHR,
       adjustedRange,
-      startTime: new Date(sampledData[0].timestamp),
-      endTime: new Date(sampledData[sampledData.length - 1].timestamp)
+      startTime: new Date(dataPoints[0].timestamp),
+      endTime: new Date(dataPoints[dataPoints.length - 1].timestamp)
     };
   }, [timeline]);
 
@@ -59,7 +65,7 @@ const HeartRateChart = ({ timeline }) => {
   // Размеры графика (используем viewBox для адаптивности)
   const viewBoxWidth = 800;
   const viewBoxHeight = 250;
-  const margin = { top: 20, right: 20, bottom: 35, left: 50 };
+  const margin = { top: 20, right: 5, bottom: 35, left: 50 };
   const chartWidth = viewBoxWidth - margin.left - margin.right;
   const chartHeight = viewBoxHeight - margin.top - margin.bottom;
 
@@ -145,14 +151,17 @@ const HeartRateChart = ({ timeline }) => {
     setTooltip(null);
   };
 
-  // Формируем путь для графика
+  // Формируем путь для графика (линия продлевается до правого края, чтобы не было пустого отступа)
+  const chartRight = margin.left + chartWidth;
+  const lastPoint = chartData.data[chartData.data.length - 1];
+  const lastY = lastPoint ? hrScale(lastPoint.heartRate) : margin.top + chartHeight / 2;
   const pathData = chartData.data
     .map((point, index) => {
       const x = timeScale(point.timestamp);
       const y = hrScale(point.heartRate);
       return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
     })
-    .join(' ');
+    .join(' ') + (lastPoint ? ` L ${chartRight} ${lastY}` : '');
 
   // Формируем метки для оси Y (пульс)
   const yAxisLabels = [];
@@ -188,8 +197,9 @@ const HeartRateChart = ({ timeline }) => {
     const x = timeScale(currentTime.getTime());
     const hours = String(currentTime.getHours()).padStart(2, '0');
     const minutes = String(currentTime.getMinutes()).padStart(2, '0');
+    const seconds = String(currentTime.getSeconds()).padStart(2, '0');
     xAxisLabels.push({
-      time: `${hours}:${minutes}`,
+      time: `${hours}:${minutes}:${seconds}`,
       x
     });
     currentTime = new Date(currentTime.getTime() + intervalMinutes * 60 * 1000);
@@ -209,13 +219,15 @@ const HeartRateChart = ({ timeline }) => {
 
   return (
     <div className="workout-chart-container">
-      <div className="workout-chart-title"><span className="workout-chart-title-icon" aria-hidden>❤️</span> Пульс по времени</div>
+      {!hideTitle && (
+        <div className="workout-chart-title"><HeartIcon size={20} className="workout-chart-title-icon" aria-hidden /> Пульс по времени</div>
+      )}
       <div className="workout-chart-wrapper">
         <svg 
           ref={svgRef}
           viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
           className="workout-chart-svg"
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio={isMobile ? 'none' : 'xMidYMid meet'}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -291,7 +303,7 @@ const HeartRateChart = ({ timeline }) => {
           {/* Заливка под графиком (цвет через CSS для светлой/тёмной темы) */}
           <path
             className="workout-chart-area workout-chart-area--hr"
-            d={`${pathData} L ${viewBoxWidth - margin.right} ${viewBoxHeight - margin.bottom} L ${margin.left} ${viewBoxHeight - margin.bottom} Z`}
+            d={`${pathData} L ${chartRight} ${viewBoxHeight - margin.bottom} L ${margin.left} ${viewBoxHeight - margin.bottom} Z`}
           />
           
           {/* График */}

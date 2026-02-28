@@ -8,71 +8,39 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Modal from '../common/Modal';
+import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
+import {
+  parseTime, formatTime, parsePace, formatPace,
+  maskPaceInput,
+  RUN_TYPES, SIMPLE_RUN_TYPES, TYPE_LABELS,
+} from '../../utils/workoutFormUtils';
 import './AddTrainingModal.css';
 
-const RUN_TYPES = ['easy', 'tempo', 'long', 'long-run', 'interval', 'fartlek', 'control', 'race'];
-const SIMPLE_RUN_TYPES = ['easy', 'tempo', 'long', 'long-run', 'control', 'race'];
-
 const TYPE_OPTIONS = [
-  { id: 'run', label: 'Бег', icon: '🏃' },
-  { id: 'ofp', label: 'ОФП', icon: '💪' },
-  { id: 'sbu', label: 'СБУ', icon: '⚡' },
+  { id: 'run', label: 'Бег', Icon: RunningIcon },
+  { id: 'ofp', label: 'ОФП', Icon: OtherIcon },
+  { id: 'sbu', label: 'СБУ', Icon: SbuIcon },
 ];
 
-const TYPE_LABELS = {
-  easy: 'Легкий бег', tempo: 'Темповый бег', long: 'Длительный бег',
-  'long-run': 'Длительный бег', interval: 'Интервалы', fartlek: 'Фартлек',
-  control: 'Контрольный забег', race: 'Соревнование',
-};
-
-function parseTime(timeStr) {
-  if (!timeStr || !String(timeStr).trim()) return null;
-  const parts = String(timeStr).trim().split(':').map(p => parseInt(p, 10));
-  if (parts.some(n => Number.isNaN(n) || n < 0)) return null;
-  if (parts.length === 3) { const [h, m, s] = parts; if (m >= 60 || s >= 60) return null; return h * 3600 + m * 60 + s; }
-  if (parts.length === 2) { const [m, s] = parts; if (m >= 60 || s >= 60) return null; return m * 60 + s; }
-  return null;
-}
-function formatTime(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return '';
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.round(totalSeconds % 60);
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-function parsePace(paceStr) {
-  if (!paceStr || !String(paceStr).trim()) return null;
-  const s = String(paceStr).trim();
-  const parts = s.split(':');
-  if (parts.length === 1) { const m = parseFloat(parts[0]); return Number.isNaN(m) || m < 0 ? null : m; }
-  if (parts.length !== 2) return null;
-  const m = parseInt(parts[0], 10), sec = parseInt(parts[1], 10);
-  if (Number.isNaN(m) || Number.isNaN(sec) || m < 0 || sec < 0 || sec >= 60) return null;
-  return m + sec / 60;
-}
-function formatPace(minutesPerKm) {
-  if (minutesPerKm == null || minutesPerKm <= 0) return '';
-  const m = Math.floor(minutesPerKm);
-  const s = Math.round((minutesPerKm - m) * 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function maskPaceInput(value) {
-  const digits = String(value).replace(/\D/g, '').slice(0, 4);
-  if (digits.length === 0) return '';
-  if (digits.length <= 2) return digits.length === 1 ? digits : `${digits[0]}:${digits[1]}`;
-  if (digits.length === 3) return `${digits[0]}:${digits.slice(1)}`;
-  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
+/** Один блок бега: простой (easy, tempo...) или из плана */
+const createRunBlock = (planDay, extraId) => ({
+  id: planDay?.id ? `plan-${planDay.id}` : `extra-${extraId}`,
+  type: planDay?.type || 'easy',
+  planDayId: planDay?.id,
+  description: planDay?.description || '',
+  distance: '',
+  duration: '',
+  pace: '',
+  hr: '',
+});
 
 const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave }) => {
-  const [inputMethod, setInputMethod] = useState(null);
+  const [runBlocks, setRunBlocks] = useState([]);
   const [runDistance, setRunDistance] = useState('');
   const [runDuration, setRunDuration] = useState('');
   const [runPace, setRunPace] = useState('');
   const [runHR, setRunHR] = useState('');
   const [formData, setFormData] = useState({ notes: '' });
-  const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dayPlan, setDayPlan] = useState({ planDays: [], dayExercises: [] });
   const [plannedOfp, setPlannedOfp] = useState([]);
@@ -105,15 +73,19 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const [fartlekSegments, setFartlekSegments] = useState([{ id: 1, reps: '', accelDistM: '', accelPace: '', recoveryDistM: '', recoveryType: 'jog' }]);
   const [fartlekCooldownKm, setFartlekCooldownKm] = useState('');
 
-  const runPlanDay = dayPlan.planDays?.find(pd => RUN_TYPES.includes(pd.type));
+  const runPlanDays = (dayPlan.planDays || []).filter(pd => RUN_TYPES.includes(pd.type));
+  const simpleRunPlanDays = runPlanDays.filter(pd => SIMPLE_RUN_TYPES.includes(pd.type));
+  const intervalPlanDay = runPlanDays.find(pd => pd.type === 'interval');
+  const fartlekPlanDay = runPlanDays.find(pd => pd.type === 'fartlek');
+  const runPlanDay = runPlanDays[0];
   const runType = runPlanDay?.type || null;
-  const hasRun = !!runPlanDay;
+  const hasRun = runPlanDays.length > 0 || runBlocks.length > 0;
   const ofpExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'ofp') ?? [];
   const sbuExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'sbu') ?? [];
   const hasOfpPlan = dayPlan.planDays?.some(pd => pd.type === 'other') || ofpExercises.length > 0;
   const hasSbuPlan = dayPlan.planDays?.some(pd => pd.type === 'sbu') || sbuExercises.length > 0;
 
-  const hasRunBlock = hasRun || extraTypes.includes('run');
+  const hasRunBlock = runBlocks.length > 0 || !!intervalPlanDay || !!fartlekPlanDay;
   const hasOfpBlock = hasOfpPlan || additionalExercises.some(e => e.category === 'ofp') || extraTypes.includes('ofp');
   const hasSbuBlock = hasSbuPlan || additionalExercises.some(e => e.category === 'sbu') || extraTypes.includes('sbu');
   const availableExtraTypes = TYPE_OPTIONS.filter(t => {
@@ -127,19 +99,25 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     ? new Date(date + 'T12:00:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
     : '';
 
-  const recalcSimpleRun = useCallback((changed, newValue) => {
-    const dist = changed === 'runDistance' && newValue !== undefined ? (parseFloat(newValue) || null) : (parseFloat(runDistance) || null);
-    const timeSec = changed === 'runDuration' && newValue !== undefined ? parseTime(newValue) : parseTime(runDuration);
-    const paceVal = changed === 'runPace' && newValue !== undefined ? (parsePace(newValue) || null) : (parsePace(runPace) || null);
+  const updateRunBlock = useCallback((id, fieldOrUpdates, value) => {
+    setRunBlocks(prev => prev.map(b => {
+      if (b.id !== id) return b;
+      if (typeof fieldOrUpdates === 'object') return { ...b, ...fieldOrUpdates };
+      return { ...b, [fieldOrUpdates]: value };
+    }));
+  }, []);
+
+  const recalcRunBlock = useCallback((block, changed, newValue) => {
+    const dist = changed === 'distance' && newValue !== undefined ? (parseFloat(newValue) || null) : (parseFloat(block.distance) || null);
+    const timeSec = changed === 'duration' && newValue !== undefined ? parseTime(newValue) : parseTime(block.duration);
+    const paceVal = changed === 'pace' && newValue !== undefined ? (parsePace(newValue) || null) : (parsePace(block.pace) || null);
     const paceOk = paceVal != null && paceVal > 0;
-    if (changed === 'runPace') {
-      if (dist != null && paceOk) setRunDuration(formatTime(Math.round(dist * paceVal * 60)));
-    } else if (changed === 'runDistance') {
-      if (dist != null && paceOk) setRunDuration(formatTime(Math.round(dist * paceVal * 60)));
-    } else if (changed === 'runDuration') {
-      if (dist != null && dist > 0 && timeSec != null) setRunPace(formatPace(timeSec / 60 / dist));
-    }
-  }, [runDistance, runDuration, runPace]);
+    let updates = {};
+    if (changed === 'pace' && dist != null && paceOk) updates = { duration: formatTime(Math.round(dist * paceVal * 60)) };
+    else if (changed === 'distance' && dist != null && paceOk) updates = { duration: formatTime(Math.round(dist * paceVal * 60)) };
+    else if (changed === 'duration' && dist != null && dist > 0 && timeSec != null) updates = { pace: formatPace(timeSec / 60 / dist) };
+    if (Object.keys(updates).length) setRunBlocks(prev => prev.map(b => b.id === block.id ? { ...b, ...updates } : b));
+  }, []);
 
   // Interval total km
   const intervalTotalKm = useMemo(() => {
@@ -170,18 +148,19 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   useEffect(() => {
     if (isOpen && date) {
-      loadDayPlan();
-      loadExistingResult();
+      (async () => {
+        const plan = await loadDayPlan();
+        await loadExistingResult(plan?.planDays ?? []);
+      })();
     } else {
       resetAll();
     }
   }, [isOpen, date, weekNumber, dayKey]);
 
   const resetAll = () => {
-    setInputMethod(null);
+    setRunBlocks([]);
     setRunDistance(''); setRunDuration(''); setRunPace(''); setRunHR('');
     setFormData({ notes: '' });
-    setFile(null);
     setDayPlan({ planDays: [], dayExercises: [] });
     setPlannedOfp([]); setPlannedSbu([]);
     setAdditionalExercises([]);
@@ -197,11 +176,12 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   // Parse description to pre-fill interval/fartlek fields
   useEffect(() => {
-    if (!runPlanDay) return;
-    const raw = (runPlanDay.description || '').trim();
+    const planDay = intervalPlanDay || fartlekPlanDay;
+    if (!planDay) return;
+    const raw = (planDay.description || '').trim();
     if (!raw) return;
 
-    if (runType === 'interval') {
+    if (planDay?.type === 'interval') {
       const warmupMatch = raw.match(/Разминка[:\s]*([\d.,]+)\s*км/i);
       if (warmupMatch) setWarmupKm(warmupMatch[1].replace(',', '.'));
       const warmupPaceMatch = raw.match(/Разминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i);
@@ -219,7 +199,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
       if (cooldownMatch) setCooldownKm(cooldownMatch[1].replace(',', '.'));
       const cooldownPaceMatch = raw.match(/Заминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i);
       if (cooldownPaceMatch) setCooldownPace(cooldownPaceMatch[1]);
-    } else if (runType === 'fartlek') {
+    } else if (planDay?.type === 'fartlek') {
       const warmupMatch = raw.match(/Разминка[:\s]*([\d.,]+)\s*км/i);
       if (warmupMatch) setFartlekWarmupKm(warmupMatch[1].replace(',', '.'));
       const cooldownMatch = raw.match(/Заминка[:\s]*([\d.,]+)\s*км/i);
@@ -235,14 +215,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
         });
       }
       if (segments.length > 0) setFartlekSegments(segments);
-    } else if (SIMPLE_RUN_TYPES.includes(runType)) {
-      const distMatch = raw.match(/([\d.,]+)\s*км/);
-      if (distMatch) setRunDistance(distMatch[1].replace(',', '.'));
-      const paceMatch = raw.match(/темп[:\s~]*(?:~?\s*)?(\d{1,2}:\d{2})(?:\s*\/?\s*км)?/i)
-        || raw.match(/(?:^|[(\s])(\d{1,2}:\d{2})\s*\/\s*км/i);
-      if (paceMatch) setRunPace(paceMatch[1]);
     }
-  }, [runPlanDay, runType]);
+  }, [intervalPlanDay, fartlekPlanDay]);
 
   const expandDayExercises = (exercises, category) => {
     const result = [];
@@ -268,10 +242,18 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
         if (category === 'ofp') {
           if (ex.sets != null && ex.reps != null) plannedDescription += `${ex.sets}×${ex.reps}`;
           if (weight != null && weight > 0) plannedDescription += (plannedDescription ? ', ' : '') + `${weight} кг`;
-          if (durSec != null && durSec > 0 && !plannedDescription) plannedDescription = `${Math.round(durSec / 60)} мин`;
+          if (durSec != null && durSec > 0 && !plannedDescription) {
+            const m = Math.floor(durSec / 60);
+            const sec = durSec % 60;
+            plannedDescription = m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
+          }
         } else {
           if (ex.distance_m != null) plannedDescription = ex.distance_m >= 1000 ? (ex.distance_m / 1000).toFixed(1) + ' км' : ex.distance_m + ' м';
-          if (durSec != null && durSec > 0 && !plannedDescription) plannedDescription = `${Math.round(durSec / 60)} мин`;
+          if (durSec != null && durSec > 0 && !plannedDescription) {
+            const m = Math.floor(durSec / 60);
+            const sec = durSec % 60;
+            plannedDescription = m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
+          }
         }
         result.push({
           id: baseId, name: ex.name, plannedDescription: plannedDescription || null,
@@ -286,7 +268,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   };
 
   const loadDayPlan = async () => {
-    if (!api?.getDay || !date) return;
+    if (!api?.getDay || !date) return null;
     try {
       const res = await api.getDay(date);
       const data = res?.data ?? res;
@@ -295,25 +277,58 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
       setDayPlan({ planDays, dayExercises });
       setPlannedOfp(expandDayExercises(dayExercises.filter(ex => (ex.category || '').toLowerCase() === 'ofp'), 'ofp'));
       setPlannedSbu(expandDayExercises(dayExercises.filter(ex => (ex.category || '').toLowerCase() === 'sbu'), 'sbu'));
+      const simpleDays = planDays.filter(pd => SIMPLE_RUN_TYPES.includes(pd.type));
+      const blocks = simpleDays.map(pd => {
+        const block = createRunBlock(pd, 0);
+        const raw = (pd.description || '').trim();
+        if (raw) {
+          const distMatch = raw.match(/([\d.,]+)\s*км/);
+          if (distMatch) block.distance = distMatch[1].replace(',', '.');
+          const paceMatch = raw.match(/темп[:\s~]*(?:~?\s*)?(\d{1,2}:\d{2})(?:\s*\/?\s*км)?/i) || raw.match(/(?:^|[(\s])(\d{1,2}:\d{2})\s*\/\s*км/i);
+          if (paceMatch) block.pace = paceMatch[1];
+        }
+        return block;
+      });
+      setRunBlocks(blocks);
+      return { planDays };
     } catch {
-      setDayPlan({ planDays: [], dayExercises: [] }); setPlannedOfp([]); setPlannedSbu([]);
+      setDayPlan({ planDays: [], dayExercises: [] }); setPlannedOfp([]); setPlannedSbu([]); setRunBlocks([]);
+      return { planDays: [] };
     }
   };
 
-  const loadExistingResult = async () => {
+  const removeRunBlock = (id) => setRunBlocks(prev => prev.filter(b => b.id !== id));
+  const addRunBlock = () =>
+    setRunBlocks(prev => [...prev, createRunBlock(null, ++nextCustomIdRef.current)]);
+
+  const loadExistingResult = async (planDays = []) => {
     if (!api?.getResult) return;
     try {
       const res = await api.getResult(date);
       const result = res?.data?.result ?? res?.result ?? res;
       if (result && typeof result === 'object') {
-        const dist = result.result_distance ?? result.distance_km;
-        if (dist != null && dist !== '') setRunDistance(String(dist));
-        const timeRaw = result.result_time;
-        if (timeRaw) { const sec = parseTime(timeRaw); setRunDuration(sec != null ? formatTime(sec) : String(timeRaw)); }
-        const paceVal = result.pace ?? result.result_pace ?? result.avg_pace;
-        if (paceVal) setRunPace(String(paceVal));
-        if (result.avg_heart_rate) setRunHR(String(result.avg_heart_rate));
         setFormData({ notes: result.notes ?? '' });
+        const dist = result.result_distance ?? result.distance_km;
+        const timeRaw = result.result_time;
+        const paceVal = result.pace ?? result.result_pace ?? result.avg_pace;
+        const hr = result.avg_heart_rate;
+        const hasIntervalOrFartlek = planDays.some(pd => pd.type === 'interval' || pd.type === 'fartlek');
+        if (hasIntervalOrFartlek) {
+          if (dist != null && dist !== '') setRunDistance(String(dist));
+          if (timeRaw) { const sec = parseTime(timeRaw); setRunDuration(sec != null ? formatTime(sec) : String(timeRaw)); }
+          if (paceVal) setRunPace(String(paceVal));
+          if (hr) setRunHR(String(hr));
+        } else if (dist != null || timeRaw || paceVal || hr) {
+          setRunBlocks(prev => {
+            if (prev.length === 0) return [{ ...createRunBlock(null, ++nextCustomIdRef.current), distance: dist != null ? String(dist) : '', duration: timeRaw ? (parseTime(timeRaw) != null ? formatTime(parseTime(timeRaw)) : String(timeRaw)) : '', pace: paceVal ? String(paceVal) : '', hr: hr ? String(hr) : '' }];
+            const first = { ...prev[0] };
+            if (dist != null && dist !== '') first.distance = String(dist);
+            if (timeRaw) { const sec = parseTime(timeRaw); first.duration = sec != null ? formatTime(sec) : String(timeRaw); }
+            if (paceVal) first.pace = String(paceVal);
+            if (hr) first.hr = String(hr);
+            return [first, ...prev.slice(1)];
+          });
+        }
       }
     } catch { /* нет результата */ }
   };
@@ -353,6 +368,23 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   const buildNotes = () => {
     const parts = [];
+    runBlocks.forEach(b => {
+      const dist = parseFloat(b.distance);
+      if (dist > 0 || b.duration || b.pace) {
+        const typeName = TYPE_LABELS[b.type] || b.type;
+        let line = `${typeName}:`;
+        if (dist > 0) line += ` ${dist.toFixed(1)} км`;
+        if (b.duration) line += `, ${b.duration}`;
+        if (b.pace) line += `, ${b.pace}/км`;
+        parts.push(line.trim());
+      }
+    });
+    if (intervalPlanDay && (intervalTotalKm || runDuration)) {
+      parts.push(`Интервалы: ${intervalTotalKm ? intervalTotalKm.toFixed(2) + ' км' : ''}${runDuration ? ', ' + runDuration : ''}`);
+    }
+    if (fartlekPlanDay && (fartlekTotalKm || runDuration)) {
+      parts.push(`Фартлек: ${fartlekTotalKm ? fartlekTotalKm.toFixed(2) + ' км' : ''}${runDuration ? ', ' + runDuration : ''}`);
+    }
     plannedOfp.filter(p => !p.removed).forEach(p => {
       const sets = p.doneSets !== '' && p.doneSets != null ? p.doneSets : p.plannedSets;
       const reps = p.doneReps !== '' && p.doneReps != null ? p.doneReps : p.plannedReps;
@@ -380,35 +412,54 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   };
 
   const getResultDistance = () => {
-    if (runDistance) return parseFloat(runDistance);
-    if (runType === 'interval' && intervalTotalKm) return parseFloat(intervalTotalKm.toFixed(2));
-    if (runType === 'fartlek' && fartlekTotalKm) return parseFloat(fartlekTotalKm.toFixed(2));
+    const fromBlocks = runBlocks.reduce((sum, b) => sum + (parseFloat(b.distance) || 0), 0);
+    if (fromBlocks > 0) return parseFloat(fromBlocks.toFixed(2));
+    if (intervalPlanDay && intervalTotalKm) return parseFloat(intervalTotalKm.toFixed(2));
+    if (fartlekPlanDay && fartlekTotalKm) return parseFloat(fartlekTotalKm.toFixed(2));
     return null;
+  };
+
+  const getResultTime = () => {
+    const fromBlocks = runBlocks.reduce((totalSec, b) => {
+      const sec = parseTime(b.duration);
+      return totalSec + (sec || 0);
+    }, 0);
+    if (fromBlocks > 0) return formatTime(fromBlocks);
+    if (intervalPlanDay || fartlekPlanDay) return runDuration || null;
+    return null;
+  };
+
+  const getResultPace = () => {
+    const dist = getResultDistance();
+    const timeSec = runBlocks.length > 0
+      ? runBlocks.reduce((s, b) => s + (parseTime(b.duration) || 0), 0)
+      : parseTime(runDuration);
+    if (dist && dist > 0 && timeSec && timeSec > 0) return formatPace(timeSec / 60 / dist);
+    const withPace = runBlocks.find(b => b.pace);
+    if (withPace?.pace) return withPace.pace;
+    return runPace || null;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (inputMethod === 'file' && file) {
-        await api.uploadWorkout(file, { date });
-        alert('Тренировка успешно загружена!');
-        onClose(); if (onSave) onSave();
-      } else {
-        const week = weekNumber ?? 1;
-        const day = dayKey ?? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(date + 'T12:00:00').getDay()];
-        await api.saveResult({
-          date, week, day, activity_type_id: 1,
-          result_distance: getResultDistance(),
-          result_time: runDuration || null,
-          result_pace: runPace || null,
-          avg_heart_rate: runHR ? parseInt(runHR, 10) : null,
-          notes: buildNotes(),
-          is_successful: true,
-        });
-        alert('Результат сохранен!');
-        onClose(); if (onSave) onSave();
-      }
+      const week = weekNumber ?? 1;
+      const day = dayKey ?? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(date + 'T12:00:00').getDay()];
+      const avgHr = runBlocks.length > 0
+        ? runBlocks.map(b => parseInt(b.hr, 10)).filter(n => !Number.isNaN(n) && n > 0)
+        : (runHR ? [parseInt(runHR, 10)] : []);
+      await api.saveResult({
+        date, week, day, activity_type_id: 1,
+        result_distance: getResultDistance(),
+        result_time: getResultTime(),
+        result_pace: getResultPace(),
+        avg_heart_rate: avgHr.length > 0 ? Math.round(avgHr.reduce((a, b) => a + b, 0) / avgHr.length) : null,
+        notes: buildNotes(),
+        is_successful: true,
+      });
+      alert('Результат сохранен!');
+      onClose(); if (onSave) onSave();
     } catch (err) {
       alert('Ошибка сохранения: ' + (err?.message || 'Неизвестная ошибка'));
     } finally { setLoading(false); }
@@ -461,17 +512,22 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     </div>
   );
 
-  const renderSimpleRunForm = () => (
-    <div className="add-training-run-calc">
-      <p className="add-training-block-title">{TYPE_LABELS[runType] || 'Бег'}</p>
-      {runPlanDay?.description && (
-        <p className="result-modal-planned-subtitle">План: {runPlanDay.description}</p>
+  const renderSimpleRunBlock = (block) => (
+    <div key={block.id} className="add-training-run-calc result-modal-run-block">
+      <div className="result-modal-run-block-head">
+        <p className="add-training-block-title">{TYPE_LABELS[block.type] || 'Бег'}</p>
+        {runBlocks.length > 1 && (
+          <button type="button" className="result-modal-remove-run" onClick={() => removeRunBlock(block.id)} aria-label="Удалить">×</button>
+        )}
+      </div>
+      {block.description && (
+        <p className="result-modal-planned-subtitle">План: {block.description}</p>
       )}
       <div className="add-training-calc-grid">
-        <div className="form-group"><label>Дистанция (км)</label><input type="number" step="0.1" min="0" placeholder="5" value={runDistance} onChange={(e) => { setRunDistance(e.target.value); recalcSimpleRun('runDistance', e.target.value); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Время (чч:мм:сс)</label><input type="text" placeholder="0:30:00" value={runDuration} onChange={(e) => { setRunDuration(e.target.value); recalcSimpleRun('runDuration', e.target.value); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Темп (мм:сс / км)</label><input type="text" inputMode="numeric" placeholder="5:30" value={runPace} onChange={(e) => { const v = maskPaceInput(e.target.value); setRunPace(v); recalcSimpleRun('runPace', v); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Пульс</label><input type="text" placeholder="140-150" value={runHR} onChange={(e) => setRunHR(e.target.value)} className="add-training-input" /></div>
+        <div className="form-group"><label>Дистанция (км)</label><input type="number" step="0.1" min="0" placeholder="5" value={block.distance} onChange={(e) => { updateRunBlock(block.id, 'distance', e.target.value); recalcRunBlock(block, 'distance', e.target.value); }} className="add-training-input" /></div>
+        <div className="form-group"><label>Время (чч:мм:сс)</label><input type="text" placeholder="0:30:00" value={block.duration} onChange={(e) => { updateRunBlock(block.id, 'duration', e.target.value); recalcRunBlock(block, 'duration', e.target.value); }} className="add-training-input" /></div>
+        <div className="form-group"><label>Темп (мм:сс / км)</label><input type="text" inputMode="numeric" placeholder="5:30" value={block.pace} onChange={(e) => { const v = maskPaceInput(e.target.value); updateRunBlock(block.id, 'pace', v); recalcRunBlock(block, 'pace', v); }} className="add-training-input" /></div>
+        <div className="form-group"><label>Пульс</label><input type="text" placeholder="140-150" value={block.hr} onChange={(e) => updateRunBlock(block.id, 'hr', e.target.value)} className="add-training-input" /></div>
       </div>
     </div>
   );
@@ -479,8 +535,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const renderIntervalForm = () => (
     <div className="add-training-interval">
       <p className="add-training-block-title">Интервалы</p>
-      {runPlanDay?.description && (
-        <p className="result-modal-planned-subtitle">План: {runPlanDay.description}</p>
+      {intervalPlanDay?.description && (
+        <p className="result-modal-planned-subtitle">План: {intervalPlanDay.description}</p>
       )}
       <div className="add-training-calc-grid">
         <div className="form-group"><label>Разминка (км)</label><input type="text" placeholder="2" value={warmupKm} onChange={(e) => setWarmupKm(e.target.value)} className="add-training-input" /></div>
@@ -508,8 +564,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const renderFartlekForm = () => (
     <div className="add-training-fartlek">
       <p className="add-training-block-title">Фартлек</p>
-      {runPlanDay?.description && (
-        <p className="result-modal-planned-subtitle">План: {runPlanDay.description}</p>
+      {fartlekPlanDay?.description && (
+        <p className="result-modal-planned-subtitle">План: {fartlekPlanDay.description}</p>
       )}
       <div className="form-group"><label>Разминка (км)</label><input type="text" placeholder="2" value={fartlekWarmupKm} onChange={(e) => setFartlekWarmupKm(e.target.value)} className="add-training-input" /></div>
       {fartlekSegments.map(seg => (
@@ -540,51 +596,25 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     </div>
   );
 
-  const renderRunBlock = () => {
-    if (runType === 'interval') return renderIntervalForm();
-    if (runType === 'fartlek') return renderFartlekForm();
-    return renderSimpleRunForm();
-  };
-
-  const renderExtraRunBlock = () => (
-    <div className="add-training-run-calc result-modal-type-block-enter">
-      <p className="add-training-block-title">Бег</p>
-      <div className="add-training-calc-grid">
-        <div className="form-group"><label>Дистанция (км)</label><input type="number" step="0.1" min="0" placeholder="5" value={runDistance} onChange={(e) => { setRunDistance(e.target.value); recalcSimpleRun('runDistance', e.target.value); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Время (чч:мм:сс)</label><input type="text" placeholder="0:30:00" value={runDuration} onChange={(e) => { setRunDuration(e.target.value); recalcSimpleRun('runDuration', e.target.value); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Темп (мм:сс / км)</label><input type="text" inputMode="numeric" placeholder="5:30" value={runPace} onChange={(e) => { const v = maskPaceInput(e.target.value); setRunPace(v); recalcSimpleRun('runPace', v); }} className="add-training-input" /></div>
-        <div className="form-group"><label>Пульс</label><input type="text" placeholder="140-150" value={runHR} onChange={(e) => setRunHR(e.target.value)} className="add-training-input" /></div>
-      </div>
-    </div>
+  const renderRunBlocks = () => (
+    <>
+      {runBlocks.map(block => renderSimpleRunBlock(block))}
+      {intervalPlanDay && renderIntervalForm()}
+      {fartlekPlanDay && renderFartlekForm()}
+      {(runBlocks.length > 0 || intervalPlanDay || fartlekPlanDay) && (
+        <button type="button" className="btn btn-secondary result-modal-add-run-btn" onClick={addRunBlock}>
+          + Добавить бег
+        </button>
+      )}
+    </>
   );
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Отметить тренировку" size="medium" variant="modern">
       <p className="add-training-date">{dateLabel}</p>
 
-      {!inputMethod ? (
-        <div className="add-training-categories">
-          <p className="add-training-step-title">Способ ввода данных</p>
-          <div className="add-training-cards">
-            <button type="button" className="card card--compact card--interactive add-training-category-card" onClick={() => setInputMethod('manual')}>
-              <span className="add-training-category-icon">✏️</span>
-              <span className="add-training-category-label">Вручную</span>
-              <span className="add-training-category-desc">Введите результат</span>
-            </button>
-            <button type="button" className="card card--compact card--interactive add-training-category-card" onClick={() => setInputMethod('file')}>
-              <span className="add-training-category-icon">📤</span>
-              <span className="add-training-category-label">Загрузить файл</span>
-              <span className="add-training-category-desc">TCX или GPX</span>
-            </button>
-          </div>
-        </div>
-      ) : inputMethod === 'manual' ? (
-        <form onSubmit={handleSubmit} className="add-training-form">
-          <div className="form-group">
-            <button type="button" className="btn btn-secondary add-training-back" onClick={() => setInputMethod(null)}>← Назад к выбору</button>
-          </div>
-
-          {hasRun && renderRunBlock()}
+      <form onSubmit={handleSubmit} className="add-training-form">
+          {hasRunBlock && renderRunBlocks()}
 
           {hasOfpPlan && (
             <div className="add-training-library">
@@ -657,7 +687,6 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
           )}
 
           {extraTypes.map(typeId => {
-            if (typeId === 'run') return <React.Fragment key="run">{renderExtraRunBlock()}</React.Fragment>;
             if (typeId === 'ofp') return (
               <div key="ofp" className="add-training-library result-modal-type-block-enter">
                 <p className="add-training-block-title">ОФП</p>
@@ -681,8 +710,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             return null;
           })}
 
-          {!hasOfpPlan && !hasSbuPlan && !hasRun && extraTypes.length === 0 && (
-            <p className="result-modal-hint">Добавьте тип тренировки ниже или загрузите файл.</p>
+          {!hasOfpPlan && !hasSbuPlan && !hasRunBlock && extraTypes.length === 0 && (
+            <p className="result-modal-hint">Добавьте тип тренировки ниже.</p>
           )}
 
           {availableExtraTypes.length > 0 && (
@@ -692,12 +721,16 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
                 <div className="result-modal-add-type-dropdown">
                   {availableExtraTypes.map(t => (
                     <button key={t.id} type="button" className="result-modal-add-type-option" onClick={() => {
-                      setExtraTypes(prev => [...prev, t.id]);
+                      if (t.id === 'run') {
+                        addRunBlock();
+                      } else {
+                        setExtraTypes(prev => [...prev, t.id]);
+                        if (t.id === 'ofp') setShowOfpCustomForm(true);
+                        if (t.id === 'sbu') setShowSbuCustomForm(true);
+                      }
                       setShowAddTypeDropdown(false);
-                      if (t.id === 'ofp') setShowOfpCustomForm(true);
-                      if (t.id === 'sbu') setShowSbuCustomForm(true);
                     }}>
-                      <span className="result-modal-add-type-icon">{t.icon}</span>{t.label}
+                      <span className="result-modal-add-type-icon" aria-hidden>{t.Icon && <t.Icon size={20} />}</span>{t.label}
                     </button>
                   ))}
                 </div>
@@ -715,21 +748,6 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Сохранение...' : 'Сохранить'}</button>
           </div>
         </form>
-      ) : (
-        <form onSubmit={handleSubmit} className="add-training-form">
-          <div className="form-group">
-            <button type="button" className="btn btn-secondary add-training-back" onClick={() => setInputMethod(null)}>← Назад к выбору</button>
-          </div>
-          <div className="form-group">
-            <label htmlFor="workoutFile">Выберите файл (TCX или GPX)</label>
-            <input type="file" id="workoutFile" accept=".tcx,.gpx" onChange={(e) => setFile(e.target.files[0])} required className="add-training-input" />
-          </div>
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn-primary" disabled={loading || !file}>{loading ? 'Загрузка...' : 'Загрузить'}</button>
-          </div>
-        </form>
-      )}
     </Modal>
   );
 };

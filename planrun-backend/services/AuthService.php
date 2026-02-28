@@ -18,41 +18,40 @@ class AuthService extends BaseService {
     
     /**
      * Авторизация пользователя
-     * 
+     *
      * @param string $username Имя пользователя
      * @param string $password Пароль
      * @param bool $useJwt Использовать JWT токены
+     * @param string|null $deviceId Идентификатор устройства (опционально)
      * @return array Результат авторизации
      * @throws Exception
      */
-    public function login($username, $password, $useJwt = false) {
+    public function login($username, $password, $useJwt = false, $deviceId = null) {
         try {
-            // Используем существующую функцию login
             $result = login($username, $password);
-            
+
             if (!$result) {
                 $this->throwException('Неверное имя пользователя или пароль', 401);
             }
-            
+
             $userId = $_SESSION['user_id'];
             $username = $_SESSION['username'];
-            
+
             $response = [
                 'success' => true,
                 'user_id' => $userId,
                 'username' => $username
             ];
-            
-            // Если требуется JWT, создаем токены
+
             if ($useJwt) {
                 $accessToken = $this->jwtService->createAccessToken($userId, $username);
-                $refreshToken = $this->jwtService->createRefreshToken($userId);
-                
+                $refreshToken = $this->jwtService->createRefreshToken($userId, $deviceId);
+
                 $response['access_token'] = $accessToken;
                 $response['refresh_token'] = $refreshToken;
-                $response['expires_in'] = 3600; // 1 час
+                $response['expires_in'] = 3600;
             }
-            
+
             return $response;
         } catch (Exception $e) {
             if ($e instanceof AppException) {
@@ -82,14 +81,15 @@ class AuthService extends BaseService {
     
     /**
      * Обновить access token
-     * 
+     *
      * @param string $refreshToken Refresh token
+     * @param string|null $deviceId Идентификатор устройства (опционально)
      * @return array Новые токены
      * @throws Exception
      */
-    public function refreshToken($refreshToken) {
+    public function refreshToken($refreshToken, $deviceId = null) {
         try {
-            $tokens = $this->jwtService->refreshAccessToken($refreshToken);
+            $tokens = $this->jwtService->refreshAccessToken($refreshToken, $deviceId);
             
             if (!$tokens) {
                 $this->throwException('Невалидный refresh token', 401);
@@ -319,9 +319,13 @@ class AuthService extends BaseService {
      * @return array|null Данные пользователя или null
      */
     public function validateJwtToken() {
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
+        // Nginx+PHP-FPM: HTTP_AUTHORIZATION не передаётся по умолчанию — нужен fastcgi_param HTTP_AUTHORIZATION $http_authorization
+        // Apache mod_rewrite: может быть в REDIRECT_HTTP_AUTHORIZATION
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? null;
         
-        if (!$authHeader) {
+        if (!$authHeader || $authHeader === '') {
             return null;
         }
         

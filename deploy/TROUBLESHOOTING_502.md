@@ -1,3 +1,16 @@
+# 502/500 на /api/
+
+## 500 Internal Server Error (Invalid JSON)
+
+Если фронт получает 500 и «Invalid JSON response» — PHP возвращает не-JSON (HTML/текст ошибки). Смотри логи PHP-FPM.
+
+**Исправление прав (обязательно после деплоя):**
+```bash
+sudo ./deploy/fix-api-permissions.sh
+```
+
+---
+
 # 502 Bad Gateway на /api/
 
 ## 1. Проверка: отдаёт ли Nginx+PHP хотя бы простой скрипт

@@ -157,6 +157,69 @@ class ChatController extends BaseController {
     }
 
     /**
+     * Сообщения между текущим пользователем и другим (диалог «Написать»)
+     * GET chat_get_direct_messages?target_user_id=123&limit=50&offset=0
+     */
+    public function getDirectMessages() {
+        if (!$this->requireAuth()) return;
+
+        $targetUserId = (int)($this->getParam('target_user_id') ?: 0);
+        $limit = min(100, max(1, (int)($this->getParam('limit') ?: 50)));
+        $offset = max(0, (int)($this->getParam('offset') ?: 0));
+
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID пользователя', 400);
+            return;
+        }
+        if ($this->currentUserId === $targetUserId) {
+            $this->returnError('Нельзя загрузить диалог с самим собой', 400);
+            return;
+        }
+
+        try {
+            $result = $this->chatService->getDirectMessagesWithUser($this->currentUserId, $targetUserId, $limit, $offset);
+            header('Cache-Control: no-store, no-cache, must-revalidate');
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Пользователь: отправить сообщение другому пользователю (от своего имени)
+     * POST chat_send_message_to_user { "target_user_id": 123, "content": "..." }
+     */
+    public function sendMessageToUser() {
+        if (!$this->requireAuth()) return;
+
+        $data = $this->getJsonBody();
+        $targetUserId = (int)($data['target_user_id'] ?? $data['user_id'] ?? 0);
+        $content = trim($data['content'] ?? $data['message'] ?? '');
+
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID получателя', 400);
+            return;
+        }
+        if ($content === '') {
+            $this->returnError('Сообщение не может быть пустым', 400);
+            return;
+        }
+        if (mb_strlen($content) > 4000) {
+            $this->returnError('Сообщение слишком длинное', 400);
+            return;
+        }
+
+        try {
+            $result = $this->chatService->sendUserMessageToUser($this->currentUserId, $targetUserId, $content);
+            $this->returnSuccess($result);
+        } catch (InvalidArgumentException $e) {
+            $this->returnError($e->getMessage(), 400);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Админ: отправить сообщение пользователю
      * POST chat_admin_send_message { "user_id": 123, "content": "..." }
      */
@@ -189,6 +252,21 @@ class ChatController extends BaseController {
     }
 
     /**
+     * Список диалогов: пользователи, которые писали мне через «Написать»
+     * GET chat_get_direct_dialogs
+     */
+    public function getDirectDialogs() {
+        if (!$this->requireAuth()) return;
+
+        try {
+            $users = $this->chatService->getUsersWhoWroteToMe($this->currentUserId);
+            $this->returnSuccess(['users' => $users]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Админ: список пользователей с активностью в admin-чате
      * GET chat_admin_chat_users
      */
@@ -215,7 +293,12 @@ class ChatController extends BaseController {
             $messages = $this->chatService->getUnreadUserMessagesForAdmin($limit);
             $this->returnSuccess(['messages' => $messages]);
         } catch (Exception $e) {
-            $this->handleException($e);
+            require_once __DIR__ . '/../config/Logger.php';
+            Logger::error('chat_admin_unread_notifications failed', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            $this->returnSuccess(['messages' => []]);
         }
     }
 

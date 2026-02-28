@@ -86,9 +86,11 @@ class StatsService extends BaseService {
                     'count' => (int)$row['workout_count'],
                     'distance' => $row['total_distance'] ? round((float)$row['total_distance'], 2) : null,
                     'duration' => $row['total_duration'] ? (int)$row['total_duration'] : null,
+                    'duration_seconds' => !empty($row['total_duration_seconds']) ? (int)$row['total_duration_seconds'] : null,
                     'pace' => $row['avg_pace'],
                     'hr' => $row['avg_hr'] ? round((float)$row['avg_hr']) : null,
-                    'workout_url' => $workoutUrl
+                    'workout_url' => $workoutUrl,
+                    'activity_type' => $row['activity_type'] ?? 'running'
                 ];
             }
             
@@ -99,6 +101,92 @@ class StatsService extends BaseService {
                 'error' => $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Получить список всех тренировок (каждая отдельно, без группировки по дню)
+     * Объединяет workout_log (ручные) и workouts (Strava, импорт)
+     *
+     * @param int $userId ID пользователя
+     * @param int $limit Максимум записей (по умолчанию 500)
+     * @return array Массив тренировок, отсортированных по дате/времени (новые сверху)
+     */
+    public function getAllWorkoutsList($userId, $limit = 500) {
+        require_once __DIR__ . '/../calendar_access.php';
+
+        $list = [];
+
+        // Ручные тренировки из workout_log
+        $logStmt = $this->db->prepare("
+            SELECT wl.id, wl.training_date, wl.distance_km, wl.result_time, wl.pace,
+                   wl.duration_minutes, wl.avg_heart_rate, at.name as activity_type_name
+            FROM workout_log wl
+            LEFT JOIN activity_types at ON wl.activity_type_id = at.id
+            WHERE wl.user_id = ? AND wl.is_completed = 1
+            ORDER BY wl.training_date DESC
+            LIMIT ?
+        ");
+        $logStmt->bind_param("ii", $userId, $limit);
+        $logStmt->execute();
+        $logResult = $logStmt->get_result();
+        while ($row = $logResult->fetch_assoc()) {
+            $date = $row['training_date'];
+            $list[] = [
+                'id' => 'log_' . $row['id'],
+                'date' => $date,
+                'start_time' => $date . 'T12:00:00',
+                'distance_km' => $row['distance_km'] ? (float)$row['distance_km'] : null,
+                'duration_minutes' => $row['duration_minutes'] ? (int)$row['duration_minutes'] : null,
+                'duration_seconds' => null,
+                'avg_pace' => $row['pace'],
+                'activity_type' => strtolower(trim($row['activity_type_name'] ?? 'running')),
+                'is_manual' => true,
+            ];
+        }
+        $logStmt->close();
+
+        // Автоматические тренировки из workouts
+        $autoStmt = $this->db->prepare("
+            SELECT id, activity_type, start_time, end_time, duration_minutes, duration_seconds,
+                   distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain, source
+            FROM workouts
+            WHERE user_id = ?
+            ORDER BY start_time DESC
+            LIMIT ?
+        ");
+        $autoStmt->bind_param("ii", $userId, $limit);
+        $autoStmt->execute();
+        $autoResult = $autoStmt->get_result();
+        while ($row = $autoResult->fetch_assoc()) {
+            $startTime = $row['start_time'];
+            $date = date('Y-m-d', strtotime($startTime));
+            $isoTime = date('Y-m-d\TH:i:s', strtotime($startTime));
+            $list[] = [
+                'id' => (int)$row['id'],
+                'date' => $date,
+                'start_time' => $isoTime,
+                'distance_km' => $row['distance_km'] ? (float)$row['distance_km'] : null,
+                'duration_minutes' => $row['duration_minutes'] ? (int)$row['duration_minutes'] : null,
+                'duration_seconds' => !empty($row['duration_seconds']) ? (int)$row['duration_seconds'] : null,
+                'avg_pace' => $row['avg_pace'],
+                'avg_heart_rate' => $row['avg_heart_rate'] ? (int)$row['avg_heart_rate'] : null,
+                'max_heart_rate' => $row['max_heart_rate'] ? (int)$row['max_heart_rate'] : null,
+                'elevation_gain' => $row['elevation_gain'] ? (int)$row['elevation_gain'] : null,
+                'source' => $row['source'],
+                'activity_type' => strtolower(trim($row['activity_type'] ?? 'running')),
+                'is_manual' => false,
+            ];
+        }
+        $autoStmt->close();
+
+        // Сортируем по start_time (новые сверху)
+        usort($list, function ($a, $b) {
+            $ta = strtotime($a['start_time']);
+            $tb = strtotime($b['start_time']);
+            return $tb <=> $ta;
+        });
+
+        return array_slice($list, 0, $limit);
     }
     
     /**

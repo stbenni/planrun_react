@@ -23,7 +23,7 @@ const AppLayout = ({ onLogout }) => {
   return (
     <>
       <TopHeader />
-      <Notifications api={api} isAdmin={isAdmin} />
+      <Notifications api={api} isAdmin={isAdmin} user={user} />
       {needsOnboarding && (
         <SpecializationModal
           isOpen={showOnboardingModal}

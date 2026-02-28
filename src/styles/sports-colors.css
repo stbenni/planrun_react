@@ -112,8 +112,10 @@
   --workout-control: #8B5CF6;    /* Контрольный забег - фиолетовый */
   --workout-rest: #A3A3A3;      /* Отдых - серый */
 
-  /* Полоски типа тренировки (::before на блоке) — бег / СБУ / ОФП */
+  /* Полоски типа тренировки (::before на блоке) — бег / ходьба / СБУ / ОФП */
   --workout-strip-run: var(--primary-500);   /* Бег — оранжевый */
+  --workout-strip-walking: #22C55E;          /* Ходьба — зелёный */
+  --workout-strip-hiking: #16A34A;           /* Поход — тёмно-зелёный */
   --workout-strip-sbu: #7C3AED;              /* СБУ — фиолетовый (violet-600) */
   --workout-strip-ofp: var(--accent-500);   /* ОФП — красный */
   
@@ -194,6 +196,8 @@
   --page-padding-bottom: 100px;
   --page-top-desktop: 88px;
 
+  /* Высота TopHeader на мобилке (для ограничения попапов) */
+  --mobile-header-height: calc(64px + env(safe-area-inset-top, 0px));
   /* Высота нижней навигации (мобильные) — 100vh минус это значение для чата */
   --bottom-nav-height: 78px;
   /* Парящий навбар: отступ от краёв экрана (Liquid Glass) */
@@ -297,6 +301,8 @@
 
   /* Полоски типа тренировки — чуть ярче на тёмном фоне */
   --workout-strip-run: var(--primary-500);
+  --workout-strip-walking: #22C55E;
+  --workout-strip-hiking: #16A34A;
   --workout-strip-sbu: #8B5CF6;
   --workout-strip-ofp: var(--accent-500);
 
@@ -367,4 +373,66 @@
 html.native-app {
   --bottom-nav-height: 78px;
   --bottom-nav-floating-gap: 8px;
+}
+
+/* ========================================
+   ICON THEMING - Цвета иконок (SVG currentColor)
+   var(--text-*) уже зависит от data-theme — одна запись для обеих тем
+   ======================================== */
+.header-dropdown-icon,
+.header-dropdown-icon svg,
+.app-drawer-icon,
+.app-drawer-icon svg,
+.notification-icon,
+.notification-icon svg,
+.metric-icon,
+.metric-icon svg,
+.workout-chart-title-icon,
+.workout-chart-title-icon svg,
+.empty-icon,
+.empty-icon svg,
+.tab-icon,
+.tab-icon svg,
+.section-icon,
+.section-icon svg,
+.chat-avatar-icon,
+.chat-avatar-icon svg,
+.chat-list-item-icon,
+.chat-list-item-icon svg,
+.chat-main-header-icon,
+.chat-main-header-icon svg,
+.header-chat-icon,
+.header-chat-icon svg,
+.biometric-icon,
+.biometric-icon svg,
+.add-training-category-icon svg,
+.result-modal-add-type-icon svg,
+/* plan-indicator и week-day-svg-icon окрашиваются по типу тренировки (WeekCalendar.css, MonthlyCalendar.css) */
+.day-metric-icon,
+.day-metric-icon svg,
+.title-icon,
+.title-icon svg,
+.inline-icon,
+.inline-icon svg,
+.stat-icon svg,
+.achievement-icon svg,
+.plan-generation-notice__icon svg,
+.dashboard-empty-onboarding-icon svg {
+  color: var(--text-secondary);
+}
+
+.notification-icon,
+.notification-icon svg {
+  color: var(--text-primary);
+}
+
+/* Пульс (HeartIcon): светлая — accent, тёмная — danger */
+.workout-chart-title .workout-chart-title-icon,
+.workout-chart-title .workout-chart-title-icon svg {
+  color: var(--accent-500);
+}
+
+[data-theme="dark"] .workout-chart-title .workout-chart-title-icon,
+[data-theme="dark"] .workout-chart-title .workout-chart-title-icon svg {
+  color: var(--danger-500);
 }

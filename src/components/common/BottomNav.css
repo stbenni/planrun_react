@@ -188,9 +188,10 @@
   }
 }
 
-/* Мобильные: та же фиксированная высота (без env), чтобы совпадало с реальным устройством */
+/* Мобильные: та же фиксированная высота, z-index как у хедера — выше модалок */
 @media (max-width: 1023px) {
   .bottom-nav {
+    z-index: 1100;
     height: var(--bottom-nav-height);
     min-height: var(--bottom-nav-height);
     left: var(--bottom-nav-floating-gap, 12px);
@@ -202,6 +203,7 @@
 /* На реальных мобильных устройствах — явно те же значения (fallback для Android) */
 @media (max-device-width: 1023px) {
   .bottom-nav {
+    z-index: 1100;
     display: flex;
     left: 12px;
     right: 12px;

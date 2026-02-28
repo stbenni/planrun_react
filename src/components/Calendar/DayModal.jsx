@@ -5,36 +5,45 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon } from '../common/Icons';
 import '../../assets/css/calendar_v2.css';
 import './DayModal.modern.css';
 import './AddTrainingModal.css';
+import './WorkoutCard.css';
+import '../../screens/StatsScreen.css';
 import AddTrainingModal from './AddTrainingModal';
+import WorkoutCard from './WorkoutCard';
 import WorkoutDetailsModal from '../Stats/WorkoutDetailsModal';
 
-const PLAN_DAY_TYPE_LABELS = {
-  easy: 'Легкий бег',
-  long: 'Длительный бег',
-  'long-run': 'Длительный бег',
-  tempo: 'Темповый бег',
-  interval: 'Интервалы',
-  other: 'ОФП',
-  sbu: 'СБУ',
-  fartlek: 'Фартлек',
-  race: 'Соревнование',
-  rest: 'День отдыха',
-  free: 'Пустой день',
-};
-const CATEGORY_LABELS = { run: 'Бег', running: 'Бег', ofp: 'ОФП' };
-const getCategoryLabel = (cat) => (cat ? (CATEGORY_LABELS[String(cat).toLowerCase()] || cat) : '');
-const getPlanDayTypeLabel = (type) => (type ? (PLAN_DAY_TYPE_LABELS[type] || type) : '');
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
-const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, onOpenResultModal, onTrainingAdded, onEditTraining, refreshKey, openWorkoutDetailsInitially = false }) => {
+const TYPE_NAMES = {
+  easy: 'Легкий бег', long: 'Длительный бег', 'long-run': 'Длительный бег',
+  tempo: 'Темповый бег', interval: 'Интервалы', fartlek: 'Фартлек',
+  control: 'Контрольный забег', race: 'Соревнование', other: 'ОФП', sbu: 'СБУ',
+  rest: 'День отдыха', free: 'Пустой день', walking: 'Ходьба', hiking: 'Поход',
+  cycling: 'Велосипед', swimming: 'Плавание', run: 'Бег', running: 'Бег',
+};
+
+const formatDurationDisplay = (minutesOrSeconds, isSeconds = false) => {
+  if (minutesOrSeconds == null) return null;
+  const totalSec = isSeconds ? minutesOrSeconds : minutesOrSeconds * 60;
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = Math.round(totalSec % 60);
+  if (h > 0) return `${h}ч ${m}м`;
+  if (m > 0) return s > 0 ? `${m}м ${s}с` : `${m}м`;
+  return s > 0 ? `${s}с` : null;
+};
+
+const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, viewContext = null, onOpenResultModal, onTrainingAdded, onEditTraining, refreshKey, openWorkoutDetailsInitially = false }) => {
   const [dayData, setDayData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addTrainingModalOpen, setAddTrainingModalOpen] = useState(false);
   const [workoutDetailsOpen, setWorkoutDetailsOpen] = useState(false);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
   const modalBodyRef = useRef(null);
   const didAutoOpenDetailsRef = useRef(false);
 
@@ -44,7 +53,7 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
       setError(null);
       
       // API get_day возвращает: planHtml, plan, workouts, dayExercises, planType, planDayId
-      const response = await api.getDay(date);
+      const response = await api.getDay(date, viewContext || undefined);
       
       // Обрабатываем структуру ответа (может быть data.data || data)
       const data = response?.data || response;
@@ -109,76 +118,6 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
     }
   }, [isOpen, openWorkoutDetailsInitially, loading, dayData]);
 
-  // Обработка кликов внутри модального окна (planHtml или карточки плана по dayExercises)
-  useEffect(() => {
-    if (!modalBodyRef.current || !dayData) return;
-    const hasPlanContent = dayData.planHtml || (dayData.planDays && dayData.planDays.length > 0);
-    if (!hasPlanContent) return;
-
-    const handleClick = (e) => {
-      if (e.target.classList.contains('btn-edit-plan-day') || e.target.closest('.btn-edit-plan-day')) {
-        e.preventDefault();
-        e.stopPropagation();
-        const btn = e.target.classList.contains('btn-edit-plan-day') ? e.target : e.target.closest('.btn-edit-plan-day');
-        const dayId = btn?.getAttribute('data-plan-day-id');
-        if (dayId && date && onEditTraining && dayData?.planDays) {
-          const planDay = dayData.planDays.find((d) => String(d.id) === String(dayId));
-          if (planDay) {
-            const exercises = dayData.dayExercises?.filter(ex => String(ex.plan_day_id) === String(planDay.id)) || [];
-            onEditTraining({ id: planDay.id, type: planDay.type, description: planDay.description, is_key_workout: planDay.is_key_workout, exercises }, date);
-          }
-        }
-        return;
-      }
-      if (e.target.classList.contains('btn-delete-plan-day') || e.target.closest('.btn-delete-plan-day')) {
-        e.preventDefault();
-        e.stopPropagation();
-        const btn = e.target.classList.contains('btn-delete-plan-day') ? e.target : e.target.closest('.btn-delete-plan-day');
-        const dayId = btn?.getAttribute('data-plan-day-id');
-        if (dayId && api?.deleteTrainingDay) {
-          handleDeletePlanDay(parseInt(dayId, 10));
-        }
-        return;
-      }
-      if (e.target.classList.contains('btn-delete-workout') || e.target.closest('.btn-delete-workout')) {
-        e.preventDefault();
-        e.stopPropagation();
-        const btn = e.target.classList.contains('btn-delete-workout') ? e.target : e.target.closest('.btn-delete-workout');
-        const workoutId = btn.getAttribute('onclick')?.match(/deleteWorkout\((\d+)/)?.[1] || btn.getAttribute('data-workout-id');
-        const isManual = btn.getAttribute('onclick')?.includes('true') || btn.getAttribute('data-is-manual') === 'true';
-        if (workoutId) {
-          handleDeleteWorkout(parseInt(workoutId), isManual);
-        }
-        return;
-      }
-      if (e.target.onclick?.toString().includes('openResultModal') || e.target.closest('button')?.onclick?.toString().includes('openResultModal') || e.target.getAttribute('onclick')?.includes('openResultModal')) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (onOpenResultModal && date && weekNumber && dayKey) {
-          onOpenResultModal(date, weekNumber, dayKey);
-        }
-        return;
-      }
-      if (e.target.onclick?.toString().includes('openAddTrainingModal') || e.target.closest('button')?.onclick?.toString().includes('openAddTrainingModal') || e.target.classList.contains('btn-add-training') || e.target.closest('.btn-add-training')) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (date) setAddTrainingModalOpen(true);
-        return;
-      }
-      if (e.target.closest('tr[onclick]')) {
-        const onclick = e.target.closest('tr[onclick]').getAttribute('onclick');
-        if (onclick && onclick.includes('workout_details.php')) {
-          const url = onclick.match(/['"]([^'"]+)['"]/)?.[1];
-          if (url) window.open(url, '_blank');
-        }
-      }
-    };
-
-    modalBodyRef.current.addEventListener('click', handleClick);
-    return () => {
-      if (modalBodyRef.current) modalBodyRef.current.removeEventListener('click', handleClick);
-    };
-  }, [dayData, date, weekNumber, dayKey, onOpenResultModal, api, handleDeletePlanDay]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -189,41 +128,24 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
     return `${formattedDate} • ${dayName}`;
   };
 
-  const handleDeleteWorkout = async (workoutId, isManual) => {
-    if (!workoutId) {
-      alert('Ошибка: не указан ID тренировки');
-      return;
-    }
-    
-    const confirmMessage = isManual 
-      ? 'Удалить эту запись о тренировке?' 
-      : 'Удалить эту тренировку?\n\nВнимание: будут удалены все данные тренировки, включая трек и точки маршрута.';
-    
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
-    
+  const handleWorkoutDeleted = async () => {
+    await loadDayData();
+    onTrainingAdded?.();
+  };
+
+  const handleDeleteWorkoutInline = async (e, workoutId, isManual) => {
+    e.stopPropagation();
+    if (!workoutId || !api?.deleteWorkout) return;
+    const msg = isManual
+      ? 'Удалить эту запись о тренировке?'
+      : 'Удалить эту тренировку?\n\nВнимание: будут удалены все данные, включая трек.';
+    if (!window.confirm(msg)) return;
     try {
-      // Используем API клиент для удаления
-      const response = await fetch(`${api.baseUrl}/api_wrapper.php?action=delete_workout&workout_id=${workoutId}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        // Перезагружаем данные дня
-        await loadDayData();
-      } else {
-        alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
-      }
-    } catch (error) {
-      console.error('Error deleting workout:', error);
-      alert('Ошибка удаления тренировки');
+      await api.deleteWorkout(workoutId, !!isManual);
+      await handleWorkoutDeleted();
+    } catch (err) {
+      console.error('Delete workout error:', err);
+      alert('Ошибка удаления: ' + (err?.message || 'Неизвестная ошибка'));
     }
   };
 
@@ -259,12 +181,24 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
 
   const metrics = getWorkoutMetrics();
 
-  return (
-    <>
+  // Блок «Выполненные тренировки» — только если есть хотя бы одна с реальными данными (дистанция, время и т.д.)
+  const hasCompletedWorkouts = (() => {
+    const w = dayData?.workouts;
+    if (!w || !Array.isArray(w) || w.length === 0) return false;
+    const hasMeaningfulData = (workout) => {
+      const dist = workout.distance_km ?? workout.distance;
+      const dur = workout.duration_minutes ?? workout.duration ?? workout.duration_seconds;
+      return (dist != null && Number(dist) > 0) || (dur != null && Number(dur) > 0);
+    };
+    return w.some(hasMeaningfulData);
+  })();
+
+  const modalTarget = typeof document !== 'undefined' && (document.getElementById('modal-root') || document.body);
+  const modalContent = (
     <div 
       id="dayModal" 
       className="modal modal-modern" 
-      style={{ display: isOpen ? 'block' : 'none' }} 
+      style={{ display: isOpen ? 'flex' : 'none' }} 
       onClick={(e) => {
         if (e.target.id === 'dayModal') {
           onClose();
@@ -274,14 +208,14 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
       <div className="modal-content modal-modern-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header modal-modern-header">
           <div className="modal-header-content">
-            <h2 id="dayModalTitle" className="modal-title-modern">📅 {formatDate(date)}</h2>
-            {metrics && (
+            <h2 id="dayModalTitle" className="modal-title-modern"><CalendarIcon size={22} className="title-icon" aria-hidden /> {formatDate(date)}</h2>
+            {hasCompletedWorkouts && metrics && (
               <div className="modal-metrics-preview">
                 {metrics.distance > 0 && (
-                  <span className="metric-badge">🏃 {metrics.distance} км</span>
+                  <span className="metric-badge"><DistanceIcon size={16} className="inline-icon" aria-hidden /> {metrics.distance} км</span>
                 )}
                 {metrics.duration > 0 && (
-                  <span className="metric-badge">⏱️ {Math.round(metrics.duration / 60)} мин</span>
+                  <span className="metric-badge"><TimeIcon size={16} className="inline-icon" aria-hidden /> {Math.round(metrics.duration / 60)} мин</span>
                 )}
               </div>
             )}
@@ -298,215 +232,115 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
             </div>
           ) : error ? (
             <div className="no-workouts-msg no-workouts-modern">
-              <div className="icon">❌</div>
+              <div className="icon" aria-hidden><XCircleIcon size={32} /></div>
               <div>{error}</div>
             </div>
-          ) : dayData && (dayData.planHtml || dayData.dayExercises?.length > 0) ? (
-            <div className="day-modal-content">
-              {/* Единый вид карточками: когда есть структурированные упражнения — не дублируем planHtml */}
-              {dayData.dayExercises && dayData.dayExercises.length > 0 ? (
-                <>
-                  {/* Только упражнения — без дублирования блока «Тренировки плана» */}
-                  <div className="day-exercises-card day-exercises-card-modern">
-                    <div className="day-exercises-title">💪 Упражнения</div>
-                    <div className="day-exercises-list">
-                      {dayData.dayExercises.map((exercise, index) => (
-                        <div key={exercise.id || index} className="exercise-item">
-                          <div className="exercise-header">
-                            <span className="exercise-name">{exercise.name || 'Упражнение'}</span>
-                            {(exercise.category && getCategoryLabel(exercise.category)) && (
-                              <span className="exercise-category">{getCategoryLabel(exercise.category)}</span>
-                            )}
-                          </div>
-                          <div className="exercise-details">
-                            {exercise.sets != null && exercise.sets !== '' && (
-                              <span className="exercise-detail">Подходов: {exercise.sets}</span>
-                            )}
-                            {exercise.reps != null && exercise.reps !== '' && (
-                              <span className="exercise-detail">Повторений: {exercise.reps}</span>
-                            )}
-                            {exercise.distance_m != null && (
-                              <span className="exercise-detail">Дистанция: {exercise.distance_m} м</span>
-                            )}
-                            {exercise.duration_sec != null && (
-                              <span className="exercise-detail">Время: {Math.round(Number(exercise.duration_sec) / 60)} мин</span>
-                            )}
-                            {exercise.weight_kg != null && (
-                              <span className="exercise-detail">Вес: {exercise.weight_kg} кг</span>
-                            )}
-                            {exercise.pace && (
-                              <span className="exercise-detail">Темп: {exercise.pace}</span>
-                            )}
-                          </div>
-                          {exercise.notes && (
-                            <div className="exercise-notes">{exercise.notes}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div dangerouslySetInnerHTML={{ __html: dayData.planHtml }} />
-                </>
-              )}
-
-              {/* Краткий вывод выполненной тренировки + ссылка на полный просмотр (как в Статистике) */}
-              {dayData.workouts && dayData.workouts.length > 0 && (
-                <div className="day-modal-workout-summary" style={{ marginTop: '20px' }}>
-                  <div className="day-modal-workout-summary-title">
-                    {dayData.workouts.length === 1 ? '🏃 Выполненная тренировка' : '🏃 Выполненные тренировки'}
-                  </div>
-                  {dayData.workouts.map((workout, idx) => {
-                    const dist = workout.distance_km ?? workout.distance;
-                    const durMin = workout.duration_minutes ?? (workout.duration != null ? Math.round(Number(workout.duration) / 60) : null);
-                    const pace = workout.avg_pace ?? workout.pace;
-                    const parts = [];
-                    if (dist != null) parts.push(`${Number(dist).toFixed(1)} км`);
-                    if (durMin != null) {
-                      const h = Math.floor(durMin / 60);
-                      const m = durMin % 60;
-                      parts.push(h > 0 ? `${h}ч ${m}м` : `${m} мин`);
-                    }
-                    if (pace) parts.push(`${pace} /км`);
-                    return (
-                      <div key={idx} className="day-modal-workout-summary-card">
-                        <div className="day-modal-workout-summary-metrics">
-                          {parts.join(' · ')}
-                        </div>
-                        <button
-                          type="button"
-                          className="day-modal-workout-summary-link"
-                          onClick={() => setWorkoutDetailsOpen(true)}
-                        >
-                          Подробнее о тренировке →
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           ) : dayData ? (
-            // Fallback если нет planHtml, но есть структурированные данные
-            <div className="day-modal-structured">
-              {dayData.plan && (
-                <div className="day-plan-card day-plan-card-modern">
-                  <div className="day-plan-title">📋 План на этот день</div>
-                  <div className="day-plan-text" dangerouslySetInnerHTML={{ __html: dayData.plan.replace(/\n/g, '<br>') }} />
-                </div>
-              )}
-              
-              {/* Отображаем упражнения дня, если они есть */}
-              {dayData.dayExercises && dayData.dayExercises.length > 0 && (
-                <div className="day-exercises-card day-exercises-card-modern">
-                  <div className="day-exercises-title">💪 Упражнения</div>
-                  <div className="day-exercises-list">
-                    {dayData.dayExercises.map((exercise, index) => (
-                      <div key={exercise.id || index} className="exercise-item">
-                        <div className="exercise-header">
-                          <span className="exercise-name">{exercise.name || 'Упражнение'}</span>
-                          {exercise.category && getCategoryLabel(exercise.category) && (
-                            <span className="exercise-category">{getCategoryLabel(exercise.category)}</span>
-                          )}
-                        </div>
-                        <div className="exercise-details">
-                          {exercise.sets != null && exercise.sets !== '' && (
-                            <span className="exercise-detail">Подходов: {exercise.sets}</span>
-                          )}
-                          {exercise.reps != null && exercise.reps !== '' && (
-                            <span className="exercise-detail">Повторений: {exercise.reps}</span>
-                          )}
-                          {exercise.distance_m != null && (
-                            <span className="exercise-detail">Дистанция: {exercise.distance_m} м</span>
-                          )}
-                          {exercise.duration_sec != null && (
-                            <span className="exercise-detail">Время: {Math.round(Number(exercise.duration_sec) / 60)} мин</span>
-                          )}
-                          {exercise.weight_kg != null && (
-                            <span className="exercise-detail">Вес: {exercise.weight_kg} кг</span>
-                          )}
-                          {exercise.pace && (
-                            <span className="exercise-detail">Темп: {exercise.pace}</span>
-                          )}
-                        </div>
-                        {exercise.notes && (
-                          <div className="exercise-notes">{exercise.notes}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {metrics && (
-                <div className="workout-metrics-card">
-                  <div className="metrics-title">🏃 Выполненные тренировки</div>
-                  <div className="metrics-grid">
-                    {metrics.distance > 0 && (
-                      <div className="metric-item">
-                        <div className="metric-item-value">{metrics.distance}</div>
-                        <div className="metric-item-label">км</div>
-                      </div>
-                    )}
-                    {metrics.duration > 0 && (
-                      <div className="metric-item">
-                        <div className="metric-item-value">{Math.round(metrics.duration / 60)}</div>
-                        <div className="metric-item-label">минут</div>
-                      </div>
-                    )}
-                    {metrics.pace && (
-                      <div className="metric-item">
-                        <div className="metric-item-value">{metrics.pace}</div>
-                        <div className="metric-item-label">/км</div>
-                      </div>
-                    )}
-                    <div className="metric-item">
-                      <div className="metric-item-value">{metrics.count}</div>
-                      <div className="metric-item-label">тренировок</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {dayData.workouts && dayData.workouts.length > 0 && (
-                <div className="day-modal-workout-summary">
-                  <div className="day-modal-workout-summary-title">
-                    {dayData.workouts.length === 1 ? '🏃 Выполненная тренировка' : '🏃 Выполненные тренировки'}
-                  </div>
-                  {dayData.workouts.map((workout, idx) => {
-                    const dist = workout.distance_km ?? workout.distance;
-                    const durMin = workout.duration_minutes ?? (workout.duration != null ? Math.round(Number(workout.duration) / 60) : null);
-                    const pace = workout.avg_pace ?? workout.pace;
-                    const parts = [];
-                    if (dist != null) parts.push(`${Number(dist).toFixed(1)} км`);
-                    if (durMin != null) {
-                      const h = Math.floor(durMin / 60);
-                      const m = durMin % 60;
-                      parts.push(h > 0 ? `${h}ч ${m}м` : `${m} мин`);
-                    }
-                    if (pace) parts.push(`${pace} /км`);
-                    return (
-                      <div key={idx} className="day-modal-workout-summary-card">
-                        <div className="day-modal-workout-summary-metrics">
-                          {parts.join(' · ')}
-                        </div>
-                        <button
-                          type="button"
-                          className="day-modal-workout-summary-link"
-                          onClick={() => setWorkoutDetailsOpen(true)}
+            <div className="day-modal-two-blocks">
+              {/* Блок 1: Запланированная тренировка — только информация */}
+              <div className="day-modal-workout-card-wrapper">
+                <WorkoutCard
+                  workout={{
+                    ...(dayData.planDays?.[0] || {}),
+                    text: stripHtml(dayData.planHtml || dayData.plan || ''),
+                    dayExercises: dayData.dayExercises || [],
+                  }}
+                  date={date}
+                  status={dayData.planDays?.length > 0 || dayData.dayExercises?.length > 0 ? 'planned' : 'rest'}
+                  isToday={date === new Date().toISOString().slice(0, 10)}
+                  dayDetail={{ plan: dayData.plan, planDays: dayData.planDays, dayExercises: dayData.dayExercises, workouts: dayData.workouts }}
+                  workoutMetrics={null}
+                  results={[]}
+                  planDays={dayData.planDays || []}
+                  canEdit={false}
+                  extraActions={null}
+                />
+              </div>
+
+              {/* Блок 2: Выполненные тренировки — стиль как в статистике (workout-item) */}
+              {hasCompletedWorkouts && dayData.workouts?.length > 0 && (
+                <div className="day-modal-completed-workouts stats-style">
+                  <h2 className="section-title">Выполненные тренировки</h2>
+                  <div className="recent-workouts-list">
+                    {dayData.workouts.map((workout) => {
+                      const dist = workout.distance_km ?? workout.distance;
+                      const durSec = workout.duration_seconds;
+                      const durMin = workout.duration_minutes ?? (workout.duration != null ? Number(workout.duration) / 60 : null);
+                      const durationDisplay = durSec != null ? formatDurationDisplay(durSec, true) : (durMin != null ? formatDurationDisplay(durMin, false) : null);
+                      const pace = workout.avg_pace ?? workout.pace;
+                      const typeKey = (workout.activity_type ?? workout.type ?? 'run').toLowerCase().trim();
+                      const typeName = TYPE_NAMES[typeKey] || typeKey;
+                      const workoutId = workout.is_manual ? `log_${workout.id}` : (workout.id ?? workout.workout_id);
+                      const dateObj = date ? new Date(date + 'T00:00:00') : null;
+                      return (
+                        <div
+                          key={workout.id || workout.workout_id || Math.random()}
+                          className="workout-item"
+                          onClick={() => {
+                            setSelectedWorkoutId(workoutId);
+                            setWorkoutDetailsOpen(true);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedWorkoutId(workoutId);
+                              setWorkoutDetailsOpen(true);
+                            }
+                          }}
                         >
-                          Подробнее о тренировке →
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <div className="workout-item-type" data-type={typeKey}>
+                            <ActivityTypeIcon type={typeKey} className="workout-item-type__icon" aria-hidden />
+                            <span className="workout-item-type__label">{typeName}</span>
+                          </div>
+                          <div className="workout-item-main">
+                            <div className="workout-item-date">
+                              {dateObj ? dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                            </div>
+                            <div className="workout-item-metrics">
+                              {dist != null && Number(dist) > 0 && (
+                                <span className="workout-metric">
+                                  <DistanceIcon className="workout-metric__icon" aria-hidden />
+                                  {Number(dist).toFixed(1)} км
+                                </span>
+                              )}
+                              {durationDisplay && (
+                                <span className="workout-metric">
+                                  <TimeIcon className="workout-metric__icon" aria-hidden />
+                                  {durationDisplay}
+                                </span>
+                              )}
+                              {pace && (
+                                <span className="workout-metric">
+                                  <PaceIcon className="workout-metric__icon" aria-hidden />
+                                  {pace} /км
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              className="workout-item-delete"
+                              onClick={(e) => handleDeleteWorkoutInline(e, workout.is_manual ? workout.id : (workout.id ?? workout.workout_id), workout.is_manual)}
+                              aria-label="Удалить тренировку"
+                              title="Удалить"
+                            >
+                              <TrashIcon size={16} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
           ) : (
             <div className="no-workouts-msg no-workouts-modern">
-              <div className="icon">📅</div>
+              <div className="icon" aria-hidden><CalendarIcon size={32} /></div>
               <div>Нет данных для этого дня</div>
             </div>
           )}
@@ -537,6 +371,11 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <>
+    {modalTarget && createPortal(modalContent, modalTarget)}
     <AddTrainingModal
       isOpen={addTrainingModalOpen}
       onClose={() => setAddTrainingModalOpen(false)}
@@ -546,10 +385,15 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
     />
     <WorkoutDetailsModal
       isOpen={workoutDetailsOpen}
-      onClose={() => setWorkoutDetailsOpen(false)}
+      onClose={() => {
+        setWorkoutDetailsOpen(false);
+        setSelectedWorkoutId(null);
+      }}
       date={date}
       dayData={dayData}
       loading={false}
+      selectedWorkoutId={selectedWorkoutId}
+      onDelete={canEdit ? handleWorkoutDeleted : undefined}
     />
     </>
   );

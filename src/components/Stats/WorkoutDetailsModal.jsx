@@ -1,34 +1,52 @@
 /**
- * Модальное окно деталей тренировки
+ * Модальное окно деталей тренировки.
+ * Использует общий компонент Modal (единая оболочка с AddTrainingModal, ResultModal).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import html2canvas from 'html2canvas';
 import { HeartRateChart, PaceChart } from './index';
+import WorkoutShareCard from './WorkoutShareCard';
+import Modal from '../common/Modal';
 import useAuthStore from '../../stores/useAuthStore';
+import {
+  getActivityTypeLabel, getWorkoutDisplayType, getSourceLabel,
+} from '../../utils/workoutFormUtils';
+import './WorkoutDetailsModal.css';
 
-/** Подписи типа активности для отображения (run/running → Бег, ofp → ОФП) */
-const ACTIVITY_TYPE_LABELS = {
-  run: 'Бег',
-  running: 'Бег',
-  ofp: 'ОФП',
+const matchesSelectedWorkout = (workout, selectedWorkoutId) => {
+  if (!selectedWorkoutId) return true;
+  if (typeof selectedWorkoutId === 'string' && selectedWorkoutId.startsWith('log_')) {
+    const logId = parseInt(selectedWorkoutId.replace('log_', ''), 10);
+    return workout.is_manual && workout.id === logId;
+  }
+  return String(workout.id) === String(selectedWorkoutId);
 };
 
-const getActivityTypeLabel = (activityType) => {
-  if (!activityType) return '';
-  const key = String(activityType).toLowerCase();
-  return ACTIVITY_TYPE_LABELS[key] || activityType;
-};
-
-const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumber, dayKey, onEdit }) => {
+const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumber, dayKey, onEdit, onDelete, selectedWorkoutId }) => {
   const { api } = useAuthStore();
+  const [deleting, setDeleting] = useState(false);
+
+  const displayedWorkouts = React.useMemo(() => {
+    const workouts = dayData?.workouts ?? [];
+    if (!selectedWorkoutId) return workouts;
+    const filtered = workouts.filter((w) => matchesSelectedWorkout(w, selectedWorkoutId));
+    return filtered.length > 0 ? filtered : workouts;
+  }, [dayData?.workouts, selectedWorkoutId]);
+
   const [timelineData, setTimelineData] = useState({});
   const [loadingTimeline, setLoadingTimeline] = useState({});
+  const [shareGenerating, setShareGenerating] = useState(false);
+  const [sharePopup, setSharePopup] = useState({ open: false, dataUrl: null, fileName: '' });
+
+  const closeSharePopup = useCallback(() => {
+    setSharePopup({ open: false, dataUrl: null, fileName: '' });
+  }, []);
   const loadedWorkoutsRef = useRef(new Set());
 
-  // Загружаем timeline данные для каждой тренировки с ID (не ручной)
   useEffect(() => {
     if (!isOpen || !dayData || !dayData.workouts || !api) {
-      // Сбрасываем загруженные тренировки при закрытии модального окна
       if (!isOpen) {
         loadedWorkoutsRef.current.clear();
         setTimelineData({});
@@ -38,14 +56,13 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumb
     }
 
     const loadTimeline = async (workoutId) => {
-      // Проверяем, не загружаем ли мы уже эту тренировку
       if (loadedWorkoutsRef.current.has(workoutId) || loadingTimeline[workoutId]) return;
 
       setLoadingTimeline(prev => ({ ...prev, [workoutId]: true }));
       try {
         const response = await api.getWorkoutTimeline(workoutId);
         let timeline = null;
-        
+
         if (response && typeof response === 'object') {
           if (response.timeline) {
             timeline = response.timeline;
@@ -57,7 +74,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumb
             timeline = response;
           }
         }
-        
+
         if (timeline && Array.isArray(timeline) && timeline.length > 0) {
           setTimelineData(prev => ({ ...prev, [workoutId]: timeline }));
           loadedWorkoutsRef.current.add(workoutId);
@@ -69,180 +86,355 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumb
       }
     };
 
-    dayData.workouts.forEach(workout => {
-      // Загружаем timeline только для автоматических тренировок (не ручных)
+    displayedWorkouts.forEach(workout => {
       if (workout.id && !workout.is_manual) {
         loadTimeline(workout.id);
       }
     });
-  }, [isOpen, dayData, api]);
+  }, [isOpen, dayData, api, displayedWorkouts]);
 
-  if (!isOpen) return null;
+  const [shareCardForCapture, setShareCardForCapture] = useState(null);
+  const shareCardRef = useRef(null);
 
-  return (
-    <div className="workout-details-modal-overlay" onClick={onClose}>
-      <div className="workout-details-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="workout-details-modal-header">
-          <h2 className="workout-details-modal-title">
-            Тренировка {date ? new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric'
-            }) : ''}
-          </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {onEdit && (
+  const handleShare = useCallback(async () => {
+    const workout = displayedWorkouts?.[0];
+    if (!workout || !date) return;
+
+    const chartWorkout = displayedWorkouts?.find(w => w.id && !w.is_manual && timelineData[w.id]);
+    const timeline = chartWorkout ? timelineData[chartWorkout.id] : null;
+
+    setShareGenerating(true);
+    setShareCardForCapture({ date, workout, timeline });
+  }, [date, displayedWorkouts, timelineData]);
+
+  useEffect(() => {
+    if (!shareCardForCapture || !shareCardRef.current) return;
+
+    const { date: captureDate, workout } = shareCardForCapture;
+    const cardEl = shareCardRef.current;
+
+    const run = async () => {
+      try {
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 600)));
+
+        const canvas = await html2canvas(cardEl, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          allowTaint: true,
+          onclone: (_doc, clonedEl) => {
+            clonedEl.style.opacity = '1';
+          },
+        });
+
+        const dataUrl = canvas.toDataURL('image/png');
+        const fileName = `planrun-${captureDate}-${getWorkoutDisplayType(workout) || 'workout'}.png`;
+        if (!dataUrl || dataUrl.length < 100) throw new Error('Canvas empty');
+        setSharePopup({ open: true, dataUrl, fileName });
+      } catch (err) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Share error:', err);
+        }
+      } finally {
+        setShareCardForCapture(null);
+        setShareGenerating(false);
+      }
+    };
+
+    run();
+  }, [shareCardForCapture]);
+
+  // --- Build title ---
+  const titleNode = (
+    <>
+      <span className="workout-details-modal-title--short">
+        {date ? new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''}
+        {!loading && getWorkoutDisplayType(displayedWorkouts?.[0]) && (
+          <> {getActivityTypeLabel(getWorkoutDisplayType(displayedWorkouts[0])).toUpperCase()}</>
+        )}
+      </span>
+      <span className="workout-details-modal-title--full">
+        {date ? new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''}
+        {!loading && getWorkoutDisplayType(displayedWorkouts?.[0]) && (
+          <> {getActivityTypeLabel(getWorkoutDisplayType(displayedWorkouts[0])).toUpperCase()}</>
+        )}
+      </span>
+    </>
+  );
+
+  // --- Build header subtitle (source) ---
+  const firstWorkout = displayedWorkouts?.[0];
+  const sourceLabel = !loading && firstWorkout?.source && !firstWorkout.is_manual
+    ? getSourceLabel(firstWorkout.source)
+    : null;
+  const headerSubtitle = sourceLabel ? <>Импортировано из: {sourceLabel}</> : null;
+
+  // --- Delete handler ---
+  const handleDeleteWorkout = useCallback(async () => {
+    if (!onDelete || !displayedWorkouts?.length || deleting) return;
+    const workout = displayedWorkouts[0];
+    const workoutId = workout.is_manual ? workout.id : (workout.id ?? workout.workout_id);
+    if (!workoutId) return;
+
+    const msg = workout.is_manual
+      ? 'Удалить эту запись о тренировке?'
+      : 'Удалить эту тренировку?\n\nВнимание: будут удалены все данные тренировки, включая трек и точки маршрута.';
+    if (!window.confirm(msg)) return;
+
+    setDeleting(true);
+    try {
+      await api.deleteWorkout(workoutId, !!workout.is_manual);
+      onDelete();
+      onClose();
+    } catch (err) {
+      console.error('Delete workout error:', err);
+      alert('Ошибка удаления: ' + (err?.message || 'Не удалось удалить тренировку'));
+    } finally {
+      setDeleting(false);
+    }
+  }, [onDelete, displayedWorkouts, deleting, api, onClose]);
+
+  // --- Build header actions ---
+  const headerActions = onEdit && displayedWorkouts?.every((w) => w.is_manual) ? (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      onClick={onEdit}
+    >
+      Редактировать результат
+    </button>
+  ) : null;
+
+  // --- Share capture (rendered outside modal via portal) ---
+  const portalTarget = typeof document !== 'undefined' && (document.getElementById('modal-root') || document.body);
+
+  const shareElements = portalTarget && (shareCardForCapture || (sharePopup.open && sharePopup.dataUrl)) ? createPortal(
+    <>
+      {shareCardForCapture && (
+        <div
+          ref={shareCardRef}
+          className="workout-share-capture-wrap"
+          style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            width: 400,
+            opacity: 0.001,
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+          data-theme="light"
+        >
+          <WorkoutShareCard
+            date={shareCardForCapture.date}
+            workout={shareCardForCapture.workout}
+            timeline={shareCardForCapture.timeline}
+          />
+        </div>
+      )}
+
+      {sharePopup.open && sharePopup.dataUrl && (
+        <div className="workout-share-popup-overlay" onClick={closeSharePopup}>
+          <div className="workout-share-popup" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="workout-share-popup-close"
+              onClick={closeSharePopup}
+              aria-label="Закрыть"
+            >
+              ×
+            </button>
+            <div className="workout-share-popup-image-wrap">
+              <img src={sharePopup.dataUrl} alt="Тренировка" className="workout-share-popup-image" />
+            </div>
+            <div className="workout-share-popup-actions">
               <button
                 type="button"
-                className="btn btn-secondary"
-                onClick={onEdit}
-                style={{ padding: '8px 16px', fontSize: '14px' }}
+                className="btn btn-primary btn--block"
+                onClick={() => {
+                  const a = document.createElement('a');
+                  a.href = sharePopup.dataUrl;
+                  a.download = sharePopup.fileName;
+                  a.click();
+                }}
               >
-                Редактировать результат
+                Сохранить
               </button>
-            )}
-            <button className="workout-details-modal-close" onClick={onClose}>×</button>
+              <button
+                type="button"
+                className="btn btn-secondary btn--block"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(sharePopup.dataUrl);
+                    const blob = await res.blob();
+                    const file = new File([blob], sharePopup.fileName, { type: 'image/png' });
+                    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+                      await navigator.share({
+                        title: sharePopup.fileName.replace('.png', ''),
+                        files: [file],
+                      });
+                    } else {
+                      const a = document.createElement('a');
+                      a.href = sharePopup.dataUrl;
+                      a.download = sharePopup.fileName;
+                      a.click();
+                    }
+                  } catch (err) {
+                    if (process.env.NODE_ENV !== 'production') console.error('Share error:', err);
+                  }
+                }}
+              >
+                Поделиться
+              </button>
+            </div>
           </div>
         </div>
-        
-        <div className="workout-details-modal-body">
-          {loading ? (
-            <div className="workout-details-loading">Загрузка...</div>
-          ) : dayData && dayData.workouts && dayData.workouts.length > 0 ? (
-            <div className="workout-details-list">
-              {dayData.workouts.map((workout, index) => {
-                const workoutDate = workout.start_time ? new Date(workout.start_time) : new Date(date + 'T12:00:00');
-                const hours = Math.floor((workout.duration_minutes || 0) / 60);
-                const mins = Math.floor((workout.duration_minutes || 0) % 60);
-                
-                // Форматируем время начала тренировки
-                const startTimeStr = workout.start_time 
-                  ? workoutDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-                  : '—';
-                
-                return (
-                  <div key={index} className="workout-details-item">
-                    <div className="workout-details-item-header">
-                      <div className="workout-details-item-time">
-                        {startTimeStr}
-                      </div>
-                      {workout.activity_type && (
-                        <div className="workout-details-item-type">
-                          {getActivityTypeLabel(workout.activity_type)}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="workout-details-item-metrics">
-                      {workout.distance_km && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Дистанция:</span>
-                          <span className="workout-details-metric-value">{workout.distance_km} км</span>
-                        </div>
-                      )}
-                      {workout.duration_minutes && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Время:</span>
-                          <span className="workout-details-metric-value">
-                            {hours > 0 ? `${hours}ч ` : ''}{mins}м
-                          </span>
-                        </div>
-                      )}
-                      {workout.avg_pace && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Средний темп:</span>
-                          <span className="workout-details-metric-value">{workout.avg_pace} /км</span>
-                        </div>
-                      )}
-                      {workout.avg_heart_rate && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Средний пульс:</span>
-                          <span className="workout-details-metric-value">{workout.avg_heart_rate} уд/мин</span>
-                        </div>
-                      )}
-                      {workout.max_heart_rate && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Макс. пульс:</span>
-                          <span className="workout-details-metric-value">{workout.max_heart_rate} уд/мин</span>
-                        </div>
-                      )}
-                      {workout.elevation_gain && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Набор высоты:</span>
-                          <span className="workout-details-metric-value">{Math.round(workout.elevation_gain)} м</span>
-                        </div>
-                      )}
-                      {workout.id && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Номер тренировки:</span>
-                          <span className="workout-details-metric-value">#{workout.id}</span>
-                        </div>
-                      )}
-                      {workout.is_manual && (
-                        <div className="workout-details-metric">
-                          <span className="workout-details-metric-label">Тип:</span>
-                          <span className="workout-details-metric-value">Ручная запись</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {workout.notes && (
-                      <div className="workout-details-notes">
-                        <span className="workout-details-notes-label">Заметки:</span>
-                        <span className="workout-details-notes-text">{workout.notes}</span>
+      )}
+    </>,
+    portalTarget,
+  ) : null;
+
+  return (
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title={titleNode}
+        size="medium"
+        variant="modern"
+        headerActions={headerActions}
+        headerSubtitle={headerSubtitle}
+      >
+        {!loading && dayData?.workouts?.length > 0 && (
+          <div className="workout-details-share-row">
+            <button
+              type="button"
+              className="btn btn-secondary workout-details-share-btn workout-details-share-btn--body"
+              onClick={handleShare}
+              disabled={shareGenerating}
+            >
+              {shareGenerating ? 'Создание…' : 'Поделиться'}
+            </button>
+            {onDelete && (
+              <button
+                type="button"
+                className="btn btn-secondary btn--danger-text"
+                onClick={handleDeleteWorkout}
+                disabled={deleting}
+              >
+                {deleting ? 'Удаление…' : 'Удалить'}
+              </button>
+            )}
+          </div>
+        )}
+        {loading ? (
+          <div className="workout-details-loading">Загрузка...</div>
+        ) : dayData && displayedWorkouts && displayedWorkouts.length > 0 ? (
+          <div className="workout-details-list">
+            {displayedWorkouts.map((workout, index) => {
+              const workoutDate = workout.start_time ? new Date(workout.start_time) : new Date(date + 'T12:00:00');
+              let durationStr = '—';
+              if (workout.duration_seconds != null && workout.duration_seconds > 0) {
+                const h = Math.floor(workout.duration_seconds / 3600);
+                const m = Math.floor((workout.duration_seconds % 3600) / 60);
+                const s = workout.duration_seconds % 60;
+                durationStr = (h > 0 ? `${h} ч ` : '') + `${m} мин ${s} сек`;
+              } else if (workout.duration_minutes != null && workout.duration_minutes > 0) {
+                const h = Math.floor(workout.duration_minutes / 60);
+                const m = workout.duration_minutes % 60;
+                durationStr = h > 0 ? `${h}ч ${m}м` : `${m}м`;
+              }
+
+              const startTimeStr = workout.start_time
+                ? workoutDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                : '—';
+
+              return (
+                <div key={index} className="workout-details-item">
+                  <div className="workout-details-item-header">
+                    <div className="workout-details-item-time">{startTimeStr}</div>
+                    {getWorkoutDisplayType(workout) && (
+                      <div className="workout-details-item-type">
+                        {getActivityTypeLabel(getWorkoutDisplayType(workout))}
                       </div>
                     )}
-                    
-                    {/* Графики пульса и темпа (только для автоматических тренировок с timeline) */}
-                    {workout.id && !workout.is_manual && timelineData[workout.id] && (
-                      <div className="workout-details-charts">
-                        <HeartRateChart timeline={timelineData[workout.id]} />
-                        <PaceChart timeline={timelineData[workout.id]} />
-                      </div>
-                    )}
-                    
-                    {/* Упражнения дня — те же данные, что в календаре (get_day → dayExercises) */}
-                    {(dayData?.dayExercises?.length > 0 || dayData?.day_exercises?.length > 0) && index === 0 && (() => {
-                      const exercises = dayData?.dayExercises ?? dayData?.day_exercises ?? [];
-                      return (
-                        <div className="workout-details-exercises">
-                          <span className="workout-details-exercises-label">Упражнения:</span>
-                          <div className="workout-details-exercises-list">
-                            {exercises.map((exercise, exIndex) => (
-                              <div key={exercise.id ?? exIndex} className="workout-details-exercise-item">
-                                <div className="workout-details-exercise-name">
-                                  {exercise.name || 'Упражнение'}
-                                  {exercise.category && (
-                                    <span className="workout-details-exercise-category"> ({exercise.category})</span>
-                                  )}
-                                </div>
-                                <div className="workout-details-exercise-details">
-                                  {exercise.sets != null && exercise.sets !== '' && <span>Подходов: {exercise.sets}</span>}
-                                  {exercise.reps != null && exercise.reps !== '' && <span>Повторений: {exercise.reps}</span>}
-                                  {exercise.distance_m != null && <span>Дистанция: {exercise.distance_m} м</span>}
-                                  {exercise.duration_sec != null && <span>Время: {Math.round(Number(exercise.duration_sec) / 60)} мин</span>}
-                                  {exercise.weight_kg != null && <span>Вес: {exercise.weight_kg} кг</span>}
-                                  {exercise.pace && <span>Темп: {exercise.pace}</span>}
-                                </div>
-                                {exercise.notes && (
-                                  <div className="workout-details-exercise-notes">{exercise.notes}</div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="workout-details-empty">Нет данных о тренировке</div>
-          )}
-        </div>
-      </div>
-    </div>
+
+                  <div className="workout-details-item-metrics">
+                    {workout.distance_km && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Дистанция:</span>
+                        <span className="workout-details-metric-value">{workout.distance_km} км</span>
+                      </div>
+                    )}
+                    {(workout.duration_seconds != null || workout.duration_minutes != null) && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Время:</span>
+                        <span className="workout-details-metric-value">{durationStr}</span>
+                      </div>
+                    )}
+                    {workout.avg_pace && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Средний темп:</span>
+                        <span className="workout-details-metric-value">{workout.avg_pace} /км</span>
+                      </div>
+                    )}
+                    {workout.avg_heart_rate && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Средний пульс:</span>
+                        <span className="workout-details-metric-value">{workout.avg_heart_rate} уд/мин</span>
+                      </div>
+                    )}
+                    {workout.max_heart_rate && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Макс. пульс:</span>
+                        <span className="workout-details-metric-value">{workout.max_heart_rate} уд/мин</span>
+                      </div>
+                    )}
+                    {workout.elevation_gain && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Набор высоты:</span>
+                        <span className="workout-details-metric-value">{Math.round(workout.elevation_gain)} м</span>
+                      </div>
+                    )}
+                    {workout.id && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Номер тренировки:</span>
+                        <span className="workout-details-metric-value">#{workout.id}</span>
+                      </div>
+                    )}
+                    {workout.is_manual && (
+                      <div className="workout-details-metric">
+                        <span className="workout-details-metric-label">Тип:</span>
+                        <span className="workout-details-metric-value">Ручная запись</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {workout.notes && (
+                    <div className="workout-details-notes">
+                      <span className="workout-details-notes-label">Заметки:</span>
+                      <span className="workout-details-notes-text">{workout.notes}</span>
+                    </div>
+                  )}
+
+                  {workout.id && !workout.is_manual && timelineData[workout.id] && (
+                    <div className="workout-details-charts">
+                      <HeartRateChart timeline={timelineData[workout.id]} />
+                      <PaceChart timeline={timelineData[workout.id]} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="workout-details-empty">Нет данных о тренировке</div>
+        )}
+      </Modal>
+      {shareElements}
+    </>
   );
 };
 

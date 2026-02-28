@@ -88,3 +88,7 @@ weights/
 
 # AI directory (not part of PlanRun project)
 ai/
+
+# Secrets (Firebase, Google Cloud)
+planrun-backend/config/firebase-credentials.json
+android/app/google-services.json

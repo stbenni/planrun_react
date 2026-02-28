@@ -1,0 +1,179 @@
+---
+description: Граф вызовов и взаимосвязей — где каждая функция используется и с чем взаимодействует
+alwaysApply: true
+---
+
+# PlanRun — граф вызовов и взаимосвязей
+
+При изменении кода учитывай: **кто вызывает** функцию и **что она вызывает**. Ниже — карта взаимодействий.
+
+**Полная матрица влияния:** см. `.cursor/rules/impact-matrix.mdc` — при изменении X ОБЯЗАТЕЛЬНО проверить Y (100% покрытие).
+**При создании нового:** см. `.cursor/rules/on-create-update-docs.mdc` — дописать в architecture-flow, impact-matrix, docs/.
+
+---
+
+## 1. Источник API — useAuthStore → api
+
+**api** (ApiClient) создаётся в `useAuthStore.initialize()` и хранится в store. Все компоненты получают api через `useAuthStore()`.
+
+| Компонент/файл | Что берёт из useAuthStore | Какие методы api вызывает |
+|----------------|---------------------------|----------------------------|
+| App.jsx | user, api, loading, isAuthenticated, isLocked, initialize, logout, updateUser | api.getSiteSettings |
+| AppLayout.jsx | api, user, showOnboardingModal, setShowOnboardingModal | — |
+| AppTabsContent.jsx | user | — |
+| LoginScreen.jsx, LoginForm.jsx | login, biometricLogin, pinLogin, checkBiometricAvailability, checkPinAvailability | — (login вызывает api.login внутри store) |
+| LockScreen.jsx | pinLogin, biometricLogin, setLocked, checkBiometricAvailability, checkPinAvailability | — |
+| TopHeader.jsx | user, logout, api, drawerOpen, setDrawerOpen | api.getCurrentUser, api.uploadAvatar |
+| Notifications.jsx | api, user | api.getNotificationsDismissed, api.getPlan, api.chatGetMessages, api.chatAdminGetUnreadNotifications |
+| ChatNotificationButton.jsx | user | — |
+| DashboardScreen.jsx | api, user, planGenerationMessage | — |
+| Dashboard.jsx | api, setShowOnboardingModal, setPlanGenerationMessage, usePlanStore (plan, planStatus) | api.getPlan, api.getAllResults, api.getAllWorkoutsSummary, api.checkPlanStatus (при отсутствии в store) |
+| DashboardStatsWidget.jsx | api (через props) | api.getAllWorkoutsSummary, api.getAllResults, api.getPlan |
+| ProfileQuickMetricsWidget.jsx | api (через props) | api.getAllWorkoutsSummary, api.getAllResults, api.getPlan |
+| CalendarScreen.jsx | api, user | api.getPlan, api.getAllWorkoutsSummary, api.getAllResults, api.getDay, api.getResult |
+| WeekCalendar.jsx | api (через props) | api.getDay |
+| DayModal.jsx | api (через props) | api.getDay |
+| ResultModal.jsx | api (через props) | api.getDay, api.getResult, api.saveResult |
+| AddTrainingModal.jsx | api (через props) | api.saveResult (при editResultData), api.addTrainingDayByDate (при новом дне) |
+| StatsScreen.jsx | api, user | api.getAllWorkoutsSummary, api.getAllWorkoutsList, api.getAllResults, api.getPlan, api.getDay |
+| WorkoutDetailsModal.jsx | api (через props) | api.getWorkoutTimeline |
+| ChatScreen.jsx | api, user | api.chatGetMessages, api.chatGetDirectDialogs, api.getAdminChatUsers, api.chatGetDirectMessages, api.chatAdminGetMessages, api.chatSendMessageStream, api.chatSendMessage, api.chatClearAi, api.chatMarkRead, api.chatMarkAllRead, api.chatAdminMarkConversationRead, api.chatSendMessageToAdmin, api.chatSendMessageToUser, api.chatAdminSendMessage, api.getUserBySlug |
+| SettingsScreen.jsx | api, updateUser | множество: getProfile, updateProfile, getIntegrationsStatus, integration_oauth_url, sync_workouts, unlink_integration, uploadAvatar, getSiteSettings, getNotificationsDismissed, dismissNotification, и др. |
+| UserProfileScreen.jsx | api, user, updateUser | api.getUserBySlug, api.getAllWorkoutsSummary, api.getAllWorkoutsList, api.getAllResults, api.getPlan, api.getDay |
+| AdminScreen.jsx | api, user | api.getAdminUsers, api.getAdminUser, api.updateAdminUser, api.getAdminSettings, api.updateAdminSettings |
+| SpecializationModal.jsx | updateUser, api, setPlanGenerationMessage | api.completeSpecialization |
+| RegisterScreen.jsx | api, updateUser | api.sendVerificationCode, api.registerMinimal, api.completeSpecialization |
+
+---
+
+## 2. usePreloadStore — предзагрузка вкладок (native app)
+
+**Вызывается в:** Dashboard (triggerPreload после loadDashboardData), CalendarScreen, StatsScreen.
+
+**Логика:** После загрузки Dashboard на Capacitor вызывается `triggerPreload()`. Calendar и Stats при `preloadTriggered` запускают свой load в фоне (silent). При переключении вкладки данные уже загружены — мгновенное отображение.
+
+---
+
+## 2a. useWorkoutRefreshStore — глобальное обновление при изменении тренировок
+
+**Вызывается в:** CalendarScreen (onSave, onSuccess, onTrainingAdded), DayModal (handleDeleteWorkout), SettingsScreen (syncWorkouts).
+
+**Подписчики:** Dashboard, CalendarScreen, StatsScreen, UserProfileScreen (при is_owner).
+
+**Логика:** После saveResult, addTrainingDayByDate, updateTrainingDay, syncWorkouts, deleteWorkout вызывается `triggerRefresh()`. Все экраны подписаны на `version` и обновляют данные (load с silent: true).
+
+---
+
+## 3. usePlanStore — план тренировок
+
+**Вызывается в:** Dashboard, CalendarScreen, ChatScreen (onPlanUpdated callback); useAuthStore (предзагрузка при входе).
+
+**Внутри store вызывает:**
+- `api.getPlan(userId)` — в loadPlan
+- `api.savePlan(planData)` — в savePlan
+- `api.checkPlanStatus(userId)` — в checkPlanStatus, recalculatePlan, generateNextPlan
+- `api.recalculatePlan(reason)` — в recalculatePlan
+- `api.generateNextPlan(goals)` — в generateNextPlan
+- `api.request('reactivate_plan', {}, 'POST')` — при таймауте recalculate/generateNext
+
+**Цепочка recalculatePlan:**
+1. CalendarScreen вызывает `recalculatePlan(reason)` из usePlanStore
+2. usePlanStore → api.recalculatePlan(reason) → POST /api?action=recalculate_plan
+3. Polling: api.checkPlanStatus() каждые 5 сек до has_plan или error
+4. При успехе: loadPlan() → api.getPlan()
+
+**Цепочка generateNextPlan:** аналогично, action=generate_next_plan.
+
+**loadPlan вызывается:**
+- CalendarScreen: при mount, после recalculate/generateNext, onTrainingAdded
+- ChatScreen: в onPlanUpdated при streaming (AI изменил план через tool)
+
+**Предзагрузка плана (при входе):**
+- useAuthStore.initialize(), login(), pinLogin(), biometricLogin(), unlock(): после getCurrentUser при onboarding_completed вызывают usePlanStore.checkPlanStatus(); если has_plan — loadPlan(); иначе setPlanStatusChecked(false)
+- Dashboard использует plan/planStatus из store; при planStatus.has_plan === false показывает экран «Создайте план»
+
+---
+
+## 4. useWorkoutStore — тренировки и результаты
+
+**Вызывается в:** (проверь grep — может использоваться реже, т.к. многие экраны вызывают api.getDay/saveResult напрямую)
+
+**Внутри store вызывает:**
+- `api.getAllResults()` — в loadAllResults
+- `api.getDay(date)` — в loadDay
+- `api.saveResult(payload)` — в saveResult
+- `api.reset(date)` — в resetResult
+
+**Важно:** DayModal, ResultModal, CalendarScreen, WeekCalendar вызывают **api.getDay** и **api.saveResult** напрямую, а не через useWorkoutStore. useWorkoutStore — альтернативный путь для компонентов, которые хотят кэшировать в store.
+
+---
+
+## 5. Цепочки данных по сценариям
+
+### Сценарий: открытие дня в календаре
+1. CalendarScreen рендерит WeekCalendar или MonthlyCalendar
+2. Пользователь кликает по дню → открывается DayModal
+3. DayModal в loadDayData вызывает `api.getDay(date, viewContext)`
+4. ApiClient.getDay → GET /api?action=get_day&date=... → WorkoutController::getDay → WorkoutService::getDay
+5. WorkoutService собирает planDays, dayExercises, workouts из БД
+
+### Сценарий: запись результата
+1. DayModal → кнопка «Выполнено» → открывается ResultModal
+2. ResultModal в loadDayPlan вызывает api.getDay, api.getResult
+3. Пользователь заполняет форму → handleSubmit
+4. ResultModal вызывает `api.saveResult({ date, week, day, ... })`
+5. ApiClient.saveResult → POST /api?action=save_result → WorkoutController::saveResult → WorkoutService::saveResult
+
+### Сценарий: добавление тренировки
+1. DayModal или CalendarScreen → AddTrainingModal (initialData или пусто)
+2. AddTrainingModal при submit: если editResultData — api.saveResult; иначе api через родителя (addTrainingDayByDate вызывается из CalendarScreen)
+3. CalendarScreen передаёт onTrainingAdded → loadPlan({ silent: true })
+
+### Сценарий: чат с AI
+1. ChatScreen вызывает api.chatSendMessageStream(content, onChunk, { onPlanUpdated, ... })
+2. ApiClient читает NDJSON stream, при obj.plan_updated вызывает onPlanUpdated
+3. onPlanUpdated = () => usePlanStore.getState().loadPlan()
+4. План обновляется в store, CalendarScreen подхватывает через usePlanStore
+
+---
+
+## 6. Бэкенд: контроллер → сервис → репозиторий
+
+| Контроллер | Создаёт сервис | Сервис вызывает |
+|------------|----------------|-----------------|
+| WorkoutController | WorkoutService | WorkoutRepository, GpxTcxParser (upload) |
+| TrainingPlanController | TrainingPlanService | TrainingPlanRepository, planrun_ai (generate) |
+| ChatController | ChatService | ChatRepository, ChatContextBuilder, TrainingPlanService (tools) |
+| StatsController | StatsService | StatsRepository |
+| IntegrationsController | — | StravaProvider, HuaweiHealthProvider, WorkoutService (sync) |
+| UserController | — | прямые запросы, EmailService |
+| AuthController | AuthService, JwtService | — |
+
+**ChatService при tools:**
+- update_training_day → TrainingPlanService
+- recalculate_plan → TrainingPlanService
+- generate_next_plan → TrainingPlanService
+
+---
+
+## 7. Импорты компонентов (кто кого использует)
+
+- **DayModal** импортирует: AddTrainingModal, WorkoutDetailsModal
+- **MonthCalendar** импортирует: DayModal
+- **WeekCalendar** импортирует: WorkoutCard, WeekCalendarIcons
+- **Week** импортирует: Day
+- **Day** импортирует: calendarHelpers, Icons
+- **ResultModal** импортирует: Modal, Icons, workoutFormUtils
+- **AddTrainingModal** импортирует: Modal, Icons, workoutFormUtils
+- **WorkoutDetailsModal** импортирует: Modal, workoutFormUtils, HeartRateChart, PaceChart, WorkoutShareCard
+- **CalendarScreen** импортирует: WeekCalendar, MonthlyCalendar, DayModal, AddTrainingModal, ResultModal
+
+---
+
+## 8. Правила при изменении кода
+
+1. **Меняешь api.getX** → проверь все вызовы в таблице п.1; ApiClient.js — единственное место определения.
+2. **Меняешь usePlanStore.loadPlan** → затронуты CalendarScreen, ChatScreen (onPlanUpdated).
+3. **Меняешь WorkoutService::getDay** → влияет на DayModal, ResultModal, WeekCalendar, CalendarScreen, StatsScreen, UserProfileScreen.
+4. **Меняешь ChatService** → влияет на ChatScreen, tools (update_training_day и др.).
+5. **Добавляешь новый api-метод** → добавь в ApiClient.js, зарегистрируй action в api_v2.php, при необходимости — в openapi.yaml.

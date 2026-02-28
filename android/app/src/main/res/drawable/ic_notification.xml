@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Иконка для push-уведомлений: белый силуэт на прозрачном фоне (требование Android) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Буква P (логотип PlanRun): вертикальная черта + верхняя дуга -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6,4 L6,20 L8,20 L8,15 L12,15 C15,15 18,12 18,9 C18,6 15,4 12,4 Z" />
+</vector>

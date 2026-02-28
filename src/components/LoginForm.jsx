@@ -1,11 +1,16 @@
 /**
  * Переиспользуемая форма входа (страница или модалка)
  * Включает встроенный сброс пароля по ссылке «Забыли пароль?»
+ * На native: логин и пароль сохраняются для восстановления входа по PIN и биометрии.
  */
 
 import React, { useState, useEffect } from 'react';
 import useAuthStore from '../stores/useAuthStore';
 import ApiClient from '../api/ApiClient';
+import PinAuthService from '../services/PinAuthService';
+import CredentialBackupService from '../services/CredentialBackupService';
+import { isNativeCapacitor } from '../services/TokenStorageService';
+import PinInput from './common/PinInput';
 import '../screens/LoginScreen.css';
 
 const LoginForm = ({ onSuccess, onLogin }) => {
@@ -17,22 +22,16 @@ const LoginForm = ({ onSuccess, onLogin }) => {
   const [error, setError] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotSentToEmail, setForgotSentToEmail] = useState('');
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [showPinForRecovery, setShowPinForRecovery] = useState(false);
+  const [pinForRecovery, setPinForRecovery] = useState('');
+  const [canSaveRecovery, setCanSaveRecovery] = useState(false);
 
-  const { login, biometricLogin, checkBiometricAvailability } = useAuthStore();
-
-  const platform = typeof window !== 'undefined' && window.Capacitor?.getPlatform?.();
-  const isNativeApp = platform === 'android' || platform === 'ios';
+  const { login } = useAuthStore();
 
   useEffect(() => {
-    if (!isNativeApp) return;
-    checkBiometricAvailability().then((result) => {
-      setBiometricAvailable(result?.available ?? false);
-      setBiometricEnabled(result?.enabled ?? false);
-    }).catch(() => {});
-  }, [checkBiometricAvailability, isNativeApp]);
+    if (!isNativeCapacitor()) return;
+    PinAuthService.isPinEnabled().then(setCanSaveRecovery).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -47,6 +46,14 @@ const LoginForm = ({ onSuccess, onLogin }) => {
       const loginFn = onLogin || login;
       const result = await loginFn(username, password, useJwt);
       if (result?.success) {
+        if (isNativeCapacitor()) {
+          CredentialBackupService.saveCredentialsSecure(username, password).catch(() => {});
+          if (canSaveRecovery) {
+            setLoading(false);
+            setShowPinForRecovery(true);
+            return;
+          }
+        }
         onSuccess?.();
       } else {
         setError(result?.error || 'Неверный логин или пароль');
@@ -55,6 +62,21 @@ const LoginForm = ({ onSuccess, onLogin }) => {
       setError(err.message || 'Произошла ошибка при входе');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePinForRecoveryComplete = async (pin) => {
+    if (!pin || pin.length !== 4) return;
+    setError('');
+    try {
+      await CredentialBackupService.saveCredentials(pin, username, password);
+      setPassword('');
+      setPinForRecovery('');
+      setShowPinForRecovery(false);
+      onSuccess?.();
+    } catch {
+      setShowPinForRecovery(false);
+      onSuccess?.();
     }
   };
 
@@ -80,27 +102,6 @@ const LoginForm = ({ onSuccess, onLogin }) => {
       setError(err.message || 'Произошла ошибка. Попробуйте позже.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleBiometricLogin = async () => {
-    if (!biometricAvailable || !biometricEnabled) {
-      setError('Биометрическая аутентификация недоступна');
-      return;
-    }
-    setBiometricLoading(true);
-    setError('');
-    try {
-      const result = await biometricLogin();
-      if (result?.success) {
-        onSuccess?.();
-      } else {
-        setError(result?.error || 'Биометрическая аутентификация не прошла');
-      }
-    } catch (err) {
-      setError(err.message || 'Ошибка биометрической аутентификации');
-    } finally {
-      setBiometricLoading(false);
     }
   };
 
@@ -159,6 +160,24 @@ const LoginForm = ({ onSuccess, onLogin }) => {
     );
   }
 
+  if (showPinForRecovery) {
+    return (
+      <div className="login-content login-content--inline login-content--login">
+        <h1 className="login-title">PlanRun</h1>
+        <p className="login-subtitle">Введите PIN для сохранения восстановления входа</p>
+        <div className="login-form">
+          <PinInput
+            length={4}
+            value={pinForRecovery}
+            onChange={setPinForRecovery}
+            onComplete={handlePinForRecoveryComplete}
+            showKeypad
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login-content login-content--inline login-content--login">
       <h1 className="login-title">PlanRun</h1>
@@ -197,37 +216,6 @@ const LoginForm = ({ onSuccess, onLogin }) => {
           Забыли пароль?
         </button>
       </form>
-
-      {isNativeApp && (
-        <div className="biometric-section">
-          <div className="biometric-divider">
-            <span>или</span>
-          </div>
-          {biometricAvailable && biometricEnabled ? (
-            <button
-              type="button"
-              className="biometric-button"
-              onClick={handleBiometricLogin}
-              disabled={biometricLoading || loading}
-            >
-              {biometricLoading ? (
-                'Проверка...'
-              ) : (
-                <>
-                  <span className="biometric-icon">👆</span>
-                  <span>Войти по отпечатку пальца</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <p className="biometric-hint">
-              {biometricAvailable
-                ? 'После входа по паролю можно будет входить по отпечатку пальца.'
-                : 'Вход по отпечатку пальца будет доступен после первого входа по паролю (если устройство поддерживает).'}
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 };

@@ -3,12 +3,38 @@
  * Показывает неделю с цветовыми индикаторами и карточками тренировок
  * Поддерживает swipe-жесты для навигации между неделями
  * При пустом плане всегда показывается виртуальная текущая неделя (пустая сетка).
+ * Карточка дня: план (без отметки выполненности) + блок выполненных тренировок.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import WorkoutCard from './WorkoutCard';
 import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
+import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon } from '../common/Icons';
+import { getPlanDayForDate, getDayCompletionStatus } from '../../utils/calendarHelpers';
 import './WeekCalendar.css';
+import './DayModal.modern.css';
+import '../../screens/StatsScreen.css';
+
+const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+
+const TYPE_NAMES = {
+  easy: 'Легкий бег', long: 'Длительный бег', 'long-run': 'Длительный бег',
+  tempo: 'Темповый бег', interval: 'Интервалы', fartlek: 'Фартлек',
+  control: 'Контрольный забег', race: 'Соревнование', other: 'ОФП', sbu: 'СБУ',
+  rest: 'День отдыха', free: 'Пустой день', walking: 'Ходьба', hiking: 'Поход',
+  cycling: 'Велосипед', swimming: 'Плавание', run: 'Бег', running: 'Бег',
+};
+
+const formatDurationDisplay = (minutesOrSeconds, isSeconds = false) => {
+  if (minutesOrSeconds == null) return null;
+  const totalSec = isSeconds ? minutesOrSeconds : minutesOrSeconds * 60;
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = Math.round(totalSec % 60);
+  if (h > 0) return `${h}ч ${m}м`;
+  if (m > 0) return s > 0 ? `${m}м ${s}с` : `${m}м`;
+  return s > 0 ? `${s}с` : null;
+};
 
 const EMPTY_DAYS = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
 
@@ -84,7 +110,7 @@ function getVirtualCurrentWeek() {
 
 const MOBILE_BREAKPOINT = '(max-width: 640px)';
 
-const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canEdit = false, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
+const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -149,9 +175,13 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
         ? (Array.isArray(rawDay) ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || rawDay[0] : rawDay)
         : null;
       const isToday = date.getTime() === today.getTime();
-      const isCompleted = progressData[dateStr] || false;
+      const planDayForDate = getPlanDayForDate(dateStr, plan);
+      const completion = getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate);
+      const isCompleted = completion.status === 'completed';
+      const isRestExtra = completion.status === 'rest_extra';
+      const restExtraType = completion.extraWorkoutType;
       const hasPlanned = dayActivities.some((a) => a.type !== 'rest' && a.type !== 'free');
-      const status = isCompleted ? 'completed' : (hasPlanned ? 'planned' : 'rest');
+      const status = isCompleted ? 'completed' : isRestExtra ? 'rest_extra' : (hasPlanned ? 'planned' : 'rest');
 
       days.push({
         date: dateStr,
@@ -163,6 +193,8 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
         cellType,
         isToday,
         status,
+        isRestExtra,
+        restExtraType,
         weekNumber: week.number
       });
     }
@@ -173,7 +205,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
     if (!date || !api?.getDay) return;
     setLoadingDays(true);
     try {
-      const response = await api.getDay(date);
+      const response = await api.getDay(date, viewContext || undefined);
       const data = response?.data || response;
       if (data && !data.error) {
         setDayDetails(prev => ({
@@ -192,7 +224,7 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
     } finally {
       setLoadingDays(false);
     }
-  }, [api]);
+  }, [api, viewContext]);
 
   // Загрузка/обновление дня при смене даты или при обновлении плана (после добавления/удаления тренировки)
   useEffect(() => {
@@ -334,7 +366,10 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
           <div
             key={day.date}
             className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${selectedDate === day.date ? 'selected active' : ''} ${day.cellType ? `type-${day.cellType}` : ''}`}
-            onClick={() => setSelectedDate(day.date)}
+            onClick={() => {
+              setSelectedDate(day.date);
+              /* Информация показывается ниже в WorkoutCard, popup не открываем */
+            }}
           >
             <div className="week-day-date-square">
               <span className={`week-day-number ${day.isToday ? 'today-number' : ''}`}>
@@ -353,12 +388,17 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
                   <CompletedIcon className="week-day-svg-icon week-day-svg-icon--completed" aria-hidden />
                 </div>
               )}
-              {day.status !== 'completed' && day.dayActivities.length === 0 && (
+              {day.status === 'rest_extra' && (
+                <div className={`week-day-icon-square week-day-icon-square--${day.restExtraType || 'run'}`} title="Тренировка в день отдыха">
+                  <span className="week-day-rest-extra-dot" aria-hidden />
+                </div>
+              )}
+              {day.status !== 'completed' && day.status !== 'rest_extra' && day.dayActivities.length === 0 && (
                 <div className="week-day-icon-square">
                   <span className="week-day-empty-dash">—</span>
                 </div>
               )}
-              {day.status !== 'completed' && day.dayActivities.length > 0 && (() => {
+              {day.status !== 'completed' && day.status !== 'rest_extra' && day.dayActivities.length > 0 && (() => {
                 const activities = day.dayActivities;
                 const mobileShowTwo = isMobile && activities.length > 2;
                 const hasMore = isMobile ? activities.length > 2 : activities.length > 4;
@@ -397,58 +437,117 @@ const WeekCalendar = ({ plan, progressData, workoutsData, resultsData, api, canE
         if (!selectedDay) return null;
         
         const dayDetail = dayDetails[selectedDay.date] || {};
-        const workout = workoutsData && workoutsData[selectedDay.date] ? workoutsData[selectedDay.date] : null;
-        const results = resultsData && resultsData[selectedDay.date] ? (Array.isArray(resultsData[selectedDay.date]) ? resultsData[selectedDay.date] : [resultsData[selectedDay.date]]) : [];
+        const workouts = dayDetail.workouts || [];
         
-        // Объединяем данные для WorkoutCard
-        // Очищаем HTML из plan для отображения
+        const hasCompletedWorkouts = (() => {
+          if (!workouts || !Array.isArray(workouts) || workouts.length === 0) return false;
+          const hasMeaningfulData = (w) => {
+            const dist = w.distance_km ?? w.distance;
+            const dur = w.duration_minutes ?? w.duration ?? w.duration_seconds;
+            return (dist != null && Number(dist) > 0) || (dur != null && Number(dur) > 0);
+          };
+          return workouts.some(hasMeaningfulData);
+        })();
+        
         const planText = dayDetail.plan || selectedDay.dayData?.text || '';
-        const planTextClean = planText
-          .replace(/<[^>]*>/g, '') // Убираем HTML теги
-          .replace(/&nbsp;/g, ' ')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .trim();
+        const planTextClean = stripHtml(planText);
         
         const workoutData = {
           ...selectedDay.dayData,
-          // Добавляем полное описание из dayDetails
           text: planTextClean,
-          // Добавляем упражнения
           dayExercises: dayDetail.dayExercises || []
         };
         
+        const hasPlan = (dayDetail.planDays?.length > 0 || dayDetail.dayExercises?.length > 0 || dayDetail.plan);
+        const planStatus = hasPlan ? 'planned' : 'rest';
+        
         return (
           <div className="week-selected-day">
-            <WorkoutCard
-              workout={workoutData}
-              date={selectedDay.date}
-              status={selectedDay.status}
-              isToday={selectedDay.isToday}
-              dayDetail={dayDetail}
-              workoutMetrics={workout ? {
-                distance: workout.distance,
-                duration: workout.duration,
-                pace: workout.pace
-              } : null}
-              results={results}
-              planDays={dayDetail.planDays || []}
-              onDeletePlanDay={canEdit ? handleDeletePlanDay : undefined}
-              onEditPlanDay={canEdit && onEditTraining ? (planDay) => {
-                const exercises = (dayDetail.dayExercises || []).filter(ex => String(ex.plan_day_id) === String(planDay.id));
-                onEditTraining({ ...planDay, exercises }, selectedDay.date);
-              } : undefined}
-              onPress={
-                selectedDay.status === 'missed' && canEdit && onOpenResultModal
-                  ? () => onOpenResultModal(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey)
-                  : selectedDay.status === 'completed' && onOpenWorkoutDetails
-                    ? () => onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey)
-                    : undefined
-              }
-              canEdit={!!canEdit}
-            />
+            <div className="week-selected-day-two-blocks">
+              {/* Блок 1: Запланированная тренировка — только информация */}
+              <div
+                className="week-selected-day-workout-card-wrapper"
+                role={(canEdit || canView) && onDayPress ? 'button' : undefined}
+                tabIndex={(canEdit || canView) && onDayPress ? 0 : undefined}
+                onClick={(canEdit || canView) && onDayPress ? () => onDayPress(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey) : undefined}
+                onKeyDown={(canEdit || canView) && onDayPress ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDayPress(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey); } } : undefined}
+                style={(canEdit || canView) && onDayPress ? { cursor: 'pointer' } : undefined}
+              >
+                <WorkoutCard
+                  workout={workoutData}
+                  date={selectedDay.date}
+                  status={planStatus}
+                  isToday={selectedDay.isToday}
+                  dayDetail={{ plan: dayDetail.plan, planDays: dayDetail.planDays, dayExercises: dayDetail.dayExercises, workouts }}
+                  workoutMetrics={null}
+                  results={[]}
+                  planDays={dayDetail.planDays || []}
+                  canEdit={false}
+                  extraActions={null}
+                />
+              </div>
+
+              {/* Блок 2: Выполненные тренировки — стиль как в статистике (workout-item) */}
+              {hasCompletedWorkouts && workouts.length > 0 && (
+                <div className="week-completed-workouts stats-style">
+                  <h2 className="section-title">Выполненные тренировки</h2>
+                  <div className="recent-workouts-list">
+                    {workouts.map((workout) => {
+                      const dist = workout.distance_km ?? workout.distance;
+                      const durSec = workout.duration_seconds;
+                      const durMin = workout.duration_minutes ?? (workout.duration != null ? Number(workout.duration) / 60 : null);
+                      const durationDisplay = durSec != null ? formatDurationDisplay(durSec, true) : (durMin != null ? formatDurationDisplay(durMin, false) : null);
+                      const pace = workout.avg_pace ?? workout.pace;
+                      const typeKey = (workout.activity_type ?? workout.type ?? 'run').toLowerCase().trim();
+                      const typeName = TYPE_NAMES[typeKey] || typeKey;
+                      const workoutId = workout.is_manual ? `log_${workout.id}` : (workout.id ?? workout.workout_id);
+                      return (
+                        <div
+                          key={workout.id || workout.workout_id || Math.random()}
+                          className="workout-item"
+                          onClick={onOpenWorkoutDetails ? () => onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId) : undefined}
+                          style={{ cursor: onOpenWorkoutDetails ? 'pointer' : 'default' }}
+                          role={onOpenWorkoutDetails ? 'button' : undefined}
+                          tabIndex={onOpenWorkoutDetails ? 0 : undefined}
+                          onKeyDown={onOpenWorkoutDetails ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId); } } : undefined}
+                        >
+                          <div className="workout-item-type" data-type={typeKey}>
+                            <ActivityTypeIcon type={typeKey} className="workout-item-type__icon" aria-hidden />
+                            <span className="workout-item-type__label">{typeName}</span>
+                          </div>
+                          <div className="workout-item-main">
+                            <div className="workout-item-date">
+                              {selectedDay.dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </div>
+                            <div className="workout-item-metrics">
+                              {dist != null && Number(dist) > 0 && (
+                                <span className="workout-metric">
+                                  <DistanceIcon className="workout-metric__icon" aria-hidden />
+                                  {Number(dist).toFixed(1)} км
+                                </span>
+                              )}
+                              {durationDisplay && (
+                                <span className="workout-metric">
+                                  <TimeIcon className="workout-metric__icon" aria-hidden />
+                                  {durationDisplay}
+                                </span>
+                              )}
+                              {pace && (
+                                <span className="workout-metric">
+                                  <PaceIcon className="workout-metric__icon" aria-hidden />
+                                  {pace} /км
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {canEdit && (onAddTraining || (onOpenResultModal && (selectedDay.dayData || (dayDetail.planDays && dayDetail.planDays.length > 0)))) && (
               <div className="week-selected-day-actions">
                 {onAddTraining && (

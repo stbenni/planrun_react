@@ -11,12 +11,20 @@ class JwtService extends BaseService {
     private $secretKey;
     private $algorithm = 'HS256';
     private $expirationTime = 3600; // 1 час
-    private $refreshExpirationTime = 604800; // 7 дней
+    private $refreshExpirationTime;
+    private $refreshSlidingSeconds;
     
     public function __construct($db) {
         parent::__construct($db);
         // Получаем секретный ключ из .env или используем дефолтный
         $this->secretKey = env('JWT_SECRET_KEY', 'your-secret-key-change-in-production-' . md5(__DIR__));
+        // Базовый срок жизни refresh при создании (логин): по умолчанию 10 лет
+        $initialDays = (int) env('JWT_REFRESH_INITIAL_DAYS', 3650);
+        $this->refreshExpirationTime = $initialDays * 86400;
+        // Sliding: продление при каждом refresh (по умолчанию 365 дней)
+        $slidingDays = (int) env('JWT_REFRESH_SLIDING_DAYS', 365);
+        $maxAgeDays = (int) env('JWT_REFRESH_MAX_AGE_DAYS', 3650);
+        $this->refreshSlidingSeconds = min($slidingDays, $maxAgeDays) * 86400;
     }
     
     /**
@@ -96,42 +104,98 @@ class JwtService extends BaseService {
         ], $this->expirationTime);
     }
     
+    private const MAX_REFRESH_TOKENS_PER_USER = 5;
+
     /**
      * Создать refresh token
-     * 
+     *
      * @param int $userId ID пользователя
+     * @param string|null $deviceId Идентификатор устройства (опционально)
+     * @param int|null $expirationSeconds Срок жизни в секундах (null = базовый refreshExpirationTime)
      * @return string Refresh token
      */
-    public function createRefreshToken($userId) {
+    public function createRefreshToken($userId, $deviceId = null, $expirationSeconds = null) {
+        $expiration = $expirationSeconds ?? $this->refreshExpirationTime;
         $token = $this->createToken([
             'user_id' => $userId,
-            'type' => 'refresh'
-        ], $this->refreshExpirationTime);
-        
-        // Сохраняем refresh token в БД
-        $this->saveRefreshToken($userId, $token);
-        
+            'type' => 'refresh',
+            'device_id' => $deviceId
+        ], $expiration);
+
+        $this->saveRefreshToken($userId, $token, $deviceId, $expiration);
         return $token;
     }
-    
+
     /**
-     * Сохранить refresh token в БД
+     * Сохранить refresh token в БД.
+     * Поддержка нескольких токенов на пользователя (по device_id).
+     * При наличии device_id — заменяет токен этого устройства; иначе добавляет новый.
+     * Ограничение: до MAX_REFRESH_TOKENS_PER_USER на пользователя.
+     *
+     * @param int|null $expirationSeconds Срок жизни в секундах (null = refreshExpirationTime)
      */
-    private function saveRefreshToken($userId, $token) {
+    private function saveRefreshToken($userId, $token, $deviceId = null, $expirationSeconds = null) {
         $hashedToken = hash('sha256', $token);
-        $expiresAt = date('Y-m-d H:i:s', time() + $this->refreshExpirationTime);
-        
-        // Удаляем старые токены пользователя
-        $deleteStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ?");
-        $deleteStmt->bind_param("i", $userId);
-        $deleteStmt->execute();
-        $deleteStmt->close();
-        
-        // Сохраняем новый токен
-        $insertStmt = $this->db->prepare("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)");
-        $insertStmt->bind_param("iss", $userId, $hashedToken, $expiresAt);
+        $expiration = $expirationSeconds ?? $this->refreshExpirationTime;
+        $expiresAt = date('Y-m-d H:i:s', time() + $expiration);
+        $deviceIdVal = $deviceId !== null && $deviceId !== '' ? $deviceId : null;
+
+        if ($deviceIdVal !== null) {
+            $deleteStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND device_id = ?");
+            $deleteStmt->bind_param("is", $userId, $deviceIdVal);
+            $deleteStmt->execute();
+            $deleteStmt->close();
+        } else {
+            $deleteStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND device_id IS NULL");
+            $deleteStmt->bind_param("i", $userId);
+            $deleteStmt->execute();
+            $deleteStmt->close();
+        }
+
+        $cols = "user_id, token_hash, expires_at";
+        $placeholders = "?, ?, ?";
+        $params = [$userId, $hashedToken, $expiresAt];
+        $types = "iss";
+
+        $hasDeviceId = $this->db->query("SHOW COLUMNS FROM refresh_tokens LIKE 'device_id'");
+        if ($hasDeviceId && $hasDeviceId->num_rows > 0) {
+            $cols .= ", device_id";
+            $placeholders .= ", ?";
+            $params[] = $deviceIdVal;
+            $types .= "s";
+        }
+
+        $insertStmt = $this->db->prepare("INSERT INTO refresh_tokens ($cols) VALUES ($placeholders)");
+        $insertStmt->bind_param($types, ...$params);
         $insertStmt->execute();
         $insertStmt->close();
+
+        $countStmt = $this->db->prepare("SELECT COUNT(*) AS cnt FROM refresh_tokens WHERE user_id = ?");
+        $countStmt->bind_param("i", $userId);
+        $countStmt->execute();
+        $row = $countStmt->get_result()->fetch_assoc();
+        $countStmt->close();
+        $cnt = (int) ($row['cnt'] ?? 0);
+
+        if ($cnt > self::MAX_REFRESH_TOKENS_PER_USER) {
+            $limit = self::MAX_REFRESH_TOKENS_PER_USER;
+            $idsStmt = $this->db->prepare("SELECT id FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC LIMIT ?");
+            $idsStmt->bind_param("ii", $userId, $limit);
+            $idsStmt->execute();
+            $ids = [];
+            foreach ($idsStmt->get_result() as $r) {
+                $ids[] = (int) $r['id'];
+            }
+            $idsStmt->close();
+            if (!empty($ids)) {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $deleteOldStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND id NOT IN ($placeholders)");
+                $types = 'i' . str_repeat('i', count($ids));
+                $deleteOldStmt->bind_param($types, $userId, ...$ids);
+                $deleteOldStmt->execute();
+                $deleteOldStmt->close();
+            }
+        }
     }
     
     /**
@@ -163,34 +227,35 @@ class JwtService extends BaseService {
     
     /**
      * Обновить access token используя refresh token
-     * 
+     *
      * @param string $refreshToken Refresh token
+     * @param string|null $deviceId Идентификатор устройства (из тела запроса или payload)
      * @return array|null Новые токены или null
      */
-    public function refreshAccessToken($refreshToken) {
+    public function refreshAccessToken($refreshToken, $deviceId = null) {
         $payload = $this->verifyRefreshToken($refreshToken);
         if (!$payload) {
             return null;
         }
-        
+
         $userId = $payload['user_id'];
-        
-        // Получаем username
+        $deviceIdToUse = $deviceId ?? ($payload['device_id'] ?? null);
+
         $stmt = $this->db->prepare("SELECT username FROM users WHERE id = ?");
         $stmt->bind_param("i", $userId);
         $stmt->execute();
         $result = $stmt->get_result();
         $user = $result->fetch_assoc();
         $stmt->close();
-        
+
         if (!$user) {
             return null;
         }
-        
-        // Создаем новые токены
+
         $accessToken = $this->createAccessToken($userId, $user['username']);
-        $newRefreshToken = $this->createRefreshToken($userId);
-        
+        // Sliding expiration: новый refresh получает продление на sliding_days при каждом использовании
+        $newRefreshToken = $this->createRefreshToken($userId, $deviceIdToUse, $this->refreshSlidingSeconds);
+
         return [
             'access_token' => $accessToken,
             'refresh_token' => $newRefreshToken,

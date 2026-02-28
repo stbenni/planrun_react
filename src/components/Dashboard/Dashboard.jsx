@@ -17,11 +17,16 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import useAuthStore from '../../stores/useAuthStore';
+import usePlanStore from '../../stores/usePlanStore';
+import usePreloadStore from '../../stores/usePreloadStore';
+import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
+import { processStatsData } from '../Stats/StatsUtils';
 import SkeletonScreen from '../common/SkeletonScreen';
+import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon } from '../common/Icons';
 import './Dashboard.css';
 
 const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'calendar', 'stats'];
@@ -302,6 +307,8 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
   const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
   const needsOnboarding = !!(user && !user.onboarding_completed);
 
+  const planStatusFromStore = usePlanStore((s) => s.planStatus);
+
   const clearPlanMessage = useCallback(() => {
     setPlanGenerationMessage(null);
   }, [setPlanGenerationMessage]);
@@ -324,6 +331,8 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
   const [showPlanMessage, setShowPlanMessage] = useState(false);
   const [planError, setPlanError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
+  /** Идёт генерация плана AI (is_active=false) — скрываем виджеты для пользователей с режимом ai/both */
+  const [planGenerating, setPlanGenerating] = useState(false);
   const [layout, setLayout] = useState(getStoredLayout);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState(null); // id перетаскиваемого слота для DragOverlay
@@ -439,30 +448,40 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     try {
       if (!silent) setLoading(true);
 
-      // Все три запроса параллельно — время загрузки = max, а не сумма
-      const [planStatus, plan, allResults] = await Promise.all([
-        api.checkPlanStatus().catch((error) => {
-          console.error('Error checking plan status:', error);
-          return null;
-        }),
-        api.getPlan().catch((error) => {
-          console.error('Error loading plan:', error);
-          return null;
-        }),
-        api.getAllResults().catch((error) => {
-          console.error('Error loading results:', error);
-          return { results: [] };
-        }),
+      const storePlan = usePlanStore.getState().plan;
+      const storePlanStatus = usePlanStore.getState().planStatus;
+      const storeHasPlan = usePlanStore.getState().hasPlan;
+
+      let planStatus;
+      let plan;
+
+      if (storePlanStatus != null && storeHasPlan && storePlan != null) {
+        planStatus = storePlanStatus;
+        plan = storePlan;
+      }
+
+      const [planStatusRes, planRes, allResults, workoutsSummaryRes] = await Promise.all([
+        planStatus != null ? Promise.resolve(planStatus) : api.checkPlanStatus().catch((e) => { console.error('Error checking plan status:', e); return null; }),
+        plan != null ? Promise.resolve(plan) : api.getPlan().catch((e) => { console.error('Error loading plan:', e); return null; }),
+        api.getAllResults().catch(() => ({ results: [] })),
+        api.getAllWorkoutsSummary().catch(() => ({})),
       ]);
 
-      // API может вернуть success: true с error в ответе (это нормально для check_plan_status)
+      planStatus = planStatus ?? planStatusRes;
+      plan = plan ?? planRes;
+
       if (planStatus && (planStatus.error || (!planStatus.has_plan && planStatus.error))) {
         setPlanError(planStatus.error);
         setPlanExists(false);
         setShowPlanMessage(false);
+        setPlanGenerating(false);
         setLoading(false);
         return;
       }
+
+      const isAiTrainer = user?.training_mode === 'ai' || user?.training_mode === 'both';
+      const generating = !!(planStatus?.generating && isAiTrainer);
+      setPlanGenerating(generating);
 
       const weeksData = plan?.weeks_data;
       const hasNoPlan = !plan || !Array.isArray(weeksData) || weeksData.length === 0;
@@ -471,6 +490,14 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         setPlan(null);
         setHasAnyPlannedWorkout(false);
         setPlanError(null);
+        const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
+        const workoutsData = { workouts: summaryObj };
+        const processed = processStatsData(workoutsData, allResults, null, 'last7days');
+        setMetrics({
+          distance: processed.totalDistance ?? 0,
+          workouts: processed.totalWorkouts ?? 0,
+          time: Math.round((processed.totalTime ?? 0) / 60)
+        });
         setLoading(false);
         if (isNewRegistration || registrationMessage) {
           setShowPlanMessage(true);
@@ -481,6 +508,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       setPlanExists(true);
       setPlanError(null);
       setShowPlanMessage(false);
+      setPlanGenerating(false);
       clearPlanMessage();
       setPlan(plan);
 
@@ -498,16 +526,15 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       }
       setHasAnyPlannedWorkout(anyWorkout);
 
-      // Загружаем прогресс для определения статусов
-      let progressDataMap = {};
+      // Загружаем прогресс для определения статусов (workout_log + workouts/Strava)
+      const progressDataMap = {};
       if (allResults && allResults.results && Array.isArray(allResults.results)) {
         allResults.results.forEach(result => {
-          if (result.training_date) {
-            progressDataMap[result.training_date] = true;
-          }
+          if (result.training_date) progressDataMap[result.training_date] = true;
         });
       }
-      
+      const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
+      Object.keys(summaryObj || {}).forEach(date => { progressDataMap[date] = true; });
       setProgressDataMap(progressDataMap);
 
       // Сегодня в таймзоне пользователя: профиль (Europe/Moscow) → браузер (Intl) → по умолчанию Europe/Moscow
@@ -597,34 +624,14 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         setWeekProgress({ completed, total });
       }
 
-      // Загружаем метрики (используем уже загруженные allResults)
-      if (allResults && allResults.results && Array.isArray(allResults.results)) {
-        let totalDistance = 0;
-        let totalTime = 0;
-        let workoutCount = 0;
-
-        // Берем данные за последние 7 дней (относительно «сегодня» в таймзоне пользователя)
-        const todayDate = new Date(todayStr + 'T12:00:00');
-        const weekAgo = new Date(todayDate);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-
-        for (const result of allResults.results) {
-          if (result.training_date) {
-            const resultDate = new Date(result.training_date);
-            if (resultDate >= weekAgo) {
-              workoutCount++;
-              if (result.distance) totalDistance += parseFloat(result.distance) || 0;
-              if (result.duration) totalTime += parseInt(result.duration) || 0;
-            }
-          }
-        }
-
-        setMetrics({
-          distance: Math.round(totalDistance * 10) / 10,
-          workouts: workoutCount,
-          time: Math.round(totalTime / 60) // в часах
-        });
-      }
+      // Загружаем метрики из getAllWorkoutsSummary (workouts + workout_log — Strava, ручные записи)
+      const summaryForMetrics = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
+      const processed = processStatsData({ workouts: summaryForMetrics }, allResults, plan, 'last7days');
+      setMetrics({
+        distance: processed.totalDistance ?? 0,
+        workouts: processed.totalWorkouts ?? 0,
+        time: Math.round((processed.totalTime ?? 0) / 60) // в часах
+      });
 
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -636,15 +643,18 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     } finally {
       setLoading(false);
       setRefreshing(false);
+      // Native app: предзагрузка Calendar и Stats для мгновенного переключения вкладок
+      if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+        usePreloadStore.getState().triggerPreload();
+      }
     }
-  }, [api, user, isNewRegistration, registrationMessage]);
+  }, [api, user, user?.training_mode, isNewRegistration, registrationMessage]);
+
+  const noPlanChecked = planStatusFromStore != null && planStatusFromStore.has_plan === false;
 
   // Загружаем данные при монтировании и при появлении timezone (после getCurrentUser)
   useEffect(() => {
-    if (!api) {
-      setLoading(false);
-      return;
-    }
+    if (!api) return;
     if (user && !user.onboarding_completed) {
       setLoading(false);
       return;
@@ -664,6 +674,14 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [api, isTabActive, loadDashboardData]);
+
+  // Глобальное обновление при сохранении/синхронизации тренировок (debounce — без дерганья)
+  const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
+  useEffect(() => {
+    if (workoutRefreshVersion <= 0 || !api) return;
+    const t = setTimeout(() => loadDashboardData({ silent: true }), 250);
+    return () => clearTimeout(t);
+  }, [workoutRefreshVersion, api, loadDashboardData]);
   
   // Показываем сообщение о генерации плана при новой регистрации
   useEffect(() => {
@@ -671,6 +689,15 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       setShowPlanMessage(true);
     }
   }, [isNewRegistration, registrationMessage]);
+
+  // Периодическая проверка готовности плана, пока идёт генерация (AI)
+  useEffect(() => {
+    if (!planGenerating || !isTabActive || !api) return;
+    const interval = setInterval(() => {
+      loadDashboardData({ silent: true });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [planGenerating, isTabActive, api, loadDashboardData]);
 
   // Pull-to-refresh обработчики
   useEffect(() => {
@@ -791,7 +818,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     return (
       <div className="dashboard dashboard-empty-onboarding">
         <div className="dashboard-empty-onboarding-inner">
-          <div className="dashboard-empty-onboarding-icon">🏃</div>
+          <div className="dashboard-empty-onboarding-icon" aria-hidden><RunningIcon size={64} /></div>
           <h1 className="dashboard-empty-onboarding-title">Добро пожаловать в PlanRun</h1>
           <p className="dashboard-empty-onboarding-text">
             Выберите режим тренировок, цель и заполните профиль — после этого здесь появится ваш план и прогресс.
@@ -808,10 +835,31 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     );
   }
 
-  if (loading) {
+  if (loading && !noPlanChecked) {
     return (
       <div className="dashboard">
         <SkeletonScreen type="dashboard" />
+      </div>
+    );
+  }
+
+  if (noPlanChecked && !planGenerating && !planError) {
+    return (
+      <div className="dashboard dashboard-empty-no-plan">
+        <div className="dashboard-empty-onboarding-inner">
+          <div className="dashboard-empty-onboarding-icon" aria-hidden><CalendarIcon size={64} /></div>
+          <h1 className="dashboard-empty-onboarding-title">Создайте план тренировок</h1>
+          <p className="dashboard-empty-onboarding-text">
+            У вас пока нет плана. Настройте цели и режим тренировок — AI-тренер составит персональный план.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary dashboard-empty-onboarding-btn"
+            onClick={() => setShowOnboardingModal(true)}
+          >
+            Создать план
+          </button>
+        </div>
       </div>
     );
   }
@@ -821,7 +869,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       {/* Уведомление об ошибке генерации плана */}
       {planError && (
         <div className="plan-generation-notice plan-generation-notice--error">
-          <div className="plan-generation-notice__icon">⚠️</div>
+          <div className="plan-generation-notice__icon" aria-hidden><AlertTriangleIcon size={32} /></div>
           <h3 className="plan-generation-notice__title">Ошибка генерации плана</h3>
           <p className="plan-generation-notice__message">{planError}</p>
           <button
@@ -835,10 +883,10 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         </div>
       )}
 
-      {/* Уведомление о генерации плана */}
-      {(showPlanMessage || registrationMessage) && !planExists && !planError && (
+      {/* Уведомление о генерации плана — показываем при planGenerating (AI генерирует) или после регистрации */}
+      {(planGenerating || ((showPlanMessage || registrationMessage) && !planExists)) && !planError && (
         <div className="plan-generation-notice plan-generation-notice--generating">
-          <div className="plan-generation-notice__icon">🤖</div>
+          <div className="plan-generation-notice__icon" aria-hidden><BotIcon size={32} /></div>
           <h3 className="plan-generation-notice__title">План тренировок генерируется</h3>
           <p className="plan-generation-notice__message">
             {registrationMessage || 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.'}
@@ -884,7 +932,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         <div className="dashboard-header-row">
           <div>
             <h1 className="dashboard-greeting">
-              Привет{user?.name ? `, ${user.name}` : ''}! 👋
+              Привет{user?.name ? `, ${user.name}` : ''}!
             </h1>
             <p className="dashboard-date">
               {new Date().toLocaleDateString('ru-RU', {
@@ -894,18 +942,20 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
               })}
             </p>
           </div>
-          <button
-            type="button"
-            className="dashboard-customize-btn"
-            onClick={() => setCustomizerOpen(true)}
-            aria-label="Настроить виджеты дашборда"
-          >
-            Виджеты
-          </button>
+          {!planGenerating && (
+            <button
+              type="button"
+              className="dashboard-customize-btn"
+              onClick={() => setCustomizerOpen(true)}
+              aria-label="Настроить виджеты дашборда"
+            >
+              Виджеты
+            </button>
+          )}
         </div>
       </div>
 
-      {dashboardRows.map((row, rowIndex) => {
+      {!planGenerating && dashboardRows.map((row, rowIndex) => {
         const renderSection = (moduleId) => {
           const sectionClass = row.type === 'double' ? 'dashboard-section dashboard-section-inline' : 'dashboard-section';
           if (moduleId === 'today_workout') {
@@ -915,7 +965,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                 <div className={`dashboard-module-card ${todayWorkout ? 'dashboard-module-card--workout' : ''} ${todayWorkout && expandedWorkoutCard === 'today' ? 'dashboard-module-card--expanded' : ''}`}>
                   {!hasAnyPlannedWorkout ? (
                     <div className="dashboard-top-card dashboard-empty">
-                      <div className="empty-icon">📅</div>
+                      <div className="empty-icon" aria-hidden><CalendarIcon size={48} /></div>
                       <div className="empty-text">Кажется, у вас нет ни одной тренировки</div>
                       <div className="empty-subtext">Перейдите в календарь и запланируйте тренировку</div>
                       {onNavigate && (
@@ -986,7 +1036,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                     </div>
                   ) : (
                     <div className="dashboard-top-card dashboard-empty">
-                      <div className="empty-icon">📅</div>
+                      <div className="empty-icon" aria-hidden><CalendarIcon size={48} /></div>
                       <div className="empty-text">Сегодня день отдыха</div>
                       <div className="empty-subtext">Отдых — важная часть тренировочного процесса</div>
                     </div>
@@ -1108,7 +1158,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                   </div>
                 ) : (
                   <div className="dashboard-top-card dashboard-empty">
-                    <div className="empty-icon">⏭️</div>
+                    <div className="empty-icon" aria-hidden><SkipForwardIcon size={48} /></div>
                     <div className="empty-text">Нет запланированных тренировок</div>
                     <div className="empty-subtext">Добавьте план или откройте календарь</div>
                   </div>

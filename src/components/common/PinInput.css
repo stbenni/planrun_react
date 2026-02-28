@@ -1,0 +1,156 @@
+.pin-input {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pin-input__field {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.pin-input__dots {
+  display: flex;
+  gap: var(--space-3);
+  cursor: pointer;
+  padding: var(--space-2);
+}
+
+.pin-input__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--gray-300);
+  background: transparent;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.pin-input__dot--filled {
+  border-color: var(--primary-500);
+  background: var(--primary-500);
+}
+
+.pin-input--error .pin-input__dot {
+  border-color: var(--accent-500);
+}
+
+.pin-input--error .pin-input__dot--filled {
+  border-color: var(--accent-500);
+  background: var(--accent-500);
+}
+
+.pin-input__error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--accent-600);
+}
+
+/* Цифровая клавиатура (без нативной) */
+.pin-input__keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  max-width: 280px;
+}
+
+.pin-input__keypad-slot {
+  display: flex;
+  align-items: stretch;
+  min-height: 56px;
+}
+
+.pin-input__keypad-slot > *:not(.pin-input__keypad-spacer) {
+  flex: 1;
+  min-width: 0;
+}
+
+.pin-input__keypad-btn {
+  aspect-ratio: 1;
+  min-height: 56px;
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-input__keypad-btn:hover:not(:disabled) {
+  background: var(--gray-100);
+  border-color: var(--primary-500);
+}
+
+.pin-input__keypad-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.pin-input__keypad-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pin-input__keypad-btn--back {
+  font-size: var(--text-2xl);
+}
+
+[data-theme="dark"] .pin-input__keypad-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .pin-input__keypad-btn:hover:not(:disabled) {
+  background: var(--gray-100);
+}
+
+.pin-input__keypad-spacer {
+  display: block;
+}
+
+/* Кнопка отпечатка в слоте клавиатуры */
+.pin-input__keypad-btn--biometric {
+  aspect-ratio: 1;
+  min-height: 56px;
+  padding: 0;
+  color: var(--primary-500);
+  background: var(--card-bg);
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-input__keypad-btn--biometric:hover:not(:disabled) {
+  background: var(--primary-50);
+  border-color: var(--primary-500);
+}
+
+.pin-input__keypad-btn--biometric:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+[data-theme="dark"] .pin-input__keypad-btn--biometric {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .pin-input__keypad-btn--biometric:hover:not(:disabled) {
+  background: var(--primary-50);
+}
+
+.pin-input__keypad-loading {
+  font-size: var(--text-xl);
+}

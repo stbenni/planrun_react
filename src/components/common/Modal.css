@@ -78,11 +78,29 @@
   background: linear-gradient(135deg, var(--gray-50) 0%, white 100%);
 }
 
+.app-modal-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-modal-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
 .app-modal-header h2 {
   margin: 0;
   font-size: var(--text-2xl);
   font-weight: var(--font-bold);
   color: var(--gray-900);
+}
+
+.app-modal-header-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
 }
 
 .app-modal-close {
@@ -380,12 +398,21 @@
   color: white;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   padding: var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
 }
 
 .app-modal--modern .app-modal-header--modern h2 {
   color: white;
   font-size: var(--text-2xl);
   font-weight: var(--font-bold);
+  margin: 0;
+}
+
+.app-modal--modern .app-modal-header-subtitle {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .app-modal--modern .app-modal-close--modern {
@@ -399,6 +426,7 @@
   justify-content: center;
   font-size: 24px;
   border: none;
+  flex-shrink: 0;
   transition: background var(--transition-base), transform var(--transition-base);
 }
 
@@ -422,13 +450,118 @@
 }
 
 [data-theme="dark"] .app-modal--modern .app-modal-content--modern {
-  background: var(--card-bg);
+  background: none;
   box-shadow: var(--shadow-2xl);
 }
 
 [data-theme="dark"] .app-modal--modern .app-modal-body--modern {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Мобильная версия app-modal — прозрачный фон, без блюра, между header и navbar */
+@media (max-width: 1023px) {
+  .app-modal,
+  .app-modal--modern {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: transparent;
+    z-index: 900;
+  }
+
+  .app-modal--modern {
+    top: var(--mobile-header-height);
+    bottom: var(--mobile-content-padding-bottom);
+    left: 0;
+    right: 0;
+    width: auto;
+    height: auto;
+    padding: 0;
+    overflow: hidden;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .app-modal--modern .app-modal-content--modern {
+    max-width: 100%;
+    width: 100% !important;
+    max-height: 100%;
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    border-radius: var(--radius-2xl);
+    box-shadow: none;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .app-modal--modern .app-modal-header--modern {
+    background: linear-gradient(135deg, var(--gray-50) 0%, white 100%);
+    border-bottom: 1px solid var(--gray-200);
+    padding: var(--space-4) var(--space-4);
+    min-height: auto;
+    justify-content: space-between;
+  }
+
+  .app-modal--modern .app-modal-header--modern h2 {
+    display: block;
+    font-size: var(--text-xl);
+    font-weight: var(--font-bold);
+    color: var(--gray-900);
+  }
+
+  .app-modal--modern .app-modal-header-subtitle {
+    color: var(--text-tertiary);
+  }
+
+  .app-modal--modern .app-modal-close--modern {
+    width: 36px;
+    height: 36px;
+    font-size: 24px;
+    background: transparent;
+    color: var(--gray-400);
+  }
+
+  .app-modal--modern .app-modal-close--modern:hover,
+  .app-modal--modern .app-modal-close--modern:focus {
+    background: var(--gray-200);
+    color: var(--gray-900);
+  }
+
+  [data-theme="dark"] .app-modal--modern .app-modal-header--modern {
+    background: var(--gradient-primary);
+    border-bottom-color: rgba(255, 255, 255, 0.2);
+  }
+
+  [data-theme="dark"] .app-modal--modern .app-modal-header--modern h2 {
+    color: white;
+  }
+
+  [data-theme="dark"] .app-modal--modern .app-modal-header-subtitle {
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  [data-theme="dark"] .app-modal--modern .app-modal-close--modern {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+
+  [data-theme="dark"] .app-modal--modern .app-modal-close--modern:hover,
+  [data-theme="dark"] .app-modal--modern .app-modal-close--modern:focus {
+    background: rgba(255, 255, 255, 0.3);
+    color: white;
+  }
+
+  .app-modal--modern .app-modal-body--modern {
+    padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Мобильная версия модального окна (регистрация, логин и др.) */

@@ -40,7 +40,7 @@ function getUserData($userId, $fields = null, $useCache = true) {
     
     // По умолчанию загружаем только часто используемые поля
     if ($fields === null) {
-        $fields = 'id, username, email, role, goal_type, race_date, race_target_time, race_distance, 
+        $fields = 'id, username, username_slug, email, role, goal_type, race_date, race_target_time, race_distance, 
                    target_marathon_date, target_marathon_time, training_start_date, 
                    weekly_base_km, experience_level, gender, birth_year, height_cm, weight_kg, 
                    timezone, telegram_id, created_at, updated_at, training_mode, 
@@ -49,7 +49,9 @@ function getUserData($userId, $fields = null, $useCache = true) {
                    running_experience, last_race_date, last_race_time, last_race_distance, 
                    last_race_distance_km, is_first_race_at_distance, weight_goal_kg, 
                    weight_goal_date, health_program, health_notes, current_running_level, 
-                   health_plan_weeks, device_type, avatar_path, privacy_level';
+                   health_plan_weeks, device_type, avatar_path, privacy_level, public_token,
+                   privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts,
+                   push_workouts_enabled, push_chat_enabled, push_workout_hour, push_workout_minute';
     }
     
     try {

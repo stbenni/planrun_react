@@ -7,9 +7,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
+import { isNativeCapacitor } from '../../services/TokenStorageService';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
 import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon } from './Icons';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -109,7 +111,11 @@ const TopHeader = () => {
     if (action === 'integrations') navigate('/settings?tab=integrations');
     if (action === 'logout') {
       await logout();
-      navigate('/landing');
+      if (isNativeCapacitor()) {
+        window.location.href = '/landing';
+      } else {
+        navigate('/landing');
+      }
     }
   };
 
@@ -124,7 +130,7 @@ const TopHeader = () => {
       <header className={`top-header ${isMobile ? 'top-header-mobile' : ''}`}>
       <div className="top-header-container">
         <div className="top-header-logo" onClick={() => navigate('/')}>
-          <span className="logo-text">planRUN</span>
+          <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
         </div>
 
         <nav className="top-header-nav">
@@ -178,30 +184,30 @@ const TopHeader = () => {
               {!isMobile && menuOpen && (
                 <div className="header-avatar-dropdown" ref={menuRef} role="menu">
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('profile')}>
-                    <span className="header-dropdown-icon">👤</span>
+                    <span className="header-dropdown-icon" aria-hidden><UserIcon size={18} /></span>
                     Профиль
                   </button>
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('training')}>
-                    <span className="header-dropdown-icon">🏃</span>
+                    <span className="header-dropdown-icon" aria-hidden><RunningIcon size={18} /></span>
                     Настройки тренировок
                   </button>
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('privacy')}>
-                    <span className="header-dropdown-icon">🔒</span>
+                    <span className="header-dropdown-icon" aria-hidden><LockIcon size={18} /></span>
                     Конфиденциальность
                   </button>
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('integrations')}>
-                    <span className="header-dropdown-icon">🔗</span>
+                    <span className="header-dropdown-icon" aria-hidden><LinkIcon size={18} /></span>
                     Интеграции
                   </button>
                   {user?.role === 'admin' && (
                     <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => { setMenuOpen(false); navigate('/admin'); }}>
-                      <span className="header-dropdown-icon">⚙️</span>
+                      <span className="header-dropdown-icon" aria-hidden><SettingsIcon size={18} /></span>
                       Админка
                     </button>
                   )}
                   <div className="header-dropdown-divider" />
                   <button type="button" role="menuitem" className="header-dropdown-item header-dropdown-item-danger" onClick={() => handleMenuAction('logout')}>
-                    <span className="header-dropdown-icon">🚪</span>
+                    <span className="header-dropdown-icon" aria-hidden><LogOutIcon size={18} /></span>
                     Выйти
                   </button>
                 </div>
@@ -222,7 +228,9 @@ const TopHeader = () => {
           <aside className={`app-drawer ${drawerOpen ? 'app-drawer-open' : ''}`} role="dialog" aria-label="Меню">
             <div className="app-drawer-inner">
               <div className="app-drawer-header">
-                <span className="logo-text">planRUN</span>
+                <div className="top-header-logo" onClick={() => { closeDrawer(); navigate('/'); }}>
+                  <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
+                </div>
                 <button type="button" className="app-drawer-close" onClick={closeDrawer} aria-label="Закрыть меню">
                   ✕
                 </button>
@@ -230,30 +238,30 @@ const TopHeader = () => {
               {user && (
                 <div className="app-drawer-nav">
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('profile')}>
-                      <span className="app-drawer-icon">👤</span>
+                      <span className="app-drawer-icon" aria-hidden><UserIcon size={20} /></span>
                       <span className="app-drawer-label">Профиль</span>
                     </button>
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('training')}>
-                      <span className="app-drawer-icon">🏃</span>
+                      <span className="app-drawer-icon" aria-hidden><RunningIcon size={20} /></span>
                       <span className="app-drawer-label">Настройки тренировок</span>
                     </button>
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('privacy')}>
-                      <span className="app-drawer-icon">🔒</span>
+                      <span className="app-drawer-icon" aria-hidden><LockIcon size={20} /></span>
                       <span className="app-drawer-label">Конфиденциальность</span>
                     </button>
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('integrations')}>
-                      <span className="app-drawer-icon">🔗</span>
+                      <span className="app-drawer-icon" aria-hidden><LinkIcon size={20} /></span>
                       <span className="app-drawer-label">Интеграции</span>
                     </button>
                     {user?.role === 'admin' && (
                       <button type="button" className="app-drawer-item" onClick={() => { closeDrawer(); navigate('/admin'); }}>
-                        <span className="app-drawer-icon">⚙️</span>
+                        <span className="app-drawer-icon" aria-hidden><SettingsIcon size={20} /></span>
                         <span className="app-drawer-label">Админка</span>
                       </button>
                     )}
                     <div className="app-drawer-divider" />
                     <button type="button" className="app-drawer-item app-drawer-item-danger" onClick={() => handleMenuAction('logout')}>
-                      <span className="app-drawer-icon">🚪</span>
+                      <span className="app-drawer-icon" aria-hidden><LogOutIcon size={20} /></span>
                       <span className="app-drawer-label">Выйти</span>
                     </button>
                 </div>

@@ -7,6 +7,56 @@
   max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 20px;
+  container-type: inline-size;
+  container-name: calendar;
+}
+
+/* Сентинел для IntersectionObserver — момент, когда строка дней недели достигает верха */
+.monthly-calendar-weekdays-sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+}
+
+/* Плейсхолдер при position:fixed, чтобы контент не прыгал */
+.monthly-calendar-sticky-spacer {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* Обёртка строки дней недели — фиксируется при прокрутке (IntersectionObserver) */
+.monthly-calendar-weekdays-sticky {
+  position: relative;
+  z-index: 10;
+  margin: 0 -20px;
+  padding: 0 20px;
+}
+
+.monthly-calendar-weekdays-sticky--stuck {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  z-index: 10;
+  margin: 0;
+  padding: 0 20px;
+  max-width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+@media (min-width: 1024px) {
+  .monthly-calendar-weekdays-sticky--stuck {
+    top: 64px; /* высота TopHeader — прижато к хедеру без зазора */
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: var(--page-max-width);
+  }
+}
+
+[data-theme="dark"] .monthly-calendar-weekdays-sticky--stuck {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .monthly-calendar-header {
@@ -53,7 +103,7 @@
 
 .monthly-calendar-grid {
   background: white;
-  border-radius: 12px;
+  border-radius: 0 0 12px 12px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
@@ -63,13 +113,15 @@
   grid-template-columns: repeat(7, 1fr);
   background: var(--gray-50, #f9fafb);
   border-bottom: 2px solid var(--gray-200, #e5e7eb);
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
 }
 
 .weekday-header {
-  padding: 12px;
+  padding: 12px 4px;
   text-align: center;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.65rem;
   color: var(--gray-600, #4b5563);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -84,6 +136,7 @@
 
 .month-day-cell {
   width: 100%;
+  aspect-ratio: 1;
   min-height: 0;
   background: white;
   padding: 8px;
@@ -98,15 +151,146 @@
   box-sizing: border-box;
 }
 
-/* Десктоп: высота ячейки 60% от ширины, увеличенные боковые отступы — календарь компактнее */
-@media (min-width: 769px) {
+/* Адаптивный текст и отступы: зависят от ширины календаря (container) */
+@container calendar (min-width: 200px) {
+  .day-number { font-size: 0.7rem; }
+  .weekday-header { font-size: 0.65rem; padding: 8px 4px; }
+  .month-day-cell { padding: 6px; }
+  .month-day-icon { font-size: 10px; }
+  .completed-indicator { font-size: 0.7rem; }
+}
+@container calendar (min-width: 280px) {
+  .day-number { font-size: 0.8rem; }
+  .weekday-header { font-size: 0.7rem; padding: 10px 4px; }
+  .month-day-cell { padding: 8px; }
+  .month-day-icon { font-size: 12px; }
+  .completed-indicator { font-size: 0.8rem; }
+}
+@container calendar (min-width: 350px) {
+  .day-number { font-size: 0.9rem; }
+  .weekday-header { font-size: 0.75rem; padding: 10px 6px; }
+  .month-day-icon { font-size: 14px; }
+  .completed-indicator { font-size: 0.9rem; }
+}
+@container calendar (min-width: 420px) {
+  .day-number { font-size: 1rem; }
+  .weekday-header { font-size: 0.875rem; padding: 12px; }
+  .completed-indicator { font-size: 1rem; }
+}
+@container calendar (min-width: 560px) {
+  .month-day-training-row { font-size: 0.6rem; }
+}
+@container calendar (min-width: 700px) {
+  .month-day-training-row { font-size: 0.65rem; }
+}
+@container calendar (min-width: 840px) {
+  .month-day-training-row { font-size: 0.7rem; }
+}
+
+/* Десктоп: календарь на всю ширину, классический вид — строки с полоской */
+@media (min-width: 901px) {
   .monthly-calendar {
-    padding-left: 10%;
-    padding-right: 10%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .day-number {
+    font-size: 1rem;
+  }
+
+  .weekday-header {
+    font-size: 0.875rem;
+    padding: 12px;
   }
 
   .month-day-cell {
-    aspect-ratio: 1 / 0.8;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 28px 8px 8px;
+  }
+
+  /* Показываем строки тренировок, скрываем иконки и workout-info */
+  .month-day-cell .month-day-training-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    margin-top: 10px;
+  }
+
+  .month-day-cell .plan-indicator,
+  .month-day-cell .workout-info,
+  .month-day-cell .rest-indicator,
+  .month-day-cell .month-day-icons {
+    display: none !important;
+  }
+
+  /* Строка тренировки: полоска слева + короткое название */
+  .month-day-training-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 2px 6px 2px 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--gray-800);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .month-day-training-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 2px;
+  }
+
+  .month-day-training-row--easy::before { background: var(--workout-easy); }
+  .month-day-training-row--tempo::before { background: var(--workout-tempo); }
+  .month-day-training-row--interval::before { background: var(--workout-interval); }
+  .month-day-training-row--long::before { background: var(--workout-long); }
+  .month-day-training-row--control::before { background: var(--workout-control); }
+  .month-day-training-row--race::before { background: var(--primary-500); }
+  .month-day-training-row--other::before { background: var(--workout-strip-ofp); }
+  .month-day-training-row--sbu::before { background: var(--workout-strip-sbu); }
+  .month-day-training-row--rest::before { background: var(--workout-rest); }
+  .month-day-training-row--run::before { background: var(--workout-strip-run); }
+  .month-day-training-row--walking::before { background: var(--workout-strip-walking); }
+  .month-day-training-row--hiking::before { background: var(--workout-strip-hiking); }
+
+  .month-day-training-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  [data-theme="dark"] .month-day-training-row {
+    color: var(--text-primary);
+  }
+}
+
+/* 901–1200px: перенос текста тренировки на следующую строку */
+@media (min-width: 901px) and (max-width: 1200px) {
+  .month-day-training-row {
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    align-items: flex-start;
+  }
+
+  .month-day-training-label {
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    text-overflow: unset;
+    overflow: visible;
   }
 }
 
@@ -127,18 +311,17 @@
 }
 
 .month-day-cell.completed {
-  background: var(--success-50, #F0FDF4);
-}
-
-.month-day-cell.has-plan {
-  border-left: 3px solid var(--primary-400, #60a5fa);
+  /* Фон не закрашиваем — только зелёная галочка */
 }
 
 .day-number {
+  position: absolute;
+  top: 8px;
+  left: 8px;
   font-weight: 600;
   font-size: 1rem;
   color: var(--gray-900, #111827);
-  margin-bottom: 4px;
+  margin: 0;
 }
 
 .month-day-cell.today .day-number {
@@ -152,11 +335,32 @@
   line-height: 1;
 }
 
+/* Цвет иконки по типу тренировки (как в WeekCalendar) */
+.plan-indicator--easy svg { color: var(--workout-easy); }
+.plan-indicator--tempo svg { color: var(--workout-tempo); }
+.plan-indicator--interval svg { color: var(--workout-interval); }
+.plan-indicator--fartlek svg { color: var(--workout-interval); }
+.plan-indicator--long svg,
+.plan-indicator--long-run svg { color: var(--workout-long); }
+.plan-indicator--control svg { color: var(--workout-control); }
+.plan-indicator--race svg { color: var(--primary-500); }
+.plan-indicator--other svg { color: var(--workout-strip-ofp); }
+.plan-indicator--sbu svg { color: var(--workout-strip-sbu); }
+.plan-indicator--walking svg { color: var(--workout-strip-walking); }
+.plan-indicator--hiking svg { color: var(--workout-strip-hiking); }
+
 .completed-indicator {
   position: absolute;
   top: 8px;
   right: 8px;
   font-size: 1rem;
+  color: var(--success-500);
+}
+
+.completed-indicator svg {
+  color: var(--success-500);
+  width: 1em;
+  height: 1em;
 }
 
 .workout-info {
@@ -212,75 +416,81 @@
 .rest-indicator {
   font-size: 1rem;
   opacity: 0.5;
-  margin-top: auto;
+  margin-top: 4px;
+  display: flex;
+  justify-content: center;
 }
 
+/* Легенда типов тренировок (цвета как в дашборде и полосках календаря) */
 .monthly-calendar-legend {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
   justify-content: center;
   margin-top: 20px;
   padding: 16px;
   background: var(--gray-50, #f9fafb);
   border-radius: 8px;
+  border-top: 1px solid var(--card-border);
 }
 
 .legend-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.875rem;
-  color: var(--gray-700, #374151);
+  gap: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-family: var(--font-stats), sans-serif;
 }
 
-.legend-icon {
-  font-size: 1.2rem;
-}
-
-.legend-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
-  border: 1px solid var(--gray-200);
-  background: var(--gray-100);
 }
 
-.legend-swatch--today {
-  border: 2px solid var(--primary-500);
-  background: var(--primary-50);
+.legend-dot--today {
+  background-color: var(--primary-500);
+  box-shadow: 0 0 0 2px var(--primary-200);
 }
 
-.legend-swatch--plan {
-  border: 1px solid var(--gray-200);
-  border-left: 2px solid var(--primary-500);
-  background: var(--primary-50);
+.legend-dot--completed {
+  background-color: var(--success-500);
 }
 
-.legend-swatch--completed {
-  border: 1px solid var(--primary-200);
-  background: var(--success-50);
+.legend-dot--easy { background-color: var(--workout-easy); }
+.legend-dot--tempo { background-color: var(--workout-tempo); }
+.legend-dot--interval { background-color: var(--workout-interval); }
+.legend-dot--long { background-color: var(--workout-long); }
+.legend-dot--race { background-color: var(--primary-500); }
+.legend-dot--other { background-color: var(--workout-strip-ofp); }
+.legend-dot--sbu { background-color: var(--workout-strip-sbu); }
+.legend-dot--rest { background-color: var(--workout-rest); }
+.legend-dot--run { background-color: var(--workout-strip-run, var(--workout-easy)); }
+.legend-dot--walking { background-color: var(--workout-strip-walking, var(--success-500)); }
+.legend-dot--hiking { background-color: var(--workout-strip-hiking, var(--warning-600)); }
+.legend-dot--cycling { background-color: var(--workout-strip-run, var(--info-500)); }
+.legend-dot--swimming { background-color: var(--workout-strip-run, var(--info-600)); }
+
+.rest-extra-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
-[data-theme="dark"] .legend-swatch {
+[data-theme="dark"] .monthly-calendar-legend {
   background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  border-top-color: var(--card-border);
 }
 
-[data-theme="dark"] .legend-swatch--today {
-  border-color: var(--primary-500);
-  background: rgba(255, 107, 61, 0.2);
-}
-
-[data-theme="dark"] .legend-swatch--plan {
-  border-color: var(--card-border);
-  border-left-color: var(--primary-500);
-  background: rgba(255, 107, 61, 0.12);
-}
-
-[data-theme="dark"] .legend-swatch--completed {
-  border-color: var(--primary-500);
-  background: rgba(34, 197, 94, 0.15);
+[data-theme="dark"] .legend-item {
+  color: var(--text-secondary);
 }
 
 /* Темная тема */
@@ -359,14 +569,7 @@
 }
 
 [data-theme="dark"] .month-day-cell.completed {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(34, 197, 94, 0.15) 100%);
-  border-color: var(--success-500);
-  border-width: 2px;
-  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.25);
-}
-
-[data-theme="dark"] .month-day-cell.has-plan {
-  border-left: 3px solid var(--primary-500);
+  /* Фон не закрашиваем — только зелёная галочка */
 }
 
 [data-theme="dark"] .day-number {
@@ -409,18 +612,50 @@
   opacity: 1;
 }
 
-[data-theme="dark"] .monthly-calendar-legend {
-  background: var(--card-bg);
-  border: 1px solid var(--gray-400);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
-}
+/* Мобильный (≤900px) — только цветные иконки, без полоски и текста */
+@media (max-width: 900px) {
+  .month-day-training-rows {
+    display: none !important;
+  }
 
-[data-theme="dark"] .legend-item {
-  color: var(--text-secondary);
-}
+  .month-day-cell .workout-info,
+  .month-day-cell .rest-indicator {
+    display: none !important;
+  }
 
-/* Мобильный — в стиле heatmap из Статистики */
-@media (max-width: 768px) {
+  .month-day-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 14px;
+  }
+
+  .month-day-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+  .month-day-icon svg {
+    width: 1em;
+    height: 1em;
+  }
+
+  .month-day-icon--easy svg { color: var(--workout-easy); }
+  .month-day-icon--tempo svg { color: var(--workout-tempo); }
+  .month-day-icon--interval svg { color: var(--workout-interval); }
+  .month-day-icon--long svg { color: var(--workout-long); }
+  .month-day-icon--control svg { color: var(--workout-control); }
+  .month-day-icon--race svg { color: var(--primary-500); }
+  .month-day-icon--other svg { color: var(--workout-strip-ofp); }
+  .month-day-icon--sbu svg { color: var(--workout-strip-sbu); }
+  .month-day-icon--rest svg { color: var(--workout-rest); }
+  .month-day-icon--run svg { color: var(--workout-strip-run); }
+  .month-day-icon--walking svg { color: var(--workout-strip-walking); }
+  .month-day-icon--hiking svg { color: var(--workout-strip-hiking); }
+
   .monthly-calendar {
     padding: 0;
   }
@@ -464,7 +699,6 @@
   }
 
   .month-day-cell {
-    aspect-ratio: 1; /* на мобильных — квадрат */
     min-height: 0;
     padding: 4px;
     border-radius: 4px;
@@ -483,27 +717,17 @@
     background: var(--primary-50);
   }
 
-  .month-day-cell.has-plan {
-    border: 1px solid var(--gray-200);
-    border-left: 1px solid var(--primary-500);
-    background: var(--primary-50);
-  }
-
   .month-day-cell.completed {
-    border-width: 2px;
-    border-color: var(--primary-500);
-    background: var(--success-50);
+    /* Фон не закрашиваем — только зелёная галочка */
   }
 
   .day-number {
-    font-size: 9px;
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    font-size: 0.4rem;
     font-weight: 500;
-    margin-bottom: 2px;
-  }
-
-  .plan-indicator,
-  .completed-indicator {
-    display: none;
+    margin: 0;
   }
 
   .workout-info {
@@ -578,15 +802,8 @@
     border-color: var(--primary-500);
   }
 
-  [data-theme="dark"] .month-day-cell.has-plan {
-    border: 1px solid var(--card-border);
-    border-left: 1px solid var(--primary-500);
-    background: rgba(255, 107, 61, 0.12);
-  }
-
   [data-theme="dark"] .month-day-cell.completed {
-    border-color: var(--primary-500);
-    background: rgba(34, 197, 94, 0.15);
+    /* Фон не закрашиваем — только зелёная галочка */
   }
 
   [data-theme="dark"] .day-number {
@@ -613,4 +830,21 @@
   [data-theme="dark"] .legend-item {
     color: var(--text-secondary);
   }
+}
+
+/* Размер иконок в мобильном виде в зависимости от разрешения (увеличены) */
+@media (max-width: 400px) {
+  .month-day-icon { font-size: 12px; }
+}
+@media (min-width: 401px) and (max-width: 500px) {
+  .month-day-icon { font-size: 14px; }
+}
+@media (min-width: 501px) and (max-width: 650px) {
+  .month-day-icon { font-size: 16px; }
+}
+@media (min-width: 651px) and (max-width: 800px) {
+  .month-day-icon { font-size: 18px; }
+}
+@media (min-width: 801px) and (max-width: 900px) {
+  .month-day-icon { font-size: 20px; }
 }

@@ -2,10 +2,12 @@
  * Сервис для работы с биометрической аутентификацией
  * Использует @aparajita/capacitor-biometric-auth для Capacitor
  * API: checkBiometry(), authenticate(options), ошибки — BiometryError
+ * Токены на Capacitor хранятся через TokenStorageService (SecureStorage).
  */
 
 import { BiometricAuth } from '@aparajita/capacitor-biometric-auth';
 import { Preferences } from '@capacitor/preferences';
+import TokenStorageService, { isNativeCapacitor } from './TokenStorageService';
 
 class BiometricService {
   constructor() {
@@ -13,14 +15,18 @@ class BiometricService {
     this.biometricType = null;
   }
 
+  _isNative() {
+    return typeof window !== 'undefined' && isNativeCapacitor();
+  }
+
   /**
    * Проверить доступность биометрии на устройстве.
-   * Использует checkBiometry() (v7+), при отсутствии — checkAvailability() для обратной совместимости.
+   * Использует checkBiometry() (v7+).
    */
   async checkAvailability() {
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
-        return { available: false, type: null, error: 'Not in Capacitor environment' };
+      if (!this._isNative()) {
+        return { available: false, type: null, error: 'Только в мобильном приложении (Android/iOS)' };
       }
 
       const check = await BiometricAuth.checkBiometry();
@@ -62,8 +68,8 @@ class BiometricService {
    */
   async authenticate(reason = 'Подтвердите вашу личность') {
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
-        throw new Error('Not in Capacitor environment');
+      if (!this._isNative()) {
+        throw new Error('Биометрия доступна только в мобильном приложении');
       }
 
       const options = {
@@ -73,7 +79,8 @@ class BiometricService {
         iosFallbackTitle: 'Использовать пароль',
         androidTitle: 'Биометрическая аутентификация',
         androidSubtitle: reason,
-        androidConfirmationRequired: false
+        androidConfirmationRequired: false,
+        androidBiometryStrength: 'weak'
       };
 
       await BiometricAuth.authenticate(options);
@@ -95,7 +102,8 @@ class BiometricService {
 
   /**
    * Сохранить JWT токены в защищенном хранилище.
-   * Оба токена обязательны; пустой refreshToken не сохраняем.
+   * Сначала ставим флаг (Preferences — быстро), затем SecureStorage в фоне (может быть медленным).
+   * Токены обычно уже в SecureStorage от логина; дублируем для надёжности.
    */
   async saveTokens(accessToken, refreshToken) {
     if (!accessToken || !refreshToken) {
@@ -103,8 +111,7 @@ class BiometricService {
       return false;
     }
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
-        // Для веба используем обычный localStorage
+      if (!this._isNative()) {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('biometric_enabled', 'true');
           localStorage.setItem('auth_token', accessToken);
@@ -114,22 +121,12 @@ class BiometricService {
         return false;
       }
 
-      // Для мобильных приложений используем Preferences (защищенное хранилище)
-      await Preferences.set({
-        key: 'biometric_enabled',
-        value: 'true'
+      await Preferences.set({ key: 'biometric_enabled', value: 'true' });
+      TokenStorageService.saveTokens(accessToken, refreshToken).catch((e) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[Biometric] SecureStorage save:', e?.message);
+        }
       });
-
-      await Preferences.set({
-        key: 'auth_token',
-        value: accessToken
-      });
-
-      await Preferences.set({
-        key: 'refresh_token',
-        value: refreshToken
-      });
-
       return true;
     } catch (error) {
       console.error('Failed to save tokens:', error);
@@ -138,13 +135,12 @@ class BiometricService {
   }
 
   /**
-   * Получить сохраненные токены из защищенного хранилища
-   * @returns {Promise<{accessToken: string|null, refreshToken: string|null}>}
+   * Получить сохраненные токены.
+   * Native: TokenStorageService (SecureStorage), при отсутствии — localStorage (fallback).
    */
   async getTokens() {
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
-        // Для веба используем обычный localStorage
+      if (!this._isNative()) {
         if (typeof localStorage !== 'undefined') {
           return {
             accessToken: localStorage.getItem('auth_token'),
@@ -154,14 +150,14 @@ class BiometricService {
         return { accessToken: null, refreshToken: null };
       }
 
-      // Для мобильных приложений используем Preferences
-      const accessToken = await Preferences.get({ key: 'auth_token' });
-      const refreshToken = await Preferences.get({ key: 'refresh_token' });
-
-      return {
-        accessToken: accessToken.value || null,
-        refreshToken: refreshToken.value || null
-      };
+      if (typeof localStorage !== 'undefined') {
+        const at = localStorage.getItem('auth_token');
+        const rt = localStorage.getItem('refresh_token');
+        if (at && rt) return { accessToken: at, refreshToken: rt };
+      }
+      const stored = await TokenStorageService.getTokens();
+      if (stored?.accessToken && stored?.refreshToken) return stored;
+      return { accessToken: null, refreshToken: null };
     } catch (error) {
       console.error('Failed to get tokens:', error);
       return { accessToken: null, refreshToken: null };
@@ -174,7 +170,7 @@ class BiometricService {
    */
   async isBiometricEnabled() {
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
+      if (!this._isNative()) {
         if (typeof localStorage !== 'undefined') {
           return localStorage.getItem('biometric_enabled') === 'true';
         }
@@ -195,7 +191,7 @@ class BiometricService {
    */
   async clearTokens() {
     try {
-      if (typeof window === 'undefined' || !window.Capacitor) {
+      if (!this._isNative()) {
         if (typeof localStorage !== 'undefined') {
           localStorage.removeItem('biometric_enabled');
           localStorage.removeItem('auth_token');
@@ -206,9 +202,7 @@ class BiometricService {
       }
 
       await Preferences.remove({ key: 'biometric_enabled' });
-      await Preferences.remove({ key: 'auth_token' });
-      await Preferences.remove({ key: 'refresh_token' });
-
+      await TokenStorageService.clearTokens();
       return true;
     } catch (error) {
       console.error('Failed to clear tokens:', error);
@@ -217,63 +211,36 @@ class BiometricService {
   }
 
   /**
-   * Полный цикл биометрической аутентификации
-   * 1. Проверяет доступность биометрии
-   * 2. Запрашивает биометрию
-   * 3. Возвращает сохраненные токены
-   * @param {string} reason - Причина запроса
-   * @returns {Promise<{success: boolean, tokens?: {accessToken: string, refreshToken: string}, error?: string}>}
+   * Полный цикл биометрической аутентификации.
+   * Сначала authenticate (диалог «приложите палец») — как в типичных приложениях.
+   * Затем getTokens. Таймаут 30 сек — защита от зависания BiometricPrompt на Android.
    */
   async authenticateAndGetTokens(reason = 'Подтвердите вашу личность для входа') {
-    try {
-      // Проверяем доступность
-      const availability = await this.checkAvailability();
-      if (!availability.available) {
-        return {
-          success: false,
-          error: availability.error || 'Биометрия недоступна на этом устройстве'
-        };
-      }
-
-      // Проверяем, включена ли биометрия
+    const TIMEOUT_MS = 30000;
+    const run = async () => {
       const isEnabled = await this.isBiometricEnabled();
       if (!isEnabled) {
-        return {
-          success: false,
-          error: 'Биометрическая аутентификация не настроена'
-        };
+        return { success: false, error: 'Биометрическая аутентификация не настроена' };
       }
-
-      // Запрашиваем биометрию
+      const tokens = await this.getTokens();
+      if (!tokens?.accessToken || !tokens?.refreshToken) {
+        return { success: false, error: 'Токены не найдены. Войдите по паролю.' };
+      }
       const authResult = await this.authenticate(reason);
       if (!authResult.success) {
-        return {
-          success: false,
-          error: authResult.error || 'Биометрическая аутентификация не прошла'
-        };
+        return { success: false, error: authResult.error || 'Биометрическая аутентификация не прошла' };
       }
-
-      // Получаем токены
-      const tokens = await this.getTokens();
-      if (!tokens.accessToken || !tokens.refreshToken) {
-        return {
-          success: false,
-          error: 'Токены не найдены. Пожалуйста, войдите заново'
-        };
-      }
-
-      return {
-        success: true,
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        }
-      };
+      return { success: true, tokens };
+    };
+    try {
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Таймаут. Попробуйте снова или войдите по паролю.')), TIMEOUT_MS)
+      );
+      return await Promise.race([run(), timeoutPromise]);
     } catch (error) {
-      console.error('Biometric authentication flow failed:', error);
       return {
         success: false,
-        error: error.message
+        error: error?.message || 'Ошибка биометрической аутентификации'
       };
     }
   }

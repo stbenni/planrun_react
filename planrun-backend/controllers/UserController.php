@@ -419,6 +419,64 @@ class UserController extends BaseController {
                 $types .= 's';
             }
             
+            if (isset($data['privacy_show_email'])) {
+                $v = (int)($data['privacy_show_email']);
+                $updateFields[] = 'privacy_show_email = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['privacy_show_trainer'])) {
+                $v = (int)($data['privacy_show_trainer']);
+                $updateFields[] = 'privacy_show_trainer = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['privacy_show_calendar'])) {
+                $v = (int)($data['privacy_show_calendar']);
+                $updateFields[] = 'privacy_show_calendar = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['privacy_show_metrics'])) {
+                $v = (int)($data['privacy_show_metrics']);
+                $updateFields[] = 'privacy_show_metrics = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['privacy_show_workouts'])) {
+                $v = (int)($data['privacy_show_workouts']);
+                $updateFields[] = 'privacy_show_workouts = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['push_workouts_enabled'])) {
+                $v = (int)($data['push_workouts_enabled']);
+                $updateFields[] = 'push_workouts_enabled = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['push_chat_enabled'])) {
+                $v = (int)($data['push_chat_enabled']);
+                $updateFields[] = 'push_chat_enabled = ?';
+                $updateValues[] = $v ? 1 : 0;
+                $types .= 'i';
+            }
+            if (isset($data['push_workout_hour'])) {
+                $h = (int)($data['push_workout_hour']);
+                if ($h >= 0 && $h <= 23) {
+                    $updateFields[] = 'push_workout_hour = ?';
+                    $updateValues[] = $h;
+                    $types .= 'i';
+                }
+            }
+            if (isset($data['push_workout_minute'])) {
+                $m = (int)($data['push_workout_minute']);
+                if ($m >= 0 && $m <= 59) {
+                    $updateFields[] = 'push_workout_minute = ?';
+                    $updateValues[] = $m;
+                    $types .= 'i';
+                }
+            }
             if (isset($data['privacy_level'])) {
                 $privacyLevel = $data['privacy_level'];
                 if (!in_array($privacyLevel, ['public', 'private', 'link'], true)) {
@@ -427,6 +485,19 @@ class UserController extends BaseController {
                 $updateFields[] = 'privacy_level = ?';
                 $updateValues[] = $privacyLevel;
                 $types .= 's';
+                if ($privacyLevel === 'link') {
+                    $tokenStmt = $this->db->prepare("SELECT public_token FROM users WHERE id = ?");
+                    $tokenStmt->bind_param("i", $this->currentUserId);
+                    $tokenStmt->execute();
+                    $tokenRow = $tokenStmt->get_result()->fetch_assoc();
+                    $tokenStmt->close();
+                    if (empty($tokenRow['public_token'])) {
+                        $newToken = bin2hex(random_bytes(16));
+                        $updateFields[] = 'public_token = ?';
+                        $updateValues[] = $newToken;
+                        $types .= 's';
+                    }
+                }
             }
             
             // Обновляем username_slug если изменился username
@@ -645,6 +716,23 @@ class UserController extends BaseController {
                         $deleteCoachesStmt->bind_param("ii", $targetUserId, $targetUserId);
                         $deleteCoachesStmt->execute();
                         $deleteCoachesStmt->close();
+                    }
+                }
+                
+                // 12b. Токены интеграций (Strava, Huawei и др.)
+                $deleteIntegrationStmt = $this->db->prepare("DELETE FROM integration_tokens WHERE user_id = ?");
+                $deleteIntegrationStmt->bind_param("i", $targetUserId);
+                $deleteIntegrationStmt->execute();
+                $deleteIntegrationStmt->close();
+                
+                // 12c. Push-токены устройств
+                $tblPush = $this->db->query("SHOW TABLES LIKE 'push_tokens'");
+                if ($tblPush && $tblPush->num_rows > 0) {
+                    $deletePushStmt = $this->db->prepare("DELETE FROM push_tokens WHERE user_id = ?");
+                    if ($deletePushStmt) {
+                        $deletePushStmt->bind_param("i", $targetUserId);
+                        $deletePushStmt->execute();
+                        $deletePushStmt->close();
                     }
                 }
                 
@@ -885,7 +973,7 @@ class UserController extends BaseController {
                 $privacyLevel = 'public';
             }
             
-            // Если выбран уровень "по ссылке" и токена нет - генерируем его
+            $publicToken = null;
             if ($privacyLevel === 'link') {
                 $tokenStmt = $this->db->prepare("SELECT public_token FROM users WHERE id = ?");
                 $tokenStmt->bind_param("i", $this->currentUserId);
@@ -894,22 +982,21 @@ class UserController extends BaseController {
                 $tokenStmt->close();
                 
                 if (empty($tokenResult['public_token'])) {
-                    // Генерируем новый токен
-                    $token = bin2hex(random_bytes(16)); // 32 символа
+                    $publicToken = bin2hex(random_bytes(16));
                     $updateTokenStmt = $this->db->prepare("UPDATE users SET public_token = ? WHERE id = ?");
-                    $updateTokenStmt->bind_param("si", $token, $this->currentUserId);
+                    $updateTokenStmt->bind_param("si", $publicToken, $this->currentUserId);
                     $updateTokenStmt->execute();
                     $updateTokenStmt->close();
+                } else {
+                    $publicToken = $tokenResult['public_token'];
                 }
             }
             
-            // Обновляем уровень приватности
             $stmt = $this->db->prepare("UPDATE users SET privacy_level = ? WHERE id = ?");
             $stmt->bind_param("si", $privacyLevel, $this->currentUserId);
             $stmt->execute();
             $stmt->close();
             
-            // Очищаем кеш пользователя
             require_once __DIR__ . '/../user_functions.php';
             clearUserCache($this->currentUserId);
             
@@ -919,10 +1006,14 @@ class UserController extends BaseController {
                 'privacy_level' => $privacyLevel
             ]);
             
-            $this->returnSuccess([
+            $response = [
                 'message' => 'Настройки приватности обновлены',
                 'privacy_level' => $privacyLevel
-            ]);
+            ];
+            if ($privacyLevel === 'link' && $publicToken) {
+                $response['public_token'] = $publicToken;
+            }
+            $this->returnSuccess($response);
         } catch (Exception $e) {
             $this->handleException($e);
         }

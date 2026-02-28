@@ -535,6 +535,104 @@ class WorkoutService extends BaseService {
     }
     
     /**
+     * Импорт тренировок из внешних источников (Huawei, Garmin, Strava, GPX и др.)
+     * Дедупликация:
+     * 1) По (user_id, external_id, source) — обновление при повторной синхронизации того же источника
+     * 2) По (user_id, start_time, source) — для GPX без external_id
+     * 3) Кросс-источник: (user_id, start_time ±2 мин) — если тренировка уже есть из другого источника, пропускаем
+     *
+     * @param int $userId ID пользователя
+     * @param array $workouts Массив тренировок в нормализованном формате
+     * @param string $source Источник: 'huawei', 'garmin', 'strava', 'gpx'
+     * @return array ['imported' => int, 'skipped' => int]
+     */
+    public function importWorkouts($userId, array $workouts, $source) {
+        $imported = 0;
+        $skipped = 0;
+        $insertStmt = $this->db->prepare("
+            INSERT INTO workouts (user_id, session_id, source, external_id, activity_type, start_time, end_time, duration_minutes, duration_seconds, distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain)
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $checkByExternalStmt = $this->db->prepare("SELECT id, avg_heart_rate, elevation_gain FROM workouts WHERE user_id = ? AND external_id = ? AND source = ? LIMIT 1");
+        $checkByTimeStmt = $this->db->prepare("SELECT id, avg_heart_rate, elevation_gain FROM workouts WHERE user_id = ? AND start_time = ? AND source = ? AND (external_id IS NULL OR external_id = '') LIMIT 1");
+        $checkCrossSourceStmt = $this->db->prepare("
+            SELECT id FROM workouts WHERE user_id = ? AND start_time BETWEEN DATE_SUB(?, INTERVAL 2 MINUTE) AND DATE_ADD(?, INTERVAL 2 MINUTE) LIMIT 1
+        ");
+        $updateStmt = $this->db->prepare("
+            UPDATE workouts SET activity_type = ?, end_time = ?, duration_minutes = ?, duration_seconds = ?, distance_km = ?, avg_pace = ?, avg_heart_rate = ?, max_heart_rate = ?, elevation_gain = ?
+            WHERE id = ?
+        ");
+        foreach ($workouts as $w) {
+            $activityType = $w['activity_type'] ?? 'running';
+            $startTime = $w['start_time'] ?? null;
+            $endTime = $w['end_time'] ?? $startTime;
+            $durationMinutes = isset($w['duration_minutes']) ? (int)$w['duration_minutes'] : null;
+            $durationSeconds = isset($w['duration_seconds']) ? (int)$w['duration_seconds'] : null;
+            $distanceKm = isset($w['distance_km']) ? (float)$w['distance_km'] : null;
+            $avgPace = $w['avg_pace'] ?? null;
+            $avgHeartRate = isset($w['avg_heart_rate']) ? (int)$w['avg_heart_rate'] : null;
+            $maxHeartRate = isset($w['max_heart_rate']) ? (int)$w['max_heart_rate'] : null;
+            $elevationGain = isset($w['elevation_gain']) ? (int)$w['elevation_gain'] : null;
+            $externalId = !empty($w['external_id']) ? (string)$w['external_id'] : null;
+            if (!$startTime) {
+                $skipped++;
+                continue;
+            }
+            $existing = null;
+            if ($externalId) {
+                $checkByExternalStmt->bind_param("iss", $userId, $externalId, $source);
+                $checkByExternalStmt->execute();
+                $existing = $checkByExternalStmt->get_result()->fetch_assoc();
+            } else {
+                $checkByTimeStmt->bind_param("iss", $userId, $startTime, $source);
+                $checkByTimeStmt->execute();
+                $existing = $checkByTimeStmt->get_result()->fetch_assoc();
+            }
+            if ($existing) {
+                $updateStmt->bind_param("ssiidsiiii",
+                    $activityType, $endTime, $durationMinutes, $durationSeconds, $distanceKm, $avgPace,
+                    $avgHeartRate, $maxHeartRate, $elevationGain,
+                    $existing['id']
+                );
+                if ($updateStmt->execute()) {
+                    $imported++;
+                    $this->saveWorkoutTimeline((int)$existing['id'], $w['timeline'] ?? null);
+                } else {
+                    $skipped++;
+                }
+                continue;
+            }
+            $checkCrossSourceStmt->bind_param("iss", $userId, $startTime, $startTime);
+            $checkCrossSourceStmt->execute();
+            $crossExisting = $checkCrossSourceStmt->get_result()->fetch_assoc();
+            if ($crossExisting) {
+                $skipped++;
+                continue;
+            }
+            $insertStmt->bind_param("isssssiidsiii",
+                $userId, $source, $externalId,
+                $activityType, $startTime, $endTime, $durationMinutes, $durationSeconds, $distanceKm, $avgPace,
+                $avgHeartRate, $maxHeartRate, $elevationGain
+            );
+            if ($insertStmt->execute()) {
+                $workoutId = (int)$this->db->insert_id;
+                $imported++;
+                $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
+            } else {
+                $skipped++;
+            }
+        }
+        $insertStmt->close();
+        $checkByExternalStmt->close();
+        $checkByTimeStmt->close();
+        $checkCrossSourceStmt->close();
+        $updateStmt->close();
+        require_once __DIR__ . '/../cache_config.php';
+        Cache::delete("training_plan_{$userId}");
+        return ['imported' => $imported, 'skipped' => $skipped];
+    }
+    
+    /**
      * Сохранить прогресс тренировки (старая функция save)
      * 
      * @param array $data Данные прогресса
@@ -730,6 +828,50 @@ class WorkoutService extends BaseService {
     }
     
     /**
+     * Сохранить timeline точки в workout_timeline
+     *
+     * @param int $workoutId ID тренировки
+     * @param array|null $timeline Массив точек [['timestamp','heart_rate','pace','altitude','distance','cadence'], ...]
+     */
+    private function saveWorkoutTimeline(int $workoutId, ?array $timeline): void {
+        if (!$workoutId || empty($timeline)) {
+            return;
+        }
+        $deleteStmt = $this->db->prepare("DELETE FROM workout_timeline WHERE workout_id = ?");
+        $deleteStmt->bind_param("i", $workoutId);
+        $deleteStmt->execute();
+        $deleteStmt->close();
+        $count = count($timeline);
+        if ($count > self::TIMELINE_MAX_POINTS) {
+            $step = max(1, (int)floor($count / self::TIMELINE_MAX_POINTS));
+            $sampled = [];
+            for ($i = 0; $i < $count; $i += $step) {
+                $sampled[] = $timeline[$i];
+            }
+            if (end($sampled) !== end($timeline)) {
+                $sampled[] = end($timeline);
+            }
+            $timeline = $sampled;
+        }
+        $batchSize = 500;
+        $batches = array_chunk($timeline, $batchSize);
+        foreach ($batches as $batch) {
+            $values = [];
+            foreach ($batch as $p) {
+                $ts = isset($p['timestamp']) ? "'" . $this->db->real_escape_string($p['timestamp']) . "'" : 'NULL';
+                $hr = isset($p['heart_rate']) ? (int)$p['heart_rate'] : 'NULL';
+                $pace = isset($p['pace']) && $p['pace'] !== null ? "'" . $this->db->real_escape_string($p['pace']) . "'" : 'NULL';
+                $alt = isset($p['altitude']) && $p['altitude'] !== null ? (float)$p['altitude'] : 'NULL';
+                $dist = isset($p['distance']) && $p['distance'] !== null ? (float)$p['distance'] : 'NULL';
+                $cad = isset($p['cadence']) ? (int)$p['cadence'] : 'NULL';
+                $values[] = "($workoutId, $ts, $hr, $pace, $alt, $dist, $cad)";
+            }
+            $sql = "INSERT INTO workout_timeline (workout_id, timestamp, heart_rate, pace, altitude, distance, cadence) VALUES " . implode(',', $values);
+            $this->db->query($sql);
+        }
+    }
+
+    /**
      * Получить timeline данные тренировки (пульс, темп по времени)
      * 
      * @param int $workoutId ID тренировки
@@ -737,13 +879,14 @@ class WorkoutService extends BaseService {
      * @return array Массив точек timeline
      * @throws Exception
      */
+    private const TIMELINE_MAX_POINTS = 500;
+
     public function getWorkoutTimeline($workoutId, $userId) {
         try {
             if (!$workoutId || $workoutId <= 0) {
                 $this->throwException('Не указан ID тренировки', 400);
             }
             
-            // Проверяем, что тренировка принадлежит пользователю
             $checkStmt = $this->db->prepare("SELECT id FROM workouts WHERE id = ? AND user_id = ? LIMIT 1");
             $checkStmt->bind_param("ii", $workoutId, $userId);
             $checkStmt->execute();
@@ -754,15 +897,41 @@ class WorkoutService extends BaseService {
             if (!$workout) {
                 $this->throwException('Тренировка не найдена или нет доступа', 404);
             }
-            
-            // Получаем timeline данные
-            $timelineStmt = $this->db->prepare("
-                SELECT timestamp, heart_rate, pace, cadence, altitude, distance 
-                FROM workout_timeline 
-                WHERE workout_id = ? 
-                ORDER BY timestamp ASC
-            ");
-            $timelineStmt->bind_param("i", $workoutId);
+
+            $countStmt = $this->db->prepare("SELECT COUNT(*) AS cnt FROM workout_timeline WHERE workout_id = ?");
+            $countStmt->bind_param("i", $workoutId);
+            $countStmt->execute();
+            $totalRows = (int)$countStmt->get_result()->fetch_assoc()['cnt'];
+            $countStmt->close();
+
+            if ($totalRows === 0) {
+                return [];
+            }
+
+            $step = max(1, (int)floor($totalRows / self::TIMELINE_MAX_POINTS));
+
+            if ($step <= 1) {
+                $timelineStmt = $this->db->prepare("
+                    SELECT timestamp, heart_rate, pace, cadence, altitude, distance 
+                    FROM workout_timeline 
+                    WHERE workout_id = ? 
+                    ORDER BY timestamp ASC
+                ");
+                $timelineStmt->bind_param("i", $workoutId);
+            } else {
+                $timelineStmt = $this->db->prepare("
+                    SELECT timestamp, heart_rate, pace, cadence, altitude, distance
+                    FROM (
+                        SELECT *, @rn := @rn + 1 AS row_num
+                        FROM workout_timeline, (SELECT @rn := -1) vars
+                        WHERE workout_id = ?
+                        ORDER BY timestamp ASC
+                    ) numbered
+                    WHERE row_num % ? = 0 OR row_num = 0
+                ");
+                $timelineStmt->bind_param("ii", $workoutId, $step);
+            }
+
             $timelineStmt->execute();
             $timelineResult = $timelineStmt->get_result();
             

@@ -835,6 +835,14 @@ h1 {
     animation: fadeIn var(--transition-base) ease;
 }
 
+@media (max-width: 1023px) {
+    .modal {
+        background-color: transparent;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+}
+
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }

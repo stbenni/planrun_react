@@ -4,10 +4,10 @@
 
 import React from 'react';
 
-const AchievementCard = ({ icon, title, description, achieved }) => {
+const AchievementCard = ({ icon, Icon, title, description, achieved }) => {
   return (
     <div className={`achievement-card ${achieved ? 'achieved' : ''}`}>
-      <div className="achievement-icon">{icon}</div>
+      <div className="achievement-icon">{Icon ? <Icon size={32} aria-hidden /> : icon}</div>
       <div className="achievement-content">
         <div className="achievement-title">{title}</div>
         <div className="achievement-description">{description}</div>

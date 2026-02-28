@@ -38,9 +38,11 @@ paths:
               - get_workout_timeline
               - stats
               - get_all_workouts_summary
+              - get_all_workouts_list
               - prepare_weekly_analysis
               - list_exercise_library
               - get_profile
+              - get_user_by_slug
               - get_csrf_token
               - notifications_dismissed
               - admin_list_users

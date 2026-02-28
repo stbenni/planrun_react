@@ -40,9 +40,11 @@ class StatsRepository extends BaseRepository {
                     COUNT(*) as workout_count,
                     SUM(distance_km) as total_distance,
                     SUM(duration_minutes) as total_duration,
+                    SUM(duration_seconds) as total_duration_seconds,
                     SUBSTRING_INDEX(GROUP_CONCAT(avg_pace ORDER BY start_time ASC, id ASC), ',', 1) as avg_pace,
                     AVG(avg_heart_rate) as avg_hr,
-                    MIN(id) as first_workout_id
+                    MIN(id) as first_workout_id,
+                    SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(NULLIF(TRIM(activity_type), ''), 'running') ORDER BY start_time ASC, id ASC), ',', 1) as activity_type
                 FROM workouts
                 WHERE user_id = ?
                 GROUP BY DATE(start_time)";

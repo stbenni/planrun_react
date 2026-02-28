@@ -90,6 +90,8 @@ require_once __DIR__ . '/controllers/UserController.php';
 require_once __DIR__ . '/controllers/AuthController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
 require_once __DIR__ . '/controllers/ChatController.php';
+require_once __DIR__ . '/controllers/IntegrationsController.php';
+require_once __DIR__ . '/controllers/PushController.php';
 
 try {
     $db = getDBConnection();
@@ -122,6 +124,130 @@ try {
         }
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['success' => true, 'data' => ['settings' => $settings]], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Публичный профиль по slug — без авторизации, всегда возвращаем user + access
+    if ($action === 'get_user_by_slug' && $method === 'GET') {
+        require_once __DIR__ . '/auth.php';
+        require_once __DIR__ . '/user_functions.php';
+        require_once __DIR__ . '/query_helpers.php';
+
+        $slug = trim($_GET['slug'] ?? '');
+        $token = isset($_GET['token']) ? trim($_GET['token']) : null;
+
+        if ($slug === '') {
+            ErrorHandler::returnJsonError('Параметр slug обязателен', 400);
+        }
+
+        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, target_marathon_date, target_marathon_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts FROM users WHERE username_slug = ?");
+        $stmt->bind_param("s", $slug);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            ErrorHandler::returnJsonError('Пользователь не найден', 404);
+        }
+
+        $targetUserId = (int)$row['id'];
+        $privacyLevel = $row['privacy_level'] ?? 'link';
+        $currentUserId = isAuthenticated() ? getCurrentUserId() : null;
+
+        $canView = false;
+        $canEdit = false;
+        $isOwner = ($targetUserId === $currentUserId);
+        $isCoach = false;
+
+        if ($isOwner) {
+            $canView = true;
+            $canEdit = true;
+        } elseif ($privacyLevel === 'public') {
+            $canView = true;
+        } elseif ($privacyLevel === 'private') {
+            if ($currentUserId && isUserCoach($db, $targetUserId, $currentUserId)) {
+                $coachAccess = getUserCoachAccess($db, $targetUserId, $currentUserId);
+                $canView = $coachAccess['can_view'] ?? false;
+                $canEdit = $coachAccess['can_edit'] ?? false;
+                $isCoach = $canView || $canEdit;
+            }
+        } elseif ($privacyLevel === 'link') {
+            if ($currentUserId && isUserCoach($db, $targetUserId, $currentUserId)) {
+                $coachAccess = getUserCoachAccess($db, $targetUserId, $currentUserId);
+                $canView = $coachAccess['can_view'] ?? false;
+                $canEdit = $coachAccess['can_edit'] ?? false;
+                $isCoach = $canView || $canEdit;
+            } elseif ($token && $row['public_token'] && $token === $row['public_token']) {
+                $canView = true;
+            }
+        }
+
+        $user = [
+            'id' => $targetUserId,
+            'username' => $row['username'],
+            'username_slug' => $row['username_slug'],
+            'avatar_path' => $row['avatar_path'],
+            'privacy_level' => $privacyLevel,
+        ];
+        if ($isOwner || $canView) {
+            if ($isOwner || (int)($row['privacy_show_email'] ?? 1) === 1) {
+                $user['email'] = $row['email'];
+            }
+            $user['goal_type'] = $row['goal_type'] ?? null;
+            $user['race_date'] = $row['race_date'] ?? null;
+            $user['race_distance'] = $row['race_distance'] ?? null;
+            $user['race_target_time'] = $row['race_target_time'] ?? null;
+            $user['target_marathon_date'] = $row['target_marathon_date'] ?? null;
+            $user['target_marathon_time'] = $row['target_marathon_time'] ?? null;
+            $user['training_mode'] = $row['training_mode'] ?? 'ai';
+            $user['privacy_show_email'] = (int)($row['privacy_show_email'] ?? 1);
+            $user['privacy_show_trainer'] = (int)($row['privacy_show_trainer'] ?? 1);
+            $user['privacy_show_calendar'] = (int)($row['privacy_show_calendar'] ?? 1);
+            $user['privacy_show_metrics'] = (int)($row['privacy_show_metrics'] ?? 1);
+            $user['privacy_show_workouts'] = (int)($row['privacy_show_workouts'] ?? 1);
+        }
+
+        $access = [
+            'can_view' => $canView,
+            'can_edit' => $canEdit,
+            'is_owner' => $isOwner,
+            'is_coach' => $isCoach,
+        ];
+
+        $coaches = [];
+        if ($canView && ($isOwner || (int)($row['privacy_show_trainer'] ?? 1) === 1)) {
+            $tableCheck = $db->query("SHOW TABLES LIKE 'user_coaches'");
+            if ($tableCheck && $tableCheck->num_rows > 0) {
+                $stmt = $db->prepare("
+                    SELECT u.id, u.username, u.username_slug, u.avatar_path
+                    FROM user_coaches uc
+                    JOIN users u ON uc.coach_id = u.id
+                    WHERE uc.user_id = ?
+                ");
+                $stmt->bind_param("i", $targetUserId);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($rowCoach = $res->fetch_assoc()) {
+                    $coaches[] = [
+                        'id' => (int)$rowCoach['id'],
+                        'username' => $rowCoach['username'],
+                        'username_slug' => $rowCoach['username_slug'],
+                        'avatar_path' => $rowCoach['avatar_path'],
+                    ];
+                }
+                $stmt->close();
+            }
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'user' => $user,
+                'access' => $access,
+                'coaches' => $coaches,
+            ],
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
     
@@ -223,6 +349,14 @@ try {
             $controller = new WorkoutController($db);
             $controller->saveResult();
             break;
+
+        case 'upload_workout':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WorkoutController($db);
+            $controller->uploadWorkout();
+            break;
             
         case 'get_result':
             $controller = new WorkoutController($db);
@@ -267,6 +401,14 @@ try {
         case 'get_all_workouts_summary':
             $controller = new StatsController($db);
             $controller->getAllWorkoutsSummary();
+            break;
+
+        case 'get_all_workouts_list':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new StatsController($db);
+            $controller->getAllWorkoutsList();
             break;
             
         case 'prepare_weekly_analysis':
@@ -437,12 +579,69 @@ try {
             $controller->dismissNotification();
             break;
 
+        case 'register_push_token':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new PushController($db);
+            $controller->registerToken();
+            break;
+
+        case 'unregister_push_token':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new PushController($db);
+            $controller->unregisterToken();
+            break;
+
         case 'unlink_telegram':
             if ($method !== 'POST') {
                 ErrorHandler::returnJsonError('Метод не поддерживается', 405);
             }
             $controller = new UserController($db);
             $controller->unlinkTelegram();
+            break;
+
+        // IntegrationsController (Huawei, Garmin, Strava)
+        case 'integration_oauth_url':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new IntegrationsController($db);
+            $controller->getOAuthUrl();
+            break;
+
+        case 'integrations_status':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new IntegrationsController($db);
+            $controller->getStatus();
+            break;
+
+        case 'sync_workouts':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new IntegrationsController($db);
+            $controller->syncWorkouts();
+            break;
+
+        case 'unlink_integration':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new IntegrationsController($db);
+            $controller->unlink();
+            break;
+
+        case 'strava_token_error':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new IntegrationsController($db);
+            $controller->getStravaTokenError();
             break;
             
         // AuthController
@@ -602,6 +801,30 @@ try {
             }
             $controller = new ChatController($db);
             $controller->sendMessageToAdmin();
+            break;
+
+        case 'chat_get_direct_dialogs':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getDirectDialogs();
+            break;
+
+        case 'chat_get_direct_messages':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->getDirectMessages();
+            break;
+
+        case 'chat_send_message_to_user':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->sendMessageToUser();
             break;
 
         case 'chat_admin_send_message':

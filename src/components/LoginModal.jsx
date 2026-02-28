@@ -2,7 +2,7 @@
  * Модальное окно входа (используется на лендинге)
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import Modal from './common/Modal';
 import LoginForm from './LoginForm';
@@ -12,7 +12,7 @@ const LoginModal = ({ isOpen, onClose }) => {
 
   const handleSuccess = () => {
     onClose();
-    navigate('/');
+    navigate('/', { replace: true });
   };
 
   if (!isOpen) return null;

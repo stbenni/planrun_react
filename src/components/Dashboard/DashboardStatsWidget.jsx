@@ -8,7 +8,7 @@ import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from './DashboardMetricIcons';
 import './Dashboard.css';
 
-const DashboardStatsWidget = ({ api, onNavigate }) => {
+const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
   const [timeRange, setTimeRange] = useState('month'); // month, quarter, year
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -23,21 +23,26 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
       let workoutsData = { workouts: {} };
       let allResults = { results: [] };
       let plan = null;
+      const vc = viewContext || undefined;
       try {
-        const w = await api.getAllWorkoutsSummary();
+        const w = await api.getAllWorkoutsSummary(vc);
         if (w && typeof w === 'object') {
-          workoutsData = w.workouts != null ? { workouts: w.workouts } : { workouts: typeof w === 'object' && !Array.isArray(w) ? w : {} };
+          const raw = w.data ?? w;
+          workoutsData = raw?.workouts != null ? { workouts: raw.workouts } : { workouts: typeof raw === 'object' && !Array.isArray(raw) ? raw : {} };
         }
       } catch (e) { /* ignore */ }
       try {
-        const r = await api.getAllResults();
+        const r = await api.getAllResults(vc);
         if (r && typeof r === 'object') {
-          const list = Array.isArray(r) ? r : r.results;
+          const raw = r.data ?? r;
+          const list = Array.isArray(raw) ? raw : raw?.results;
           allResults = { results: Array.isArray(list) ? list : [] };
         }
       } catch (e) { /* ignore */ }
       try {
-        plan = await api.getPlan();
+        plan = await api.getPlan(null, vc);
+        const raw = plan?.data ?? plan;
+        plan = raw?.weeks_data ? raw : (typeof raw === 'object' && !Array.isArray(raw) ? raw : null);
       } catch (e) { /* ignore */ }
 
       const processed = processStatsData(workoutsData, allResults, plan, timeRange);
@@ -48,7 +53,7 @@ const DashboardStatsWidget = ({ api, onNavigate }) => {
     } finally {
       setLoading(false);
     }
-  }, [api, timeRange]);
+  }, [api, timeRange, viewContext]);
 
   useEffect(() => {
     loadStats();

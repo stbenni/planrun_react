@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePlanStore from '../stores/usePlanStore';
 import { useChatUnread } from '../hooks/useChatUnread';
@@ -13,25 +13,31 @@ import { useIsTabActive } from '../hooks/useIsTabActive';
 import { ChatSSE } from '../services/ChatSSE';
 import { getAvatarSrc } from '../utils/avatarUrl';
 import SkeletonScreen from '../components/common/SkeletonScreen';
+import { MessageCircle } from 'lucide-react';
+import { BotIcon, MailIcon, UsersIcon } from '../components/common/Icons';
 import './ChatScreen.css';
 
 const TAB_AI = 'ai';
 const TAB_ADMIN = 'admin';
 const TAB_ADMIN_MODE = 'admin_mode';
+const TAB_USER_DIALOG = 'user_dialog';
+const dialogId = (userId) => `dialog_${userId}`;
 
 const SYSTEM_CHATS = [
-  { id: TAB_AI, label: 'AI-тренер', icon: '🤖', description: 'Персональные рекомендации по тренировкам' },
-  { id: TAB_ADMIN, label: 'От администрации', icon: '📩', description: 'Сообщения от администрации сайта' },
+  { id: TAB_AI, label: 'AI-тренер', Icon: BotIcon, description: 'Персональные рекомендации по тренировкам' },
+  { id: TAB_ADMIN, label: 'От администрации', Icon: MailIcon, description: 'Сообщения от администрации сайта' },
 ];
 
-const ADMIN_CHAT = { id: TAB_ADMIN_MODE, label: 'Администраторский', icon: '👥', description: 'Сообщения от пользователей' };
+const ADMIN_CHAT = { id: TAB_ADMIN_MODE, label: 'Администраторский', Icon: UsersIcon, description: 'Сообщения от пользователей' };
 
 const ChatScreen = () => {
   const isTabActive = useIsTabActive('/chat');
   const location = useLocation();
   const { api, user } = useAuthStore();
+  const userTimezone = user?.timezone || (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions?.().timeZone) || 'Europe/Moscow';
   const { total: unreadTotal = 0, by_type: unreadByType = {} } = useChatUnread();
-  const adminUnreadCount = unreadByType.admin ?? 0;
+  const adminUnreadCount = unreadByType.admin_mode ?? 0;
+  const adminTabUnreadCount = unreadByType.admin ?? 0;
   const isAdmin = user?.role === 'admin';
 
   const openAdminModeFromState = location.state?.openAdminMode === true;
@@ -39,19 +45,92 @@ const ChatScreen = () => {
   const selectedUsernameFromState = location.state?.selectedUsername;
   const selectedUserEmailFromState = location.state?.selectedUserEmail;
   const openAdminTabFromState = location.state?.openAdminTab === true;
+  const contactUserSlugFromState = location.state?.contactUserSlug;
+  const contactUserFromState = location.state?.contactUser;
   const scrollToMessageId = location.state?.messageId;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const contactSlugFromUrl = searchParams.get('contact');
 
-  const chats = isAdmin ? [...SYSTEM_CHATS, ADMIN_CHAT] : SYSTEM_CHATS;
+  const [contactUser, setContactUser] = useState(() => contactUserFromState ?? null);
+  const [contactUserLoading, setContactUserLoading] = useState(false);
+
+  useEffect(() => {
+    if (contactUserFromState) {
+      setContactUser(contactUserFromState);
+      return;
+    }
+    if (!contactSlugFromUrl || !api) {
+      if (!contactUserFromState) setContactUser(null);
+      return;
+    }
+    setContactUserLoading(true);
+    api.getUserBySlug(contactSlugFromUrl)
+      .then((data) => {
+        const u = data?.data?.user ?? data?.user ?? data;
+        if (u?.id) {
+          setContactUser({
+            id: u.id,
+            username: u.username ?? u.username_slug ?? contactSlugFromUrl,
+            username_slug: u.username_slug ?? contactSlugFromUrl,
+            avatar_path: u.avatar_path,
+          });
+        } else {
+          setContactUser(null);
+        }
+      })
+      .catch(() => setContactUser(null))
+      .finally(() => setContactUserLoading(false));
+  }, [contactUserFromState, contactSlugFromUrl, api]);
+
+  useEffect(() => {
+    if (!contactUserLoading && contactSlugFromUrl && !contactUser) {
+      setSelectedChat(TAB_AI);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('contact');
+        return next;
+      }, { replace: true });
+    }
+  }, [contactUserLoading, contactSlugFromUrl, contactUser]);
+
+  const [directDialogs, setDirectDialogs] = useState([]);
+  const [directDialogsLoading, setDirectDialogsLoading] = useState(false);
+
+  const contactUnreadCount = contactUser ? (directDialogs.find((d) => d.user_id === contactUser.id)?.unread_count ?? 0) : 0;
+  const userDialogChat = (contactUser || contactSlugFromUrl)
+    ? { id: contactUser ? dialogId(contactUser.id) : TAB_USER_DIALOG, label: `Диалог с ${contactUser?.username || 'пользователем'}`, Icon: MessageCircle, description: 'Персональное сообщение', user: contactUser, unreadCount: contactUnreadCount }
+    : null;
+  const directDialogChats = directDialogs.map((u) => ({
+    id: dialogId(u.user_id),
+    label: `Диалог с ${u.username || 'пользователем'}`,
+    Icon: MessageCircle,
+    description: u.last_message_at ? `Последнее: ${new Date(u.last_message_at).toLocaleString('ru-RU', { timeZone: userTimezone, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '',
+    user: { id: u.user_id, username: u.username, username_slug: u.username_slug, avatar_path: u.avatar_path },
+    unreadCount: u.unread_count ?? 0,
+  }));
+  const hasContactInDialogs = contactUser && directDialogs.some((d) => d.user_id === contactUser.id);
+  const personalChats = [...SYSTEM_CHATS, ...directDialogChats, ...(userDialogChat && !hasContactInDialogs ? [userDialogChat] : [])];
+  const chats = isAdmin
+    ? [...personalChats, ADMIN_CHAT]
+    : personalChats;
 
   // Для админов: вкладки Личный | Администраторский
   const [adminSection, setAdminSection] = useState(() => (openAdminModeFromState ? 'admin_mode' : 'personal'));
 
   const [selectedChat, setSelectedChat] = useState(() => {
     if (openAdminModeFromState) return TAB_ADMIN_MODE;
+    if (contactUserFromState) return dialogId(contactUserFromState.id);
+    if (contactSlugFromUrl) return TAB_USER_DIALOG;
     if (openAdminTabFromState) return TAB_ADMIN;
     if (location.state?.openAITab === true) return TAB_AI;
     return TAB_AI;
   });
+
+  useEffect(() => {
+    if (contactUser && selectedChat === TAB_USER_DIALOG) {
+      setSelectedChat(dialogId(contactUser.id));
+    }
+  }, [contactUser, selectedChat]);
   const [messages, setMessages] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [input, setInput] = useState('');
@@ -61,7 +140,11 @@ const ChatScreen = () => {
   const [error, setError] = useState(null);
   const [recalcMessage, setRecalcMessage] = useState(null);
   const [nextPlanMessage, setNextPlanMessage] = useState(null);
-  const [mobileListVisible, setMobileListVisible] = useState(!openAdminModeFromState && !openAdminTabFromState);
+  const [mobileListVisible, setMobileListVisible] = useState(!openAdminModeFromState && !openAdminTabFromState && !contactUserFromState && !contactSlugFromUrl);
+
+  // Сообщения в диалоге с пользователем (загружаются с сервера)
+  const [userDialogMessages, setUserDialogMessages] = useState([]);
+  const [userDialogLoading, setUserDialogLoading] = useState(false);
 
   // Admin mode: пользователи и сообщения
   const [chatUsers, setChatUsers] = useState([]);
@@ -87,7 +170,7 @@ const ChatScreen = () => {
   };
 
   const loadMessages = useCallback(async () => {
-    if (!api || selectedChat === TAB_ADMIN_MODE) {
+    if (!api || selectedChat === TAB_ADMIN_MODE || selectedChat?.startsWith?.('dialog_')) {
       setLoading(false);
       return;
     }
@@ -117,6 +200,19 @@ const ChatScreen = () => {
     }
   }, [api, selectedChat]);
 
+  const loadDirectDialogs = useCallback(async () => {
+    if (!api) return;
+    setDirectDialogsLoading(true);
+    try {
+      const list = await api.chatGetDirectDialogs();
+      setDirectDialogs(Array.isArray(list) ? list : []);
+    } catch {
+      setDirectDialogs([]);
+    } finally {
+      setDirectDialogsLoading(false);
+    }
+  }, [api]);
+
   const loadChatUsers = useCallback(async () => {
     if (!api || !isAdmin) return;
     setChatUsersLoading(true);
@@ -129,6 +225,21 @@ const ChatScreen = () => {
       setChatUsersLoading(false);
     }
   }, [api, isAdmin]);
+
+  const loadUserDialogMessages = useCallback(async (targetUserId) => {
+    if (!api || !targetUserId) return;
+    setUserDialogLoading(true);
+    try {
+      const res = await api.chatGetDirectMessages(targetUserId, 100, 0);
+      const list = Array.isArray(res?.messages) ? res.messages : [];
+      setUserDialogMessages([...list].reverse());
+      loadDirectDialogs();
+    } catch {
+      setUserDialogMessages([]);
+    } finally {
+      setUserDialogLoading(false);
+    }
+  }, [api, loadDirectDialogs]);
 
   const loadChatAdminMessages = useCallback(async (userId) => {
     if (!api || !userId) return;
@@ -151,12 +262,31 @@ const ChatScreen = () => {
   }, [selectedChat, adminSection, loadChatUsers]);
 
   useEffect(() => {
+    loadDirectDialogs();
+  }, [loadDirectDialogs]);
+
+  useEffect(() => {
     if (selectedChat === TAB_ADMIN_MODE && selectedChatUser?.id) {
       loadChatAdminMessages(selectedChatUser.id);
     } else {
       setChatAdminMessages([]);
     }
   }, [selectedChat, selectedChatUser?.id, loadChatAdminMessages]);
+
+  const dialogUserId = selectedChat?.startsWith?.('dialog_') ? parseInt(selectedChat.replace('dialog_', ''), 10) : (selectedChat === TAB_USER_DIALOG && contactUser?.id) ? contactUser.id : null;
+  const dialogUser = dialogUserId ? directDialogs.find((d) => d.user_id === dialogUserId) : null;
+  const contactUserForDialog = dialogUserId
+    ? (dialogUser ? { id: dialogUser.user_id, username: dialogUser.username, username_slug: dialogUser.username_slug, avatar_path: dialogUser.avatar_path } : contactUser?.id === dialogUserId ? contactUser : null)
+    : contactUser;
+  const isUserDialog = !!dialogUserId && !!contactUserForDialog;
+
+  useEffect(() => {
+    if (isUserDialog && contactUserForDialog?.id) {
+      loadUserDialogMessages(contactUserForDialog.id);
+    } else {
+      setUserDialogMessages([]);
+    }
+  }, [selectedChat, contactUserForDialog?.id, loadUserDialogMessages]);
 
   // Открыть чат с пользователем, переданным из админки (в т.ч. для инициации переписки — пользователь может ещё не быть в списке)
   useEffect(() => {
@@ -179,8 +309,11 @@ const ChatScreen = () => {
 
   // При возврате в чат — подгружаем свежие сообщения с сервера (ответ ИИ мог прийти в фоне)
   useEffect(() => {
-    if (isTabActive && api) loadMessages();
-  }, [isTabActive, api, loadMessages]);
+    if (isTabActive && api) {
+      loadMessages();
+      if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) loadUserDialogMessages(contactUserForDialog.id);
+    }
+  }, [isTabActive, api, loadMessages, selectedChat, contactUserForDialog?.id, loadUserDialogMessages]);
 
   // При открытии чата (AI или «От администрации») помечаем сообщения прочитанными
   useEffect(() => {
@@ -190,21 +323,27 @@ const ChatScreen = () => {
     }
   }, [isTabActive, selectedChat, conversationId, api]);
 
-  // Автопрочитывание: когда в открытом чате приходят новые сообщения (SSE), помечаем их прочитанными
+  // Автопрочитывание и подгрузка: при SSE (chat_unread) — помечаем прочитанными и перезагружаем сообщения открытого чата
   useEffect(() => {
     if (!api || !isTabActive) return;
-    const onUnread = () => {
+    const onSSE = () => {
       if (selectedChat === TAB_AI && conversationId) {
         api.chatMarkRead(conversationId).catch(() => {});
+        loadMessages();
       } else if (selectedChat === TAB_ADMIN && conversationId) {
         api.chatMarkRead(conversationId).catch(() => {});
+        loadMessages();
+      } else if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) {
+        loadUserDialogMessages(contactUserForDialog.id);
       } else if (isAdmin && selectedChat === TAB_ADMIN_MODE && selectedChatUser?.id) {
         api.chatAdminMarkConversationRead(selectedChatUser.id).catch(() => {});
+        loadChatAdminMessages(selectedChatUser.id);
       }
+      loadDirectDialogs();
     };
-    ChatSSE.subscribe(onUnread);
-    return () => ChatSSE.unsubscribe(onUnread);
-  }, [api, isTabActive, selectedChat, conversationId, isAdmin, selectedChatUser?.id]);
+    ChatSSE.subscribe(onSSE);
+    return () => ChatSSE.unsubscribe(onSSE);
+  }, [api, isTabActive, selectedChat, conversationId, isAdmin, selectedChatUser?.id, contactUserForDialog?.id, loadMessages, loadUserDialogMessages, loadChatAdminMessages, loadDirectDialogs]);
 
   useEffect(() => {
     if (scrollToMessageId && messages.length > 0 && selectedChat === TAB_ADMIN) {
@@ -215,12 +354,29 @@ const ChatScreen = () => {
     }
   }, [messages, selectedChat, scrollToMessageId]);
 
+  useEffect(() => {
+    if (isUserDialog && userDialogMessages.length > 0) scrollToBottom();
+  }, [isUserDialog, userDialogMessages.length]);
+
   const handleSelectChat = (chatId) => {
     setSelectedChat(chatId);
     setMobileListVisible(false);
     if (chatId === TAB_ADMIN_MODE) {
       setAdminSection('admin_mode');
       setSelectedChatUser(null);
+    } else if (chatId?.startsWith?.('dialog_')) {
+      const chat = chats.find((c) => c.id === chatId);
+      if (chat?.user) {
+        setContactUser(chat.user);
+        const slug = chat.user.username_slug || chat.user.username;
+        if (slug) {
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('contact', slug);
+            return next;
+          }, { replace: true });
+        }
+      }
     }
   };
 
@@ -257,10 +413,13 @@ const ChatScreen = () => {
     const userMsg = {
       id: 'temp-' + Date.now(),
       sender_type: 'user',
+      sender_id: user?.id,
       content,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    if (selectedChat !== TAB_USER_DIALOG) {
+      setMessages((prev) => [...prev, userMsg]);
+    }
 
     if (selectedChat === TAB_ADMIN) {
       try {
@@ -273,6 +432,29 @@ const ChatScreen = () => {
       } catch (e) {
         setError(e.message || 'Ошибка отправки');
         setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) {
+      if (contactUserForDialog.id === user?.id) {
+        setError('Нельзя отправить сообщение самому себе');
+        setSending(false);
+        return;
+      }
+      setUserDialogMessages((prev) => [...prev, userMsg]);
+      try {
+        const res = await api.chatSendMessageToUser(contactUserForDialog.id, content);
+        setUserDialogMessages((prev) =>
+          prev.map((m) =>
+            m.id === userMsg.id ? { ...m, id: res?.message_id ?? m.id } : m
+          )
+        );
+      } catch (e) {
+        setError(e.message || 'Ошибка отправки');
+        setUserDialogMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
       } finally {
         setSending(false);
       }
@@ -411,8 +593,9 @@ const ChatScreen = () => {
     const d = new Date(createdAt);
     const now = new Date();
     const diff = now - d;
-    if (diff < 86400000) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const tzOpt = { timeZone: userTimezone };
+    if (diff < 86400000) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', ...tzOpt });
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', ...tzOpt });
   };
 
   const isAdminMode = isAdmin && (selectedChat === TAB_ADMIN_MODE || adminSection === 'admin_mode');
@@ -518,7 +701,7 @@ const ChatScreen = () => {
         )}
       </div>
       <nav className="chat-list">
-        {(isAdmin && adminSection === 'personal' ? SYSTEM_CHATS : chats).map((chat) => (
+        {(isAdmin && adminSection === 'personal' ? personalChats : chats).map((chat) => (
           <button
             key={chat.id}
             type="button"
@@ -526,19 +709,34 @@ const ChatScreen = () => {
             onClick={() => handleSelectChat(chat.id)}
             aria-pressed={selectedChat === chat.id}
           >
-            <span className="chat-list-item-icon" aria-hidden="true">{chat.icon}</span>
+            <span className="chat-list-item-icon" aria-hidden="true">
+              {chat.user ? (
+                chat.user.avatar_path ? (
+                  <img src={getAvatarSrc(chat.user.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-list-item-avatar-img" />
+                ) : (
+                  <span className="chat-list-item-avatar-initials">{chat.user.username ? chat.user.username.slice(0, 2).toUpperCase() : '?'}</span>
+                )
+              ) : (
+                chat.Icon && <chat.Icon size={20} />
+              )}
+            </span>
             <div className="chat-list-item-content">
               <span className="chat-list-item-label">{chat.label}</span>
               <span className="chat-list-item-desc">{chat.description}</span>
             </div>
-            {chat.id === TAB_ADMIN && adminUnreadCount > 0 && (
+            {chat.id === TAB_ADMIN && adminTabUnreadCount > 0 && (
               <span className="chat-list-item-badge" aria-hidden="true">
-                {adminUnreadCount > 99 ? '99+' : adminUnreadCount}
+                {adminTabUnreadCount > 99 ? '99+' : adminTabUnreadCount}
               </span>
             )}
             {chat.id === TAB_ADMIN_MODE && adminUnreadCount > 0 && (
               <span className="chat-list-item-badge" aria-hidden="true">
                 {adminUnreadCount > 99 ? '99+' : adminUnreadCount}
+              </span>
+            )}
+            {chat.unreadCount > 0 && (
+              <span className="chat-list-item-badge" aria-hidden="true">
+                {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
               </span>
             )}
           </button>
@@ -556,7 +754,7 @@ const ChatScreen = () => {
             ←
           </button>
           <div className="chat-main-header-info">
-            <span className="chat-main-header-icon" aria-hidden="true">👥</span>
+            <span className="chat-main-header-icon" aria-hidden="true"><UsersIcon size={20} /></span>
             <div>
               <h3 className="chat-main-header-title">Чат с {selectedChatUser.username}</h3>
               <p className="chat-main-header-subtitle">Ответ от администрации</p>
@@ -600,7 +798,7 @@ const ChatScreen = () => {
                   </div>
                   {msg.sender_type === 'admin' && (
                     <div className="chat-message-avatar chat-message-avatar--user">
-                      <span className="chat-avatar-icon">📩</span>
+                      <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
                     </div>
                   )}
                 </div>
@@ -635,12 +833,123 @@ const ChatScreen = () => {
         <p>Выберите пользователя для просмотра чата</p>
       </div>
     )
+  ) : isUserDialog ? (
+    <>
+      {contactUserLoading && (
+        <div className="chat-loading" style={{ padding: 'var(--space-4)' }}>
+          <div className="skeleton-line" style={{ width: '60%', height: 14 }}></div>
+          <div className="skeleton-line" style={{ width: '40%', height: 14 }}></div>
+        </div>
+      )}
+      {!contactUserLoading && contactUserForDialog?.id === user?.id && (
+        <div className="chat-error" role="alert">
+          Вы не можете написать себе. Перейдите в другой чат.
+        </div>
+      )}
+      {!contactUserLoading && (
+      <div className="chat-main-header">
+        <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
+        <div className="chat-main-header-info">
+          <span className="chat-main-header-avatar" aria-hidden="true">
+            {contactUserForDialog?.avatar_path ? (
+              <img src={getAvatarSrc(contactUserForDialog.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-header-avatar-img" />
+            ) : (
+              <span className="chat-header-avatar-initials">{contactUserForDialog?.username ? contactUserForDialog.username.slice(0, 2).toUpperCase() : '?'}</span>
+            )}
+          </span>
+          <div>
+            <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
+            <p className="chat-main-header-subtitle">Сообщение придёт в чат «От администрации» получателя</p>
+          </div>
+        </div>
+      </div>
+      )}
+      {!contactUserLoading && (
+      <div className="chat-messages">
+        {userDialogLoading ? (
+          <div className="chat-loading">
+            <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
+            <div className="skeleton-line" style={{ width: '50%', height: 14 }}></div>
+            <div className="skeleton-line" style={{ width: '60%', height: 14, marginLeft: 'auto' }}></div>
+          </div>
+        ) : userDialogMessages.length === 0 ? (
+          <div className="chat-empty">
+            <p>Напишите сообщение пользователю {contactUserForDialog?.username || 'пользователю'}. Оно будет доставлено в его чат.</p>
+          </div>
+        ) : (
+          <>
+            {userDialogMessages.map((msg) => {
+              const isFromMe = msg.sender_type === 'user' && msg.sender_id === user?.id;
+              const isFromOtherUser = msg.sender_type === 'user' && msg.sender_id !== user?.id;
+              return (
+                <div key={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
+                  {!isFromMe && (
+                    <div className="chat-message-avatar chat-message-avatar--other">
+                      {msg.sender_type === 'admin' ? (
+                        <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
+                      ) : msg.sender_avatar_path ? (
+                        <img src={getAvatarSrc(msg.sender_avatar_path, api?.baseUrl || '/api')} alt="" className="chat-avatar-img" />
+                      ) : (
+                        <span className="chat-avatar-initials">{msg.sender_username ? msg.sender_username.slice(0, 2).toUpperCase() : '?'}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="chat-message-bubble">
+                    {isFromOtherUser && msg.sender_username && (
+                      <div className="chat-message-sender-name">{msg.sender_username}</div>
+                    )}
+                    {msg.sender_type === 'admin' && (
+                      <div className="chat-message-sender-name">Администрация</div>
+                    )}
+                    <div className="chat-message-content">{msg.content || ''}</div>
+                    {msg.created_at && <div className="chat-message-time">{formatTime(msg.created_at)}</div>}
+                  </div>
+                  {isFromMe && (
+                    <div className="chat-message-avatar chat-message-avatar--user">
+                      {user?.avatar_path ? (
+                        <img src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-avatar-img" />
+                      ) : (
+                        <span className="chat-avatar-initials">{user?.username ? user.username.slice(0, 2).toUpperCase() : '?'}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
+      )}
+      {error && (
+        <div className="chat-error" role="alert">
+          {error}
+          <button type="button" onClick={() => setError(null)} aria-label="Закрыть">×</button>
+        </div>
+      )}
+      {!contactUserLoading && (
+      <form className="chat-input-form" onSubmit={handleSubmit}>
+        <input
+          type="text"
+          className="chat-input"
+          placeholder={contactUserForDialog?.id === user?.id ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={sending || userDialogLoading || contactUserForDialog?.id === user?.id}
+          maxLength={4000}
+        />
+        <button type="submit" className="chat-send-btn" disabled={sending || userDialogLoading || !input.trim() || contactUserForDialog?.id === user?.id} title={sending ? 'Отправка…' : 'Отправить'}>
+          {sending ? '…' : '➤'}
+        </button>
+      </form>
+      )}
+    </>
   ) : selectedChat ? (
     <>
       <div className="chat-main-header">
         <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
         <div className="chat-main-header-info">
-          <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.icon}</span>
+          <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.Icon && <currentChat.Icon size={20} />}</span>
           <div>
             <h3 className="chat-main-header-title">{currentChat?.label}</h3>
             <p className="chat-main-header-subtitle">{currentChat?.description}</p>
@@ -669,22 +978,37 @@ const ChatScreen = () => {
             <p>
               {isAdminChat ? 'Сообщений от администрации пока нет.' : 'Напишите сообщение — AI-тренер ответит на основе вашего профиля, плана и статистики.'}
             </p>
+            {isAdminChat && contactUserSlugFromState && (
+              <p className="chat-empty-hint">Хотите связаться с пользователем @{contactUserSlugFromState}? Опишите это в сообщении ниже — администрация передаст вашу просьбу.</p>
+            )}
             {!isAdminChat && <p className="chat-empty-hint">Например: «Что лучше делать завтра: отдых или лёгкий бег?»</p>}
           </div>
         ) : (
           <>
-            {messages.map((msg) => (
-              <div key={msg.id} data-message-id={msg.id} className={`chat-message chat-message--${msg.sender_type}`}>
-                {msg.sender_type !== 'user' && (
+            {messages.map((msg) => {
+              const isFromMe = msg.sender_type === 'user' && msg.sender_id === user?.id;
+              const isFromOtherUser = msg.sender_type === 'user' && msg.sender_id !== user?.id;
+              return (
+              <div key={msg.id} data-message-id={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
+                {!isFromMe && (
                   <div className="chat-message-avatar chat-message-avatar--other">
                     {msg.sender_type === 'ai' ? (
-                      <span className="chat-avatar-icon">🤖</span>
+                      <span className="chat-avatar-icon" aria-hidden><BotIcon size={20} /></span>
+                    ) : isFromOtherUser && (msg.sender_avatar_path || msg.sender_username) ? (
+                      msg.sender_avatar_path ? (
+                        <img src={getAvatarSrc(msg.sender_avatar_path, api?.baseUrl || '/api')} alt="" className="chat-avatar-img" />
+                      ) : (
+                        <span className="chat-avatar-initials">{msg.sender_username ? msg.sender_username.slice(0, 2).toUpperCase() : '?'}</span>
+                      )
                     ) : (
-                      <span className="chat-avatar-icon">📩</span>
+                      <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
                     )}
                   </div>
                 )}
                 <div className="chat-message-bubble">
+                  {isFromOtherUser && msg.sender_username && (
+                    <div className="chat-message-sender-name">{msg.sender_username}</div>
+                  )}
                   <div className="chat-message-content">
                     {msg.content ? (
                       msg.content
@@ -713,7 +1037,7 @@ const ChatScreen = () => {
                   </div>
                   {msg.created_at && <div className="chat-message-time">{formatTime(msg.created_at)}</div>}
                 </div>
-                {msg.sender_type === 'user' && (
+                {isFromMe && (
                   <div className="chat-message-avatar chat-message-avatar--user">
                     {user?.avatar_path ? (
                       <img src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-avatar-img" />
@@ -723,7 +1047,8 @@ const ChatScreen = () => {
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
             <div ref={messagesEndRef} />
           </>
         )}

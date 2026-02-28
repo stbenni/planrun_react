@@ -34,9 +34,6 @@
 
 /* Логотип */
 .public-header-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   cursor: pointer;
   transition: transform 200ms ease;
 }
@@ -45,18 +42,58 @@
   transform: scale(1.05);
 }
 
-.logo-text {
+.public-header-logo .logo-text {
   font-size: 20px;
-  font-weight: 800;
+  font-style: italic;
   color: var(--primary-500);
   letter-spacing: -0.5px;
 }
 
-[data-theme="dark"] .logo-text {
+.public-header-logo .logo-plan {
+  font-weight: 500;
+}
+
+.public-header-logo .logo-run {
+  font-weight: 800;
+}
+
+[data-theme="dark"] .public-header-logo .logo-text {
   color: var(--primary-500);
 }
 
-/* Кнопка регистрации */
+/* Кнопки Вход и Регистрация */
+.public-header-auth {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.public-header-login-btn {
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.public-header-login-btn:hover {
+  background: var(--gray-100);
+  border-color: var(--gray-300);
+}
+
+[data-theme="dark"] .public-header-login-btn {
+  color: var(--text-primary);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .public-header-login-btn:hover {
+  background: var(--bg-tertiary);
+}
+
 .public-header-register-btn {
   padding: 10px 24px;
   background: var(--primary-500);
@@ -85,10 +122,15 @@
     padding: 0 16px;
   }
 
-  .logo-text {
+  .public-header-logo .logo-text {
     font-size: 18px;
   }
 
+  .public-header-auth {
+    gap: var(--space-2);
+  }
+
+  .public-header-login-btn,
   .public-header-register-btn {
     padding: 8px 16px;
     font-size: 14px;

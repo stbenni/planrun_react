@@ -59,16 +59,18 @@ class AuthController extends BaseController {
         
         try {
             $data = $this->getJsonBody();
-            $username = $data['username'] ?? null;
-            $password = $data['password'] ?? null;
-            $useJwt = $data['use_jwt'] ?? false; // Для мобильных приложений
-            
-            if (!$username || !$password) {
-                $this->returnError('Имя пользователя и пароль обязательны', 400);
+            $username = isset($data['username']) ? trim((string) $data['username']) : null;
+            $password = isset($data['password']) ? (string) $data['password'] : null;
+            $useJwt = $data['use_jwt'] ?? false;
+            $deviceId = $data['device_id'] ?? null;
+
+            if (!$username || $password === '' || $password === null) {
+                $bodyHint = ($data === null || $data === []) ? ' (body пустой)' : '';
+                $this->returnError('Имя пользователя и пароль обязательны' . $bodyHint, 400);
                 return;
             }
-            
-            $result = $this->authService->login($username, $password, $useJwt);
+
+            $result = $this->authService->login($username, $password, $useJwt, $deviceId);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -105,13 +107,14 @@ class AuthController extends BaseController {
         try {
             $data = $this->getJsonBody();
             $refreshToken = $data['refresh_token'] ?? null;
-            
+            $deviceId = $data['device_id'] ?? null;
+
             if (!$refreshToken) {
                 $this->returnError('Refresh token обязателен', 400);
                 return;
             }
-            
-            $result = $this->authService->refreshToken($refreshToken);
+
+            $result = $this->authService->refreshToken($refreshToken, $deviceId);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -220,7 +223,7 @@ class AuthController extends BaseController {
                 $role = 'user';
                 $onboardingCompleted = 1;
                 $row = null;
-                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone FROM users WHERE id = ? LIMIT 1');
+                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone, training_mode FROM users WHERE id = ? LIMIT 1');
                 if ($stmt) {
                     $stmt->bind_param('i', $userId);
                     $stmt->execute();
@@ -239,6 +242,7 @@ class AuthController extends BaseController {
                     }
                 }
                 $timezone = (isset($row) && !empty($row['timezone'])) ? $row['timezone'] : 'Europe/Moscow';
+                $trainingMode = (isset($row['training_mode']) && $row['training_mode'] !== '' && $row['training_mode'] !== null) ? $row['training_mode'] : 'ai';
                 $this->returnSuccess([
                     'authenticated' => true,
                     'user_id' => $userId,
@@ -247,7 +251,8 @@ class AuthController extends BaseController {
                     'role' => $role,
                     'auth_method' => $authMethod,
                     'onboarding_completed' => $onboardingCompleted,
-                    'timezone' => $timezone
+                    'timezone' => $timezone,
+                    'training_mode' => $trainingMode
                 ]);
                 return;
             }

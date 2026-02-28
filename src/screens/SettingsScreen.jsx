@@ -6,10 +6,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
 import BiometricService from '../services/BiometricService';
+import PinAuthService from '../services/PinAuthService';
+import { isNativeCapacitor } from '../services/TokenStorageService';
+import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon } from '../components/common/Icons';
 import './SettingsScreen.css';
 
 function getSystemTheme() {
@@ -24,6 +29,10 @@ function getThemePreference() {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   document.body.setAttribute('data-theme', theme);
+  const meta = document.getElementById('theme-color-meta');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1A1A' : '#FFFFFF');
+  const manifestLink = document.querySelector('link[rel="manifest"]');
+  if (manifestLink) manifestLink.href = theme === 'dark' ? '/site.webmanifest.dark' : '/site.webmanifest';
 }
 
 const VALID_TABS = ['profile', 'training', 'social', 'integrations'];
@@ -45,8 +54,16 @@ const SettingsScreen = ({ onLogout }) => {
   const [showBiometricSection, setShowBiometricSection] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricDisabling, setBiometricDisabling] = useState(false);
   const [biometricEnabling, setBiometricEnabling] = useState(false);
+  const [pinEnabled, setPinEnabled] = useState(false);
+  const [pinDisabling, setPinDisabling] = useState(false);
+  const [showPinSetupModal, setShowPinSetupModal] = useState(false);
+  const [pinSetupTokens, setPinSetupTokens] = useState(null);
+  const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false });
+  const [huaweiSyncing, setHuaweiSyncing] = useState(false);
+  const [stravaSyncing, setStravaSyncing] = useState(false);
+  const [polarSyncing, setPolarSyncing] = useState(false);
+  const [stravaDebug, setStravaDebug] = useState(null);
 
   // Вспомогательная функция для нормализации значений
   const normalizeValue = (value) => {
@@ -93,7 +110,6 @@ const SettingsScreen = ({ onLogout }) => {
     
     // Здоровье
     health_notes: '',
-    device_type: '',
     health_program: '',
     health_plan_weeks: '',
     easy_pace_min: '', // формат MM:SS
@@ -109,9 +125,20 @@ const SettingsScreen = ({ onLogout }) => {
     
     // Приватность
     privacy_level: 'public',
+    privacy_show_email: true,
+    privacy_show_trainer: true,
+    privacy_show_calendar: true,
+    privacy_show_metrics: true,
+    privacy_show_workouts: true,
     
     // Telegram
     telegram_id: '',
+
+    // Push-уведомления
+    push_workouts_enabled: 1,
+    push_chat_enabled: 1,
+    push_workout_hour: 20,
+    push_workout_minute: 0,
   });
 
   // Синхронизация вкладки с URL (при переходе по ссылке с ?tab=)
@@ -120,10 +147,51 @@ const SettingsScreen = ({ onLogout }) => {
     if (tabFromUrl && VALID_TABS.includes(tabFromUrl)) setActiveTab(tabFromUrl);
   }, [searchParams]);
 
-  // Статус биометрии (только на Android/iOS в Capacitor; блок показываем всегда, при недоступности — подсказка)
+  // Обработка OAuth callback (connected=huawei|strava, error=...)
   useEffect(() => {
-    const platform = typeof window !== 'undefined' && window.Capacitor?.getPlatform?.();
-    if (!platform || !['android', 'ios'].includes(platform)) return;
+    const connected = searchParams.get('connected');
+    const errorParam = searchParams.get('error');
+    if (connected === 'huawei') {
+      setIntegrationsStatus(prev => ({ ...prev, huawei: true }));
+      setMessage({ type: 'success', text: 'Huawei Health успешно подключен' });
+      setSearchParams({ tab: 'integrations' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (connected === 'strava') {
+      setIntegrationsStatus(prev => ({ ...prev, strava: true }));
+    } else if (connected === 'polar') {
+      setIntegrationsStatus(prev => ({ ...prev, polar: true }));
+      setMessage({ type: 'success', text: 'Strava успешно подключен' });
+      setSearchParams({ tab: 'integrations' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (errorParam) {
+      setMessage({ type: 'error', text: errorParam === 'not_authenticated' ? 'Требуется авторизация' : decodeURIComponent(errorParam) });
+      setSearchParams({ tab: 'integrations' });
+      const currentApi = api || useAuthStore.getState().api;
+      const errDecoded = decodeURIComponent(errorParam || '');
+      if (currentApi && (errDecoded.includes('Strava') || errDecoded.includes('токена'))) {
+        currentApi.getStravaTokenError().then((res) => {
+          const d = res?.data?.debug ?? res?.debug;
+          if (d) setStravaDebug(d);
+        }).catch(() => {});
+      }
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (activeTab !== 'integrations') return;
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    currentApi.getIntegrationsStatus()
+      .then((res) => {
+        const data = res?.data?.integrations ?? res?.integrations ?? {};
+        setIntegrationsStatus(prev => ({ ...prev, ...data }));
+      })
+      .catch(() => {});
+  }, [activeTab, api]);
+
+  // Статус биометрии и PIN (только на Android/iOS; используем isNativeCapacitor для надёжной проверки)
+  useEffect(() => {
+    if (!isNativeCapacitor()) return;
     setShowBiometricSection(true);
     BiometricService.checkAvailability()
       .then((r) => {
@@ -137,6 +205,7 @@ const SettingsScreen = ({ onLogout }) => {
         setBiometricAvailable(false);
       });
     BiometricService.isBiometricEnabled().then(setBiometricEnabled);
+    PinAuthService.isPinEnabled().then(setPinEnabled);
   }, []);
 
   // Загрузка профиля
@@ -325,7 +394,6 @@ const SettingsScreen = ({ onLogout }) => {
           training_mode: String(userData.training_mode || 'ai'),
           training_start_date: formatDate(userData.training_start_date),
           health_notes: String(userData.health_notes || ''),
-          device_type: String(userData.device_type || ''),
           health_program: String(userData.health_program || ''),
           health_plan_weeks: userData.health_plan_weeks ? String(userData.health_plan_weeks) : '',
           // Конвертируем секунды в формат MM:SS для отображения
@@ -348,7 +416,18 @@ const SettingsScreen = ({ onLogout }) => {
           last_race_date: formatDate(userData.last_race_date),
           avatar_path: String(userData.avatar_path || ''),
           privacy_level: String(userData.privacy_level || 'public'),
+          privacy_show_email: Boolean(userData.privacy_show_email !== 0 && userData.privacy_show_email !== '0'),
+          privacy_show_trainer: Boolean(userData.privacy_show_trainer !== 0 && userData.privacy_show_trainer !== '0'),
+          privacy_show_calendar: Boolean(userData.privacy_show_calendar !== 0 && userData.privacy_show_calendar !== '0'),
+          privacy_show_metrics: Boolean(userData.privacy_show_metrics !== 0 && userData.privacy_show_metrics !== '0'),
+          privacy_show_workouts: Boolean(userData.privacy_show_workouts !== 0 && userData.privacy_show_workouts !== '0'),
+          username_slug: String(userData.username_slug || userData.username || ''),
+          public_token: String(userData.public_token || ''),
           telegram_id: userData.telegram_id ? String(userData.telegram_id) : '',
+          push_workouts_enabled: userData.push_workouts_enabled !== 0 && userData.push_workouts_enabled !== '0' ? 1 : 0,
+          push_chat_enabled: userData.push_chat_enabled !== 0 && userData.push_chat_enabled !== '0' ? 1 : 0,
+          push_workout_hour: Math.min(23, Math.max(0, parseInt(userData.push_workout_hour, 10) || 20)),
+          push_workout_minute: Math.min(59, Math.max(0, parseInt(userData.push_workout_minute, 10) || 0)),
         };
         skipNextAutoSaveRef.current = true;
         setFormData(newFormData);
@@ -453,7 +532,6 @@ const SettingsScreen = ({ onLogout }) => {
         training_mode: formData.training_mode,
         training_start_date: normalizeValue(formData.training_start_date),
         health_notes: normalizeValue(formData.health_notes),
-        device_type: normalizeValue(formData.device_type),
         health_program: normalizeValue(formData.health_program),
         health_plan_weeks: normalizeValue(formData.health_plan_weeks),
         easy_pace_sec: normalizeValue(formData.easy_pace_sec),
@@ -464,6 +542,15 @@ const SettingsScreen = ({ onLogout }) => {
         last_race_date: normalizeValue(formData.last_race_date),
         avatar_path: normalizeValue(formData.avatar_path),
         privacy_level: formData.privacy_level,
+        privacy_show_email: formData.privacy_show_email ? 1 : 0,
+        privacy_show_trainer: formData.privacy_show_trainer ? 1 : 0,
+        privacy_show_calendar: formData.privacy_show_calendar ? 1 : 0,
+        privacy_show_metrics: formData.privacy_show_metrics ? 1 : 0,
+        privacy_show_workouts: formData.privacy_show_workouts ? 1 : 0,
+        push_workouts_enabled: formData.push_workouts_enabled ? 1 : 0,
+        push_chat_enabled: formData.push_chat_enabled ? 1 : 0,
+        push_workout_hour: Math.min(23, Math.max(0, parseInt(formData.push_workout_hour, 10) || 20)),
+        push_workout_minute: Math.min(59, Math.max(0, parseInt(formData.push_workout_minute, 10) || 0)),
       };
       
       console.log('=== SAVING PROFILE ===');
@@ -499,29 +586,60 @@ const SettingsScreen = ({ onLogout }) => {
 
   const handleLogout = async () => {
     await onLogout();
-    navigate('/login');
+    if (isNativeCapacitor()) {
+      window.location.href = '/landing';
+    } else {
+      navigate('/login');
+    }
   };
 
-  const handleEnableBiometric = async () => {
+  const handleEnableLock = async () => {
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'Войдите в аккаунт, затем включите вход по отпечатку' });
+      setMessage({ type: 'error', text: 'Войдите в аккаунт, затем включите блокировку' });
       return;
     }
+    const pinAvailable = await PinAuthService.isAvailable();
+    if (!pinAvailable) {
+      setMessage({ type: 'error', text: 'Блокировка доступна только в мобильном приложении (Android/iOS)' });
+      return;
+    }
+    const accessToken = await currentApi.getToken();
+    const refreshToken = await currentApi.getRefreshToken();
+    if (!accessToken || !refreshToken) {
+      setMessage({ type: 'error', text: 'Нет сохранённой сессии. Войдите по паролю.' });
+      return;
+    }
+    setPinSetupTokens({ accessToken, refreshToken });
+    setShowPinSetupModal(true);
+  };
+
+  const handlePinSetupSuccess = () => {
+    setPinEnabled(true);
+    setShowPinSetupModal(false);
+    setPinSetupTokens(null);
+    setMessage({ type: 'success', text: 'Блокировка включена. При желании добавьте отпечаток для быстрого входа.' });
+  };
+
+  const handleAddFingerprint = async () => {
+    if (!isNativeCapacitor()) return;
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
     setBiometricEnabling(true);
     setMessage({ type: '', text: '' });
     try {
-      const authPromise = BiometricService.authenticate('Подтвердите отпечаток для входа в PlanRun');
-      const timeoutMs = 15000;
+      const availability = await BiometricService.checkAvailability();
+      if (!availability.available) {
+        setMessage({ type: 'error', text: availability.reason || availability.error || 'Добавьте отпечаток в настройках устройства' });
+        return;
+      }
       const authResult = await Promise.race([
-        authPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут: диалог отпечатка не открылся')), timeoutMs))
+        BiometricService.authenticate('Подтвердите отпечаток для входа в PlanRun'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут')), 15000))
       ]);
       if (!authResult?.success) {
         const err = authResult?.error || '';
-        if (err.includes('enrolled') || err.includes('none') || err.includes('not enrolled')) {
-          setMessage({ type: 'error', text: 'Добавьте отпечаток в настройках устройства' });
-        } else if (err.includes('cancel') || err.includes('Cancel') || err.includes('user')) {
+        if (err.includes('cancel') || err.includes('Cancel')) {
           setMessage({ type: 'error', text: 'Проверка отпечатка отменена' });
         } else {
           setMessage({ type: 'error', text: err || 'Не удалось проверить отпечаток' });
@@ -531,35 +649,36 @@ const SettingsScreen = ({ onLogout }) => {
       const accessToken = await currentApi.getToken();
       const refreshToken = await currentApi.getRefreshToken();
       if (!accessToken || !refreshToken) {
-        setMessage({ type: 'error', text: 'Нет сохранённой сессии. Войдите по паролю, затем включите отпечаток.' });
+        setMessage({ type: 'error', text: 'Нет сохранённой сессии.' });
         return;
       }
-      await BiometricService.saveTokens(accessToken, refreshToken);
+      const saved = await BiometricService.saveTokens(accessToken, refreshToken);
+      if (!saved) {
+        setMessage({ type: 'error', text: 'Не удалось сохранить. Попробуйте снова.' });
+        return;
+      }
       setBiometricEnabled(true);
       setBiometricAvailable(true);
-      setMessage({ type: 'success', text: 'Вход по отпечатку включён' });
+      setMessage({ type: 'success', text: 'Вход по отпечатку добавлен' });
     } catch (e) {
-      const msg = e?.message || String(e);
-      if (msg.includes('enrolled') || msg.includes('none') || msg.includes('not enrolled')) {
-        setMessage({ type: 'error', text: 'Добавьте отпечаток в настройках устройства' });
-      } else {
-        setMessage({ type: 'error', text: msg || 'Не удалось включить вход по отпечатку' });
-      }
+      setMessage({ type: 'error', text: e?.message || 'Не удалось добавить отпечаток' });
     } finally {
       setBiometricEnabling(false);
     }
   };
 
-  const handleDisableBiometric = async () => {
-    setBiometricDisabling(true);
+  const handleDisableLock = async () => {
+    setPinDisabling(true);
     try {
+      await PinAuthService.clearPin();
       await BiometricService.clearTokens();
+      setPinEnabled(false);
       setBiometricEnabled(false);
-      setMessage({ type: 'success', text: 'Вход по отпечатку отключён' });
+      setMessage({ type: 'success', text: 'Блокировка отключена' });
     } catch (e) {
-      setMessage({ type: 'error', text: 'Не удалось отключить биометрию' });
+      setMessage({ type: 'error', text: 'Не удалось отключить блокировку' });
     } finally {
-      setBiometricDisabling(false);
+      setPinDisabling(false);
     }
   };
 
@@ -749,11 +868,27 @@ const SettingsScreen = ({ onLogout }) => {
             <button
               type="button"
               className="settings-message-close"
-              onClick={() => setMessage({ type: '', text: '' })}
+              onClick={() => { setMessage({ type: '', text: '' }); setStravaDebug(null); }}
               aria-label="Закрыть"
             >
               ×
             </button>
+          </div>
+        )}
+        {message.type === 'success' && message.text && (
+          <div className="settings-message settings-message--success" role="status">
+            <span>{message.text}</span>
+          </div>
+        )}
+        {stravaDebug && activeTab === 'integrations' && (
+          <div className="settings-message settings-message--error settings-strava-debug">
+            <strong>Отладка Strava:</strong>
+            <pre>
+              HTTP {stravaDebug.http_code}
+              redirect_uri: {stravaDebug.redirect_uri_used || '(не задан)'}
+              Response: {stravaDebug.response || '(пусто)'}
+            </pre>
+            <button type="button" className="btn btn-secondary btn-sm settings-strava-debug-btn" onClick={() => setStravaDebug(null)}>Скрыть</button>
           </div>
         )}
         <div className="settings-tabs">
@@ -761,25 +896,25 @@ const SettingsScreen = ({ onLogout }) => {
             className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => handleTabChange('profile')}
           >
-            👤 Профиль
+            <UserIcon size={18} className="tab-icon" aria-hidden /> Профиль
           </button>
           <button
             className={`tab-button ${activeTab === 'training' ? 'active' : ''}`}
             onClick={() => handleTabChange('training')}
           >
-            🏃 Тренировки
+            <RunningIcon size={18} className="tab-icon" aria-hidden /> Тренировки
           </button>
           <button
             className={`tab-button ${activeTab === 'social' ? 'active' : ''}`}
             onClick={() => handleTabChange('social')}
           >
-            🔒 Конфиденциальность
+            <LockIcon size={18} className="tab-icon" aria-hidden /> Конфиденциальность
           </button>
           <button
             className={`tab-button ${activeTab === 'integrations' ? 'active' : ''}`}
             onClick={() => handleTabChange('integrations')}
           >
-            🔗 Интеграции
+            <LinkIcon size={18} className="tab-icon" aria-hidden /> Интеграции
           </button>
         </div>
 
@@ -787,7 +922,7 @@ const SettingsScreen = ({ onLogout }) => {
         {activeTab === 'profile' && (
           <div className="tab-content active">
             <div className="settings-section">
-              <h2>👤 Личная информация</h2>
+              <h2><UserIcon size={22} className="section-icon" aria-hidden /> Личная информация</h2>
               <p>Основные данные вашего профиля</p>
 
               {/* Аватар */}
@@ -796,17 +931,15 @@ const SettingsScreen = ({ onLogout }) => {
                 <div className="avatar-upload-section">
                   {formData.avatar_path ? (
                     <div className="avatar-preview-container">
-                      <img
+                        <img
                         src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api')}
                         alt="Аватар"
-                        className="avatar-preview"
-                        style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--primary-500)' }}
+                        className="avatar-preview avatar-preview--current"
                       />
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        className="btn btn-secondary btn-sm avatar-remove-btn"
                         onClick={handleRemoveAvatar}
-                        style={{ marginTop: '10px' }}
                       >
                         Удалить аватар
                       </button>
@@ -820,19 +953,10 @@ const SettingsScreen = ({ onLogout }) => {
                         onChange={handleAvatarUpload}
                         style={{ display: 'none' }}
                       />
-                      <label htmlFor="avatar-upload" className="avatar-upload-label" style={{ 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        alignItems: 'center', 
-                        padding: '20px', 
-                        border: '2px dashed var(--gray-300)', 
-                        borderRadius: '8px', 
-                        cursor: 'pointer',
-                        transition: 'border-color 0.2s'
-                      }}>
-                        <span style={{ fontSize: '32px', marginBottom: '8px' }}>📷</span>
-                        <span style={{ fontWeight: '600', marginBottom: '4px' }}>Загрузить аватар</span>
-                        <small style={{ color: 'var(--gray-600)' }}>JPEG, PNG, GIF, WebP (макс. 5MB)</small>
+                      <label htmlFor="avatar-upload" className="avatar-upload-label">
+                        <ImageIcon size={32} className="avatar-upload-icon" aria-hidden />
+                        <span>Загрузить аватар</span>
+                        <small>JPEG, PNG, GIF, WebP (макс. 5MB)</small>
                       </label>
                     </div>
                   )}
@@ -928,7 +1052,7 @@ const SettingsScreen = ({ onLogout }) => {
               </div>
             </div>
             <div className="settings-section">
-              <h2>🎨 Внешний вид</h2>
+              <h2><PaletteIcon size={22} className="section-icon" aria-hidden /> Внешний вид</h2>
               <div className="theme-options" role="radiogroup" aria-label="Тема оформления">
                 {[
                   { value: 'system', label: 'Как в системе' },
@@ -959,35 +1083,102 @@ const SettingsScreen = ({ onLogout }) => {
             </div>
 
             {showBiometricSection && (
-              <div className="settings-section settings-biometric-section">
-                <h2>Отпечаток пальца</h2>
+              <div className="settings-section settings-app-lock-section">
+                <h2>Блокировка приложения</h2>
+                <p className="settings-app-lock-desc">
+                  PIN обязателен для разблокировки. Отпечаток пальца — опционально, для быстрого входа.
+                </p>
                 <div className="settings-biometric-row">
-                  <p>Вход по отпечатку: {biometricEnabled ? 'включён' : 'выключен'}</p>
-                  {biometricEnabled ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={handleDisableBiometric}
-                      disabled={biometricDisabling}
-                    >
-                      {biometricDisabling ? '…' : 'Отключить'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={handleEnableBiometric}
-                      disabled={biometricEnabling}
-                    >
-                      {biometricEnabling ? '…' : 'Включить'}
-                    </button>
-                  )}
+                  <p>
+                    {!pinEnabled
+                      ? 'Блокировка выключена'
+                      : biometricEnabled
+                        ? 'Включена (PIN + отпечаток)'
+                        : 'Включена (PIN)'}
+                  </p>
+                  <div className="settings-app-lock-actions">
+                    {!pinEnabled ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleEnableLock}
+                      >
+                        Включить
+                      </button>
+                    ) : (
+                      <>
+                        {!biometricEnabled && biometricAvailable && (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={handleAddFingerprint}
+                            disabled={biometricEnabling}
+                          >
+                            {biometricEnabling ? '…' : 'Добавить отпечаток'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleDisableLock}
+                          disabled={pinDisabling}
+                        >
+                          {pinDisabling ? '…' : 'Отключить'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                {!biometricAvailable && !biometricEnabled && (
-                  <p className="settings-biometric-hint">На некоторых устройствах проверка может не срабатывать — нажмите «Включить» и подтвердите отпечаток.</p>
+                {!biometricAvailable && pinEnabled && !biometricEnabled && (
+                  <p className="settings-biometric-hint">На этом устройстве отпечаток недоступен.</p>
                 )}
               </div>
             )}
+
+            {isNativeCapacitor() && (
+              <div className="settings-section">
+                <h2><BellIcon size={22} className="section-icon" aria-hidden /> Push-уведомления</h2>
+                <p className="settings-section-desc">Выберите, когда присылать уведомления на устройство</p>
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={formData.push_workouts_enabled === 1}
+                      onChange={(e) => handleInputChange('push_workouts_enabled', e.target.checked ? 1 : 0)}
+                    />
+                    <span>Напоминания о тренировках</span>
+                  </label>
+                </div>
+                {formData.push_workouts_enabled === 1 && (
+                  <div className="form-group">
+                    <label>Время напоминания</label>
+                    <input
+                      type="time"
+                      value={`${String(formData.push_workout_hour).padStart(2, '0')}:${String(formData.push_workout_minute).padStart(2, '0')}`}
+                      onChange={(e) => {
+                        const [h, m] = (e.target.value || '20:00').split(':').map((n) => parseInt(n, 10) || 0);
+                        setFormData((prev) => ({
+                          ...prev,
+                          push_workout_hour: Math.min(23, Math.max(0, h)),
+                          push_workout_minute: Math.min(59, Math.max(0, m)),
+                        }));
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={formData.push_chat_enabled === 1}
+                      onChange={(e) => handleInputChange('push_chat_enabled', e.target.checked ? 1 : 0)}
+                    />
+                    <span>Сообщения в чате</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
@@ -996,7 +1187,7 @@ const SettingsScreen = ({ onLogout }) => {
           <div className="tab-content active" key={`training-${formData.weekly_base_km}-${formData.preferred_days?.length}`}>
             {/* Секция: Цели */}
             <div className="settings-section">
-              <h2>🎯 Мои цели</h2>
+              <h2><TargetIcon size={22} className="section-icon" aria-hidden /> Мои цели</h2>
               <p>Расскажите о ваших целях для персонализированного плана</p>
 
               <div className="form-group">
@@ -1172,7 +1363,7 @@ const SettingsScreen = ({ onLogout }) => {
 
             {/* Секция: Настройки тренировок */}
             <div className="settings-section">
-              <h2>🏃 Настройки тренировок</h2>
+              <h2><RunningIcon size={22} className="section-icon" aria-hidden /> Настройки тренировок</h2>
               <p>Параметры для создания персонализированного плана</p>
 
               <div className="form-group">
@@ -1401,7 +1592,7 @@ const SettingsScreen = ({ onLogout }) => {
 
             {/* Секция: Здоровье и опыт */}
             <div className="settings-section">
-              <h2>💪 Здоровье и опыт</h2>
+              <h2><OtherIcon size={22} className="section-icon" aria-hidden /> Здоровье и опыт</h2>
               <p>Дополнительная информация для точной оценки</p>
 
               <div className="form-group">
@@ -1579,7 +1770,7 @@ const SettingsScreen = ({ onLogout }) => {
         {activeTab === 'social' && (
           <div className="tab-content active">
             <div className="settings-section">
-              <h2>👥 Конфиденциальность</h2>
+              <h2><UsersIcon size={22} className="section-icon" aria-hidden /> Конфиденциальность</h2>
               <p>Управляйте тем, как другие видят ваш тренировочный календарь</p>
 
               <div className="form-group">
@@ -1626,6 +1817,105 @@ const SettingsScreen = ({ onLogout }) => {
                   </label>
                 </div>
               </div>
+
+              <div className="form-group" style={{ marginTop: 'var(--space-6)' }}>
+                <label>Что показывать на странице профиля</label>
+                <p className="form-hint">Выберите, какие данные видны на вашей публичной странице</p>
+                <div className="privacy-options privacy-options--checkboxes">
+                  <label className="privacy-option">
+                    <input
+                      type="checkbox"
+                      checked={formData.privacy_show_email}
+                      onChange={(e) => handleInputChange('privacy_show_email', e.target.checked)}
+                    />
+                    <div className="privacy-content">
+                      <strong>Email</strong>
+                      <small>Адрес электронной почты</small>
+                    </div>
+                  </label>
+                  <label className="privacy-option">
+                    <input
+                      type="checkbox"
+                      checked={formData.privacy_show_trainer}
+                      onChange={(e) => handleInputChange('privacy_show_trainer', e.target.checked)}
+                    />
+                    <div className="privacy-content">
+                      <strong>Тренер</strong>
+                      <small>Блок «Тренер» и planRUN AI</small>
+                    </div>
+                  </label>
+                  <label className="privacy-option">
+                    <input
+                      type="checkbox"
+                      checked={formData.privacy_show_calendar}
+                      onChange={(e) => handleInputChange('privacy_show_calendar', e.target.checked)}
+                    />
+                    <div className="privacy-content">
+                      <strong>Календарь</strong>
+                      <small>Неделя с планом тренировок</small>
+                    </div>
+                  </label>
+                  <label className="privacy-option">
+                    <input
+                      type="checkbox"
+                      checked={formData.privacy_show_metrics}
+                      onChange={(e) => handleInputChange('privacy_show_metrics', e.target.checked)}
+                    />
+                    <div className="privacy-content">
+                      <strong>Метрики</strong>
+                      <small>Статистика и быстрые метрики</small>
+                    </div>
+                  </label>
+                  <label className="privacy-option">
+                    <input
+                      type="checkbox"
+                      checked={formData.privacy_show_workouts}
+                      onChange={(e) => handleInputChange('privacy_show_workouts', e.target.checked)}
+                    />
+                    <div className="privacy-content">
+                      <strong>Тренировки</strong>
+                      <small>Последние тренировки</small>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {formData.privacy_level === 'link' && (formData.public_token || formData.username_slug) && (
+                <div className="form-group" style={{ marginTop: 'var(--space-6)' }}>
+                  <label>Ссылка на ваш профиль</label>
+                  <div className="profile-link-row">
+                    <input
+                      type="text"
+                      readOnly
+                      className="profile-link-input"
+                      value={
+                        typeof window !== 'undefined'
+                          ? `${window.location.origin}/${formData.username_slug || formData.username || ''}${formData.public_token ? `?token=${formData.public_token}` : ''}`
+                          : ''
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn--sm"
+                      onClick={async () => {
+                        const url =
+                          typeof window !== 'undefined'
+                            ? `${window.location.origin}/${formData.username_slug || formData.username || ''}${formData.public_token ? `?token=${formData.public_token}` : ''}`
+                            : '';
+                        try {
+                          await navigator.clipboard.writeText(url);
+                          setMessage({ type: 'success', text: 'Ссылка скопирована' });
+                          setTimeout(() => setMessage({ type: '', text: '' }), 2000);
+                        } catch {
+                          setMessage({ type: 'error', text: 'Не удалось скопировать' });
+                        }
+                      }}
+                    >
+                      Копировать
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1634,51 +1924,225 @@ const SettingsScreen = ({ onLogout }) => {
         {activeTab === 'integrations' && (
           <div className="tab-content active">
             <div className="settings-section">
-              <h2>🔗 Интеграции</h2>
-              <p>Подключите внешние сервисы для расширения возможностей</p>
+              <h2>Подключить</h2>
 
-              <div className="form-group">
-                <label>Telegram бот</label>
-                {formData.telegram_id ? (
-                  <div className="telegram-status">
-                    <div className="status-success">
-                      <strong>✅ Telegram подключен</strong>
-                      <small>ID: <code>{formData.telegram_id}</code></small>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleUnlinkTelegram}
-                        style={{ marginTop: '10px' }}
-                      >
-                        Отвязать Telegram
-                      </button>
-                    </div>
+              {/* Подключено — горизонтальные карточки: логотип | кнопки */}
+              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar) && (
+                <div className="integrations-connected-section">
+                  <p className="integrations-connected-label">Подключено:</p>
+                  <div className="integrations-connected-row">
+                    {formData.telegram_id && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/telegram.svg" alt="Telegram" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={handleUnlinkTelegram}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
+                    {integrationsStatus.huawei && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/huawei.svg" alt="Huawei Health" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-primary btn--sm" disabled={huaweiSyncing} onClick={async () => {
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            setHuaweiSyncing(true);
+                            try {
+                              const res = await currentApi.syncWorkouts('huawei');
+                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+                              useWorkoutRefreshStore.getState().triggerRefresh();
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+                            } finally {
+                              setHuaweiSyncing(false);
+                            }
+                          }}>{huaweiSyncing ? '...' : 'Синхр.'}</button>
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
+                            if (!window.confirm('Отвязать Huawei Health?')) return;
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            try {
+                              await currentApi.unlinkIntegration('huawei');
+                              setIntegrationsStatus(prev => ({ ...prev, huawei: false }));
+                              setMessage({ type: 'success', text: 'Huawei Health отключен' });
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+                            }
+                          }}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
+                    {integrationsStatus.strava && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/strava.svg" alt="Strava" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-primary btn--sm" disabled={stravaSyncing} onClick={async () => {
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            setStravaSyncing(true);
+                            try {
+                              const res = await currentApi.syncWorkouts('strava');
+                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+                              useWorkoutRefreshStore.getState().triggerRefresh();
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+                            } finally {
+                              setStravaSyncing(false);
+                            }
+                          }}>{stravaSyncing ? '...' : 'Синхр.'}</button>
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
+                            if (!window.confirm('Отвязать Strava?')) return;
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            try {
+                              await currentApi.unlinkIntegration('strava');
+                              setIntegrationsStatus(prev => ({ ...prev, strava: false }));
+                              setMessage({ type: 'success', text: 'Strava отключен' });
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+                            }
+                          }}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
+                    {integrationsStatus.polar && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/polar.svg" alt="Polar" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-primary btn--sm" disabled={polarSyncing} onClick={async () => {
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            setPolarSyncing(true);
+                            try {
+                              const res = await currentApi.syncWorkouts('polar');
+                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+                              useWorkoutRefreshStore.getState().triggerRefresh();
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+                            } finally {
+                              setPolarSyncing(false);
+                            }
+                          }}>{polarSyncing ? '...' : 'Синхр.'}</button>
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
+                            if (!window.confirm('Отвязать Polar?')) return;
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            try {
+                              await currentApi.unlinkIntegration('polar');
+                              setIntegrationsStatus(prev => ({ ...prev, polar: false }));
+                              setMessage({ type: 'success', text: 'Polar отключен' });
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+                            }
+                          }}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="integration-not-connected">
-                    <p>Telegram бот не подключен</p>
-                    <p className="text-muted">Для подключения Telegram бота отправьте команду /start боту</p>
+                </div>
+              )}
+
+              {/* Не подключено — логотипы-кнопки для подключения */}
+              {(!formData.telegram_id || !integrationsStatus.huawei || !integrationsStatus.strava || !integrationsStatus.polar) && (
+              <>
+              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar) && (
+                <p className="integrations-disconnected-label">Подключить:</p>
+              )}
+              <div className="integrations-logos">
+                {!formData.telegram_id && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={() => window.open('https://t.me/PlanRunBot', '_blank')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') window.open('https://t.me/PlanRunBot', '_blank'); }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/telegram.svg" alt="Telegram" />
+                    </div>
+                    <span>Telegram</span>
+                  </div>
+                )}
+                {!integrationsStatus.huawei && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
+                    const currentApi = api || useAuthStore.getState().api;
+                    if (!currentApi) return;
+                    try {
+                      const res = await currentApi.getIntegrationOAuthUrl('huawei');
+                      const url = res?.data?.auth_url ?? res?.auth_url;
+                      if (url) window.location.href = url;
+                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                    } catch (e) {
+                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+                    }
+                  }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/huawei.svg" alt="Huawei Health" />
+                    </div>
+                    <span>Huawei Health</span>
+                  </div>
+                )}
+                {!integrationsStatus.strava && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
+                    const currentApi = api || useAuthStore.getState().api;
+                    if (!currentApi) return;
+                    try {
+                      const res = await currentApi.getIntegrationOAuthUrl('strava');
+                      const url = res?.data?.auth_url ?? res?.auth_url;
+                      if (url) window.location.href = url;
+                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                    } catch (e) {
+                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+                    }
+                  }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/strava.svg" alt="Strava" />
+                    </div>
+                    <span>Strava</span>
+                  </div>
+                )}
+                {!integrationsStatus.polar && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
+                    const currentApi = api || useAuthStore.getState().api;
+                    if (!currentApi) return;
+                    try {
+                      const res = await currentApi.getIntegrationOAuthUrl('polar');
+                      const url = res?.data?.auth_url ?? res?.auth_url;
+                      if (url) window.location.href = url;
+                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                    } catch (e) {
+                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+                    }
+                  }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/polar.svg" alt="Polar" />
+                    </div>
+                    <span>Polar</span>
                   </div>
                 )}
               </div>
-
-              <div className="form-group">
-                <label>Тип спортивного устройства</label>
-                <input
-                  type="text"
-                  value={formData.device_type || ''}
-                  onChange={(e) => handleInputChange('device_type', e.target.value || null)}
-                  placeholder="Garmin, Apple Watch, Polar и т.д."
-                />
-                <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                  Укажите тип вашего спортивного устройства для синхронизации данных тренировок
-                </small>
-              </div>
+              </>
+              )}
             </div>
           </div>
         )}
 
       </div>
+
+      <PinSetupModal
+        isOpen={showPinSetupModal}
+        onClose={() => { setShowPinSetupModal(false); setPinSetupTokens(null); }}
+        onSuccess={handlePinSetupSuccess}
+        tokens={pinSetupTokens}
+      />
     </div>
   );
 };

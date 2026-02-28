@@ -8,6 +8,7 @@ require_once __DIR__ . '/BaseService.php';
 require_once __DIR__ . '/../repositories/ChatRepository.php';
 require_once __DIR__ . '/ChatContextBuilder.php';
 require_once __DIR__ . '/DateResolver.php';
+require_once __DIR__ . '/PushNotificationService.php';
 require_once __DIR__ . '/../config/Logger.php';
 require_once __DIR__ . '/../user_functions.php';
 
@@ -155,6 +156,9 @@ class ChatService extends BaseService {
                 'eval_count' => $response['usage']['total_tokens'] ?? null
             ]);
             $this->repository->touchConversation($conversation['id']);
+            if (connection_aborted()) {
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'chat');
+            }
         }
 
         return [
@@ -264,6 +268,9 @@ class ChatService extends BaseService {
         if ($fullContent !== '') {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, ['model' => $this->llmModel]);
             $this->repository->touchConversation($conversation['id']);
+            if (connection_aborted()) {
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'chat');
+            }
         }
     }
 
@@ -1630,15 +1637,49 @@ PROMPT;
     }
 
     /**
+     * Пользователь: отправить сообщение другому пользователю (от имени отправителя)
+     * Сообщение попадает в admin-чат получателя (он увидит в «От администрации»)
+     */
+    public function sendUserMessageToUser(int $senderUserId, int $targetUserId, string $content): array {
+        if ($senderUserId === $targetUserId) {
+            throw new InvalidArgumentException('Нельзя отправить сообщение самому себе');
+        }
+        $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
+        $messageId = $this->repository->addMessage($conversation['id'], 'user', $senderUserId, $content);
+        $this->repository->touchConversation($conversation['id']);
+        $senderUsername = $this->getUsernameById($senderUserId);
+        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $content, 'chat');
+        return [
+            'conversation_id' => $conversation['id'],
+            'message_id' => $messageId
+        ];
+    }
+
+    /**
      * Админ: отправить сообщение пользователю
      */
     public function sendAdminMessage(int $targetUserId, int $adminUserId, string $content): array {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $messageId = $this->repository->addMessage($conversation['id'], 'admin', $adminUserId, $content);
         $this->repository->touchConversation($conversation['id']);
+        $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin');
         return [
             'conversation_id' => $conversation['id'],
             'message_id' => $messageId
+        ];
+    }
+
+    /**
+     * Сообщения между текущим пользователем и другим (диалог «Написать»)
+     * Сообщения хранятся в admin-чате получателя
+     * При загрузке помечает сообщения от собеседника как прочитанные
+     */
+    public function getDirectMessagesWithUser(int $currentUserId, int $targetUserId, int $limit = 50, int $offset = 0): array {
+        $this->repository->markDirectDialogRead($currentUserId, $targetUserId);
+        $messages = $this->repository->getDirectMessagesBetweenUsers($currentUserId, $targetUserId, $limit, $offset);
+        return [
+            'messages' => $messages,
+            'conversation_id' => null,
         ];
     }
 
@@ -1657,6 +1698,13 @@ PROMPT;
      */
     public function getUsersWithAdminChat(): array {
         return $this->repository->getUsersWithAdminChat();
+    }
+
+    /**
+     * Список диалогов: пользователи, которые писали мне через «Написать»
+     */
+    public function getUsersWhoWroteToMe(int $userId): array {
+        return $this->repository->getUsersWhoWroteToMe($userId);
     }
 
     /**
@@ -1713,7 +1761,33 @@ PROMPT;
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $messageId = $this->repository->addMessage($conversation['id'], 'ai', null, $content);
         $this->repository->touchConversation($conversation['id']);
+        $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $content, 'chat');
         return ['message_id' => $messageId];
+    }
+
+    /**
+     * Отправить push о новом сообщении в чате (проверяет push_chat_enabled).
+     */
+    private function sendChatPush(int $userId, string $title, string $body, string $type): void {
+        try {
+            $push = new PushNotificationService($this->db);
+            $truncated = mb_strlen($body) > 100 ? mb_substr($body, 0, 97) . '...' : $body;
+            $push->sendToUser($userId, $title, $truncated, [
+                'type' => 'chat',
+                'link' => '/chat'
+            ]);
+        } catch (\Throwable $e) {
+            // Push send failed — тихо игнорируем
+        }
+    }
+
+    private function getUsernameById(int $userId): ?string {
+        $stmt = $this->db->prepare("SELECT username FROM users WHERE id = ?");
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row['username'] ?? null;
     }
 
     /**
@@ -1733,6 +1807,7 @@ PROMPT;
             $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
             $this->repository->addMessage($conversation['id'], 'admin', $adminUserId, $content);
             $this->repository->touchConversation($conversation['id']);
+            $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin');
             $sent++;
         }
         return ['sent' => $sent];

@@ -5,11 +5,17 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Modal from '../common/Modal';
+import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
+import {
+  parseTime, formatTime, parsePace, formatPace,
+  maskTimeInput, maskPaceInput,
+  RUN_TYPES, SIMPLE_RUN_TYPES, TYPE_LABELS,
+} from '../../utils/workoutFormUtils';
 
 const CATEGORIES = [
-  { id: 'running', label: 'Бег', icon: '🏃', desc: 'Лёгкий, темповый, интервалы, фартлек, длительный' },
-  { id: 'ofp', label: 'ОФП', icon: '💪', desc: 'Общая физическая подготовка' },
-  { id: 'sbu', label: 'СБУ', icon: '⚡', desc: 'Специальные беговые упражнения' },
+  { id: 'running', label: 'Бег', Icon: RunningIcon, desc: 'Лёгкий, темповый, интервалы, фартлек, длительный' },
+  { id: 'ofp', label: 'ОФП', Icon: OtherIcon, desc: 'Общая физическая подготовка' },
+  { id: 'sbu', label: 'СБУ', Icon: SbuIcon, desc: 'Специальные беговые упражнения' },
 ];
 
 const TYPES_BY_CATEGORY = {
@@ -26,78 +32,7 @@ const TYPES_BY_CATEGORY = {
   sbu: [{ value: 'sbu', label: 'СБУ' }],
 };
 
-const RUN_TYPES = ['easy', 'tempo', 'long', 'long-run', 'interval', 'fartlek', 'control', 'race'];
-const SIMPLE_RUN_TYPES = ['easy', 'tempo', 'long', 'control', 'race'];
 const TYPE_NAMES = { easy: 'Легкий бег', tempo: 'Темповый бег', long: 'Длительный бег', control: 'Контрольный забег', race: 'Соревнование' };
-
-// Время: парсинг ЧЧ:ММ:СС или ММ:СС → секунды
-function parseTime(timeStr) {
-  if (!timeStr || !String(timeStr).trim()) return null;
-  const parts = String(timeStr).trim().split(':').map((p) => parseInt(p, 10));
-  if (parts.some((n) => Number.isNaN(n) || n < 0)) return null;
-  if (parts.length === 3) {
-    const [h, m, s] = parts;
-    if (m >= 60 || s >= 60) return null;
-    return h * 3600 + m * 60 + s;
-  }
-  if (parts.length === 2) {
-    const [m, s] = parts;
-    if (m >= 60 || s >= 60) return null;
-    return m * 60 + s;
-  }
-  return null;
-}
-function formatTime(totalSeconds) {
-  if (totalSeconds == null || totalSeconds < 0) return '';
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.round(totalSeconds % 60);
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-// Темп: парсинг MM:SS или M → минуты на км; вывод всегда MM:SS
-function parsePace(paceStr) {
-  if (!paceStr || !String(paceStr).trim()) return null;
-  const s = String(paceStr).trim();
-  const parts = s.split(':');
-  if (parts.length === 1) {
-    const m = parseFloat(parts[0], 10);
-    if (Number.isNaN(m) || m < 0) return null;
-    return m;
-  }
-  if (parts.length !== 2) return null;
-  const m = parseInt(parts[0], 10);
-  const sec = parseInt(parts[1], 10);
-  if (Number.isNaN(m) || Number.isNaN(sec) || m < 0 || sec < 0 || sec >= 60) return null;
-  return m + sec / 60;
-}
-function formatPace(minutesPerKm) {
-  if (minutesPerKm == null || minutesPerKm <= 0) return '';
-  const m = Math.floor(minutesPerKm);
-  const s = Math.round((minutesPerKm - m) * 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-// Маска ввода времени: только цифры → чч:мм:сс (до 6 цифр, двоеточия после 2-й и 4-й цифры, как в темпе)
-function maskTimeInput(value) {
-  const digits = String(value).replace(/\D/g, '').slice(0, 6);
-  if (digits.length === 0) return '';
-  if (digits.length === 1) return digits;
-  if (digits.length === 2) return `${digits}:`;
-  if (digits.length === 3) return `${digits.slice(0, 2)}:${digits[2]}`;
-  if (digits.length === 4) return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-  if (digits.length === 5) return `${digits.slice(0, 2)}:${digits.slice(2, 4)}:${digits[4]}`;
-  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}:${digits.slice(4, 6)}`;
-}
-
-// Маска ввода темпа: только цифры → ММ:СС (до 4 цифр). "5" → "5", "53" → "5:3", "530" → "5:30", "5300" → "53:00"
-function maskPaceInput(value) {
-  const digits = String(value).replace(/\D/g, '').slice(0, 4);
-  if (digits.length === 0) return '';
-  if (digits.length <= 2) return digits.length === 1 ? digits : `${digits[0]}:${digits[1]}`;
-  if (digits.length === 3) return `${digits[0]}:${digits.slice(1)}`;
-  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
 
 const TYPE_TO_CATEGORY = {
   easy: 'running', tempo: 'running', long: 'running', 'long-run': 'running',
@@ -560,14 +495,24 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
         const weightKg = ofp.weightKg;
         if (sets != null && sets !== '' && reps != null && reps !== '') p.push(`${sets}×${reps}`);
         if (weightKg != null && weightKg !== '' && !Number.isNaN(Number(weightKg)) && Number(weightKg) > 0) p.push(Number(weightKg) + ' кг');
-        if (e.default_duration_sec && !p.length) p.push(Math.floor(e.default_duration_sec / 60) + ' мин');
+        if (e.default_duration_sec && !p.length) {
+          const s = e.default_duration_sec;
+          const m = Math.floor(s / 60);
+          const sec = s % 60;
+          p.push(m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`);
+        }
       } else {
         const distM = exerciseDistanceOverrides[e.id] ?? e.default_distance_m;
         if (distM != null && distM !== '') {
           const num = typeof distM === 'number' ? distM : parseInt(distM, 10);
           if (!Number.isNaN(num) && num > 0) p.push(num >= 1000 ? (num / 1000).toFixed(1) + ' км' : num + ' м');
         }
-        if (e.default_duration_sec) p.push(Math.floor(e.default_duration_sec / 60) + ' мин');
+        if (e.default_duration_sec) {
+          const s = e.default_duration_sec;
+          const m = Math.floor(s / 60);
+          const sec = s % 60;
+          p.push(m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`);
+        }
       }
       if (p.length) t += ' — ' + p.join(', ');
       return t;
@@ -721,7 +666,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
                 className="card card--compact card--interactive add-training-category-card"
                 onClick={() => selectCategory(c.id)}
               >
-                <span className="add-training-category-icon">{c.icon}</span>
+                <span className="add-training-category-icon" aria-hidden>{c.Icon && <c.Icon size={24} />}</span>
                 <span className="add-training-category-label">{c.label}</span>
                 <span className="add-training-category-desc">{c.desc}</span>
               </button>

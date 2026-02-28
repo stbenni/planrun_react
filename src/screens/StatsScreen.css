@@ -1,6 +1,9 @@
 /**
  * Стили для StatsScreen (Strava style)
+ * Структура: сначала десктоп/базовые стили, в конце — мобильные переопределения
  */
+
+/* ========== БАЗОВЫЕ СТИЛИ ========== */
 
 .stats-screen {
   max-width: var(--page-max-width);
@@ -158,84 +161,26 @@
   gap: 24px;
 }
 
-/* Сетка метрик — такой же вид, как в виджете статистики на дашборде */
-.stats-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+/* Метрики — те же классы и стили, что на дашборде (Dashboard.css), но без оранжевой подсветки */
+.stats-screen .stats-metrics-module {
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
-@media (min-width: 900px) {
-  .stats-metrics-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+[data-theme="dark"] .stats-screen .stats-metrics-module {
+  background: transparent;
+  border: none;
+  box-shadow:none;
 }
 
-.stats-metrics-grid .dashboard-stat-metric-card {
-  background: var(--gray-50);
-  border-radius: 16px;
-  padding: 16px;
-  border: 1px solid var(--gray-200);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  text-align: center;
+.stats-screen .stats-metrics-module:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  transform: none;
 }
 
-.stats-metrics-grid .dashboard-stat-metric-card__label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--gray-600);
-}
-
-.stats-metrics-grid .dashboard-stat-metric-card__icon {
-  font-size: 1rem;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.stats-metrics-grid .dashboard-stat-metric-card__value {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.stats-metrics-grid .dashboard-stat-metric-card__number {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
-  color: var(--gray-900);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.stats-metrics-grid .dashboard-stat-metric-card__unit {
-  font-size: var(--text-sm);
-  color: var(--gray-600);
-  font-weight: var(--font-medium);
-}
-
-[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--card-border);
-}
-
-[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__label {
-  color: var(--text-secondary);
-}
-
-[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__number {
-  color: var(--text-primary);
-}
-
-[data-theme="dark"] .stats-metrics-grid .dashboard-stat-metric-card__unit {
-  color: var(--text-secondary);
+[data-theme="dark"] .stats-screen .stats-metrics-module:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: none;
 }
 
 .stats-chart-section {
@@ -509,7 +454,7 @@
   margin-bottom: 6px;
 }
 
-.tooltip-date {
+.heatmap-tooltip .tooltip-date {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
@@ -534,14 +479,14 @@
   color: var(--text-primary);
 }
 
-.tooltip-distance {
+.heatmap-tooltip .tooltip-distance {
   font-size: 16px;
   font-weight: 700;
   color: var(--primary-500);
   margin-bottom: 4px;
 }
 
-.tooltip-workouts {
+.heatmap-tooltip .tooltip-workouts {
   font-size: 11px;
   color: var(--text-secondary);
 }
@@ -586,38 +531,6 @@
   border-color: var(--card-border);
 }
 
-/* Мобильная адаптация heatmap */
-@media (max-width: 767px) {
-  .heatmap-day {
-    min-height: 32px;
-  }
-  
-  .heatmap-day-label {
-    height: 32px;
-    line-height: 32px;
-  }
-  
-  .heatmap-day-value {
-    font-size: 11px;
-  }
-  
-  .heatmap-day-number {
-    font-size: 9px;
-  }
-  
-  .heatmap-grid {
-    gap: 3px;
-  }
-  
-  .heatmap-container {
-    gap: 6px;
-  }
-  
-  .heatmap-week-label {
-    font-size: 8px;
-  }
-}
-
 /* Tooltip для десктопного графика */
 .chart-tooltip {
   position: fixed;
@@ -637,20 +550,20 @@
   box-shadow: var(--shadow-lg);
 }
 
-.tooltip-date {
+.chart-tooltip .tooltip-date {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
 }
 
-.tooltip-distance {
+.chart-tooltip .tooltip-distance {
   font-size: 14px;
   font-weight: 700;
   color: var(--primary-500);
 }
 
-.tooltip-workouts {
+.chart-tooltip .tooltip-workouts {
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 2px;
@@ -980,10 +893,18 @@
   transition: width 500ms ease;
 }
 
+.stats-recent-workouts .section-title--mobile {
+  display: none;
+}
+
+.stats-recent-workouts .section-title--desktop {
+  display: inline;
+}
+
 .stats-recent-workouts {
   background: white;
   border-radius: 16px;
-  padding: 24px;
+  padding: 24px 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -993,19 +914,26 @@
 }
 
 .recent-workouts-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .recent-workouts-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .workout-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
+  gap: 16px;
   padding: 16px;
   background: var(--gray-50);
   border-radius: 12px;
   transition: all 200ms ease;
+  position: relative;
 }
 
 [data-theme="dark"] .workout-item {
@@ -1016,6 +944,88 @@
 .workout-item:hover {
   background: var(--gray-100);
   transform: translateX(4px);
+}
+
+.workout-item-delete {
+  flex-shrink: 0;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+  opacity: 0;
+}
+
+.workout-item:hover .workout-item-delete {
+  opacity: 1;
+}
+
+.workout-item-delete:hover {
+  color: var(--accent-600);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+[data-theme="dark"] .workout-item-delete:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* Блок типа тренировки — фиксированная ширина слева */
+.workout-item-type {
+  flex-shrink: 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding-right: 12px;
+  border-right: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .workout-item-type {
+  border-right-color: var(--card-border);
+}
+
+.workout-item-type__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--primary-500);
+}
+
+.workout-item-type[data-type="walking"] .workout-item-type__icon { color: var(--success-500); }
+.workout-item-type[data-type="hiking"] .workout-item-type__icon { color: var(--warning-600); }
+.workout-item-type[data-type="cycling"] .workout-item-type__icon { color: var(--info-500); }
+.workout-item-type[data-type="swimming"] .workout-item-type__icon { color: var(--info-600); }
+.workout-item-type[data-type="other"] .workout-item-type__icon { color: var(--gray-600); }
+
+.workout-item-type__label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--gray-600);
+  text-align: center;
+  line-height: 1.2;
+}
+
+[data-theme="dark"] .workout-item-type__label {
+  color: var(--text-secondary);
+}
+
+/* Дата и метрики — основная область */
+.workout-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
 }
 
 .workout-item-date {
@@ -1035,12 +1045,26 @@
 }
 
 .workout-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   color: var(--gray-600);
 }
 
 [data-theme="dark"] .workout-metric {
   color: var(--text-secondary);
+}
+
+.workout-metric__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--gray-500);
+}
+
+[data-theme="dark"] .workout-metric__icon {
+  color: var(--text-tertiary);
 }
 
 .workouts-empty {
@@ -1050,6 +1074,7 @@
 }
 
 .workouts-show-all-btn {
+  grid-column: 1 / -1;
   margin-top: 16px;
   padding: 12px 24px;
   background: var(--primary-500);
@@ -1077,113 +1102,139 @@
   background: var(--primary-700);
 }
 
-/* Модальное окно деталей тренировки */
-.workout-details-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+/* Модальное окно деталей тренировки — контент-стили (оболочка в Modal.css) */
+
+.workout-details-modal-title--short {
+  display: none;
+}
+
+.workout-details-modal-title--full {
+  display: inline;
+}
+
+.workout-details-share-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.workout-details-share-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-  animation: fadeIn 0.2s ease;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+/* Карточка для шаринга — рендерится скрыто */
+.workout-share-card__logo {
+  font-style: italic;
 }
 
-.workout-details-modal {
-  background: white;
-  border-radius: 16px;
-  max-width: 600px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideUp 0.3s ease;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-[data-theme="dark"] .workout-details-modal {
-  background: var(--card-bg);
-  color: var(--text-primary);
-}
-
-.workout-details-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px;
-  border-bottom: 1px solid var(--gray-200);
-}
-
-[data-theme="dark"] .workout-details-modal-header {
-  border-bottom-color: var(--card-border);
-}
-
-.workout-details-modal-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--gray-900);
-  margin: 0;
-}
-
-[data-theme="dark"] .workout-details-modal-title {
-  color: var(--text-primary);
-}
-
-.workout-details-modal-close {
-  background: none;
-  border: none;
-  font-size: 32px;
-  color: var(--gray-500);
-  cursor: pointer;
+.workout-share-card__chart .workout-chart-container {
+  margin-top: 0;
   padding: 0;
-  width: 32px;
-  height: 32px;
+}
+
+.workout-share-card__chart .workout-chart-svg {
+  width: 100%;
+  height: auto;
+  min-height: unset;
+  aspect-ratio: 800 / 250;
+}
+
+/* Попап с картинкой для шаринга */
+.workout-share-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: all 200ms ease;
+  padding: 24px;
+  overflow: hidden;
 }
 
-.workout-details-modal-close:hover {
+.workout-share-popup {
+  background: var(--bg-primary);
+  border-radius: var(--radius-2xl);
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-2xl);
+  position: relative;
+}
+
+.workout-share-popup-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
   background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: background 200ms, color 200ms;
+}
+
+.workout-share-popup-close:hover {
+  background: var(--gray-200);
   color: var(--gray-900);
 }
 
-[data-theme="dark"] .workout-details-modal-close {
+.workout-share-popup-image-wrap {
+  padding: 48px 24px 16px;
+  overflow: auto;
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.workout-share-popup-image {
+  max-width: 100%;
+  height: auto;
+  max-height: 60vh;
+  border-radius: var(--radius-xl);
+  display: block;
+}
+
+.workout-share-popup-actions {
+  display: flex;
+  gap: 12px;
+  padding: 20px 24px 24px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.workout-share-popup-actions .btn {
+  flex: 1;
+}
+
+[data-theme="dark"] .workout-share-popup {
+  background: var(--card-bg);
+}
+
+[data-theme="dark"] .workout-share-popup-close {
+  background: var(--card-border);
   color: var(--text-secondary);
 }
 
-[data-theme="dark"] .workout-details-modal-close:hover {
-  background: var(--card-border);
+[data-theme="dark"] .workout-share-popup-close:hover {
+  background: var(--gray-600);
   color: var(--text-primary);
 }
 
-.workout-details-modal-body {
-  padding: 24px;
+[data-theme="dark"] .workout-share-popup-actions {
+  border-top-color: var(--card-border);
 }
 
 .workout-details-loading,
@@ -1449,11 +1500,11 @@
 
 /* Графики пульса и темпа */
 .workout-details-charts {
-  margin-top: 16px;
+  margin-top: 12px;
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .workout-chart-container {
@@ -1518,14 +1569,13 @@
   width: 100%;
   height: auto;
   display: block;
-  min-height: 250px;
-  vertical-align: top;
+  aspect-ratio: 800 / 250;
 }
 
 .workout-chart-legend {
   display: flex;
   gap: 16px;
-  margin-top: -35px;
+  margin-top: 8px;
   margin-bottom: 0;
   font-size: 12px;
   color: var(--gray-600);
@@ -1579,22 +1629,6 @@
 .workout-chart-tooltip .tooltip-value {
   font-size: 14px;
   font-weight: 600;
-}
-
-/* Адаптивность для графиков */
-@media (max-width: 768px) {
-  .workout-chart-svg {
-    min-height: 200px;
-  }
-  
-  .workout-chart-tooltip {
-    font-size: 11px;
-    padding: 6px 10px;
-  }
-  
-  .workout-chart-tooltip .tooltip-value {
-    font-size: 12px;
-  }
 }
 
 .plan-progress-card {
@@ -1748,24 +1782,26 @@
   font-weight: 700;
 }
 
-/* Мобильная адаптация */
+/* ========== МОБИЛЬНЫЕ ПЕРЕОПРЕДЕЛЕНИЯ (max-width: 768px) ========== */
+
 @media (max-width: 768px) {
+  /* stats-screen */
   .stats-screen {
     padding: var(--page-padding-mobile);
   }
 
+  /* stats-header */
   .stats-header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .stats-metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  /* stats-time-range */
   .stats-time-range {
     margin: 0;
   }
 
+  /* chart-bars */
   .chart-bars {
     gap: 2px;
   }
@@ -1774,12 +1810,192 @@
     font-size: 8px;
   }
 
+  /* heatmap */
+  .heatmap-day {
+    min-height: 32px;
+  }
+
+  .heatmap-day-value {
+    font-size: 11px;
+  }
+
+  .heatmap-day-number {
+    font-size: 9px;
+  }
+
+  /* section-title */
+  .stats-recent-workouts .section-title--mobile {
+    display: inline;
+    padding-left: 24px;
+  }
+
+  .stats-recent-workouts .section-title--desktop {
+    display: none;
+  }
+
+  /* workout-item */
+  .workout-item {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 12px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+
+  .workout-item-type {
+    flex-shrink: 0;
+    width: 56px;
+    min-width: 56px;
+    padding-right: 10px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .workout-item-type__label {
+    display: block;
+    font-size: 10px;
+    line-height: 1.1;
+  }
+
+  .workout-item-type__icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .workout-item-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .workout-item-date {
+    font-size: 13px;
+  }
+
+  .workout-item-metrics {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .workout-metric {
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .workout-metric__icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .workout-item-delete {
+    opacity: 1;
+    width: 28px;
+    height: 28px;
+  }
+
+  /* workout-details-modal — контент-стили для мобилки (оболочка в Modal.css) */
+
+  .workout-share-popup {
+    max-height: calc(100dvh - var(--mobile-content-padding-bottom) - 24px);
+  }
+
+  .workout-details-modal-title--short {
+    display: inline;
+    white-space: nowrap;
+  }
+
+  .workout-details-modal-title--full {
+    display: none;
+  }
+
+  .workout-details-share-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .workout-details-share-row {
+    margin-bottom: 8px;
+  }
+
+  .workout-details-list {
+    gap: 16px;
+  }
+
+  .workout-details-item {
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  [data-theme="dark"] .workout-details-item {
+    background: transparent;
+    border: none;
+  }
+
+  .workout-details-item-header {
+    margin-bottom: 12px;
+  }
+
+  .workout-details-item-metrics {
+    gap: 8px;
+  }
+
+  .workout-details-metric {
+    padding: 6px 0;
+  }
+
+  .workout-details-charts {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .workout-details-charts .workout-chart-container {
+    margin: 0;
+    padding: 4px 0 8px;
+  }
+
+  .workout-details-charts .workout-chart-title {
+    margin-bottom: 4px;
+    font-size: 14px;
+  }
+
+  .workout-details-charts .workout-chart-wrapper {
+    margin: 0;
+  }
+
+  .workout-details-charts .workout-chart-legend {
+    margin-top: 4px;
+    gap: 8px;
+  }
+
+  .workout-share-popup-overlay {
+    padding: 12px;
+    padding-bottom: calc(12px + var(--mobile-content-padding-bottom));
+  }
+
+  /* workout-chart */
+  .workout-chart-svg {
+    min-height: 160px;
+  }
+
+  .workout-chart-tooltip {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+
+  .workout-chart-tooltip .tooltip-value {
+    font-size: 12px;
+  }
+
+  /* achievements */
   .achievements-grid {
     grid-template-columns: 1fr;
-  }
-  .workout-item {
-    padding: 10px 0;
-    flex-direction: column;
-    align-items: start;
   }
 }

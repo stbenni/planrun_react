@@ -5,6 +5,14 @@
 
 @import '../assets/css/settings.css';
 
+/* Иконки во вкладках и заголовках */
+.tab-button .tab-icon,
+.settings-section h2 .section-icon {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: var(--space-2);
+}
+
 /* Дополнительные стили для React компонента */
 .settings-container {
   max-width: var(--page-max-width);
@@ -53,6 +61,18 @@
   background: rgba(239, 68, 68, 0.15);
   color: var(--accent-500);
   border-color: rgba(239, 68, 68, 0.3);
+}
+
+.settings-message--success {
+  background: var(--success-50);
+  color: var(--success-600);
+  border: 1px solid var(--success-100);
+}
+
+[data-theme="dark"] .settings-message--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success-500);
+  border-color: rgba(34, 197, 94, 0.3);
 }
 
 .settings-message-close {
@@ -170,7 +190,36 @@
   }
 }
 
-/* Блок «Отпечаток пальца» — выводится только когда доступна биометрия (нативное приложение) */
+/* Отладка Strava */
+.settings-strava-debug {
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.settings-strava-debug pre {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+}
+
+.settings-strava-debug-btn {
+  margin-top: var(--space-2);
+}
+
+/* Блок «Блокировка приложения» */
+.settings-app-lock-section .settings-app-lock-desc {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.settings-app-lock-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .settings-biometric-row {
   display: flex;
   align-items: center;
@@ -204,7 +253,157 @@
   color: var(--text-secondary);
 }
 
+/* ========== Интеграции ========== */
+.integrations-connected-section {
+  margin-bottom: var(--space-8);
+}
+
+.integrations-connected-label,
+.integrations-disconnected-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+.integrations-disconnected-label {
+  margin-top: var(--space-6);
+}
+
+.integrations-connected-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.integration-connected-card {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  flex: 1 1 240px;
+  max-width: 320px;
+}
+
+.integration-connected-card__logo {
+  flex: 0 0 40%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  background: var(--gray-50);
+}
+
+.integration-connected-card__logo img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.integration-connected-card__actions {
+  flex: 1 1 60%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  justify-content: center;
+}
+
+.integration-connected-card__actions .btn {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  width: 100%;
+  min-width: 0;
+}
+
+[data-theme="dark"] .integration-connected-card__logo {
+  background: var(--bg-tertiary);
+}
+
+.integrations-logos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.integration-logo-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  min-width: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+  text-decoration: none;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.integration-logo-btn:hover {
+  border-color: var(--primary-500);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.integration-logo-btn__icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.integration-logo-btn__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.integration-logo-btn__icon .check {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  background: var(--success-500);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.integration-logo-btn__icon .check::after {
+  content: '';
+  width: 6px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -2px;
+}
+
+[data-theme="dark"] .integration-logo-btn {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+[data-theme="dark"] .integration-logo-btn:hover {
+  border-color: var(--primary-500);
+}
+
+
 @media (max-width: 1023px) {
+  .settings-app-lock-section,
   .settings-biometric-section {
     margin-top: var(--space-10);
     padding: var(--space-6);

@@ -62,9 +62,6 @@
 
 /* Логотип */
 .top-header-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   cursor: pointer;
   transition: transform 200ms ease;
   flex-shrink: 0;
@@ -74,16 +71,22 @@
   transform: scale(1.05);
 }
 
-.logo-text {
+.top-header-logo .logo-text {
   font-size: 28px;
-  font-weight: 800;
   font-style: italic;
-  padding-left: 10px;
   color: var(--primary-500);
   letter-spacing: -0.5px;
 }
 
-[data-theme="dark"] .logo-text {
+.top-header-logo .logo-plan {
+  font-weight: 300;
+}
+
+.top-header-logo .logo-run {
+  font-weight: 800;
+}
+
+[data-theme="dark"] .top-header-logo .logo-text {
   color: var(--primary-500);
 }
 
@@ -404,6 +407,13 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
   }
 }
 
+/* Мобилки: хедер выше модалок (DayModal и др.), чтобы оставался видимым */
+@media (max-width: 1023px) {
+  .top-header {
+    z-index: 1100;
+  }
+}
+
 /* ---------- Мобильный хедер — Liquid Glass ---------- */
 /* Высота = 64px бар + safe-area сверху (статус-бар Android/iOS), без сжатия контента */
 .top-header-mobile {
@@ -526,12 +536,22 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
   border-bottom: var(--glass-border);
 }
 
-.app-drawer-header .logo-text {
+.app-drawer-header .top-header-logo {
+  flex: 1;
+}
+
+.app-drawer-header .top-header-logo .logo-text {
   font-size: 18px;
-  font-weight: 800;
   font-style: italic;
   color: var(--primary-500);
-  flex: 1;
+}
+
+.app-drawer-header .top-header-logo .logo-plan {
+  font-weight: 300;
+}
+
+.app-drawer-header .top-header-logo .logo-run {
+  font-weight: 800;
 }
 
 .app-drawer-close {

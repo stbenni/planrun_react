@@ -7,7 +7,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import './Modal.css';
 
-const Modal = ({ isOpen, onClose, title, children, size = 'medium', hideHeader = false, centerBody = false, variant = 'default' }) => {
+const Modal = ({ isOpen, onClose, title, children, size = 'medium', hideHeader = false, centerBody = false, variant = 'default', headerActions = null, headerSubtitle = null }) => {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -47,8 +47,14 @@ const Modal = ({ isOpen, onClose, title, children, size = 'medium', hideHeader =
       >
         {!hideHeader && (
           <div className={`app-modal-header ${isModern ? 'app-modal-header--modern' : ''} ${title ? '' : 'app-modal-header--close-only'}`}>
-            {title != null && title !== '' && <h2>{title}</h2>}
-            <span className={`app-modal-close ${isModern ? 'app-modal-close--modern' : ''}`} onClick={onClose} aria-label="Закрыть">&times;</span>
+            <div className="app-modal-header-left">
+              {title != null && title !== '' && <h2>{title}</h2>}
+              {headerSubtitle && <div className="app-modal-header-subtitle">{headerSubtitle}</div>}
+            </div>
+            <div className="app-modal-header-right">
+              {headerActions}
+              <span className={`app-modal-close ${isModern ? 'app-modal-close--modern' : ''}`} onClick={onClose} aria-label="Закрыть">&times;</span>
+            </div>
           </div>
         )}
         {hideHeader && (

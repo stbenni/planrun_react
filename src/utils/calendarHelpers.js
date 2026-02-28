@@ -297,3 +297,112 @@ export function getDayName(dayKey) {
   };
   return names[dayKey] || dayKey;
 }
+
+/** Типы бега — одна категория для сопоставления */
+const RUNNING_TYPES = ['easy', 'long', 'long-run', 'tempo', 'interval', 'fartlek', 'control', 'race', 'run', 'running'];
+
+function planTypeToCategory(type) {
+  if (!type) return null;
+  const t = String(type).toLowerCase().trim();
+  if (RUNNING_TYPES.includes(t)) return 'running';
+  if (t === 'walking') return 'walking';
+  if (t === 'hiking') return 'hiking';
+  if (t === 'cycling') return 'cycling';
+  if (t === 'swimming') return 'swimming';
+  if (t === 'other') return 'other';
+  if (t === 'sbu') return 'sbu';
+  return t;
+}
+
+function workoutTypeToCategory(type) {
+  if (!type) return 'running';
+  const t = String(type).toLowerCase().trim();
+  if (RUNNING_TYPES.includes(t)) return 'running';
+  if (t === 'walking') return 'walking';
+  if (t === 'hiking') return 'hiking';
+  if (t === 'cycling') return 'cycling';
+  if (t === 'swimming') return 'swimming';
+  if (t === 'other') return 'other';
+  if (t === 'sbu') return 'sbu';
+  return t;
+}
+
+/**
+ * Получить запланированный день из плана по дате
+ * @param {string} dateStr YYYY-MM-DD
+ * @param {Object} planData план с weeks_data
+ * @returns {{ items: Array, type?: string, weekNumber?: number } | null}
+ */
+export function getPlanDayForDate(dateStr, planData) {
+  const weeksData = planData?.weeks_data;
+  if (!planData || !Array.isArray(weeksData)) return null;
+  const date = new Date(dateStr + 'T00:00:00');
+  date.setHours(0, 0, 0, 0);
+  const dayOfWeek = date.getDay();
+  const dayKey = dayOfWeek === 0 ? 'sun' : ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'][dayOfWeek - 1];
+  for (const week of weeksData) {
+    if (!week.start_date) continue;
+    const weekStart = new Date(week.start_date + 'T00:00:00');
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+    if (date >= weekStart && date <= weekEnd) {
+      const raw = week.days && week.days[dayKey];
+      if (raw) {
+        const items = Array.isArray(raw) ? raw : [raw];
+        return {
+          items,
+          weekNumber: week.number,
+          type: items[0]?.type,
+          text: items.map((i) => i.text).filter(Boolean).join('\n'),
+          is_key_workout: items.some((i) => i.is_key_workout || i.key),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Статус выполнения дня для календаря
+ * @param {string} dateStr YYYY-MM-DD
+ * @param {Object} planDayForDate результат getPlanDayForDate или null
+ * @param {Object} workoutsData { [date]: { distance?, duration?, activity_type? } }
+ * @param {Object} resultsData { [date]: [{ activity_type?, ... }] }
+ * @param {Object} workoutsListByDate { [date]: [{ activity_type?, ... }] }
+ * @returns {{ status: 'completed'|'rest_extra'|'planned'|'rest', extraWorkoutType?: string }}
+ */
+export function getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate) {
+  const plannedItems = planDayForDate?.items ?? (planDayForDate ? [{ type: planDayForDate.type }] : []);
+  const plannedNonRest = plannedItems.filter((p) => p.type !== 'rest' && p.type !== 'free');
+  const plannedCategories = [...new Set(plannedNonRest.map((p) => planTypeToCategory(p.type)).filter(Boolean))];
+
+  const actualCategories = new Set();
+  (workoutsListByDate?.[dateStr] || []).forEach((w) => {
+    const t = w.activity_type ?? w.type ?? 'running';
+    actualCategories.add(workoutTypeToCategory(t));
+  });
+  (resultsData?.[dateStr] || []).forEach((r) => {
+    const t = r.activity_type ?? r.activity_type_name ?? 'running';
+    actualCategories.add(workoutTypeToCategory(t));
+  });
+  if (workoutsData?.[dateStr] && (workoutsData[dateStr].distance || workoutsData[dateStr].duration)) {
+    const t = workoutsData[dateStr].activity_type ?? 'running';
+    actualCategories.add(workoutTypeToCategory(t));
+  }
+  const actualArr = [...actualCategories];
+
+  if (plannedNonRest.length === 0) {
+    if (actualArr.length > 0) {
+      return { status: 'rest_extra', extraWorkoutType: actualArr[0] };
+    }
+    return { status: 'rest' };
+  }
+
+  const allPlannedCovered = plannedCategories.every((pc) => actualArr.includes(pc));
+  if (allPlannedCovered) {
+    return { status: 'completed' };
+  }
+  return { status: 'planned' };
+}

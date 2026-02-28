@@ -4,6 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
+import { CompletedIcon, CalendarIcon, RestIcon, RunningIcon, TimeIcon, MapPinIcon, OtherIcon, BarChartIcon, DistanceIcon, PaceIcon, XCircleIcon, PenLineIcon, TrashIcon } from '../common/Icons';
 import './WorkoutCard.css';
 
 const TYPE_NAMES = {
@@ -19,9 +20,13 @@ const TYPE_NAMES = {
   race: 'Соревнование',
   rest: 'День отдыха',
   free: 'Пустой день',
+  walking: 'Ходьба',
+  hiking: 'Поход',
+  cycling: 'Велосипед',
+  swimming: 'Плавание',
 };
 
-/** Цветовая группа для полоски — те же классы, что в легенде дашборда (easy, tempo, interval, long, race, other, sbu, rest). */
+/** Цветовая группа для полоски — типы плана (easy, tempo...) и activity_type из импорта (walking, hiking). */
 function getWorkoutStripColorClass(type) {
   if (!type) return null;
   const stripByType = {
@@ -36,8 +41,25 @@ function getWorkoutStripColorClass(type) {
     other: 'other',
     sbu: 'sbu',
     rest: 'rest',
+    walking: 'walking',
+    hiking: 'hiking',
+    cycling: 'run',
+    swimming: 'run',
   };
   return stripByType[type] || (type === 'free' ? null : 'run');
+}
+
+/** Убрать дублирование типа в начале описания (напр. "ОФП" в заголовке и в description) */
+function stripRedundantTypePrefix(description, type) {
+  if (!description || !type) return description;
+  const typeName = TYPE_NAMES[type] || type;
+  if (!typeName) return description;
+  const trimmed = description.trimStart();
+  const upper = trimmed.toUpperCase();
+  const typeUpper = typeName.toUpperCase();
+  if (!upper.startsWith(typeUpper)) return description;
+  const rest = trimmed.slice(typeName.length).replace(/^[\s:\-]+/, '').trim();
+  return rest || description;
 }
 
 /** Ограничить описание до maxItems пунктов (по <li> или по строкам), вернуть { html, hasMore } */
@@ -83,22 +105,22 @@ const WorkoutCard = ({
   const statusConfig = {
     completed: { 
       border: 'var(--success-500)', 
-      icon: '✅',
+      Icon: CompletedIcon,
       label: 'Выполнено'
     },
     planned: { 
       border: 'var(--primary-500)', 
-      icon: '📅',
+      Icon: CalendarIcon,
       label: 'Запланировано'
     },
     missed: { 
       border: 'var(--accent-500)', 
-      icon: '❌',
+      Icon: XCircleIcon,
       label: 'Пропущено'
     },
     rest: {
       border: 'var(--gray-300)',
-      icon: '😴',
+      Icon: RestIcon,
       label: 'Отдых'
     }
   };
@@ -143,12 +165,28 @@ const WorkoutCard = ({
     return metrics;
   };
 
+  /** API getAllWorkoutsSummary: duration в минутах, duration_seconds в секундах */
+  const formatDurationDisplay = (minutesOrSeconds, isSeconds = false) => {
+    if (minutesOrSeconds == null) return null;
+    const totalSec = isSeconds ? minutesOrSeconds : minutesOrSeconds * 60;
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = Math.round(totalSec % 60);
+    if (h > 0) return `${h}ч ${m}м`;
+    if (m > 0) return s > 0 ? `${m}м ${s}с` : `${m}м`;
+    return s > 0 ? `${s}с` : null;
+  };
+
   const metrics = useMemo(() => {
-    // Сначала проверяем workoutMetrics (из GPX/TCX)
-    if (workoutMetrics && (workoutMetrics.distance || workoutMetrics.duration || workoutMetrics.pace)) {
+    // workoutMetrics из getAllWorkoutsSummary: duration в минутах, duration_seconds в секундах
+    if (workoutMetrics && (workoutMetrics.distance || workoutMetrics.duration != null || workoutMetrics.duration_seconds != null || workoutMetrics.pace)) {
+      const durMin = workoutMetrics.duration != null ? Number(workoutMetrics.duration) : null;
+      const durSec = workoutMetrics.duration_seconds != null ? Number(workoutMetrics.duration_seconds) : null;
+      const durationDisplay = durSec != null ? formatDurationDisplay(durSec, true) : (durMin != null ? formatDurationDisplay(durMin, false) : null);
       return {
         distance: workoutMetrics.distance,
-        duration: workoutMetrics.duration ? Math.round(workoutMetrics.duration / 60) : null,
+        duration: durationDisplay,
+        durationRaw: durSec ?? durMin,
         pace: workoutMetrics.pace
       };
     }
@@ -163,8 +201,12 @@ const WorkoutCard = ({
       };
     }
     
-    // В конце извлекаем из текста
-    return workout?.text ? extractMetrics(workout.text) : {};
+    // В конце извлекаем из текста (duration из текста — минуты)
+    const fromText = workout?.text ? extractMetrics(workout.text) : {};
+    if (fromText.duration != null) {
+      return { ...fromText, duration: formatDurationDisplay(fromText.duration, false) };
+    }
+    return fromText;
   }, [workout?.text, workoutMetrics, results]);
 
   const workoutTitle = useMemo(() => {
@@ -175,22 +217,20 @@ const WorkoutCard = ({
       return 'Пустой день';
     }
     
-    const typeName = TYPE_NAMES[workout?.type];
+    const typeKey = workout?.type ?? workout?.activity_type;
+    const typeName = TYPE_NAMES[typeKey];
     if (typeName) {
       return typeName;
     }
     
     // Если тип не определен, используем текст из описания
     return workout?.text?.split('\n')[0] || workout?.text || 'Тренировка';
-  }, [workout?.type, workout?.text]);
+  }, [workout?.type, workout?.activity_type, workout?.text]);
 
   // Добавляем класс для статуса, чтобы CSS мог управлять фоном
   return (
     <div 
       className={`workout-card workout-card-${status} ${compact ? 'workout-card-compact' : ''} ${isToday ? 'workout-card-today' : ''}`}
-      style={{ 
-        borderLeft: `4px solid ${config.border}`
-      }}
       onClick={onPress}
     >
       <div className="workout-card-content">
@@ -224,8 +264,10 @@ const WorkoutCard = ({
                         className="workout-card-btn-edit-plan-day"
                         onClick={(e) => { e.stopPropagation(); onEditPlanDay(planDay); }}
                         title="Редактировать тренировку"
+                        aria-label="Редактировать тренировку"
                       >
-                        Изменить
+                        <PenLineIcon size={18} className="workout-card-btn-icon" aria-hidden />
+                        <span className="workout-card-btn-text">Изменить</span>
                       </button>
                     )}
                     {onDeletePlanDay && (
@@ -234,17 +276,21 @@ const WorkoutCard = ({
                         className="workout-card-btn-delete-plan-day"
                         onClick={(e) => { e.stopPropagation(); onDeletePlanDay(planDay.id); }}
                         title="Удалить тренировку"
+                        aria-label="Удалить тренировку"
                       >
-                        Удалить
+                        <TrashIcon size={18} className="workout-card-btn-icon" aria-hidden />
+                        <span className="workout-card-btn-text">Удалить</span>
                       </button>
                     )}
                   </div>
                 )}
               </div>
               {planDay.description && (() => {
+                const stripped = stripRedundantTypePrefix(planDay.description, planDay.type);
+                if (!stripped) return null;
                 const { html, hasMore } = maxDescriptionItems
-                  ? limitDescription(planDay.description, maxDescriptionItems)
-                  : { html: planDay.description, hasMore: false };
+                  ? limitDescription(stripped, maxDescriptionItems)
+                  : { html: stripped, hasMore: false };
                 return (
                   <>
                     <div className="workout-card-plan-day-text" dangerouslySetInnerHTML={{ __html: html }} />
@@ -266,7 +312,7 @@ const WorkoutCard = ({
             <div className="workout-metrics">
               {metrics.distance && (
                 <div className="metric">
-                  <span className="metric-icon">🏃</span>
+                  <span className="metric-icon" aria-hidden><DistanceIcon size={18} /></span>
                   <div className="metric-content">
                     <span className="metric-value">{metrics.distance}</span>
                     <span className="metric-unit">км</span>
@@ -275,16 +321,15 @@ const WorkoutCard = ({
               )}
               {metrics.duration && (
                 <div className="metric">
-                  <span className="metric-icon">⏱️</span>
+                  <span className="metric-icon" aria-hidden><TimeIcon size={18} /></span>
                   <div className="metric-content">
                     <span className="metric-value">{metrics.duration}</span>
-                    <span className="metric-unit">мин</span>
                   </div>
                 </div>
               )}
               {metrics.pace && (
                 <div className="metric">
-                  <span className="metric-icon">📍</span>
+                  <span className="metric-icon" aria-hidden><PaceIcon size={18} /></span>
                   <div className="metric-content">
                     <span className="metric-value">{metrics.pace}</span>
                     <span className="metric-unit">/км</span>
@@ -304,7 +349,7 @@ const WorkoutCard = ({
           {/* Упражнения */}
           {workout?.dayExercises && workout.dayExercises.length > 0 && (
             <div className="workout-exercises">
-              <div className="workout-exercises-title">💪 Упражнения ({workout.dayExercises.length})</div>
+              <div className="workout-exercises-title"><OtherIcon size={18} className="title-icon" aria-hidden /> Упражнения ({workout.dayExercises.length})</div>
               <div className="workout-exercises-list">
                 {workout.dayExercises.slice(0, 5).map((exercise, idx) => (
                   <div key={exercise.id || idx} className="workout-exercise-item">
@@ -316,7 +361,12 @@ const WorkoutCard = ({
                       <span className="exercise-detail">{exercise.distance_m} м</span>
                     )}
                     {exercise.duration_sec && (
-                      <span className="exercise-detail">{Math.round(exercise.duration_sec / 60)} мин</span>
+                      <span className="exercise-detail">{(() => {
+                      const s = exercise.duration_sec;
+                      const m = Math.floor(s / 60);
+                      const sec = s % 60;
+                      return m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
+                    })()}</span>
                     )}
                     {exercise.weight_kg && (
                       <span className="exercise-detail">{exercise.weight_kg} кг</span>
@@ -333,12 +383,12 @@ const WorkoutCard = ({
           {/* Результаты из workout_log (если есть несколько) */}
           {results && results.length > 1 && (
             <div className="workout-results">
-              <div className="workout-results-title">📊 Результаты ({results.length})</div>
+              <div className="workout-results-title"><BarChartIcon size={18} className="title-icon" aria-hidden /> Результаты ({results.length})</div>
               {results.map((result, idx) => (
                 <div key={idx} className="workout-result-item">
-                  {result.result_distance && <span>📏 {result.result_distance} км</span>}
-                  {result.result_time && <span>⏱️ {result.result_time}</span>}
-                  {result.result_pace && <span>⚡ {result.result_pace}</span>}
+                  {result.result_distance && <span><DistanceIcon size={14} className="inline-icon" aria-hidden /> {result.result_distance} км</span>}
+                  {result.result_time && <span><TimeIcon size={14} className="inline-icon" aria-hidden /> {result.result_time}</span>}
+                  {result.result_pace && <span><PaceIcon size={14} className="inline-icon" aria-hidden /> {result.result_pace}</span>}
                   {result.notes && <div className="result-notes">{result.notes}</div>}
                 </div>
               ))}

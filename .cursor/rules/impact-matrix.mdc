@@ -1,0 +1,192 @@
+---
+description: Матрица влияния — при изменении X ОБЯЗАТЕЛЬНО проверить Y. 100% покрытие для оценки последствий.
+alwaysApply: true
+---
+
+# PlanRun — матрица влияния изменений
+
+**Правило:** Перед коммитом изменений в файл X — проверь все файлы из столбца «Проверить».
+
+**При создании нового:** см. `.cursor/rules/on-create-update-docs.mdc` — дописать новый элемент в impact-matrix и др.
+
+---
+
+## Фронтенд: ApiClient (src/api/ApiClient.js)
+
+| Меняешь метод | Проверить (вызывают этот метод) |
+|---------------|---------------------------------|
+| `getPlan` | usePlanStore, Dashboard, DashboardStatsWidget, ProfileQuickMetricsWidget, CalendarScreen, StatsScreen, UserProfileScreen, Notifications |
+| `savePlan` | usePlanStore |
+| `getDay` | DayModal, ResultModal, WeekCalendar, CalendarScreen, StatsScreen, UserProfileScreen, useWorkoutStore |
+| `saveResult` | ResultModal, AddTrainingModal, useWorkoutStore |
+| `getResult` | ResultModal, CalendarScreen |
+| `getAllResults` | Dashboard, DashboardStatsWidget, ProfileQuickMetricsWidget, CalendarScreen, StatsScreen, UserProfileScreen, useWorkoutStore |
+| `getAllWorkoutsSummary` | Dashboard, DashboardStatsWidget, ProfileQuickMetricsWidget, CalendarScreen, StatsScreen, UserProfileScreen |
+| `getAllWorkoutsList` | StatsScreen, UserProfileScreen |
+| `getWorkoutTimeline` | WorkoutDetailsModal |
+| `uploadWorkout` | ResultModal |
+| `checkPlanStatus` | usePlanStore, Dashboard |
+| `recalculatePlan` | usePlanStore |
+| `generateNextPlan` | usePlanStore |
+| `regeneratePlan` | usePlanStore, Dashboard |
+| `addTrainingDayByDate` | AddTrainingModal |
+| `updateTrainingDay` | AddTrainingModal |
+| `deleteTrainingDay` | DayModal, WeekCalendar |
+| `deleteWorkout` | WorkoutDetailsModal (headerActions), DayModal (inline) |
+| `deleteWeek` | Calendar.jsx (legacy, использует api.deleteWeek) |
+| `requestResetPassword` | ForgotPasswordScreen, LoginForm |
+| `confirmResetPassword` | ResetPasswordScreen |
+| `request('list_exercise_library')` | AddTrainingModal |
+| `request('get_csrf_token')` | AddTrainingModal, AdminScreen, SettingsScreen |
+| `login` | useAuthStore |
+| `logout` | useAuthStore |
+| `getCurrentUser` | useAuthStore, TopHeader, SpecializationModal |
+| `sendVerificationCode` | RegisterScreen |
+| `registerMinimal`, `completeSpecialization` | RegisterScreen |
+| `chatGetMessages` | ChatScreen, Notifications |
+| `chatSendMessageStream` | ChatScreen |
+| `chatSendMessage` | ChatScreen |
+| `chatClearAi`, `chatMarkRead`, `chatMarkAllRead` | ChatScreen |
+| `chatSendMessageToAdmin`, `chatSendMessageToUser` | ChatScreen |
+| `chatAdminMarkConversationRead`, `chatAdminSendMessage` | ChatScreen |
+| `chatGetDirectDialogs`, `chatGetDirectMessages`, `chatAdminGetMessages` | ChatScreen |
+| `chatAdminGetUnreadNotifications` | Notifications |
+| `getUserBySlug` | ChatScreen, UserProfileScreen |
+| `getIntegrationsStatus`, `syncWorkouts`, `unlinkIntegration`, `getIntegrationOAuthUrl` | SettingsScreen |
+| `getStravaTokenError` | SettingsScreen |
+| `getProfile`, `updateProfile`, `uploadAvatar`, `removeAvatar`, `unlinkTelegram` | SettingsScreen |
+| `getAdminUsers`, `getAdminUser`, `updateAdminUser`, `deleteUser` | AdminScreen |
+| `getAdminSettings`, `updateAdminSettings` | AdminScreen |
+| `chatAdminBroadcast` | AdminScreen |
+| `getToken`, `getRefreshToken` | useAuthStore, ChatStreamWorker, SettingsScreen |
+| `request` (generic) | AddTrainingModal, AdminScreen, SettingsScreen, usePlanStore |
+
+---
+
+## Фронтенд: Stores
+
+| Меняешь | Проверить |
+|---------|-----------|
+| **useAuthStore** (user, api, login, logout, updateUser, initialize, isLocked, setLocked, unlock, pinLogin, biometricLogin) | App, AppLayout, AppTabsContent, LockScreen, LoginScreen, LoginForm, TopHeader, Notifications, ChatNotificationButton, Dashboard, DashboardScreen, CalendarScreen, StatsScreen, ChatScreen, SettingsScreen, UserProfileScreen, AdminScreen, SpecializationModal, RegisterScreen, WorkoutDetailsModal, usePlanStore, useWorkoutStore |
+| **usePlanStore** (loadPlan, recalculatePlan, generateNextPlan, setPlanStatusChecked, clearPlan) | Dashboard, CalendarScreen, ChatScreen (onPlanUpdated) |
+| **useWorkoutStore** (loadDay, saveResult, loadAllResults) | Прямых вызовов нет в UI; store используется как альтернатива прямым api-вызовам |
+| **usePreloadStore** (preloadTriggered, triggerPreload) | Dashboard (триггер после загрузки), CalendarScreen, StatsScreen (предзагрузка при native app) |
+| **useWorkoutRefreshStore** (version, triggerRefresh) | Dashboard, CalendarScreen, StatsScreen, UserProfileScreen (подписка); ResultModal, AddTrainingModal, DayModal, SettingsScreen (вызов triggerRefresh) |
+
+---
+
+## Фронтенд: Компоненты (если меняешь props/интерфейс)
+
+| Меняешь компонент | Проверить (используют) |
+|-------------------|------------------------|
+| **DayModal** | CalendarScreen, UserProfileScreen, StatsScreen |
+| **ResultModal** | DayModal (открывается из DayModal) |
+| **AddTrainingModal** | DayModal, CalendarScreen |
+| **WorkoutCard** | Dashboard, WeekCalendar |
+| **WeekCalendar** | CalendarScreen |
+| **MonthlyCalendar** | CalendarScreen |
+| **Day** | Week |
+| **Week** | Calendar.jsx |
+| **DashboardStatsWidget** | Dashboard, UserProfileScreen |
+| **ProfileQuickMetricsWidget** | Dashboard, UserProfileScreen |
+| **DashboardWeekStrip** | Dashboard, UserProfileScreen |
+| **WorkoutDetailsModal** | DayModal, UserProfileScreen, StatsScreen |
+| **LockScreen** | App (при isLocked) |
+| **Modal** | ResultModal, AddTrainingModal, DayModal, и др. |
+| **Icons** | Day, Week, WorkoutCard, AddTrainingModal, ResultModal, MonthlyCalendar, Dashboard, и др. |
+
+---
+
+## Фронтенд: Утилиты и хелперы
+
+| Меняешь | Проверить |
+|---------|-----------|
+| **StatsUtils.processStatsData** | Dashboard, DashboardStatsWidget, ProfileQuickMetricsWidget, StatsScreen, UserProfileScreen |
+| **StatsUtils.getDaysFromRange** | processStatsData (внутри), StatsScreen, ActivityHeatmap |
+| **calendarHelpers** (getDateForDay, getTrainingClass, getShortDescription, formatDateShort, getDayName) | Day, Week, MonthlyCalendar |
+| **avatarUrl.getAvatarSrc** | TopHeader, UserProfileScreen, ChatScreen, SettingsScreen |
+| **BiometricService** | useAuthStore, SettingsScreen |
+| **PinAuthService** | useAuthStore, PinSetupModal, SettingsScreen |
+| **CredentialBackupService** | useAuthStore (pinLogin, logout), LoginForm |
+| **ChatSSE** | ChatScreen, Notifications, useChatUnread |
+| **workoutFormUtils** (parseTime, formatTime, parsePace, formatPace, maskTimeInput, maskPaceInput, TYPE_LABELS, ACTIVITY_TYPE_LABELS) | AddTrainingModal, ResultModal, WorkoutDetailsModal |
+
+---
+
+## Бэкенд: Контроллеры
+
+| Меняешь | Проверить (вызывают action) |
+|---------|-----------------------------|
+| **WorkoutController::getDay** | DayModal, ResultModal, WeekCalendar, CalendarScreen, StatsScreen, UserProfileScreen, useWorkoutStore |
+| **WorkoutController::saveResult** | ResultModal, AddTrainingModal, useWorkoutStore |
+| **WorkoutController::getResult** | ResultModal, CalendarScreen |
+| **WorkoutController::uploadWorkout** | ResultModal |
+| **WorkoutController::deleteWorkout** | WorkoutDetailsModal, DayModal |
+| **WorkoutController::getWorkoutTimeline** | WorkoutDetailsModal |
+| **TrainingPlanController::load** | usePlanStore, Dashboard, CalendarScreen, StatsScreen, UserProfileScreen |
+| **TrainingPlanController::recalculatePlan** | usePlanStore |
+| **TrainingPlanController::generateNextPlan** | usePlanStore |
+| **ChatController::sendMessageStream** | ChatScreen |
+| **UserController::getProfile, updateProfile** | SettingsScreen |
+| **IntegrationsController** | SettingsScreen |
+
+---
+
+## Бэкенд: Сервисы
+
+| Меняешь | Проверить |
+|---------|-----------|
+| **WorkoutService::getDay** | WorkoutController::getDay → DayModal, ResultModal, WeekCalendar, CalendarScreen, StatsScreen, UserProfileScreen.
+| **WorkoutService::saveResult** | WorkoutController::saveResult → ResultModal, AddTrainingModal.
+| **WorkoutService::uploadWorkout** | WorkoutController::uploadWorkout → ResultModal.
+| **TrainingPlanService::load** | TrainingPlanController, ChatService (tool get_plan).
+| **TrainingPlanService::recalculatePlan** | TrainingPlanController, ChatService (tool).
+| **ChatService::streamResponse** | ChatController → ChatScreen.
+| **ChatService::executeTool** (update_training_day и др.) | ChatScreen onPlanUpdated → loadPlan.
+| **StatsService** | StatsController → StatsScreen, UserProfileScreen, Dashboard.
+
+---
+
+## Бэкенд: Структура данных (формат ответа API)
+
+| Меняешь формат | Проверить |
+|----------------|-----------|
+| **get_day** (planDays, dayExercises, workouts) | DayModal, ResultModal, WeekCalendar, AddTrainingModal (парсинг).
+| **get_plan** (weeks_data) | usePlanStore, Dashboard, DashboardWeekStrip, CalendarScreen, StatsScreen, UserProfileScreen.
+| **save_result** (ожидаемые поля) | ResultModal, AddTrainingModal, useWorkoutStore.
+| **get_all_workouts_summary** | DashboardStatsWidget, ProfileQuickMetricsWidget, processStatsData.
+| **chat_send_message_stream** (NDJSON: chunk, plan_updated, plan_recalculating) | ChatScreen, ApiClient.chatSendMessageStream.
+
+---
+
+## Обратный поиск: я редактирую файл X — кого это затронет?
+
+| Редактирую | Затронет (проверить) |
+|------------|----------------------|
+| **ApiClient.js** | См. таблицу «Меняешь метод» выше — каждый метод имеет список вызывающих |
+| **useAuthStore.js** | App, AppLayout, LoginScreen, LoginForm, TopHeader, Dashboard, CalendarScreen, StatsScreen, ChatScreen, SettingsScreen, UserProfileScreen, AdminScreen, SpecializationModal, RegisterScreen, usePlanStore, useWorkoutStore |
+| **usePlanStore.js** | CalendarScreen, ChatScreen |
+| **DayModal.jsx** | CalendarScreen, UserProfileScreen, StatsScreen (передают props); AddTrainingModal, ResultModal, WorkoutDetailsModal (дочерние) |
+| **ResultModal.jsx** | DayModal (открывает); AddTrainingModal (при editResultData) |
+| **AddTrainingModal.jsx** | DayModal, CalendarScreen (открывают); api (addTrainingDayByDate, updateTrainingDay, saveResult) |
+| **WeekCalendar.jsx** | CalendarScreen |
+| **MonthlyCalendar.jsx** | CalendarScreen |
+| **Dashboard.jsx** | DashboardScreen; WorkoutCard, DashboardStatsWidget, processStatsData |
+| **StatsUtils.js** | Dashboard, DashboardStatsWidget, ProfileQuickMetricsWidget, StatsScreen, UserProfileScreen |
+| **calendarHelpers.js** | Day, Week, MonthlyCalendar |
+| **WorkoutService.php** | WorkoutController → getDay, saveResult, uploadWorkout, deleteWorkout, getWorkoutTimeline |
+| **ChatService.php** | ChatController; tools вызывают TrainingPlanService, WeekService |
+| **TrainingPlanService.php** | TrainingPlanController; ChatService (tools) |
+| **workoutFormUtils.js** | AddTrainingModal, ResultModal, WorkoutDetailsModal |
+| **Modal.jsx** | AddTrainingModal, ResultModal, WorkoutDetailsModal, DayModal, и все модалки через `<Modal>` |
+
+---
+
+## Чек-лист перед коммитом
+
+1. Изменил **ApiClient** → нашёл в таблице все вызывающие компоненты.
+2. Изменил **store** → проверил все компоненты, использующие этот store.
+3. Изменил **компонент** → проверил родители и дети (импорты).
+4. Изменил **утилиту** → проверил все импорты.
+5. Изменил **бэкенд** (controller/service) → проверил фронтенд, вызывающий этот action.
+6. Изменил **формат ответа API** → проверил все компоненты, парсящие этот ответ.

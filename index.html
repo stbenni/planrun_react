@@ -2,9 +2,25 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <script>
+      (function() {
+        var s = localStorage.getItem('theme');
+        var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        var theme = (s === 'dark' || s === 'light') ? s : sys;
+        var link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = theme === 'dark' ? '/site.webmanifest.dark' : '/site.webmanifest';
+        document.head.appendChild(link);
+      })();
+    </script>
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="planRUN" />
+    <meta name="theme-color" content="#FFFFFF" id="theme-color-meta" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>PlanRun - Календарь тренировок</title>
+    <title>planRUN - Календарь тренировок</title>
     <script>
       (function() {
         function getSystemTheme() {
@@ -17,6 +33,8 @@
         function applyTheme(theme) {
           document.documentElement.setAttribute('data-theme', theme);
           if (document.body) document.body.setAttribute('data-theme', theme);
+          var meta = document.getElementById('theme-color-meta');
+          if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1A1A' : '#FFFFFF');
         }
         applyTheme(getTheme());
         document.addEventListener('DOMContentLoaded', function() {

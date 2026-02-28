@@ -844,7 +844,7 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget):hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid):hover {
   transform: translateY(-4px);
-  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4) !important;
+  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4);
 }
 
 /* Свечение контейнера у «Сегодня» и «Следующая» в тёмной теме (как у остальных виджетов) */
@@ -880,8 +880,8 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-card {
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Не гасить подсветку у виджетов с контейнером — только у «пустых» карточек */
@@ -1571,9 +1571,9 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
 }
 
 .dashboard-stats-widget {

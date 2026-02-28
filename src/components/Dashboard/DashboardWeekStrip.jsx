@@ -95,6 +95,8 @@ function getDayTypeLabel(dayData, status) {
     race: 'Соревнование',
     other: 'ОФП',
     sbu: 'СБУ',
+    walking: 'Ходьба',
+    hiking: 'Поход',
   };
   return labels[dayData.type] || dayData.text || 'Тренировка';
 }
@@ -111,7 +113,7 @@ const LEGEND_ITEMS = [
   { type: 'rest', label: 'Отдых' },
 ];
 
-const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
+const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate, onDayClick }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -154,11 +156,15 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate }) => {
               role="button"
               tabIndex={0}
               className={`week-day-cell ${day.isToday ? 'today' : ''} ${day.status} ${day.cellType ? `type-${day.cellType}` : ''}`}
-              onClick={() => onNavigate && onNavigate('calendar', { date: day.date, week: day.weekNumber, day: day.dayKey })}
+              onClick={() => {
+                if (onDayClick) onDayClick(day.date, day.weekNumber, day.dayKey);
+                else if (onNavigate) onNavigate('calendar', { date: day.date, week: day.weekNumber, day: day.dayKey });
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  onNavigate && onNavigate('calendar', { date: day.date, week: day.weekNumber, day: day.dayKey });
+                  if (onDayClick) onDayClick(day.date, day.weekNumber, day.dayKey);
+                  else if (onNavigate) onNavigate('calendar', { date: day.date, week: day.weekNumber, day: day.dayKey });
                 }
               }}
             >

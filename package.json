@@ -1,29 +1,35 @@
 {
   "name": "planrun-web",
-  "version": "1.1",
+  "version": "1.2",
   "description": "PlanRun Web App - React",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npx vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext js,jsx",
-    "apk": "npm run build && rm -rf android/app/src/main/assets/public && cp -r dist android/app/src/main/assets/public && cp capacitor.config.json android/app/src/main/assets/ && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleDebug && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk test.apk && cp test.apk public/planrun.apk && npm run build"
+    "apk": "rm -f public/planrun.apk && npm run build && npx cap sync android && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleRelease && cd .. && cp android/app/build/outputs/apk/release/app-release.apk test.apk && cp test.apk public/planrun.apk && npm run build"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",
+    "@aparajita/capacitor-secure-storage": "^8.0.0",
     "@capacitor/android": "^8.0.1",
+    "@capacitor/browser": "^8.0.1",
     "@capacitor/cli": "^7.4.5",
     "@capacitor/core": "^8.0.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/preferences": "^8.0.0",
+    "@capacitor/push-notifications": "^8.0.1",
     "@dnd-kit/core": "^6.3.1",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.575.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.20.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@luncheon/simplify-svg-path": "^0.2.0",
     "@vitejs/plugin-react": "^4.2.1",
     "eslint": "^8.55.0",
     "eslint-plugin-react": "^7.33.2",

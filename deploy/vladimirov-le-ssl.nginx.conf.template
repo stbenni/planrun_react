@@ -46,6 +46,7 @@ server {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME {{PROJECT_ROOT}}/api/chat_sse.php;
         fastcgi_param SCRIPT_NAME /api/chat_sse.php;
+        fastcgi_param HTTP_AUTHORIZATION $http_authorization;
         fastcgi_pass {{PHP_FPM_SOCK}};
         fastcgi_read_timeout 3600;
         fastcgi_buffering off;
@@ -53,11 +54,13 @@ server {
 
     # API — PHP через FPM (api_wrapper.php, register_api.php и т.д.)
     # Явный SCRIPT_FILENAME: иначе $document_root от server (dist) даёт неверный путь → 502
+    # HTTP_AUTHORIZATION: Nginx по умолчанию не передаёт Authorization в PHP — JWT (register_push_token и др.) не работают
     location ~ ^/api/(.+\.php)(\?.*)?$ {
         set $api_script $1;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME {{PROJECT_ROOT}}/api/$api_script;
         fastcgi_param SCRIPT_NAME /api/$api_script;
+        fastcgi_param HTTP_AUTHORIZATION $http_authorization;
         fastcgi_pass {{PHP_FPM_SOCK}};
         fastcgi_read_timeout 60;
     }

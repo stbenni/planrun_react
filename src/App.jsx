@@ -9,6 +9,7 @@ import useAuthStore from './stores/useAuthStore';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import AppLayout from './components/AppLayout';
+import LockScreen from './components/common/LockScreen';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
@@ -27,7 +28,7 @@ function ScrollToTop() {
 }
 
 function App() {
-  const { user, api, loading, isAuthenticated, initialize, logout, updateUser } = useAuthStore();
+  const { user, api, loading, isAuthenticated, isLocked, initialize, logout, updateUser } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const [siteSettings, setSiteSettings] = useState(null);
 
@@ -54,30 +55,16 @@ function App() {
     }
   }, [isAuthenticated, loading]);
 
-  // Показываем загрузку до проверки авторизации, чтобы не редиректить с /admin и др. на лендинг при F5
-  if (loading || !api) {
-    return (
-      <div className="loading-container">
-        <div className="spinner">Загрузка...</div>
-      </div>
-    );
-  }
+  // Push-уведомления (только Capacitor, после авторизации)
+  useEffect(() => {
+    if (!isAuthenticated || !api || loading) return;
+    import('./services/PushService').then(({ registerPushNotifications }) => {
+      registerPushNotifications(api).catch(() => {});
+    });
+  }, [isAuthenticated, api, loading]);
 
   const maintenanceMode = siteSettings?.maintenance_mode === '1';
   const registrationEnabled = siteSettings?.registration_enabled !== '0';
-  if (maintenanceMode && !isAdmin) {
-    return (
-      <div className="maintenance-overlay">
-        <div className="maintenance-content">
-          <h1>Режим обслуживания</h1>
-          <p>Сайт временно недоступен. Попробуйте позже.</p>
-          {siteSettings?.contact_email && (
-            <p className="maintenance-contact">Контакты: {siteSettings.contact_email}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   const handleLogin = async (username, password, useJwt = false) => {
     return await useAuthStore.getState().login(username, password, useJwt);
@@ -95,6 +82,24 @@ function App() {
 
   return (
     <Router>
+      {loading || !api ? (
+        <div className="loading-container">
+          <div className="spinner">Загрузка...</div>
+        </div>
+      ) : isLocked ? (
+        <LockScreen />
+      ) : maintenanceMode && !isAdmin ? (
+        <div className="maintenance-overlay">
+          <div className="maintenance-content">
+            <h1>Режим обслуживания</h1>
+            <p>Сайт временно недоступен. Попробуйте позже.</p>
+            {siteSettings?.contact_email && (
+              <p className="maintenance-contact">Контакты: {siteSettings.contact_email}</p>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       <ScrollToTop />
       <Suspense fallback={
         <div className="loading-container">
@@ -163,7 +168,7 @@ function App() {
           <Route path="settings" element={null} />
           <Route path="admin" element={isAdmin ? null : <Navigate to="/" replace />} />
         </Route>
-        {/* Публичный маршрут профиля пользователя — без хедера */}
+        {/* Публичный маршрут профиля: доступен и залогиненным, и гостям. Не разлогинивает при переходе. */}
         <Route
           path="/:username"
           element={
@@ -178,6 +183,8 @@ function App() {
         />
       </Routes>
       </Suspense>
+      </>
+      )}
     </Router>
   );
 }

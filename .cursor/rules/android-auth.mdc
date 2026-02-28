@@ -1,0 +1,46 @@
+---
+description: Android-авторизация: биометрия, PIN, синхронизация токенов, навигация при выходе
+globs: src/services/TokenStorageService.js,src/services/BiometricService.js,src/services/PinAuthService.js,src/services/CredentialBackupService.js,src/stores/useAuthStore.js,src/api/ApiClient.js,src/screens/LoginScreen.jsx,src/components/LoginForm.jsx,src/screens/SettingsScreen.jsx,src/components/common/LockScreen.jsx,src/components/common/TopHeader.jsx,src/screens/LandingScreen.jsx
+alwaysApply: false
+---
+
+# Android-авторизация PlanRun
+
+## Поток токенов
+
+1. **Вход по паролю** (JWT): `login()` → `api.login()` → `BiometricService.saveTokens()` при включённой биометрии.
+2. **Refresh**: `ApiClient.refreshAccessToken()` → `setToken()` → **обязательно** `BiometricService.saveTokens()` при `isBiometricEnabled()` ИЛИ `PinAuthService.isPinEnabled()` — иначе после refresh отпечаток/PIN перестанут работать (localStorage на Android может очищаться).
+3. **Выход**: `logout(clearStoredCredentials)` — при явном выходе (`true`) очищаем BiometricService и PinAuthService. При истечении сессии (`onTokenExpired` → `logout(false)`) НЕ очищаем — биометрия и PIN остаются для входа.
+4. **pinLogin/biometricLogin при истечении refresh**: при ошибке `getCurrentUser` (refresh failed) НЕ вызывать `PinAuthService.clearPin()` и `BiometricService.clearTokens()` — показываем «Сессия истекла. Войдите по паролю для обновления.» Пользователь нажимает «Войти по паролю» → `logout(true)` → полная очистка.
+5. **Сетевые ошибки при refresh**: не вызывать `onTokenExpired` — пользователь остаётся авторизован, может повторить запрос позже.
+6. **Обновление приложения**: TokenStorageService хранит резервную копию токенов в Preferences (`auth_tokens_backup`). При потере KeyStore (BadPaddingException после обновления Android) чтение идёт из бэкапа. Инициализация проверяет TokenStorageService при пустом localStorage.
+7. **Проактивный refresh**: при возврате приложения (appStateChange, visibilitychange) если isAuthenticated && !isLocked вызывается api.getCurrentUser() — токены обновляются в storage до того, как пользователь разблокирует.
+8. **Сетевые ошибки при unlock**: при pinLogin/biometricLogin при ошибке сети (NETWORK_ERROR) показываем «Нет соединения...» и кнопку «Повторить», не «Сессия истекла». ApiClient.setToken на native ждёт сохранения в TokenStorageService.
+9. **Резерв по логину/паролю (CredentialBackupService)**: при входе по паролю на native автоматически сохраняются логин и пароль. SecureStorage — для восстановления по биометрии; Preferences (PIN-encrypted) — для PIN (если PIN включён, после входа запрашивается PIN для сохранения). При pinLogin/biometricLogin, если getCurrentUser не прошёл, вызывается recoverAndLogin(pin) или recoverAndLoginBiometric(api). Очищается при logout(clearStoredCredentials=true).
+
+## Биометрия и fallback
+
+- `allowDeviceCredential: true` в `BiometricService.authenticate()` — при отказе/недоступности отпечатка Android показывает PIN или графический ключ устройства.
+- Пользователь должен иметь настроенный блокировочный PIN/pattern на устройстве.
+
+## PIN-код приложения
+
+- `PinAuthService`: токены шифруются AES-GCM с ключом из PBKDF2(pin, salt). 4–6 цифр.
+- Настройка: Настройки → Профиль → PIN-код. Требует активной сессии.
+- Вход: экран логина → ввод PIN → `pinLogin(pin)` → после успешного `getCurrentUser` обновить зашифрованные токены через `setPinAndSaveTokens(pin, accessToken, refreshToken)`.
+
+## Навигация на Capacitor (native)
+
+На Android `navigate()` из React Router может не срабатывать (WebView, состояние роутера). Для гарантированного перехода использовать `window.location.href`:
+
+- **LockScreen «Войти по паролю»**: `logout(true)` → `window.location.href = '/landing?openLogin=1'`
+- **TopHeader / SettingsScreen «Выйти»**: `logout()` → `window.location.href = '/landing'`
+- **LandingScreen**: обрабатывать `?openLogin=1` в URL (попап логина) — `location.state.openLogin` не работает после полной перезагрузки.
+
+Проверка: `isNativeCapacitor()` из TokenStorageService.
+
+## Правила
+
+- При успешном refresh на Capacitor всегда синхронизировать токены в BiometricService.
+- При logout очищать и BiometricService, и PinAuthService.
+- На Android не показывать биометрический диалог при старте приложения (часто зависает) — токены подхватываются в `getToken()` без диалога.

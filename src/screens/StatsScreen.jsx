@@ -4,8 +4,12 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import usePreloadStore from '../stores/usePreloadStore';
+import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
+import { isNativeCapacitor } from '../services/TokenStorageService';
 import {
   ActivityHeatmap,
   DistanceChart,
@@ -18,156 +22,144 @@ import {
   processAchievementsData
 } from '../components/Stats';
 import SkeletonScreen from '../components/common/SkeletonScreen';
+import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from '../components/Dashboard/DashboardMetricIcons';
+import { BarChartIcon, TrophyIcon, TargetIcon, FlameIcon, OtherIcon } from '../components/common/Icons';
+import '../components/Dashboard/Dashboard.css';
 import './StatsScreen.css';
 
 const StatsScreen = () => {
+  const location = useLocation();
   const isTabActive = useIsTabActive('/stats');
+  const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
+  const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
   const { api, user } = useAuthStore();
-  const [stats, setStats] = useState(null);
+  const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('month'); // week, month, quarter, year - только для "Обзор"
-  const [activeTab, setActiveTab] = useState('overview'); // overview, progress, achievements
-  const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false });
+  const [timeRange, setTimeRange] = useState('month');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
 
-  const loadStats = useCallback(async () => {
-    if (!api) {
-      console.warn('StatsScreen: API client is not available');
-      setLoading(false);
-      setStats(null);
-      return;
-    }
+  useEffect(() => {
+    const isStats = location.pathname === '/stats' || location.pathname.startsWith('/stats');
+    if (!isStats) setWorkoutModal((prev) => (prev.isOpen ? { ...prev, isOpen: false } : prev));
+  }, [location.pathname]);
 
-    if (typeof api.getAllWorkoutsSummary !== 'function' ||
-        typeof api.getAllResults !== 'function' ||
-        typeof api.getPlan !== 'function') {
-      console.error('StatsScreen: API client missing required methods', {
-        hasGetAllWorkoutsSummary: typeof api.getAllWorkoutsSummary === 'function',
-        hasGetAllResults: typeof api.getAllResults === 'function',
-        hasGetPlan: typeof api.getPlan === 'function'
-      });
+  const loadRawData = useCallback(async (options = {}) => {
+    const silent = options.silent === true;
+    if (!api || typeof api.getAllWorkoutsSummary !== 'function') {
       setLoading(false);
-      setStats(null);
       return;
     }
 
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       
-      // Загружаем статистику тренировок
-      let workoutsData = null;
-      try {
-        const response = await api.getAllWorkoutsSummary();
-        if (response && typeof response === 'object') {
-          if (response.workouts) {
-            workoutsData = { workouts: response.workouts };
-          } else if (response.success && response.workouts) {
-            workoutsData = { workouts: response.workouts };
-          } else {
-            workoutsData = { workouts: response };
-          }
-        } else {
-          workoutsData = { workouts: {} };
-        }
-      } catch (error) {
-        console.error('Error loading workouts summary:', error);
-        workoutsData = { workouts: {} };
+      const [summaryRes, listRes, resultsRes, planRes] = await Promise.allSettled([
+        api.getAllWorkoutsSummary(),
+        api.getAllWorkoutsList(null, 500),
+        api.getAllResults(),
+        api.getPlan(),
+      ]);
+
+      let workoutsData = { workouts: {} };
+      if (summaryRes.status === 'fulfilled' && summaryRes.value && typeof summaryRes.value === 'object') {
+        const raw = summaryRes.value.data ?? summaryRes.value;
+        workoutsData = raw?.workouts != null ? { workouts: raw.workouts } : { workouts: typeof raw === 'object' && !Array.isArray(raw) ? raw : {} };
       }
-      
-      // Загружаем все результаты
-      let allResults = null;
-      try {
-        const response = await api.getAllResults();
-        if (response && typeof response === 'object') {
-          if (response.results) {
-            allResults = { results: response.results };
-          } else if (response.success && response.results) {
-            allResults = { results: response.results };
-          } else {
-            allResults = { results: response };
-          }
-        } else {
-          allResults = { results: [] };
-        }
-      } catch (error) {
-        console.error('Error loading all results:', error);
-        allResults = { results: [] };
+
+      let workoutsList = [];
+      if (listRes.status === 'fulfilled' && listRes.value && typeof listRes.value === 'object') {
+        const raw = listRes.value.data ?? listRes.value;
+        workoutsList = Array.isArray(raw?.workouts) ? raw.workouts : [];
       }
-      
-      // Загружаем план для расчета прогресса
+
+      let allResults = { results: [] };
+      if (resultsRes.status === 'fulfilled' && resultsRes.value && typeof resultsRes.value === 'object') {
+        const r = resultsRes.value;
+        allResults = { results: r.results ?? r };
+      }
+
       let plan = null;
-      try {
-        const response = await api.getPlan();
-        if (response && typeof response === 'object') {
-          if (response.plan) {
-            plan = response.plan;
-          } else if (response.success && response.plan) {
-            plan = response.plan;
-          } else {
-            plan = response;
-          }
-        }
-      } catch (error) {
-        console.error('Error loading plan:', error);
+      if (planRes.status === 'fulfilled' && planRes.value && typeof planRes.value === 'object') {
+        const r = planRes.value;
+        plan = r.plan ?? r;
       }
-      
-      // Обрабатываем данные в зависимости от активной вкладки
-      let processedStats;
-      if (activeTab === 'overview') {
-        // Для "Обзор" используем выбранный период
-        processedStats = processStatsData(workoutsData, allResults, plan, timeRange);
-      } else if (activeTab === 'progress') {
-        // Для "Прогресс" показываем только данные из плана (без фильтрации по периоду)
-        processedStats = processProgressData(workoutsData, allResults, plan);
-      } else {
-        // Для "Достижения" показываем общие данные (все время)
-        processedStats = processAchievementsData(workoutsData, allResults);
-      }
-      
-      setStats(processedStats);
+
+      setRawData({ workoutsData, workoutsList, allResults, plan });
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
       setLoading(false);
     }
-  }, [api, activeTab, timeRange]);
+  }, [api]);
+
+  const stats = React.useMemo(() => {
+    if (!rawData) return null;
+    const { workoutsData, workoutsList, allResults, plan } = rawData;
+    if (activeTab === 'overview') {
+      return processStatsData(workoutsData, allResults, plan, timeRange, workoutsList);
+    }
+    if (activeTab === 'progress') {
+      return processProgressData(workoutsData, allResults, plan);
+    }
+    return processAchievementsData(workoutsData, allResults);
+  }, [rawData, activeTab, timeRange]);
 
   const hasLoadedRef = useRef(false);
   useEffect(() => {
-    if (!isTabActive && !hasLoadedRef.current) return;
+    const isNative = isNativeCapacitor();
+    const shouldPreload = isNative && preloadTriggered;
+    if (!isTabActive && !hasLoadedRef.current && !shouldPreload) return;
     if (api && typeof api.getAllWorkoutsSummary === 'function') {
       hasLoadedRef.current = true;
-      loadStats();
+      const silent = (shouldPreload && !isTabActive) || !!rawData;
+      loadRawData({ silent });
     } else {
       setLoading(false);
     }
-  }, [api, isTabActive, loadStats]);
+  }, [api, isTabActive, preloadTriggered, loadRawData]);
 
-  const handleWorkoutClick = async (date) => {
+  useEffect(() => {
+    if (workoutRefreshVersion <= 0 || !api) return;
+    const t = setTimeout(() => loadRawData({ silent: true }), 250);
+    return () => clearTimeout(t);
+  }, [workoutRefreshVersion, api, loadRawData]);
+
+  const handleWorkoutClick = async (workout) => {
+    const date = workout?.start_time ? workout.start_time.split('T')[0] : workout?.date;
     if (!api || !date) return;
-    
+
+    const selectedWorkoutId = workout?.id ?? null;
+
+    const immediateDayData = {
+      planDays: [],
+      dayExercises: [],
+      workouts: [{ ...workout, start_time: workout.start_time || (date + 'T12:00:00') }],
+    };
+    setWorkoutModal({ isOpen: true, date, dayData: immediateDayData, loading: false, selectedWorkoutId });
+
     try {
-      setWorkoutModal({ isOpen: true, date, dayData: null, loading: true });
-      
       const response = await api.getDay(date);
       let raw = response;
       if (response && typeof response === 'object' && (response.data != null)) {
         raw = response.data;
       }
-      const dayData = raw && typeof raw === 'object' ? {
-        ...raw,
-        planDays: raw.planDays ?? raw.plan_days ?? [],
-        dayExercises: raw.dayExercises ?? raw.day_exercises ?? [],
-        workouts: raw.workouts ?? []
-      } : null;
-      setWorkoutModal({ isOpen: true, date, dayData, loading: false });
-    } catch (error) {
-      console.error('Error loading workout details:', error);
-      setWorkoutModal({ isOpen: true, date, dayData: null, loading: false });
+      if (raw && typeof raw === 'object') {
+        const fullDayData = {
+          ...raw,
+          planDays: raw.planDays ?? raw.plan_days ?? [],
+          dayExercises: raw.dayExercises ?? raw.day_exercises ?? [],
+          workouts: raw.workouts ?? [],
+        };
+        setWorkoutModal((prev) => prev.isOpen && prev.date === date ? { ...prev, dayData: fullDayData } : prev);
+      }
+    } catch {
+      // Мгновенные данные уже отображены — ошибка enrichment не критична
     }
   };
 
   const handleCloseWorkoutModal = () => {
-    setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false });
+    setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
   };
 
   if (!api) {
@@ -193,7 +185,7 @@ const StatsScreen = () => {
     return (
       <div className="stats-screen">
         <div className="stats-empty">
-          <div className="empty-icon">📊</div>
+          <div className="empty-icon" aria-hidden><BarChartIcon size={48} /></div>
           <div className="empty-text">Нет данных для отображения</div>
         </div>
       </div>
@@ -252,45 +244,49 @@ const StatsScreen = () => {
               Год
             </button>
           </div>
-          <div className="stats-metrics-grid">
-            <div className="dashboard-stat-metric-card">
-              <div className="dashboard-stat-metric-card__label">
-                <span className="dashboard-stat-metric-card__icon" aria-hidden>🏃</span>
-                Дистанция
-              </div>
-              <div className="dashboard-stat-metric-card__value">
-                <span className="dashboard-stat-metric-card__number">{stats.totalDistance}</span>
-                <span className="dashboard-stat-metric-card__unit">км</span>
-              </div>
-            </div>
-            <div className="dashboard-stat-metric-card">
-              <div className="dashboard-stat-metric-card__label">
-                <span className="dashboard-stat-metric-card__icon" aria-hidden>⏱️</span>
-                Время
-              </div>
-              <div className="dashboard-stat-metric-card__value">
-                <span className="dashboard-stat-metric-card__number">{Math.round(stats.totalTime / 60)}</span>
-                <span className="dashboard-stat-metric-card__unit">часов</span>
-              </div>
-            </div>
-            <div className="dashboard-stat-metric-card">
-              <div className="dashboard-stat-metric-card__label">
-                <span className="dashboard-stat-metric-card__icon" aria-hidden>📅</span>
-                Активность
-              </div>
-              <div className="dashboard-stat-metric-card__value">
-                <span className="dashboard-stat-metric-card__number">{stats.totalWorkouts}</span>
-                <span className="dashboard-stat-metric-card__unit">тренировок</span>
-              </div>
-            </div>
-            <div className="dashboard-stat-metric-card">
-              <div className="dashboard-stat-metric-card__label">
-                <span className="dashboard-stat-metric-card__icon" aria-hidden>📍</span>
-                Средний темп
-              </div>
-              <div className="dashboard-stat-metric-card__value">
-                <span className="dashboard-stat-metric-card__number">{stats.avgPace}</span>
-                <span className="dashboard-stat-metric-card__unit">/км</span>
+          <div className="dashboard-module-card stats-metrics-module">
+            <div className="dashboard-stats-widget">
+              <div className="dashboard-stats-metrics-grid">
+                <div className="metric-card">
+                  <div className="metric-card__label">
+                    <MetricDistanceIcon className="metric-card__icon" />
+                    <span>Дистанция</span>
+                  </div>
+                  <div className="metric-card__value">
+                    <span className="metric-card__number">{stats.totalDistance}</span>
+                    <span className="metric-card__unit">км</span>
+                  </div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-card__label">
+                    <MetricTimeIcon className="metric-card__icon" />
+                    <span>Время</span>
+                  </div>
+                  <div className="metric-card__value">
+                    <span className="metric-card__number">{Math.round(stats.totalTime / 60)}</span>
+                    <span className="metric-card__unit">часов</span>
+                  </div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-card__label">
+                    <MetricActivityIcon className="metric-card__icon" />
+                    <span>Активность</span>
+                  </div>
+                  <div className="metric-card__value">
+                    <span className="metric-card__number">{stats.totalWorkouts}</span>
+                    <span className="metric-card__unit">тренировок</span>
+                  </div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-card__label">
+                    <MetricPaceIcon className="metric-card__icon" />
+                    <span>Средний темп</span>
+                  </div>
+                  <div className="metric-card__value">
+                    <span className="metric-card__number">{stats.avgPace}</span>
+                    <span className="metric-card__unit">/км</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -307,7 +303,10 @@ const StatsScreen = () => {
           </div>
 
           <div className="stats-recent-workouts">
-            <h2 className="section-title">Последние тренировки</h2>
+            <h2 className="section-title">
+              <span className="section-title--mobile">Тренировки</span>
+              <span className="section-title--desktop">Последние тренировки</span>
+            </h2>
             <RecentWorkoutsList 
               workouts={stats.workouts} 
               api={api}
@@ -352,25 +351,25 @@ const StatsScreen = () => {
         <div className="stats-content">
           <div className="achievements-grid">
             <AchievementCard 
-              icon="🏆"
+              Icon={TrophyIcon}
               title="Первая тренировка"
               description="Выполните первую тренировку"
               achieved={stats.totalWorkouts > 0}
             />
             <AchievementCard 
-              icon="🎯"
+              Icon={TargetIcon}
               title="10 тренировок"
               description="Выполните 10 тренировок"
               achieved={stats.totalWorkouts >= 10}
             />
             <AchievementCard 
-              icon="🔥"
+              Icon={FlameIcon}
               title="50 км"
               description="Пробегите 50 километров"
               achieved={stats.totalDistance >= 50}
             />
             <AchievementCard 
-              icon="💪"
+              Icon={OtherIcon}
               title="100 км"
               description="Пробегите 100 километров"
               achieved={stats.totalDistance >= 100}
@@ -385,6 +384,8 @@ const StatsScreen = () => {
         date={workoutModal.date}
         dayData={workoutModal.dayData}
         loading={workoutModal.loading}
+        selectedWorkoutId={workoutModal.selectedWorkoutId}
+        onDelete={() => { handleCloseWorkoutModal(); loadRawData({ silent: true }); }}
       />
     </div>
   );

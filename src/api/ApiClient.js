@@ -4,6 +4,8 @@
  */
 
 import BiometricService from '../services/BiometricService';
+import PinAuthService from '../services/PinAuthService';
+import TokenStorageService, { isNativeCapacitor } from '../services/TokenStorageService';
 
 class ApiError extends Error {
   constructor({ code, message, attempts_left }) {
@@ -15,18 +17,40 @@ class ApiError extends Error {
   }
 }
 
+const PROACTIVE_REFRESH_MS = 60000; // обновлять за 60 сек до истечения
+const REQUEST_TIMEOUT_MS = 15000; // таймаут обычных запросов (чтобы не зависать при недоступном API)
+const INITIAL_AUTH_TIMEOUT_MS = 5000; // короткий таймаут для check_auth при первом запуске (нет ключей → сразу логин)
+const SYNC_WORKOUTS_TIMEOUT_MS = 120000; // 2 мин — Strava/Huawei синхронизация (много API-запросов, прокси)
+
+function getExpFromToken(token) {
+  try {
+    const parts = String(token).split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(payload));
+    return typeof decoded.exp === 'number' ? decoded.exp : null;
+  } catch {
+    return null;
+  }
+}
+
 class ApiClient {
   constructor(baseUrl = null) {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const envBase = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL;
-    // Явный URL — если передан baseUrl или VITE_API_BASE_URL (для cross-origin)
     const explicit = baseUrl ?? (envBase !== undefined && envBase !== '' ? envBase : null);
 
     if (explicit) {
       this.baseUrl = explicit;
     } else {
-      if (typeof window !== 'undefined' && window.Capacitor) {
-        this.baseUrl = (origin || '') + '/api';
+      const isNativeOrigin = /^(capacitor|file):\/\//.test(origin || '');
+      if (isNativeOrigin && envBase) {
+        this.baseUrl = envBase.endsWith('/api') ? envBase : `${envBase.replace(/\/$/, '')}/api`;
+      } else if (isNativeOrigin) {
+        this.baseUrl = 'https://s-vladimirov.ru/api';
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[ApiClient] Native origin without VITE_API_BASE_URL — используем fallback. Для продакшена задайте VITE_API_BASE_URL при сборке.');
+        }
       } else if (typeof window !== 'undefined') {
         this.baseUrl = '/api';
       } else {
@@ -40,14 +64,41 @@ class ApiClient {
     this.refreshPromise = null;
   }
 
+  async getOrCreateDeviceId() {
+    return TokenStorageService.getOrCreateDeviceId();
+  }
+
   async setToken(token, refreshToken = null) {
     this.token = token;
-    if (refreshToken) {
+    if (token && refreshToken) {
       this.refreshToken = refreshToken;
+    } else if (!token) {
+      this.refreshToken = null;
     }
-    
+
+    if (isNativeCapacitor()) {
+      if (token && refreshToken) {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('auth_token', token);
+          localStorage.setItem('refresh_token', refreshToken);
+        }
+        // SecureStorage fire-and-forget: localStorage уже записан, KeyStore может зависать на Android
+        TokenStorageService.saveTokens(token, refreshToken).catch((e) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[ApiClient] SecureStorage save:', e?.message);
+          }
+        });
+      } else {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+        }
+        TokenStorageService.clearTokens().catch(() => {});
+      }
+      return;
+    }
+
     if (typeof localStorage !== 'undefined') {
-      // Для веба используем localStorage (синхронно)
       if (token) {
         localStorage.setItem('auth_token', token);
         if (refreshToken) {
@@ -80,54 +131,103 @@ class ApiClient {
     }
   }
 
-  async getToken() {
-    if (this.token) {
-      return this.token;
-    }
+  /** Текущие токены (для синхронизации в PinAuthService после успешного unlock) */
+  getTokens() {
+    return { accessToken: this.token, refreshToken: this.refreshToken };
+  }
 
-    if (typeof localStorage !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
+  async getToken() {
+    let token = this.token;
+    if (isNativeCapacitor()) {
+      if (token) return token;
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('auth_token');
+        const refresh = localStorage.getItem('refresh_token');
+        if (stored && refresh) {
+          this.token = stored;
+          this.refreshToken = refresh;
+          return stored;
+        }
+      }
+      try {
+        const stored = await TokenStorageService.getTokens();
+        if (stored?.accessToken && stored?.refreshToken) {
+          this.token = stored.accessToken;
+          this.refreshToken = stored.refreshToken;
+          token = stored.accessToken;
+        }
+      } catch (e) {
+        // игнорируем
+      }
+    } else if (!token && typeof localStorage !== 'undefined') {
+      token = localStorage.getItem('auth_token');
       const refreshToken = localStorage.getItem('refresh_token');
       if (token) {
         this.token = token;
         if (refreshToken) this.refreshToken = refreshToken;
-        return token;
       }
-      // Capacitor: если localStorage пуст, пробуем восстановить токены из защищённого хранилища
-      if (typeof window !== 'undefined' && window.Capacitor) {
-        try {
-          const stored = await BiometricService.getTokens();
-          if (stored?.accessToken && stored?.refreshToken) {
-            await this.setToken(stored.accessToken, stored.refreshToken);
-            return stored.accessToken;
-          }
-        } catch (e) {
-          // игнорируем
-        }
-      }
-      return null;
     }
-
-    // React Native: AsyncStorage
-    try {
-      if (typeof AsyncStorage !== 'undefined') {
-        const token = await AsyncStorage.getItem('auth_token');
+    if (!token && typeof window !== 'undefined' && window.Capacitor && !isNativeCapacitor()) {
+      try {
+        const stored = await BiometricService.getTokens();
+        if (stored?.accessToken && stored?.refreshToken) {
+          await this.setToken(stored.accessToken, stored.refreshToken);
+          token = stored.accessToken;
+        }
+      } catch (e) {
+        // игнорируем
+      }
+    }
+    if (!token && typeof AsyncStorage !== 'undefined') {
+      try {
+        token = await AsyncStorage.getItem('auth_token');
         const refreshToken = await AsyncStorage.getItem('refresh_token');
         if (token) {
           this.token = token;
           if (refreshToken) this.refreshToken = refreshToken;
-          return token;
         }
+      } catch (error) {
+        console.error('Error getting token:', error);
       }
-    } catch (error) {
-      console.error('Error getting token:', error);
     }
-    return null;
+    if (!token) return null;
+
+    const exp = getExpFromToken(token);
+    if (exp && exp * 1000 - PROACTIVE_REFRESH_MS < Date.now()) {
+      try {
+        const newToken = await this.refreshAccessToken();
+        return newToken;
+      } catch (e) {
+        return token;
+      }
+    }
+    return token;
   }
 
   async getRefreshToken() {
     if (this.refreshToken) {
       return this.refreshToken;
+    }
+
+    if (isNativeCapacitor()) {
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('refresh_token');
+        if (stored) {
+          this.refreshToken = stored;
+          return stored;
+        }
+      }
+      try {
+        const stored = await TokenStorageService.getTokens();
+        if (stored?.accessToken && stored?.refreshToken) {
+          this.token = stored.accessToken;
+          this.refreshToken = stored.refreshToken;
+          return stored.refreshToken;
+        }
+      } catch (e) {
+        // игнорируем
+      }
+      return null;
     }
 
     if (typeof localStorage !== 'undefined') {
@@ -136,7 +236,6 @@ class ApiClient {
         this.refreshToken = stored;
         return stored;
       }
-      // Capacitor: пробуем восстановить из защищённого хранилища
       if (typeof window !== 'undefined' && window.Capacitor) {
         try {
           const tokens = await BiometricService.getTokens();
@@ -172,6 +271,8 @@ class ApiClient {
     }
 
     this.isRefreshing = true;
+    this._tokenExpiredFiredInRefresh = false;
+    let tokenExpiredHandled = false;
     this.refreshPromise = (async () => {
       try {
         const refreshToken = await this.getRefreshToken();
@@ -179,34 +280,81 @@ class ApiClient {
           throw new Error('No refresh token available');
         }
 
+        // Если refresh-токен уже истёк — не делаем запрос, сразу переходим на экран входа
+        const refreshExp = getExpFromToken(refreshToken);
+        if (refreshExp && refreshExp * 1000 < Date.now()) {
+          await this.setToken(null, null);
+          if (this.onTokenExpired) {
+            this._tokenExpiredFiredInRefresh = true;
+            this.onTokenExpired();
+            tokenExpiredHandled = true;
+          }
+          throw new Error('Refresh token expired');
+        }
+
         const urlParams = new URLSearchParams({ action: 'refresh_token' });
-        // Используем api_wrapper.php который проксирует к api_v2.php
         const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
+        const deviceId = await this.getOrCreateDeviceId();
+        const body = { refresh_token: refreshToken };
+        if (deviceId) body.device_id = deviceId;
 
-        if (!response.ok) {
-          throw new Error('Failed to refresh token');
+        let response;
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } catch (fetchError) {
+          fetchError.isNetworkError = true;
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[ApiClient] Refresh network error:', fetchError?.message);
+          }
+          throw fetchError;
         }
 
-        const data = await response.json();
-        if (data.success && data.data) {
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success && data.data) {
           const { access_token, refresh_token } = data.data;
           await this.setToken(access_token, refresh_token);
+          // Синхронизация в BiometricService — иначе после refresh PIN/биометрия будут использовать устаревшие токены
+          if (isNativeCapacitor()) {
+            try {
+              const [pinEnabled, biometricEnabled] = await Promise.all([
+                PinAuthService.isPinEnabled(),
+                BiometricService.isBiometricEnabled()
+              ]);
+              if (biometricEnabled) {
+                BiometricService.saveTokens(access_token, refresh_token).catch(() => {});
+              }
+              // PinAuthService требует PIN для шифрования — обновляется при успешном unlock в useAuthStore
+            } catch (e) {
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('[ApiClient] Sync tokens after refresh:', e?.message);
+              }
+            }
+          }
           return access_token;
-        } else {
-          throw new Error(data.error || 'Failed to refresh token');
         }
+
+        // Сервер явно отклонил refresh (401, истёк, отозван)
+        const errMsg = (data.error || data.message || '').toLowerCase();
+        const isTokenInvalid = response.status === 401 || /invalid|expired|revoked|unauthorized/.test(errMsg);
+        if (isTokenInvalid) {
+          await this.setToken(null, null);
+          if (this.onTokenExpired) {
+            this._tokenExpiredFiredInRefresh = true;
+            this.onTokenExpired();
+            tokenExpiredHandled = true;
+          }
+        }
+        throw new Error(data.error || data.message || 'Failed to refresh token');
       } catch (error) {
-        // Очищаем токены при ошибке обновления
-        await this.setToken(null, null);
-        if (this.onTokenExpired) {
+        // При сетевой ошибке не разлогиниваем — токены могут быть валидны
+        const isNetworkError = error?.message?.includes('fetch') || error?.name === 'TypeError';
+        if (!isNetworkError && !tokenExpiredHandled && this.onTokenExpired) {
+          this._tokenExpiredFiredInRefresh = true;
           this.onTokenExpired();
         }
         throw error;
@@ -244,7 +392,7 @@ class ApiClient {
       headers,
     };
     // Чат — не кэшировать (сообщения обновляются)
-    if (action === 'chat_get_messages') {
+    if (action === 'chat_get_messages' || action === 'chat_get_direct_messages') {
       options.cache = 'no-store';
     }
 
@@ -287,7 +435,18 @@ class ApiClient {
     try {
       // Используем URL с параметрами для GET или базовый URL для POST
       const finalUrl = (method === 'GET' && options.url) ? options.url : url;
-      const response = await fetch(finalUrl, options);
+      const controller = new AbortController();
+      let timeoutMs = REQUEST_TIMEOUT_MS;
+      if (action === 'check_auth') timeoutMs = INITIAL_AUTH_TIMEOUT_MS;
+      else if (action === 'sync_workouts') timeoutMs = SYNC_WORKOUTS_TIMEOUT_MS;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const fetchOptions = { ...options, signal: controller.signal };
+      let response;
+      try {
+        response = await fetch(finalUrl, fetchOptions);
+      } finally {
+        clearTimeout(timeoutId);
+      }
       
       // Обработка ошибок авторизации
       if (response.status === 401) {
@@ -302,8 +461,10 @@ class ApiClient {
               const retryData = await retryResponse.json();
               return retryData.data || retryData;
             }
-          } catch (_) {
-            // refresh уже завершился с ошибкой, ниже вызовем onTokenExpired
+          } catch (refreshErr) {
+            if (refreshErr?.isNetworkError) {
+              throw new ApiError({ code: 'NETWORK_ERROR', message: 'Нет соединения. Проверьте интернет и попробуйте снова.' });
+            }
           }
         } else if (refreshToken) {
           try {
@@ -315,11 +476,16 @@ class ApiClient {
               return retryData.data || retryData;
             }
           } catch (refreshError) {
-            console.error('Failed to refresh token:', refreshError);
+            if (refreshError?.isNetworkError) {
+              throw new ApiError({ code: 'NETWORK_ERROR', message: 'Нет соединения. Проверьте интернет и попробуйте снова.' });
+            }
+            if (!refreshError?.isNetworkError) {
+              console.error('Failed to refresh token:', refreshError);
+            }
           }
         }
         
-        if (this.onTokenExpired) {
+        if (this.onTokenExpired && !this._tokenExpiredFiredInRefresh) {
           this.onTokenExpired();
         }
         throw new ApiError({ code: 'UNAUTHORIZED', message: 'Требуется авторизация' });
@@ -428,9 +594,13 @@ class ApiClient {
       if (error instanceof ApiError) {
         throw error;
       }
+      const isAbort = error?.name === 'AbortError' || /aborted|signal is aborted/i.test(error?.message || '');
+      const message = isAbort && action === 'sync_workouts'
+        ? 'Синхронизация заняла слишком много времени. Попробуйте снова.'
+        : (error.message || 'Network error');
       throw new ApiError({
-        code: 'NETWORK_ERROR',
-        message: error.message || 'Network error'
+        code: isAbort ? 'TIMEOUT' : 'NETWORK_ERROR',
+        message
       });
     }
   }
@@ -453,18 +623,20 @@ class ApiClient {
     const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // ВАЖНО: для передачи cookies (PHP сессии)
-        body: JSON.stringify({
-          username,
-          password,
-          use_jwt: false // Используем сессии для веба
-        }),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password, use_jwt: false }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -476,7 +648,6 @@ class ApiClient {
 
       const data = await response.json();
       if (data.success && data.data) {
-        // Сессия установлена через cookies, получаем данные пользователя
         const userData = await this.getCurrentUser();
         return { 
           success: true, 
@@ -509,18 +680,32 @@ class ApiClient {
     const urlParams = new URLSearchParams({ action: 'login' });
     const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
 
+    let deviceId = null;
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username,
-          password,
-          use_jwt: true
-        }),
-      });
+      deviceId = await Promise.race([
+        this.getOrCreateDeviceId(),
+        new Promise((r) => setTimeout(() => r(null), 3000))
+      ]);
+    } catch {
+      deviceId = null;
+    }
+    const body = { username, password, use_jwt: true };
+    if (deviceId) body.device_id = deviceId;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -541,7 +726,9 @@ class ApiClient {
           success: true,
           user: {
             id: user_id,
-            username: usernameFromResponse
+            user_id,
+            username: usernameFromResponse,
+            authenticated: true
           },
           access_token,
           refresh_token
@@ -564,32 +751,35 @@ class ApiClient {
    * Выход из системы
    */
   async logout() {
+    const LOGOUT_TIMEOUT_MS = 5000;
     try {
       const refreshToken = await this.getRefreshToken();
-      
-      // Если есть refresh token, используем JWT logout
-      if (refreshToken) {
-        const urlParams = new URLSearchParams({ action: 'logout' });
-        const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
-        
-        await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-      } else {
-        // Для веба используем сессионный logout через api_wrapper.php
-        const logoutUrl = `${this.baseUrl}/api_wrapper.php?action=logout`;
-        
-        await fetch(logoutUrl, {
-          method: 'POST',
-          credentials: 'include', // ВАЖНО: для передачи cookies (PHP сессии)
-        });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), LOGOUT_TIMEOUT_MS);
+      try {
+        if (refreshToken) {
+          const urlParams = new URLSearchParams({ action: 'logout' });
+          const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
+          await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+            signal: controller.signal,
+          });
+        } else {
+          const logoutUrl = `${this.baseUrl}/api_wrapper.php?action=logout`;
+          await fetch(logoutUrl, {
+            method: 'POST',
+            credentials: 'include',
+            signal: controller.signal,
+          });
+        }
+      } catch (_) {
+        // Таймаут или сетевая ошибка — продолжаем очистку
+      } finally {
+        clearTimeout(timeoutId);
       }
     } finally {
-      // Очищаем токены из localStorage
       await this.setToken(null, null);
     }
   }
@@ -817,24 +1007,20 @@ class ApiClient {
       const role = data?.role ?? 'user';
       const onboardingCompleted = data?.onboarding_completed !== undefined ? !!data.onboarding_completed : false;
       const timezone = data?.timezone ?? null;
+      const trainingMode = data?.training_mode ?? 'ai';
 
       if (isAuthenticated) {
-        const baseUser = {
+        return {
           authenticated: true,
           user_id: userId,
           username: username,
           role,
           onboarding_completed: onboardingCompleted,
+          training_mode: trainingMode,
           ...(name != null && { name }),
           ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath }),
           ...(timezone != null && timezone !== '' && { timezone })
         };
-        try {
-          const plan = await this.getPlan();
-          return { ...baseUser, plan };
-        } catch (error) {
-          return { ...baseUser, plan: null };
-        }
       }
       
       // Пользователь не авторизован
@@ -861,8 +1047,26 @@ class ApiClient {
 
   // ========== ПЛАНЫ ТРЕНИРОВОК ==========
 
-  async getPlan(userId = null) {
+  /**
+   * Контекст просмотра чужого профиля (для load, get_day, get_all_workouts_summary и т.д.)
+   * @param {{ slug: string, token?: string }} viewContext
+   */
+  _viewParams(viewContext) {
+    if (!viewContext?.slug) return {};
+    const p = { view: 'user', slug: viewContext.slug };
+    if (viewContext.token) p.token = viewContext.token;
+    return p;
+  }
+
+  async getUserBySlug(slug, token = null) {
+    const params = { slug: slug.startsWith('@') ? slug.slice(1) : slug };
+    if (token) params.token = token;
+    return this.request('get_user_by_slug', params, 'GET');
+  }
+
+  async getPlan(userId = null, viewContext = null) {
     const params = userId ? { user_id: userId } : {};
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
     return this.request('load', params, 'GET');
   }
 
@@ -872,8 +1076,10 @@ class ApiClient {
 
   // ========== ТРЕНИРОВКИ ==========
 
-  async getDay(date) {
-    return this.request('get_day', { date }, 'GET');
+  async getDay(date, viewContext = null) {
+    const params = { date };
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
+    return this.request('get_day', params, 'GET');
   }
 
   /**
@@ -889,12 +1095,47 @@ class ApiClient {
     return this.request('save_result', body, 'POST');
   }
 
-  async getResult(date) {
-    return this.request('get_result', { date }, 'GET');
+  async getResult(date, viewContext = null) {
+    const params = { date };
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
+    return this.request('get_result', params, 'GET');
   }
 
-  async getAllResults() {
-    return this.request('get_all_results', {}, 'GET');
+  /**
+   * Загрузить тренировку из GPX/TCX файла
+   * @param {File} file
+   * @param {{ date?: string }} opts - date в формате Y-m-d
+   */
+  async uploadWorkout(file, opts = {}) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('date', opts.date || new Date().toISOString().slice(0, 10));
+    if (csrfToken) formData.append('csrf_token', csrfToken);
+    const token = await this.getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const url = `${this.baseUrl}/api_wrapper.php?action=upload_workout`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      credentials: typeof window !== 'undefined' && !window.Capacitor ? 'include' : 'omit',
+      body: formData,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new ApiError({ code: 'UPLOAD_FAILED', message: data.error || 'Ошибка загрузки' });
+    }
+    if (data.success === false) {
+      throw new ApiError({ code: 'UPLOAD_FAILED', message: data.error || 'Ошибка загрузки' });
+    }
+    return data.data || data;
+  }
+
+  async getAllResults(viewContext = null) {
+    const params = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('get_all_results', params, 'GET');
   }
 
   async reset(date) {
@@ -903,12 +1144,51 @@ class ApiClient {
 
   // ========== СТАТИСТИКА ==========
 
-  async getStats() {
-    return this.request('stats', {}, 'GET');
+  async getStats(viewContext = null) {
+    const params = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('stats', params, 'GET');
   }
 
-  async getAllWorkoutsSummary() {
-    return this.request('get_all_workouts_summary', {}, 'GET');
+  async getAllWorkoutsSummary(viewContext = null) {
+    const params = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('get_all_workouts_summary', params, 'GET');
+  }
+
+  /**
+   * Список всех тренировок (каждая отдельно, без группировки по дню)
+   * @param {{ slug?: string, token?: string }} viewContext — для просмотра чужого профиля
+   * @param {number} limit — макс. записей (по умолчанию 500)
+   */
+  async getAllWorkoutsList(viewContext = null, limit = 500) {
+    const params = viewContext ? this._viewParams(viewContext) : {};
+    if (limit) params.limit = limit;
+    return this.request('get_all_workouts_list', params, 'GET');
+  }
+
+  // ========== ИНТЕГРАЦИИ (Huawei, Garmin, Strava) ==========
+
+  async getIntegrationOAuthUrl(provider) {
+    return this.request('integration_oauth_url', { provider }, 'GET');
+  }
+
+  async syncWorkouts(provider) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    return this.request('sync_workouts', { provider, csrf_token: csrfToken }, 'POST');
+  }
+
+  async getIntegrationsStatus() {
+    return this.request('integrations_status', {}, 'GET');
+  }
+
+  async unlinkIntegration(provider) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    return this.request('unlink_integration', { provider, csrf_token: csrfToken }, 'POST');
+  }
+
+  async getStravaTokenError() {
+    return this.request('strava_token_error', {}, 'GET');
   }
 
   /**
@@ -968,6 +1248,20 @@ class ApiClient {
    */
   async addTrainingDayByDate(data) {
     return this.request('add_training_day_by_date', data, 'POST');
+  }
+
+  /**
+   * Удалить выполненную тренировку (workout / manual log).
+   * @param {number} workoutId
+   * @param {boolean} [isManual=false]
+   */
+  async deleteWorkout(workoutId, isManual = false) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) {
+      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
+    }
+    return this.request('delete_workout', { workout_id: workoutId, is_manual: isManual, csrf_token: csrfToken }, 'POST');
   }
 
   /**
@@ -1181,6 +1475,33 @@ class ApiClient {
    */
   async chatSendMessageToAdmin(content) {
     return this.request('chat_send_message_to_admin', { content: (content || '').trim() }, 'POST');
+  }
+
+  /**
+   * Список диалогов: пользователи, которые писали мне через «Написать»
+   */
+  async chatGetDirectDialogs() {
+    const res = await this.request('chat_get_direct_dialogs', {}, 'GET');
+    return Array.isArray(res?.users) ? res.users : [];
+  }
+
+  /**
+   * Сообщения между текущим пользователем и другим (диалог «Написать»)
+   * @param {number} targetUserId ID собеседника
+   * @param {number} limit
+   * @param {number} offset
+   */
+  async chatGetDirectMessages(targetUserId, limit = 50, offset = 0) {
+    return this.request('chat_get_direct_messages', { target_user_id: targetUserId, limit, offset }, 'GET');
+  }
+
+  /**
+   * Отправить сообщение пользователю (от своего имени)
+   * @param {number} targetUserId ID получателя
+   * @param {string} content Текст сообщения
+   */
+  async chatSendMessageToUser(targetUserId, content) {
+    return this.request('chat_send_message_to_user', { target_user_id: targetUserId, content: (content || '').trim() }, 'POST');
   }
 
   /**

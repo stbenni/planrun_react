@@ -40,6 +40,21 @@ class StatsController extends BaseController {
             $this->handleException($e);
         }
     }
+
+    /**
+     * Получить список всех тренировок (каждая отдельно, без группировки по дню)
+     * GET /api_v2.php?action=get_all_workouts_list&limit=500
+     */
+    public function getAllWorkoutsList() {
+        try {
+            $limit = (int)($this->getParam('limit') ?: 500);
+            $limit = min(max($limit, 1), 1000);
+            $data = $this->statsService->getAllWorkoutsList($this->calendarUserId, $limit);
+            $this->returnSuccess(['workouts' => $data]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
     
     /**
      * Подготовить недельный анализ

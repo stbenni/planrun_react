@@ -107,7 +107,26 @@ try {
     $updateStmt->close();
     
     error_log("generate_plan_async.php: План успешно сохранен и активирован ({$mode}) для пользователя {$userId}");
-    
+
+    // Рецензия плана от AI в чат пользователя
+    $reviewStartDate = $startDate ?? (
+        isset($cutoffDate)
+            ? (new DateTime($cutoffDate))->modify('monday next week')->format('Y-m-d')
+            : date('Y-m-d')
+    );
+    try {
+        require_once __DIR__ . '/plan_review_generator.php';
+        require_once __DIR__ . '/../services/ChatService.php';
+        $review = generatePlanReview($planData, $reviewStartDate, $mode);
+        if ($review !== null && $review !== '') {
+            $chatService = new ChatService($db);
+            $chatService->addAIMessageToUser($userId, $review);
+            error_log("generate_plan_async.php: Рецензия плана добавлена в чат пользователя {$userId}");
+        }
+    } catch (Exception $reviewEx) {
+        error_log("generate_plan_async.php: Рецензия плана не добавлена: " . $reviewEx->getMessage());
+    }
+
 } catch (Exception $e) {
     error_log("generate_plan_async.php: ОШИБКА для пользователя {$userId}: " . $e->getMessage());
     error_log("generate_plan_async.php: Trace: " . $e->getTraceAsString());

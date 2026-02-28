@@ -25,11 +25,13 @@ const usePlanStore = create((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      const planData = await api.getPlan(userId);
-      
+      const raw = await api.getPlan(userId);
+      const planData = raw?.data ?? raw;
+      const hasPlan = !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0;
+
       set({ 
         plan: planData,
-        hasPlan: !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0,
+        hasPlan,
         loading: false 
       });
       
@@ -231,6 +233,17 @@ const usePlanStore = create((set, get) => ({
       hasPlan: false, 
       planStatus: null,
       error: null 
+    });
+  },
+
+  /** Установить статус «проверено, плана нет» — после checkPlanStatus когда has_plan=false */
+  setPlanStatusChecked: (hasPlan = false) => {
+    set({ 
+      plan: null, 
+      hasPlan, 
+      planStatus: { has_plan: hasPlan },
+      error: null,
+      loading: false 
     });
   },
 

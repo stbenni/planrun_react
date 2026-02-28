@@ -8,12 +8,16 @@ import { useNavigate } from 'react-router-dom';
 import Modal from './common/Modal';
 import RegisterScreen from '../screens/RegisterScreen';
 
-const RegisterModal = ({ isOpen, onClose, onRegister }) => {
+const RegisterModal = ({ isOpen, onClose, onRegister, returnTo }) => {
   const navigate = useNavigate();
 
   const handleSuccess = () => {
     onClose();
-    navigate('/', { state: { registrationSuccess: true } });
+    if (returnTo?.path) {
+      navigate(returnTo.path, { state: returnTo.state || {} });
+    } else {
+      navigate('/', { state: { registrationSuccess: true } });
+    }
   };
 
   if (!isOpen) return null;

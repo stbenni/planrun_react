@@ -79,10 +79,10 @@ while (true) {
 
     $counts = $repository->getUnreadCounts((int)$userId);
     if ($isAdmin) {
-        $adminUnread = $repository->getAdminUnreadCount();
-        $counts['total'] = ($counts['total'] ?? 0) + $adminUnread;
+        $adminModeUnread = $repository->getAdminUnreadCount();
+        $counts['total'] = ($counts['total'] ?? 0) + $adminModeUnread;
         $counts['by_type'] = $counts['by_type'] ?? [];
-        $counts['by_type']['admin'] = ($counts['by_type']['admin'] ?? 0) + $adminUnread;
+        $counts['by_type']['admin_mode'] = $adminModeUnread;
     }
     $dataJson = json_encode($counts);
 

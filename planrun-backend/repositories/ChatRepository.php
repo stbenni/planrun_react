@@ -43,15 +43,52 @@ class ChatRepository extends BaseRepository {
      * Получить последние сообщения разговора (в хронологическом порядке)
      */
     public function getMessages(int $conversationId, int $limit = 20, int $offset = 0): array {
-        return $this->fetchAll(
-            "SELECT id, conversation_id, sender_type, sender_id, content, created_at, read_at, metadata 
-             FROM chat_messages 
-             WHERE conversation_id = ? 
-             ORDER BY created_at DESC 
+        $rows = $this->fetchAll(
+            "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
+                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+             FROM chat_messages m
+             LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
+             WHERE m.conversation_id = ?
+             ORDER BY m.created_at DESC
              LIMIT ? OFFSET ?",
             [$conversationId, $limit, $offset],
             'iii'
         );
+        return $rows;
+    }
+
+    /**
+     * Сообщения между двумя пользователями (диалог «Написать»)
+     * Сообщения хранятся в admin-чате получателя (того, кому писали)
+     */
+    public function getDirectMessagesBetweenUsers(int $currentUserId, int $targetUserId, int $limit = 50, int $offset = 0): array {
+        $convCurrent = $this->getOrCreateConversation($currentUserId, 'admin');
+        $convTarget = $this->getOrCreateConversation($targetUserId, 'admin');
+        $convId = $convCurrent['id'];
+        $check = $this->fetchOne(
+            "SELECT conversation_id FROM chat_messages
+             WHERE conversation_id IN (?, ?) AND (sender_id = ? OR sender_id = ? OR sender_type = 'admin')
+             LIMIT 1",
+            [$convCurrent['id'], $convTarget['id'], $currentUserId, $targetUserId],
+            'iiii'
+        );
+        if ($check) {
+            $convId = (int)$check['conversation_id'];
+        } else {
+            $convId = $convTarget['id'];
+        }
+        $rows = $this->fetchAll(
+            "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
+                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+             FROM chat_messages m
+             LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
+             WHERE m.conversation_id = ? AND (m.sender_id = ? OR m.sender_id = ? OR m.sender_type = 'admin')
+             ORDER BY m.created_at DESC
+             LIMIT ? OFFSET ?",
+            [$convId, $currentUserId, $targetUserId, $limit, $offset],
+            'iiiii'
+        );
+        return $rows;
     }
 
     /**
@@ -146,9 +183,10 @@ class ChatRepository extends BaseRepository {
         foreach ($convs as $conv) {
             $row = $this->fetchOne(
                 "SELECT COUNT(*) as cnt FROM chat_messages 
-                 WHERE conversation_id = ? AND sender_type != 'user' AND read_at IS NULL",
-                [$conv['id']],
-                'i'
+                 WHERE conversation_id = ? AND read_at IS NULL 
+                 AND (sender_type != 'user' OR (sender_type = 'user' AND sender_id != ?))",
+                [$conv['id'], $userId],
+                'ii'
             );
             $cnt = (int)($row['cnt'] ?? 0);
             $byType[$conv['type']] = $cnt;
@@ -184,13 +222,90 @@ class ChatRepository extends BaseRepository {
              FROM chat_conversations c
              INNER JOIN chat_messages m ON m.conversation_id = c.id
              INNER JOIN users u ON u.id = c.user_id
-             WHERE c.type = 'admin' AND m.sender_type = 'user'
+             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = c.user_id
              GROUP BY c.user_id, u.id, u.username, u.email, u.avatar_path
              ORDER BY last_message_at DESC",
             [],
             ''
         );
         return $rows;
+    }
+
+    /**
+     * Диалоги: пользователи, которые писали мне ИЛИ которым я писал (через «Написать»)
+     */
+    public function getUsersWhoWroteToMe(int $currentUserId): array {
+        $rowsToMe = $this->fetchAll(
+            "SELECT u.id AS user_id, u.username, u.username_slug, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
+             FROM chat_conversations c
+             INNER JOIN chat_messages m ON m.conversation_id = c.id
+             INNER JOIN users u ON u.id = m.sender_id
+             WHERE c.type = 'admin' AND c.user_id = ? AND m.sender_type = 'user' AND m.sender_id != ?
+             GROUP BY m.sender_id, u.id, u.username, u.username_slug, u.email, u.avatar_path",
+            [$currentUserId, $currentUserId],
+            'ii'
+        );
+        $rowsFromMe = $this->fetchAll(
+            "SELECT u.id AS user_id, u.username, u.username_slug, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
+             FROM chat_conversations c
+             INNER JOIN chat_messages m ON m.conversation_id = c.id
+             INNER JOIN users u ON u.id = c.user_id
+             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = ? AND c.user_id != ?
+             GROUP BY c.user_id, u.id, u.username, u.username_slug, u.email, u.avatar_path",
+            [$currentUserId, $currentUserId],
+            'ii'
+        );
+        $byUser = [];
+        foreach (array_merge($rowsToMe, $rowsFromMe) as $r) {
+            $id = (int)$r['user_id'];
+            $ts = strtotime($r['last_message_at'] ?? '0');
+            if (!isset($byUser[$id]) || $ts > strtotime($byUser[$id]['last_message_at'] ?? '0')) {
+                $byUser[$id] = $r;
+            }
+        }
+        $merged = array_values($byUser);
+        $unreadByPartner = $this->getUnreadCountsPerDirectDialogPartner($currentUserId);
+        foreach ($merged as &$row) {
+            $row['unread_count'] = (int)($unreadByPartner[(int)$row['user_id']] ?? 0);
+        }
+        unset($row);
+        usort($merged, function ($a, $b) {
+            return strcmp($b['last_message_at'] ?? '', $a['last_message_at'] ?? '');
+        });
+        return $merged;
+    }
+
+    /**
+     * Непрочитанные сообщения по диалогам: сколько непрочитанных от каждого пользователя в моём admin-чате
+     */
+    public function getUnreadCountsPerDirectDialogPartner(int $currentUserId): array {
+        $rows = $this->fetchAll(
+            "SELECT m.sender_id, COUNT(*) AS cnt
+             FROM chat_conversations c
+             INNER JOIN chat_messages m ON m.conversation_id = c.id
+             WHERE c.type = 'admin' AND c.user_id = ? AND m.sender_type = 'user' AND m.sender_id != ? AND m.read_at IS NULL
+             GROUP BY m.sender_id",
+            [$currentUserId, $currentUserId],
+            'ii'
+        );
+        $result = [];
+        foreach ($rows as $r) {
+            $result[(int)$r['sender_id']] = (int)$r['cnt'];
+        }
+        return $result;
+    }
+
+    /**
+     * Отметить сообщения от пользователя в моём admin-чате как прочитанные (при открытии диалога)
+     */
+    public function markDirectDialogRead(int $currentUserId, int $partnerUserId): void {
+        $conv = $this->getOrCreateConversation($currentUserId, 'admin');
+        $this->execute(
+            "UPDATE chat_messages SET read_at = NOW()
+             WHERE conversation_id = ? AND sender_type = 'user' AND sender_id = ? AND read_at IS NULL",
+            [$conv['id'], $partnerUserId],
+            'ii'
+        );
     }
 
     /**
@@ -203,7 +318,7 @@ class ChatRepository extends BaseRepository {
              FROM chat_messages m
              INNER JOIN chat_conversations c ON c.id = m.conversation_id
              INNER JOIN users u ON u.id = c.user_id
-             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.read_at IS NULL
+             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = c.user_id AND m.read_at IS NULL
              ORDER BY m.created_at DESC
              LIMIT ?",
             [$limit],
@@ -218,7 +333,7 @@ class ChatRepository extends BaseRepository {
         $row = $this->fetchOne(
             "SELECT COUNT(*) as cnt FROM chat_messages m
              INNER JOIN chat_conversations c ON c.id = m.conversation_id
-             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.read_at IS NULL",
+             WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = c.user_id AND m.read_at IS NULL",
             [],
             ''
         );
@@ -260,20 +375,24 @@ class ChatRepository extends BaseRepository {
     /**
      * Отметить входящие сообщения как прочитанные (универсально для admin, ai, coach, direct)
      */
-    public function markMessagesRead(int $conversationId, int $beforeId = 0): void {
+    public function markMessagesRead(int $conversationId, int $beforeId = 0, ?int $conversationOwnerId = null): void {
+        $conv = $this->fetchOne("SELECT user_id FROM chat_conversations WHERE id = ?", [$conversationId], 'i');
+        $ownerId = $conversationOwnerId ?? (int)(is_array($conv) && isset($conv['user_id']) ? $conv['user_id'] : 0);
         if ($beforeId > 0) {
             $this->execute(
                 "UPDATE chat_messages SET read_at = NOW() 
-                 WHERE conversation_id = ? AND id <= ? AND sender_type != 'user' AND read_at IS NULL",
-                [$conversationId, $beforeId],
-                'ii'
+                 WHERE conversation_id = ? AND id <= ? AND read_at IS NULL 
+                 AND (sender_type != 'user' OR (sender_type = 'user' AND sender_id != ?))",
+                [$conversationId, $beforeId, $ownerId],
+                'iii'
             );
         } else {
             $this->execute(
                 "UPDATE chat_messages SET read_at = NOW() 
-                 WHERE conversation_id = ? AND sender_type != 'user' AND read_at IS NULL",
-                [$conversationId],
-                'i'
+                 WHERE conversation_id = ? AND read_at IS NULL 
+                 AND (sender_type != 'user' OR (sender_type = 'user' AND sender_id != ?))",
+                [$conversationId, $ownerId],
+                'ii'
             );
         }
     }

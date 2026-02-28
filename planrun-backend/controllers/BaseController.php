@@ -77,9 +77,15 @@ class BaseController {
     }
     
     /**
-     * Проверка CSRF токена
+     * Проверка CSRF токена.
+     * Пропускаем при JWT-авторизации (Capacitor/native): cookies не отправляются, сессия не сохраняется между запросами.
      */
     protected function checkCsrfToken() {
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (preg_match('/^Bearer\s+\S+/', $authHeader)) {
+            return true;
+        }
+
         if (!isset($_SESSION['csrf_token'])) {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         }

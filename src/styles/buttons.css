@@ -87,6 +87,33 @@
   min-width: 0;
 }
 
+/* Danger text — красный текст, без заливки */
+.btn--danger-text {
+  color: var(--accent-600);
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn--danger-text:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: transparent;
+  color: #b91c1c;
+  box-shadow: none;
+  transform: none;
+}
+
+[data-theme="dark"] .btn--danger-text {
+  color: #f87171;
+  background: transparent;
+  border-color: transparent;
+}
+
+[data-theme="dark"] .btn--danger-text:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: transparent;
+  color: #fca5a5;
+}
+
 /* Dark theme */
 [data-theme="dark"] .btn {
   background: var(--card-bg);

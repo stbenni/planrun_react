@@ -31,6 +31,7 @@
   padding: 0;
   border: none;
   box-shadow: unset;
+  overflow: visible; /* для position: sticky шапки календаря */
 }
 
 .week-calendar-container.swiping {
@@ -712,6 +713,21 @@
 .week-day-icon-square--rest .week-day-svg-icon,
 .week-day-icon-square--free .week-day-svg-icon { color: var(--workout-rest); }
 
+.week-day-icon-square--run .week-day-rest-extra-dot,
+.week-day-icon-square--running .week-day-rest-extra-dot { background: var(--workout-strip-run, var(--workout-easy)); }
+.week-day-icon-square--walking .week-day-rest-extra-dot { background: var(--workout-strip-walking, var(--success-500)); }
+.week-day-icon-square--hiking .week-day-rest-extra-dot { background: var(--workout-strip-hiking, var(--warning-600)); }
+.week-day-icon-square--other .week-day-rest-extra-dot { background: var(--workout-strip-ofp); }
+.week-day-icon-square--sbu .week-day-rest-extra-dot { background: var(--workout-strip-sbu); }
+
+.week-day-rest-extra-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin: auto;
+}
+
 .week-day-empty-dash {
   font-size: 18px;
   color: var(--gray-400);
@@ -865,6 +881,47 @@
 .week-selected-day {
   margin-top: 24px;
   animation: slideUp 300ms ease;
+}
+
+.week-selected-day-two-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.week-selected-day-workout-card-wrapper .workout-card-header {
+  display: none;
+}
+
+.week-selected-day-workout-card-wrapper .workout-actions {
+  display: none;
+}
+
+.week-completed-workouts {
+  margin-top: 0;
+}
+
+/* Стиль как в статистике — карточка с фоном и тенью */
+.week-completed-workouts.stats-style {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .week-completed-workouts.stats-style {
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+.week-completed-workouts.stats-style .section-title {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.week-completed-workouts.stats-style .recent-workouts-list {
+  gap: 12px;
 }
 
 
@@ -1121,6 +1178,8 @@
   .week-day-cell.type-other .week-day-number::after { background: var(--workout-strip-ofp, #EF4444) !important; }
   .week-day-cell.type-fartlek .week-day-number::after { background: var(--workout-interval, #EF4444) !important; }
   .week-day-cell.type-race .week-day-number::after { background: var(--primary-500) !important; }
+  .week-day-cell.type-walking .week-day-number::after { background: var(--workout-strip-walking, #22C55E) !important; }
+  .week-day-cell.type-hiking .week-day-number::after { background: var(--workout-strip-hiking, #16A34A) !important; }
   
   /* Точка для выполненной (зеленая) — перекрывает тип */
   .week-day-cell.completed .week-day-number::after {
@@ -1130,5 +1189,15 @@
   /* Оранжевая точка на выбранном (как кольцо на дашборде) */
   .week-day-cell.selected .week-day-number::after {
     background: var(--primary-500) !important;
+  }
+
+  /* Кнопки «Запланировать» и «Отметить выполненной» — в колонку */
+  .week-selected-day-actions {
+    flex-direction: column;
+  }
+
+  .week-selected-day-actions .btn {
+    width: 100%;
+    min-width: unset;
   }
 }

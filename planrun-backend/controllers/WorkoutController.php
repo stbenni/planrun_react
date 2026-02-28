@@ -90,6 +90,50 @@ class WorkoutController extends BaseController {
     }
     
     /**
+     * Загрузить тренировку из GPX/TCX файла
+     * POST /api_v2.php?action=upload_workout (multipart: file, date, csrf_token)
+     */
+    public function uploadWorkout() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+        $this->checkCsrfToken();
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            $this->returnError('Файл не загружен или произошла ошибка');
+            return;
+        }
+        $file = $_FILES['file'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, ['gpx', 'tcx'])) {
+            $this->returnError('Допустимы только файлы GPX и TCX');
+            return;
+        }
+        if ($file['size'] > 10 * 1024 * 1024) {
+            $this->returnError('Размер файла превышает 10MB');
+            return;
+        }
+        $date = $_POST['date'] ?? date('Y-m-d');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $this->returnError('Неверный формат даты');
+            return;
+        }
+        require_once __DIR__ . '/../utils/GpxTcxParser.php';
+        $workout = GpxTcxParser::parse($file['tmp_name'], $date);
+        if (!$workout || !$workout['start_time']) {
+            $this->returnError('Не удалось распарсить файл. Проверьте формат GPX/TCX.');
+            return;
+        }
+        require_once __DIR__ . '/../services/WorkoutService.php';
+        $service = new WorkoutService($this->db);
+        $result = $service->importWorkouts($this->currentUserId, [$workout], 'gpx');
+        $this->returnSuccess([
+            'message' => 'Тренировка загружена',
+            'imported' => $result['imported'],
+            'workout' => $workout,
+        ]);
+    }
+
+    /**
      * Получить все результаты
      * GET /api_v2.php?action=get_all_results
      */

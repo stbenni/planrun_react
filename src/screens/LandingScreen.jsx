@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import LoginModal from '../components/LoginModal';
 import RegisterModal from '../components/RegisterModal';
 import './LandingScreen.css';
@@ -11,15 +11,19 @@ import './LandingScreen.css';
 const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
 
   useEffect(() => {
-    if (location.state?.openLogin) {
+    const fromState = location.state?.openLogin;
+    const fromQuery = searchParams.get('openLogin') === '1';
+    if (fromState || fromQuery) {
       setLoginOpen(true);
-      navigate(location.pathname, { replace: true, state: {} });
+      if (fromState) navigate(location.pathname, { replace: true, state: {} });
+      if (fromQuery) setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('openLogin'); return n; }, { replace: true });
     }
-  }, [location.state?.openLogin, location.pathname, navigate]);
+  }, [location.state?.openLogin, searchParams, location.pathname, navigate, setSearchParams]);
 
   return (
     <div className="landing-container">
@@ -101,7 +105,7 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
             
             <div className="hero-image">
               <img
-                src="/hero.png"
+                src="/hero.webp"
                 alt="Бегун на тренировке"
               />
             </div>

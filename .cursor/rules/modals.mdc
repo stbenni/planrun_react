@@ -1,0 +1,81 @@
+---
+description: Правила оформления модальных окон PlanRun — мобильная адаптация
+alwaysApply: true
+---
+
+# Модальные окна PlanRun
+
+## Breakpoint
+
+- **Мобильный:** `max-width: 1023px`
+- **Десктоп:** `min-width: 1024px`
+
+---
+
+## Z-index (мобилки)
+
+| Элемент | z-index | Назначение |
+|---------|---------|------------|
+| TopHeader | 1100 | Хедер всегда виден поверх модалок |
+| BottomNav | 1100 | Навбар всегда виден поверх модалок |
+| Модалки (.modal-modern, .app-modal) | 900 | Ниже хедера и навбара |
+
+---
+
+## Мобильная адаптация (≤1023px)
+
+### Оверлей (фон)
+
+- **Прозрачный фон:** `background-color: transparent` (или `background: transparent`)
+- **Без размытия:** `backdrop-filter: none; -webkit-backdrop-filter: none`
+
+### Позиционирование
+
+- Модалка **между хедером и навбаром** — не перекрывает их
+- **Padding:** `padding: var(--mobile-header-height) 0 var(--mobile-content-padding-bottom) 0`
+- Контент (крестик, заголовок, тело) сдвинут вниз на высоту хедера
+
+### Контент модалки
+
+- **Без тени:** `box-shadow: none`
+- **Радиус:** `border-radius: var(--radius-2xl)` (или 0 для app-modal—modern)
+- **Ширина:** `width: 100%`, `max-width: 100%`
+- **Высота:** `flex: 1`, `min-height: 0` для корректного flex
+
+---
+
+## Варианты модалок
+
+### 1. DayModal (.modal.modal-modern)
+
+- Файлы: `DayModal.modern.css`, `calendar_v2.css`
+- Оверлей: `.modal-modern`
+- Контент: `.modal-modern-content`
+
+### 2. App-modal (.app-modal, .app-modal--modern)
+
+- Файл: `Modal.css`
+- Оверлей: `.app-modal`, `.app-modal--modern`
+- Контент: `.app-modal-content`, `.app-modal-content--modern`
+
+### 3. WorkoutDetailsModal (.workout-details-modal-overlay + .app-modal.app-modal--modern)
+
+- Файлы: `StatsScreen.css`, `Modal.css` (импорт в компоненте)
+- Оверлей: `.workout-details-modal-overlay.app-modal.app-modal--modern`
+- Контент: `.workout-details-modal.app-modal-content.app-modal-content--modern`
+- Рендер: `createPortal` → `modal-root`
+
+### 4. Базовый .modal (calendar_v2.css, calendar.css)
+
+- Оверлей: `.modal` — на мобилках прозрачный фон, без блюра
+
+---
+
+## Чек-лист при создании/изменении модалки
+
+- [ ] На мобилках: `backdrop-filter: none`, `-webkit-backdrop-filter: none`
+- [ ] На мобилках: прозрачный фон оверлея
+- [ ] На мобилках: padding под хедер и навбар
+- [ ] На мобилках: `box-shadow: none` у контента
+- [ ] z-index модалки < 1100 (ниже хедера и навбара)
+- [ ] Breakpoint: `1023px`
