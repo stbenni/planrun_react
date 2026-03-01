@@ -64,7 +64,7 @@ class TokenStorageService {
     if (!isNativeCapacitor()) return null;
     try {
       const { SecureStorage } = await import('@aparajita/capacitor-secure-storage');
-      await SecureStorage.setKeyPrefix('planrun_');
+      await withTimeout(SecureStorage.setKeyPrefix('planrun_'), 3000);
       this._storage = SecureStorage;
       return this._storage;
     } catch (e) {
@@ -154,32 +154,28 @@ class TokenStorageService {
       return true;
     }
 
-    const storage = await this._getSecureStorage();
-    if (!storage) {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(KEYS.AUTH_TOKEN, accessToken);
-        localStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken);
-        return true;
-      }
-      return false;
-    }
-
-    try {
-      await withTimeout(Promise.all([
-        storage.set(KEYS.AUTH_TOKEN, String(accessToken)),
-        storage.set(KEYS.REFRESH_TOKEN, String(refreshToken))
-      ]));
-    } catch (e) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[TokenStorage] SecureStorage save failed:', e?.message);
-      }
-    }
+    // Preferences — быстрый и надёжный бэкап, сохраняем ПЕРВЫМ
     try {
       await Preferences.set({
         key: KEYS.BACKUP_TOKENS,
         value: JSON.stringify({ accessToken, refreshToken })
       });
     } catch (_) {}
+
+    // SecureStorage — может зависнуть при инициализации KeyStore на Android
+    try {
+      const storage = await this._getSecureStorage();
+      if (storage) {
+        await withTimeout(Promise.all([
+          storage.set(KEYS.AUTH_TOKEN, String(accessToken)),
+          storage.set(KEYS.REFRESH_TOKEN, String(refreshToken))
+        ]));
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[TokenStorage] SecureStorage save failed:', e?.message);
+      }
+    }
     return true;
   }
 

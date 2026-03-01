@@ -43,10 +43,11 @@ alwaysApply: true
 | `getCurrentUser` | useAuthStore, TopHeader, SpecializationModal |
 | `sendVerificationCode` | RegisterScreen |
 | `registerMinimal`, `completeSpecialization` | RegisterScreen |
+| `assessGoal` | RegisterScreen |
 | `chatGetMessages` | ChatScreen, Notifications |
 | `chatSendMessageStream` | ChatScreen |
 | `chatSendMessage` | ChatScreen |
-| `chatClearAi`, `chatMarkRead`, `chatMarkAllRead` | ChatScreen |
+| `chatClearAi`, `chatClearDirectDialog`, `chatMarkRead`, `chatMarkAllRead` | ChatScreen |
 | `chatSendMessageToAdmin`, `chatSendMessageToUser` | ChatScreen |
 | `chatAdminMarkConversationRead`, `chatAdminSendMessage` | ChatScreen |
 | `chatGetDirectDialogs`, `chatGetDirectMessages`, `chatAdminGetMessages` | ChatScreen |

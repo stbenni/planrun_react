@@ -108,25 +108,24 @@ const usePlanStore = create((set, get) => ({
       return false;
     }
 
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, planStatus: { has_plan: false, generating: true } });
 
     try {
       if (withProgress) {
         await api.regeneratePlan();
       } else {
-        // Для обычной регенерации используем другой endpoint
         await api.request('regenerate_plan', {}, 'POST');
       }
       
-      // Перезагружаем план после регенерации
       await get().loadPlan();
       
-      set({ loading: false });
+      set({ loading: false, planStatus: { has_plan: true } });
       return true;
     } catch (error) {
       set({ 
         error: error.message || 'Ошибка регенерации плана',
-        loading: false 
+        loading: false,
+        planStatus: get().planStatus?.generating ? { has_plan: false } : get().planStatus
       });
       return false;
     }
@@ -141,7 +140,7 @@ const usePlanStore = create((set, get) => ({
       return false;
     }
 
-    set({ recalculating: true, error: null });
+    set({ recalculating: true, error: null, planStatus: { has_plan: false, generating: true } });
 
     try {
       await api.recalculatePlan(reason);
@@ -150,20 +149,20 @@ const usePlanStore = create((set, get) => ({
         if (attempts >= 40) {
           try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
           await get().loadPlan();
-          set({ recalculating: false, error: 'Время ожидания пересчёта истекло. План восстановлен.' });
+          set({ recalculating: false, planStatus: { has_plan: true }, error: 'Время ожидания пересчёта истекло. План восстановлен.' });
           return false;
         }
         await new Promise(r => setTimeout(r, 5000));
         const status = await api.checkPlanStatus();
         if (status?.has_plan) {
           await get().loadPlan();
-          set({ recalculating: false });
+          set({ recalculating: false, planStatus: { has_plan: true } });
           return true;
         }
         if (status?.error) {
           try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
           await get().loadPlan();
-          set({ recalculating: false, error: status.error });
+          set({ recalculating: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           return false;
         }
         return poll(attempts + 1);
@@ -173,7 +172,8 @@ const usePlanStore = create((set, get) => ({
     } catch (error) {
       set({
         error: error.message || 'Ошибка пересчёта плана',
-        recalculating: false
+        recalculating: false,
+        planStatus: get().planStatus?.generating ? { has_plan: false } : get().planStatus
       });
       return false;
     }
@@ -188,7 +188,7 @@ const usePlanStore = create((set, get) => ({
       return false;
     }
 
-    set({ generatingNext: true, error: null });
+    set({ generatingNext: true, error: null, planStatus: { has_plan: false, generating: true } });
 
     try {
       await api.generateNextPlan(goals);
@@ -197,20 +197,20 @@ const usePlanStore = create((set, get) => ({
         if (attempts >= 50) {
           try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
           await get().loadPlan();
-          set({ generatingNext: false, error: 'Время ожидания генерации нового плана истекло. План восстановлен.' });
+          set({ generatingNext: false, planStatus: { has_plan: true }, error: 'Время ожидания генерации нового плана истекло. План восстановлен.' });
           return false;
         }
         await new Promise(r => setTimeout(r, 5000));
         const status = await api.checkPlanStatus();
         if (status?.has_plan) {
           await get().loadPlan();
-          set({ generatingNext: false });
+          set({ generatingNext: false, planStatus: { has_plan: true } });
           return true;
         }
         if (status?.error) {
           try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
           await get().loadPlan();
-          set({ generatingNext: false, error: status.error });
+          set({ generatingNext: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           return false;
         }
         return poll(attempts + 1);
@@ -220,7 +220,8 @@ const usePlanStore = create((set, get) => ({
     } catch (error) {
       set({
         error: error.message || 'Ошибка генерации нового плана',
-        generatingNext: false
+        generatingNext: false,
+        planStatus: get().planStatus?.generating ? { has_plan: false } : get().planStatus
       });
       return false;
     }

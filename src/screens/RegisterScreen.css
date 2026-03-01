@@ -866,3 +866,129 @@
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* ── Goal Assessment Card ─────────────────────────── */
+.goal-assessment-card {
+  margin: var(--space-4) 0 var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  border: 1.5px solid var(--gray-200);
+  background: var(--card-bg);
+  transition: border-color 0.25s ease;
+}
+.goal-assessment-card__verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+}
+.goal-assessment-card__verdict--realistic { background: color-mix(in srgb, var(--success-500) 10%, transparent); }
+.goal-assessment-card__verdict--challenging { background: color-mix(in srgb, var(--warning-500) 10%, transparent); }
+.goal-assessment-card__verdict--unrealistic { background: color-mix(in srgb, var(--accent-600) 8%, transparent); }
+
+.goal-assessment-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+}
+.goal-assessment-card__icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+.goal-assessment-card__verdict--realistic .goal-assessment-card__icon { color: var(--success-500); }
+.goal-assessment-card__verdict--challenging .goal-assessment-card__icon { color: var(--warning-500); }
+.goal-assessment-card__verdict--unrealistic .goal-assessment-card__icon { color: var(--accent-600); }
+.goal-assessment-card__icon--spin {
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.goal-assessment-card__msg {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.goal-assessment-card__msg--error   { background: color-mix(in srgb, var(--accent-600) 8%, transparent); color: var(--accent-600); }
+.goal-assessment-card__msg--warning { background: color-mix(in srgb, var(--warning-500) 10%, transparent); color: var(--text-primary); }
+.goal-assessment-card__msg--success { background: color-mix(in srgb, var(--success-500) 10%, transparent); color: var(--text-primary); }
+.goal-assessment-card__msg--info    { background: color-mix(in srgb, var(--info-500) 8%, transparent); color: var(--text-secondary); }
+.goal-assessment-card__msg p { margin: 0; }
+
+.goal-assessment-card__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.goal-assessment-card__tip {
+  margin: 0;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.goal-assessment-card__data {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--gray-200);
+}
+.goal-assessment-card__vdot {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.goal-assessment-card__section { margin-bottom: var(--space-3); }
+.goal-assessment-card__section-title {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+.goal-assessment-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
+}
+.goal-assessment-card__cell {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-100);
+}
+.goal-assessment-card__label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.goal-assessment-card__value {
+  font-family: var(--font-stats);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.btn--disabled-unrealistic {
+  background: var(--gray-300) !important;
+  border-color: var(--gray-300) !important;
+  color: var(--text-tertiary) !important;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .goal-assessment-card__grid { grid-template-columns: repeat(2, 1fr); }
+}

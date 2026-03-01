@@ -713,6 +713,19 @@
 .week-day-icon-square--rest .week-day-svg-icon,
 .week-day-icon-square--free .week-day-svg-icon { color: var(--workout-rest); }
 
+/* run/running — из импорта Strava, rest_extra; fallback для неизвестных типов */
+.week-day-icon-square--run .week-day-svg-icon,
+.week-day-icon-square--running .week-day-svg-icon { color: var(--workout-strip-run, var(--workout-easy)); }
+
+/* marathon — ключевая сессия как race */
+.week-day-icon-square--marathon .week-day-svg-icon { color: var(--primary-500); }
+
+/* walking, hiking, cycling, swimming — иконки в календаре (если отображаются) */
+.week-day-icon-square--walking .week-day-svg-icon { color: var(--workout-strip-walking); }
+.week-day-icon-square--hiking .week-day-svg-icon { color: var(--workout-strip-hiking); }
+.week-day-icon-square--cycling .week-day-svg-icon { color: var(--info-500); }
+.week-day-icon-square--swimming .week-day-svg-icon { color: var(--info-600); }
+
 .week-day-icon-square--run .week-day-rest-extra-dot,
 .week-day-icon-square--running .week-day-rest-extra-dot { background: var(--workout-strip-run, var(--workout-easy)); }
 .week-day-icon-square--walking .week-day-rest-extra-dot { background: var(--workout-strip-walking, var(--success-500)); }
@@ -1178,8 +1191,13 @@
   .week-day-cell.type-other .week-day-number::after { background: var(--workout-strip-ofp, #EF4444) !important; }
   .week-day-cell.type-fartlek .week-day-number::after { background: var(--workout-interval, #EF4444) !important; }
   .week-day-cell.type-race .week-day-number::after { background: var(--primary-500) !important; }
+  .week-day-cell.type-marathon .week-day-number::after { background: var(--primary-500) !important; }
+  .week-day-cell.type-run .week-day-number::after,
+  .week-day-cell.type-running .week-day-number::after { background: var(--workout-strip-run, var(--workout-easy)) !important; }
   .week-day-cell.type-walking .week-day-number::after { background: var(--workout-strip-walking, #22C55E) !important; }
   .week-day-cell.type-hiking .week-day-number::after { background: var(--workout-strip-hiking, #16A34A) !important; }
+  .week-day-cell.type-cycling .week-day-number::after { background: var(--info-500) !important; }
+  .week-day-cell.type-swimming .week-day-number::after { background: var(--info-600) !important; }
   
   /* Точка для выполненной (зеленая) — перекрывает тип */
   .week-day-cell.completed .week-day-number::after {

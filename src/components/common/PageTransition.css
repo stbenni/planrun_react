@@ -25,19 +25,23 @@
     box-sizing: border-box;
   }
 
-  /* Чат: фиксированная высота = ровно между хедером и навбаром; flex-цепочка до контейнера чата */
+  /* Чат: строго между хедером и навбаром — margin-top под хедер, height = оставшееся место */
   .page-transition-content--chat {
-    height: 100vh;
-    min-height: 100vh;
-    max-height: 100vh;
+    margin-top: var(--mobile-header-height);
+    padding-top: 0;
+    padding-bottom: 0;
+    height: calc(100vh - var(--mobile-header-height) - var(--mobile-content-padding-bottom));
+    min-height: 0;
+    max-height: calc(100vh - var(--mobile-header-height) - var(--mobile-content-padding-bottom));
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
   }
   @supports (height: 100dvh) {
     .page-transition-content--chat {
-      height: 100dvh;
-      min-height: 100dvh;
-      max-height: 100dvh;
+      height: calc(100dvh - var(--mobile-header-height) - var(--mobile-content-padding-bottom));
+      max-height: calc(100dvh - var(--mobile-header-height) - var(--mobile-content-padding-bottom));
     }
   }
   .page-transition-content--chat .app-tabs-content {

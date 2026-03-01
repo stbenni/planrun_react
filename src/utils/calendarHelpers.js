@@ -35,7 +35,7 @@ export function getTrainingClass(type, isKey = false) {
     long: 'long-run',
     interval: 'interval',
     tempo: 'tempo',
-    easy: 'tempo', // Легкий бег использует тот же класс что и темповый
+    easy: 'easy', // Легкий бег — зелёный (--workout-easy)
     marathon: 'key-session',
     control: 'control',
     free: 'free-training',

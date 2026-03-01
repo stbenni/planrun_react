@@ -96,7 +96,7 @@ class CredentialBackupService {
 
   /**
    * Восстановить вход по биометрии: читает из SecureStorage, вызывает api.login.
-   * Вызывать после BiometricAuth.authenticate().
+   * После успешного recovery обновляет credentials в SecureStorage.
    */
   async recoverAndLoginBiometric(api) {
     try {
@@ -109,7 +109,10 @@ class CredentialBackupService {
       const { username, password } = JSON.parse(raw);
       if (!username || !password) return { success: false, error: 'Данные повреждены' };
       const result = await api.login(username, password, true);
-      if (result?.success) return { success: true, user: result.user };
+      if (result?.success) {
+        this.saveCredentialsSecure(username, password).catch(() => {});
+        return { success: true, user: result.user };
+      }
       return { success: false, error: result?.error || 'Ошибка входа' };
     } catch (e) {
       return { success: false, error: e?.message || 'Ошибка восстановления' };
@@ -152,50 +155,78 @@ class CredentialBackupService {
   }
 
   /**
-   * Расшифровать и выполнить вход. При ошибке расшифровки возвращает { success: false }.
+   * Расшифровать и выполнить вход. Пробует PIN-encrypted Preferences, затем SecureStorage fallback.
+   * После успешного recovery сохраняет credentials в Preferences для будущего PIN-входа.
    * @param {string} pin
    * @param {object} api - ApiClient
    * @returns {Promise<{success: boolean, user?: object, error?: string}>}
    */
   async recoverAndLogin(pin, api) {
-    try {
-      if (!(await this.isAvailable())) return { success: false, error: 'Недоступно' };
-      if (!(await this.hasCredentials())) return { success: false, error: 'Нет сохранённых данных' };
-      if (!api) return { success: false, error: 'API не инициализирован' };
+    if (!(await this.isAvailable())) return { success: false, error: 'Недоступно' };
+    if (!api) return { success: false, error: 'API не инициализирован' };
 
+    let username, password;
+
+    // 1) PIN-encrypted credentials из Preferences
+    try {
       const dataResult = await Preferences.get({ key: `${PREFIX}data` });
       const dataB64 = dataResult?.value;
-      if (!dataB64) return { success: false, error: 'Данные не найдены' };
+      if (dataB64) {
+        const combined = base64Decode(dataB64);
+        const salt = combined.slice(0, SALT_LENGTH);
+        const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
+        const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
+        const p = String(pin).replace(/\D/g, '');
+        const key = await deriveKey(salt, p);
+        const decrypted = await window.crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv, tagLength: 128 },
+          key,
+          ciphertext
+        );
+        const parsed = JSON.parse(new TextDecoder().decode(decrypted));
+        if (parsed?.username && parsed?.password) {
+          username = parsed.username;
+          password = parsed.password;
+        }
+      }
+    } catch (e) {
+      const isDecryptError = e?.message?.includes('operation') || e?.name === 'OperationError';
+      if (isDecryptError) {
+        return { success: false, error: 'Неверный PIN' };
+      }
+    }
 
-      const combined = base64Decode(dataB64);
-      const salt = combined.slice(0, SALT_LENGTH);
-      const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-      const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
+    // 2) Fallback: SecureStorage (credentials от обычного логина, не зашифрованы PIN)
+    if (!username || !password) {
+      try {
+        const storage = await this._getSecureStorage();
+        if (storage) {
+          const raw = await storage.get(KEY_SECURE);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.username && parsed?.password) {
+              username = parsed.username;
+              password = parsed.password;
+            }
+          }
+        }
+      } catch (_) {}
+    }
 
-      const p = String(pin).replace(/\D/g, '');
-      const key = await deriveKey(salt, p);
+    if (!username || !password) {
+      return { success: false, error: 'Нет сохранённых данных' };
+    }
 
-      const decrypted = await window.crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv, tagLength: 128 },
-        key,
-        ciphertext
-      );
-
-      const decoder = new TextDecoder();
-      const { username, password } = JSON.parse(decoder.decode(decrypted));
-      if (!username || !password) return { success: false, error: 'Неверный PIN' };
-
+    try {
       const result = await api.login(username, password, true);
       if (result?.success) {
+        this.saveCredentials(pin, username, password).catch(() => {});
+        this.saveCredentialsSecure(username, password).catch(() => {});
         return { success: true, user: result.user };
       }
       return { success: false, error: result?.error || 'Ошибка входа' };
     } catch (e) {
-      const isDecryptError = e?.message?.includes('operation') || e?.name === 'OperationError';
-      return {
-        success: false,
-        error: isDecryptError ? 'Неверный PIN' : (e?.message || 'Ошибка восстановления')
-      };
+      return { success: false, error: e?.message || 'Ошибка восстановления' };
     }
   }
 

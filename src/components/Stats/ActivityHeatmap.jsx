@@ -253,7 +253,7 @@ const ActivityHeatmap = ({ data }) => {
                             <div className="heatmap-day-number">{dayInfo.day}</div>
                             {hasActivity && dayData && (
                               <div className="heatmap-day-value">
-                                {Math.round(dayData.distance || 0)}
+                                {Math.round(dayData.distance || 0)} км
                               </div>
                             )}
                           </div>

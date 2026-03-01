@@ -105,6 +105,7 @@ class JwtService extends BaseService {
     }
     
     private const MAX_REFRESH_TOKENS_PER_USER = 5;
+    private const ROTATION_GRACE_SECONDS = 300; // 5 min — old token stays valid for client to persist new one
 
     /**
      * Создать refresh token
@@ -129,7 +130,8 @@ class JwtService extends BaseService {
     /**
      * Сохранить refresh token в БД.
      * Поддержка нескольких токенов на пользователя (по device_id).
-     * При наличии device_id — заменяет токен этого устройства; иначе добавляет новый.
+     * При наличии device_id — сокращает TTL старого токена до ROTATION_GRACE_SECONDS (grace period),
+     * чтобы клиент успел сохранить новый. Иначе добавляет новый.
      * Ограничение: до MAX_REFRESH_TOKENS_PER_USER на пользователя.
      *
      * @param int|null $expirationSeconds Срок жизни в секундах (null = refreshExpirationTime)
@@ -140,16 +142,17 @@ class JwtService extends BaseService {
         $expiresAt = date('Y-m-d H:i:s', time() + $expiration);
         $deviceIdVal = $deviceId !== null && $deviceId !== '' ? $deviceId : null;
 
+        $graceExpiresAt = date('Y-m-d H:i:s', time() + self::ROTATION_GRACE_SECONDS);
         if ($deviceIdVal !== null) {
-            $deleteStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND device_id = ?");
-            $deleteStmt->bind_param("is", $userId, $deviceIdVal);
-            $deleteStmt->execute();
-            $deleteStmt->close();
+            $stmt = $this->db->prepare("UPDATE refresh_tokens SET expires_at = LEAST(expires_at, ?) WHERE user_id = ? AND device_id = ?");
+            $stmt->bind_param("sis", $graceExpiresAt, $userId, $deviceIdVal);
+            $stmt->execute();
+            $stmt->close();
         } else {
-            $deleteStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND device_id IS NULL");
-            $deleteStmt->bind_param("i", $userId);
-            $deleteStmt->execute();
-            $deleteStmt->close();
+            $stmt = $this->db->prepare("UPDATE refresh_tokens SET expires_at = LEAST(expires_at, ?) WHERE user_id = ? AND device_id IS NULL");
+            $stmt->bind_param("si", $graceExpiresAt, $userId);
+            $stmt->execute();
+            $stmt->close();
         }
 
         $cols = "user_id, token_hash, expires_at";
@@ -196,6 +199,11 @@ class JwtService extends BaseService {
                 $deleteOldStmt->close();
             }
         }
+
+        $cleanupStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ? AND expires_at < NOW()");
+        $cleanupStmt->bind_param("i", $userId);
+        $cleanupStmt->execute();
+        $cleanupStmt->close();
     }
     
     /**

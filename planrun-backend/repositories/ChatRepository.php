@@ -59,36 +59,47 @@ class ChatRepository extends BaseRepository {
 
     /**
      * Сообщения между двумя пользователями (диалог «Написать»)
-     * Сообщения хранятся в admin-чате получателя (того, кому писали)
+     * A→B хранится в admin-конверсации B (sender_id=A), B→A — в admin-конверсации A (sender_id=B).
+     * Запрашиваем ОБЕ конверсации, чтобы собрать полный диалог.
      */
     public function getDirectMessagesBetweenUsers(int $currentUserId, int $targetUserId, int $limit = 50, int $offset = 0): array {
         $convCurrent = $this->getOrCreateConversation($currentUserId, 'admin');
         $convTarget = $this->getOrCreateConversation($targetUserId, 'admin');
-        $convId = $convCurrent['id'];
-        $check = $this->fetchOne(
-            "SELECT conversation_id FROM chat_messages
-             WHERE conversation_id IN (?, ?) AND (sender_id = ? OR sender_id = ? OR sender_type = 'admin')
-             LIMIT 1",
-            [$convCurrent['id'], $convTarget['id'], $currentUserId, $targetUserId],
-            'iiii'
-        );
-        if ($check) {
-            $convId = (int)$check['conversation_id'];
-        } else {
-            $convId = $convTarget['id'];
-        }
+
         $rows = $this->fetchAll(
             "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
                     u.username AS sender_username, u.avatar_path AS sender_avatar_path
              FROM chat_messages m
              LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
-             WHERE m.conversation_id = ? AND (m.sender_id = ? OR m.sender_id = ? OR m.sender_type = 'admin')
+             WHERE m.sender_type = 'user' AND (
+                 (m.conversation_id = ? AND m.sender_id = ?)
+                 OR
+                 (m.conversation_id = ? AND m.sender_id = ?)
+             )
              ORDER BY m.created_at DESC
              LIMIT ? OFFSET ?",
-            [$convId, $currentUserId, $targetUserId, $limit, $offset],
-            'iiiii'
+            [$convTarget['id'], $currentUserId, $convCurrent['id'], $targetUserId, $limit, $offset],
+            'iiiiii'
         );
         return $rows;
+    }
+
+    /**
+     * Сообщения для вкладки «От администрации»: только admin→user и user→admin (свои).
+     * Исключаются direct-сообщения от других пользователей.
+     */
+    public function getAdminTabMessages(int $conversationId, int $userId, int $limit = 20, int $offset = 0): array {
+        return $this->fetchAll(
+            "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
+                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+             FROM chat_messages m
+             LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
+             WHERE m.conversation_id = ? AND (m.sender_type = 'admin' OR (m.sender_type = 'user' AND m.sender_id = ?))
+             ORDER BY m.created_at DESC
+             LIMIT ? OFFSET ?",
+            [$conversationId, $userId, $limit, $offset],
+            'iiii'
+        );
     }
 
     /**
@@ -172,24 +183,28 @@ class ChatRepository extends BaseRepository {
      * Поддерживает admin, ai, coach, direct (для будущих типов)
      */
     public function getUnreadCounts(int $userId): array {
-        $convs = $this->fetchAll(
-            "SELECT id, type FROM chat_conversations WHERE user_id = ?",
-            [$userId],
-            'i'
+        $rows = $this->fetchAll(
+            "SELECT
+                CASE
+                    WHEN c.type = 'ai' THEN 'ai'
+                    WHEN c.type = 'admin' AND m.sender_type = 'admin' THEN 'admin'
+                    WHEN c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id != ? THEN 'direct'
+                    ELSE c.type
+                END AS msg_type,
+                COUNT(m.id) AS cnt
+             FROM chat_conversations c
+             INNER JOIN chat_messages m ON m.conversation_id = c.id
+             WHERE c.user_id = ? AND m.read_at IS NULL
+               AND NOT (m.sender_type = 'user' AND m.sender_id = ?)
+             GROUP BY msg_type",
+            [$userId, $userId, $userId],
+            'iii'
         );
         $byType = [];
         $total = 0;
-
-        foreach ($convs as $conv) {
-            $row = $this->fetchOne(
-                "SELECT COUNT(*) as cnt FROM chat_messages 
-                 WHERE conversation_id = ? AND read_at IS NULL 
-                 AND (sender_type != 'user' OR (sender_type = 'user' AND sender_id != ?))",
-                [$conv['id'], $userId],
-                'ii'
-            );
+        foreach ($rows as $row) {
             $cnt = (int)($row['cnt'] ?? 0);
-            $byType[$conv['type']] = $cnt;
+            $byType[$row['msg_type']] = $cnt;
             $total += $cnt;
         }
 
@@ -293,6 +308,31 @@ class ChatRepository extends BaseRepository {
             $result[(int)$r['sender_id']] = (int)$r['cnt'];
         }
         return $result;
+    }
+
+    /**
+     * Удалить все direct-сообщения между двумя пользователями.
+     * Удаляет: сообщения currentUser→target (в конверсации target) и target→currentUser (в конверсации currentUser).
+     */
+    public function deleteDirectMessagesBetweenUsers(int $currentUserId, int $targetUserId): int {
+        $convCurrent = $this->getOrCreateConversation($currentUserId, 'admin');
+        $convTarget = $this->getOrCreateConversation($targetUserId, 'admin');
+
+        $stmt = $this->db->prepare(
+            "DELETE FROM chat_messages
+             WHERE sender_type = 'user' AND (
+                 (conversation_id = ? AND sender_id = ?)
+                 OR
+                 (conversation_id = ? AND sender_id = ?)
+             )"
+        );
+        $convTargetId = (int)$convTarget['id'];
+        $convCurrentId = (int)$convCurrent['id'];
+        $stmt->bind_param('iiii', $convTargetId, $currentUserId, $convCurrentId, $targetUserId);
+        $stmt->execute();
+        $affected = $stmt->affected_rows;
+        $stmt->close();
+        return $affected;
     }
 
     /**

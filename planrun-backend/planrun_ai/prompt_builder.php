@@ -1,14 +1,20 @@
 <?php
 /**
  * Построитель промптов для генерации планов тренировок.
- * Промпт строится исключительно из данных формы (регистрация/специализация);
- * ИИ должен вернуть план, строго соответствующий этим данным.
+ *
+ * Три НЕЗАВИСИМЫХ промпта для трёх сценариев:
+ *   1. buildTrainingPlanPrompt()  — первичная генерация (новый пользователь)
+ *   2. buildRecalculationPrompt() — пересчёт текущего плана (середина цикла)
+ *   3. buildNextPlanPrompt()      — новый план после завершения предыдущего
+ *
+ * Каждый промпт строится из общих блоков-хелперов, но имеет собственную роль,
+ * контекст и задачу. ИИ с первой строки понимает, что от него требуется.
  */
 
-/**
- * Вычисляет позицию дня забега (неделя + индекс 0-6) относительно start_date.
- * Возвращает ['week' => int, 'dayIndex' => int, 'dayName' => string] или null.
- */
+// ════════════════════════════════════════════════════════════════
+// Утилиты (вычисления, не промпт)
+// ════════════════════════════════════════════════════════════════
+
 function computeRaceDayPosition(?string $startDateStr, ?string $raceDateStr): ?array {
     if (!$startDateStr || !$raceDateStr) return null;
     try {
@@ -37,10 +43,6 @@ function computeRaceDayPosition(?string $startDateStr, ?string $raceDateStr): ?a
     ];
 }
 
-/**
- * Вычисляет рекомендуемое количество недель плана по цели и датам из формы.
- * @return int|null Количество недель или null, если нельзя вычислить
- */
 function getSuggestedPlanWeeks($userData, $goalType) {
     $start = !empty($userData['training_start_date']) ? strtotime($userData['training_start_date']) : null;
     if (!$start) {
@@ -74,12 +76,6 @@ function getSuggestedPlanWeeks($userData, $goalType) {
     return null;
 }
 
-/**
- * Рассчитывает тренировочные темпы (зоны) на основе данных пользователя.
- * Приоритет: easy_pace_sec → race_target_time + race_distance → null.
- * Возвращает ассоц. массив с ключами easy, long, tempo, interval, recovery (в сек/км)
- * или null, если данных недостаточно.
- */
 function calculatePaceZones($userData) {
     $easySec = null;
 
@@ -117,53 +113,888 @@ function calculatePaceZones($userData) {
     ];
 }
 
-/**
- * Форматирует секунды/км в строку «мин:сек».
- */
 function formatPace($sec) {
     $m = (int) floor($sec / 60);
     $s = (int) ($sec % 60);
     return $m . ':' . str_pad((string)$s, 2, '0', STR_PAD_LEFT);
 }
 
-/**
- * Построение промпта для генерации плана тренировок.
- * Все данные берутся из формы пользователя; вывод плана должен им строго соответствовать.
- *
- * @param array $userData Данные пользователя (из БД, заполнены из формы)
- * @param string $goalType Тип цели (health, race, weight_loss, time_improvement)
- * @return string Промпт для LLM
- */
-function buildTrainingPlanPrompt($userData, $goalType = 'health') {
-    $prompt = "";
+function calculateDetrainingFactor(int $daysSince): float {
+    if ($daysSince <= 3) return 1.0;
+    if ($daysSince <= 7) return 0.95;
+    if ($daysSince <= 14) return 0.85;
+    if ($daysSince <= 21) return 0.75;
+    return max(0.5, 1.0 - $daysSince * 0.015);
+}
 
-    // Роль и принципы (evidence-based)
-    $prompt .= "Ты опытный тренер по бегу. Строй план по данным пользователя и научно обоснованным принципам: прогрессия нагрузки, восстановление, периодизация (где уместно), распределение интенсивности.\n";
-    $prompt .= "Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста. Все решения опирай на указанные ниже данные пользователя и на принципы для выбранной цели.\n\n";
-    
-    // Информация о пользователе
-    $prompt .= "═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n\n";
-    
-    // Основные данные
+// ════════════════════════════════════════════════════════════════
+// VDOT-калькулятор (Jack Daniels' Running Formula)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Oxygen cost of running at velocity v (meters/min).
+ * Daniels formula: VO2 = -4.60 + 0.182258*v + 0.000104*v^2
+ */
+function _vdotOxygenCost(float $vMetersPerMin): float {
+    return -4.60 + 0.182258 * $vMetersPerMin + 0.000104 * $vMetersPerMin * $vMetersPerMin;
+}
+
+/**
+ * Fraction of VO2max sustainable for t minutes.
+ * Daniels: %VO2max = 0.8 + 0.1894393*e^(-0.012778*t) + 0.2989558*e^(-0.1932605*t)
+ */
+function _vdotFractionVO2max(float $tMinutes): float {
+    return 0.8 + 0.1894393 * exp(-0.012778 * $tMinutes)
+             + 0.2989558 * exp(-0.1932605 * $tMinutes);
+}
+
+/**
+ * Estimate VDOT from a race result.
+ * @param float $distanceKm  Race distance in km
+ * @param int   $timeSec     Finish time in seconds
+ * @return float VDOT value (typically 30-85)
+ */
+function estimateVDOT(float $distanceKm, int $timeSec): float {
+    $distMeters = $distanceKm * 1000;
+    $tMin = $timeSec / 60.0;
+    $velocity = $distMeters / $tMin;
+    $vo2 = _vdotOxygenCost($velocity);
+    $pct = _vdotFractionVO2max($tMin);
+    if ($pct <= 0) return 30.0;
+    return max(20.0, min(85.0, $vo2 / $pct));
+}
+
+/**
+ * Predict race time at a target distance given a VDOT.
+ * Uses bisection to find time where estimateVDOT(dist, time) == vdot.
+ * @return int Predicted time in seconds
+ */
+function predictRaceTime(float $vdot, float $targetDistKm): int {
+    $distMeters = $targetDistKm * 1000;
+    // Bounds: 2 min/km (world record pace) to 12 min/km (walking)
+    $lo = (int) ($targetDistKm * 2 * 60);
+    $hi = (int) ($targetDistKm * 12 * 60);
+
+    for ($i = 0; $i < 50; $i++) {
+        $mid = ($lo + $hi) / 2;
+        $tMin = $mid / 60.0;
+        $v = $distMeters / $tMin;
+        $vo2 = _vdotOxygenCost($v);
+        $pct = _vdotFractionVO2max($tMin);
+        $estVdot = ($pct > 0) ? $vo2 / $pct : 0;
+
+        if ($estVdot > $vdot) {
+            $lo = $mid;
+        } else {
+            $hi = $mid;
+        }
+        if ($hi - $lo < 1) break;
+    }
+    return (int) round(($lo + $hi) / 2);
+}
+
+/**
+ * Get training paces from VDOT (sec/km for each zone).
+ * Based on Daniels' tables approximated via formulas.
+ */
+function getTrainingPaces(float $vdot): array {
+    // VO2max pace = velocity at 100% VO2max
+    // Easy: 59-74% VO2max, Marathon: 75-84%, Threshold: 83-88%, Interval: 95-100%, Rep: short fast
+    $paces = [];
+    $targets = [
+        'easy_slow'  => 0.62,
+        'easy_fast'  => 0.70,
+        'marathon'   => 0.79,
+        'threshold'  => 0.86,
+        'interval'   => 0.975,
+        'repetition' => 1.05,
+    ];
+
+    foreach ($targets as $zone => $pctVO2) {
+        $targetVO2 = $vdot * $pctVO2;
+        // Inverse of oxygen cost: solve -4.60 + 0.182258*v + 0.000104*v^2 = targetVO2
+        $a = 0.000104;
+        $b = 0.182258;
+        $c = -4.60 - $targetVO2;
+        $disc = $b * $b - 4 * $a * $c;
+        if ($disc < 0) {
+            $paces[$zone] = 600;
+            continue;
+        }
+        $v = (-$b + sqrt($disc)) / (2 * $a);
+        $secPerKm = ($v > 0) ? 1000.0 / $v * 60 : 600;
+        $paces[$zone] = max(150, min(600, (int) round($secPerKm)));
+    }
+
+    return [
+        'easy'       => [$paces['easy_slow'], $paces['easy_fast']],
+        'marathon'   => $paces['marathon'],
+        'threshold'  => $paces['threshold'],
+        'interval'   => $paces['interval'],
+        'repetition' => $paces['repetition'],
+    ];
+}
+
+/**
+ * Format seconds as M:SS pace string.
+ */
+function formatPaceSec(int $sec): string {
+    return (int) floor($sec / 60) . ':' . str_pad((string) ($sec % 60), 2, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Format seconds as H:MM:SS or M:SS time string.
+ */
+function formatTimeSec(int $sec): string {
+    $h = (int) floor($sec / 3600);
+    $m = (int) floor(($sec % 3600) / 60);
+    $s = $sec % 60;
+    if ($h > 0) {
+        return $h . ':' . str_pad((string) $m, 2, '0', STR_PAD_LEFT) . ':' . str_pad((string) $s, 2, '0', STR_PAD_LEFT);
+    }
+    return $m . ':' . str_pad((string) $s, 2, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Predict race times for all standard distances given VDOT.
+ */
+function predictAllRaceTimes(float $vdot): array {
+    $dists = ['5k' => 5.0, '10k' => 10.0, 'half' => 21.0975, 'marathon' => 42.195];
+    $results = [];
+    foreach ($dists as $label => $km) {
+        $sec = predictRaceTime($vdot, $km);
+        $results[$label] = [
+            'seconds' => $sec,
+            'formatted' => formatTimeSec($sec),
+            'pace_sec' => (int) round($sec / $km),
+            'pace_formatted' => formatPaceSec((int) round($sec / $km)),
+        ];
+    }
+    return $results;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Оценка реалистичности цели (Goal Realism Assessment)
+// ════════════════════════════════════════════════════════════════
+
+function assessGoalRealism(array $userData): array {
+    $goalType = $userData['goal_type'] ?? 'health';
+    if (!in_array($goalType, ['race', 'time_improvement'])) {
+        return ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+    }
+
+    $dist = $userData['race_distance'] ?? '';
+    $distKm = ['5k' => 5.0, '10k' => 10.0, 'half' => 21.0975, '21.1k' => 21.0975, 'marathon' => 42.195, '42.2k' => 42.195];
+    $targetKm = $distKm[$dist] ?? null;
+    $distLabels = ['5k' => '5 км', '10k' => '10 км', 'half' => 'полумарафон', '21.1k' => 'полумарафон', 'marathon' => 'марафон', '42.2k' => 'марафон'];
+    $distLabel = $distLabels[$dist] ?? $dist;
+
+    $weeklyKm = (float) ($userData['weekly_base_km'] ?? 0);
+    $sessions = (int) ($userData['sessions_per_week'] ?? 3);
+    $expLevel = $userData['experience_level'] ?? 'novice';
+    $isNovice = in_array($expLevel, ['novice', 'beginner']);
+
+    $totalWeeks = getSuggestedPlanWeeks($userData, $goalType);
+
+    $messages = [];
+    $severities = [];
+
+    // ── Check 1: Enough weeks ──
+    $minWeeks = [
+        '5k'       => ['novice' => 6,  'exp' => 4],
+        '10k'      => ['novice' => 8,  'exp' => 6],
+        'half'     => ['novice' => 12, 'exp' => 8],
+        '21.1k'    => ['novice' => 12, 'exp' => 8],
+        'marathon'  => ['novice' => 18, 'exp' => 12],
+        '42.2k'    => ['novice' => 18, 'exp' => 12],
+    ];
+    $reqWeeks = $minWeeks[$dist][$isNovice ? 'novice' : 'exp'] ?? 8;
+    $recWeeks = $minWeeks[$dist]['novice'] ?? 12;
+
+    if ($totalWeeks !== null && $totalWeeks < $reqWeeks) {
+        $suggestedDate = date('Y-m-d', strtotime(($userData['training_start_date'] ?? 'now') . " +{$recWeeks} weeks"));
+        $shorterDist = null;
+        $shorterLabel = null;
+        $distOrder = ['5k', '10k', 'half', 'marathon'];
+        $curIdx = array_search($dist, $distOrder);
+        if ($curIdx !== false && $curIdx > 0) {
+            $shorterDist = $distOrder[$curIdx - 1];
+            $shorterLabel = $distLabels[$shorterDist] ?? $shorterDist;
+        }
+
+        $sev = $totalWeeks < ($reqWeeks * 0.6) ? 'unrealistic' : 'challenging';
+        $severities[] = $sev;
+        $msg = [
+            'type' => $sev === 'unrealistic' ? 'error' : 'warning',
+            'text' => "Для подготовки к дистанции «{$distLabel}» рекомендуется минимум {$reqWeeks} недель" . ($isNovice ? ' (для вашего уровня)' : '') . ". У вас {$totalWeeks}.",
+            'suggestions' => [],
+        ];
+        $msg['suggestions'][] = ['text' => "Перенести забег на {$suggestedDate} ({$recWeeks} нед.)", 'action' => ['field' => 'race_date', 'value' => $suggestedDate]];
+        if ($shorterDist) {
+            $msg['suggestions'][] = ['text' => "Выбрать {$shorterLabel}", 'action' => ['field' => 'race_distance', 'value' => $shorterDist]];
+        }
+        $messages[] = $msg;
+    }
+
+    // ── Check 2: Enough base volume ──
+    $minKm = [
+        '5k'       => ['rec' => 0,  'abs' => 0],
+        '10k'      => ['rec' => 15, 'abs' => 5],
+        'half'     => ['rec' => 20, 'abs' => 10],
+        '21.1k'    => ['rec' => 20, 'abs' => 10],
+        'marathon'  => ['rec' => 30, 'abs' => 15],
+        '42.2k'    => ['rec' => 30, 'abs' => 15],
+    ];
+    $absMin = $minKm[$dist]['abs'] ?? 0;
+    $recMin = $minKm[$dist]['rec'] ?? 0;
+
+    if ($weeklyKm < $absMin) {
+        $severities[] = 'unrealistic';
+        $messages[] = [
+            'type' => 'error',
+            'text' => "Ваш текущий объём ({$weeklyKm} км/нед) слишком мал для {$distLabel}. Минимум {$absMin} км/нед, рекомендуется {$recMin}+.",
+            'suggestions' => [
+                ['text' => "Сначала набрать базу {$recMin} км/нед (4-8 недель лёгкого бега)", 'action' => null],
+            ],
+        ];
+    } elseif ($weeklyKm < $recMin) {
+        $severities[] = 'challenging';
+        $messages[] = [
+            'type' => 'warning',
+            'text' => "Ваш объём ({$weeklyKm} км/нед) ниже рекомендуемого для {$distLabel} ({$recMin}+ км/нед). Подготовка возможна, но с повышенным риском.",
+            'suggestions' => [],
+        ];
+    }
+
+    // ── Check 3: Enough sessions ──
+    $minSess = ['5k' => [3,3], '10k' => [3,3], 'half' => [4,3], '21.1k' => [4,3], 'marathon' => [4,3], '42.2k' => [4,3]];
+    $recSess = $minSess[$dist][0] ?? 3;
+    $absSess = $minSess[$dist][1] ?? 3;
+
+    if ($sessions < $absSess) {
+        $severities[] = 'challenging';
+        $messages[] = [
+            'type' => 'warning',
+            'text' => "Для {$distLabel} рекомендуется {$recSess} тренировки в неделю. У вас {$sessions}.",
+            'suggestions' => [
+                ['text' => "Добавить ещё 1 тренировочный день", 'action' => ['field' => 'sessions_hint', 'value' => $recSess]],
+            ],
+        ];
+    } elseif ($sessions < $recSess && in_array($dist, ['marathon', '42.2k', 'half', '21.1k'])) {
+        $severities[] = 'challenging';
+        $messages[] = [
+            'type' => 'warning',
+            'text' => "Для {$distLabel} лучше иметь {$recSess} тренировки в неделю. У вас {$sessions} — справитесь, но плотнее.",
+            'suggestions' => [
+                ['text' => "Добавить ещё 1 день", 'action' => ['field' => 'sessions_hint', 'value' => $recSess]],
+            ],
+        ];
+    }
+
+    // ── Check 4: Target time (VDOT-powered) ──
+    $vdot = null;
+    $predictions = null;
+    $trainingPaces = null;
+    $vdotSource = null;
+
+    // Try to get VDOT from last race
+    $lastDist = $userData['last_race_distance'] ?? null;
+    $lastTime = $userData['last_race_time'] ?? null;
+    $lastDistKm = null;
+
+    if ($lastDist && $lastTime) {
+        if ($lastDist === 'other') {
+            $lastDistKm = (float) ($userData['last_race_distance_km'] ?? 0);
+        } else {
+            $lastDistKm = $distKm[$lastDist] ?? null;
+        }
+        if ($lastDistKm && $lastDistKm > 0) {
+            $parts = explode(':', $lastTime);
+            $lastTimeSec = 0;
+            if (count($parts) === 3) {
+                $lastTimeSec = (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2];
+            } elseif (count($parts) === 2) {
+                $lastTimeSec = (int)$parts[0] * 60 + (int)$parts[1];
+            }
+            if ($lastTimeSec > 0) {
+                $vdot = estimateVDOT($lastDistKm, $lastTimeSec);
+                $vdotSource = $distLabels[$lastDist] ?? "{$lastDistKm} км";
+            }
+        }
+    }
+
+    // Fallback: estimate from easy pace
+    if (!$vdot) {
+        $easySec = null;
+        if (!empty($userData['easy_pace_sec'])) {
+            $easySec = (int) $userData['easy_pace_sec'];
+        }
+        if ($easySec && $easySec >= 180 && $easySec <= 600) {
+            // Easy pace ≈ 65-70% VO2max → reverse to get VDOT
+            $easyVelocity = 1000.0 / $easySec * 60;
+            $easyVO2 = _vdotOxygenCost($easyVelocity);
+            $vdot = $easyVO2 / 0.68;
+            $vdotSource = 'лёгкий темп';
+        }
+    }
+
+    if ($vdot) {
+        $predictions = predictAllRaceTimes($vdot);
+        $trainingPaces = getTrainingPaces($vdot);
+
+        // Compare target time with prediction
+        $targetTimeStr = $userData['race_target_time'] ?? null;
+        if ($targetTimeStr && $targetKm) {
+            $tParts = explode(':', $targetTimeStr);
+            $targetSec = 0;
+            if (count($tParts) === 3) {
+                $targetSec = (int)$tParts[0] * 3600 + (int)$tParts[1] * 60 + (int)$tParts[2];
+            } elseif (count($tParts) === 2) {
+                $targetSec = (int)$tParts[0] * 60 + (int)$tParts[1];
+            }
+
+            if ($targetSec > 0) {
+                $predictedSec = predictRaceTime($vdot, $targetKm);
+                $diff = ($predictedSec - $targetSec) / $predictedSec * 100;
+
+                $predictedStr = formatTimeSec($predictedSec);
+                $targetStr = formatTimeSec($targetSec);
+
+                if ($diff > 15) {
+                    $severities[] = 'unrealistic';
+                    $messages[] = [
+                        'type' => 'error',
+                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}, на основе {$vdotSource}). Это нереалистично за один цикл подготовки.",
+                        'suggestions' => [
+                            ['text' => "Поставить реалистичную цель: {$predictedStr}", 'action' => ['field' => 'race_target_time', 'value' => formatTimeSec($predictedSec)]],
+                        ],
+                    ];
+                } elseif ($diff > 5) {
+                    $severities[] = 'challenging';
+                    $messages[] = [
+                        'type' => 'warning',
+                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}). Амбициозно, но достижимо при правильной подготовке.",
+                        'suggestions' => [],
+                    ];
+                } elseif ($diff >= -5) {
+                    $messages[] = [
+                        'type' => 'success',
+                        'text' => "Ваш целевой результат ({$targetStr}) реалистичен! Прогноз на основе {$vdotSource}: {$predictedStr}.",
+                        'suggestions' => [],
+                    ];
+                } else {
+                    $messages[] = [
+                        'type' => 'success',
+                        'text' => "Ваш целевой результат ({$targetStr}) консервативен. По текущей форме вы способны на {$predictedStr}.",
+                        'suggestions' => [],
+                    ];
+                }
+            }
+        }
+    }
+
+    // ── Check 5: computeMacrocycle warnings ──
+    $mc = computeMacrocycle($userData, $goalType);
+    if ($mc && !empty($mc['warnings'])) {
+        foreach ($mc['warnings'] as $w) {
+            $severities[] = 'challenging';
+            $messages[] = ['type' => 'warning', 'text' => $w, 'suggestions' => []];
+        }
+    }
+
+    // ── Verdict ──
+    $unrealisticCount = count(array_filter($severities, fn($s) => $s === 'unrealistic'));
+    $challengingCount = count(array_filter($severities, fn($s) => $s === 'challenging'));
+
+    if ($unrealisticCount > 0) {
+        $verdict = 'unrealistic';
+    } elseif ($challengingCount >= 2) {
+        $verdict = 'unrealistic';
+    } elseif ($challengingCount === 1) {
+        $verdict = 'challenging';
+    } else {
+        $verdict = 'realistic';
+    }
+
+    // ── Format training paces for display ──
+    $pacesFormatted = null;
+    if ($trainingPaces) {
+        $pacesFormatted = [
+            'easy' => formatPaceSec($trainingPaces['easy'][0]) . ' – ' . formatPaceSec($trainingPaces['easy'][1]),
+            'marathon' => formatPaceSec($trainingPaces['marathon']),
+            'threshold' => formatPaceSec($trainingPaces['threshold']),
+            'interval' => formatPaceSec($trainingPaces['interval']),
+        ];
+    }
+
+    // ── Format predictions for display ──
+    // Exclude the source distance (circular prediction) and map keys to labels
+    $vdotSourceDist = $lastDist ?: null;
+    $predsFormatted = null;
+    if ($predictions) {
+        $predsFormatted = [];
+        $distKeyMap = ['5k' => '5k', '10k' => '10k', 'half' => 'half', '21.1k' => 'half', 'marathon' => 'marathon', '42.2k' => 'marathon'];
+        $sourceKey = $vdotSourceDist ? ($distKeyMap[$vdotSourceDist] ?? null) : null;
+        foreach ($predictions as $d => $p) {
+            if ($d === $sourceKey) continue;
+            $predsFormatted[$d] = $p['formatted'];
+        }
+    }
+
+    // ── Info: plan summary (if realistic enough) ──
+    if ($mc && $verdict !== 'unrealistic') {
+        $phaseNames = array_map(fn($p) => $p['label'], $mc['phases']);
+        $messages[] = [
+            'type' => 'info',
+            'text' => "План: {$mc['total_weeks']} недель (" . implode(' → ', $phaseNames) . "). Пиковая длительная: {$mc['long_run']['peak_km']} км. Объём: {$mc['start_volume_km']}→{$mc['peak_volume_km']} км/нед.",
+            'suggestions' => [],
+        ];
+    }
+
+    return [
+        'verdict' => $verdict,
+        'messages' => $messages,
+        'vdot' => $vdot ? round($vdot, 1) : null,
+        'vdot_source' => $vdotSource,
+        'predictions' => $predsFormatted,
+        'training_paces' => $pacesFormatted,
+        'recommended_weeks' => $totalWeeks && $totalWeeks < $reqWeeks ? $recWeeks : null,
+        'recommended_distance' => null,
+        'recommended_sessions' => $sessions < $recSess ? $recSess : null,
+    ];
+}
+
+// ════════════════════════════════════════════════════════════════
+// Универсальный калькулятор макроцикла
+// (Daniels, Pfitzinger, Hansons — адаптированные пропорции)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Справочник параметров по дистанции.
+ * base/build/peak/taper — доли от общего числа недель для «стандартной» подготовки (≥16 нед).
+ * long_min/long_peak — диапазон длительной (км).
+ * long_peak_before_race — за сколько недель до забега ставить пиковую длительную.
+ * focus — основная тренировочная направленность интенсивного периода.
+ */
+function getDistanceSpec(string $dist): array {
+    $specs = [
+        '5k' => [
+            'base_pct' => 0.25, 'build_pct' => 0.40, 'peak_pct' => 0.20, 'taper_pct' => 0.15,
+            'long_min' => 8, 'long_peak' => 12, 'long_peak_before_race' => 2,
+            'focus' => 'VO2max / интервалы (400-1000 м)',
+            'intervals' => '6-10x400 м или 4-6x800 м или 3-5x1000 м',
+            'tempo' => '2-4 км непрерывного бега в темповом',
+            'long_desc' => '8-12 км в лёгком темпе',
+            'fartlek' => '30-40 мин с ускорениями 1-2 мин через 2-3 мин трусцой',
+            'control_dist' => '1-3 км',
+        ],
+        '10k' => [
+            'base_pct' => 0.25, 'build_pct' => 0.35, 'peak_pct' => 0.25, 'taper_pct' => 0.15,
+            'long_min' => 10, 'long_peak' => 16, 'long_peak_before_race' => 2,
+            'focus' => 'лактатный порог / темповый бег',
+            'intervals' => '5-8x1000 м или 3-5x2000 м (отдых 400-800 м)',
+            'tempo' => '4-6 км в темповом темпе',
+            'long_desc' => '12-16 км в лёгком темпе',
+            'fartlek' => '40-50 мин с ускорениями 2-3 мин через 2-3 мин трусцой',
+            'control_dist' => '3-5 км',
+        ],
+        'half' => [
+            'base_pct' => 0.25, 'build_pct' => 0.35, 'peak_pct' => 0.20, 'taper_pct' => 0.20,
+            'long_min' => 14, 'long_peak' => 22, 'long_peak_before_race' => 3,
+            'focus' => 'темп + длительные с прогрессией',
+            'intervals' => '4-6x1600-2000 м (отдых 600 м трусцой)',
+            'tempo' => '6-10 км в темповом темпе',
+            'long_desc' => '16-22 км в лёгком темпе; последние 3-5 км можно в целевом темпе',
+            'fartlek' => '45-55 мин с ускорениями 3-4 мин через 2-3 мин',
+            'control_dist' => '5-10 км',
+        ],
+        'marathon' => [
+            'base_pct' => 0.20, 'build_pct' => 0.40, 'peak_pct' => 0.20, 'taper_pct' => 0.20,
+            'long_min' => 16, 'long_peak' => 33, 'long_peak_before_race' => 3,
+            'focus' => 'марафонский темп + длительные 28-35 км',
+            'intervals' => '4-6x1600-2000 м (отдых 800 м трусцой)',
+            'tempo' => '8-12 км в темповом темпе',
+            'long_desc' => '22-35 км в лёгком/марафонском темпе',
+            'fartlek' => '50-60 мин с ускорениями 3-5 мин через 2-3 мин',
+            'control_dist' => '10-15 км в целевом марафонском темпе или 10 км на результат',
+            'marathon_pace' => '10-16 км в целевом марафонском темпе (внутри длительной или отдельно)',
+        ],
+    ];
+    $aliases = ['21.1k' => 'half', '42.2k' => 'marathon'];
+    $key = $aliases[$dist] ?? $dist;
+    return $specs[$key] ?? $specs['10k'];
+}
+
+/**
+ * Расчёт универсального макроцикла.
+ *
+ * Возвращает структурированный массив: фазы, прогрессия длительной,
+ * объёмы, recovery weeks, спецификации тренировок.
+ */
+function computeMacrocycle(array $userData, string $goalType): ?array {
+    if (!in_array($goalType, ['race', 'time_improvement'])) {
+        return null;
+    }
+
+    $dist = $userData['race_distance'] ?? '';
+    $totalWeeks = getSuggestedPlanWeeks($userData, $goalType);
+    if (!$totalWeeks || $totalWeeks < 4) return null;
+
+    $weeklyKm = !empty($userData['weekly_base_km']) ? (float) $userData['weekly_base_km'] : 0;
+    $sessions = (int) ($userData['sessions_per_week'] ?? 3);
+    $expLevel = $userData['experience_level'] ?? 'novice';
+    $isNovice = in_array($expLevel, ['novice', 'beginner']);
+    $hasBase = $weeklyKm >= 25;
+    $spec = getDistanceSpec($dist);
+
+    // ── Расчёт длительностей фаз ──
+    $preBaseW = 0;
+    if ($totalWeeks < 8) {
+        $taperW = max(1, min(2, (int) round($totalWeeks * 0.20)));
+        $baseW = 0;
+        $peakW = 0;
+        $buildW = $totalWeeks - $taperW;
+    } elseif ($totalWeeks > 24) {
+        // Длинный план: выделяем «серьёзный» блок 18-24 нед, остаток — pre-base
+        $seriousWeeks = min(24, max(18, (int) round($totalWeeks * 0.55)));
+        $preBaseW = $totalWeeks - $seriousWeeks;
+        $taperW = max(2, min(3, (int) round($seriousWeeks * $spec['taper_pct'])));
+        $remaining = $seriousWeeks - $taperW;
+        $baseW = max(2, (int) round($remaining * $spec['base_pct']));
+        $peakW = max(2, (int) round($remaining * $spec['peak_pct']));
+        $buildW = $remaining - $baseW - $peakW;
+    } else {
+        $taperW = max(2, min(3, (int) round($totalWeeks * $spec['taper_pct'])));
+        $remaining = $totalWeeks - $taperW;
+
+        if ($hasBase && $totalWeeks <= 12) {
+            $baseW = $isNovice ? 2 : max(1, min(2, (int) round($remaining * 0.12)));
+            $peakW = max(1, min(2, (int) round($remaining * 0.15)));
+            $buildW = $remaining - $baseW - $peakW;
+        } elseif ($isNovice) {
+            $baseW = max(3, (int) round($remaining * ($spec['base_pct'] + 0.08)));
+            $peakW = max(1, (int) round($remaining * $spec['peak_pct']));
+            $buildW = $remaining - $baseW - $peakW;
+        } else {
+            $baseW = max(2, (int) round($remaining * $spec['base_pct']));
+            $peakW = max(1, (int) round($remaining * $spec['peak_pct']));
+            $buildW = $remaining - $baseW - $peakW;
+        }
+    }
+    $buildW = max(2, min($buildW, 12));
+
+    // ── Recovery weeks (каждые 3-4 нед, не в taper) ──
+    $recoveryWeeks = [];
+    $trainWeeks = $totalWeeks - $taperW;
+    $cycle = $isNovice ? 3 : 4;
+    for ($w = $cycle; $w <= $trainWeeks; $w += $cycle) {
+        if ($w < $trainWeeks) {
+            $recoveryWeeks[] = $w;
+        }
+    }
+
+    // ── Прогрессия длительной ──
+    $warnings = [];
+
+    // longStart привязан к реальной физической форме
+    if ($weeklyKm >= 25) {
+        $longStart = max($spec['long_min'], round($weeklyKm * 0.55));
+    } elseif ($weeklyKm > 0) {
+        $longStart = max(3, round($weeklyKm * 0.55));
+    } else {
+        $longStart = 3;
+    }
+
+    $longPeak = $spec['long_peak'];
+    if (in_array($dist, ['marathon', '42.2k'])) {
+        if ($totalWeeks < 14) {
+            $longPeak = max(28, min($longPeak, 30));
+        }
+    }
+    if ($totalWeeks < 8) {
+        $longPeak = min($longPeak, (int) round($longStart + $totalWeeks * 2.5));
+    }
+    // Если база выше пиковой (опытный бегун, короткий план), выровнять
+    if ($longStart > $longPeak) {
+        $longStart = $longPeak;
+    }
+
+    // Проверка: хватит ли времени для безопасного достижения пиковой
+    $safeIncrement = 2.5;
+    $minWeeksNeeded = ($longPeak - $longStart) / $safeIncrement;
+    $trainWeeksAvailable = $totalWeeks - $taperW;
+    $distLabelsWarn = ['marathon' => 'марафону', '42.2k' => 'марафону', 'half' => 'полумарафону', '21.1k' => 'полумарафону', '10k' => '10 км', '5k' => '5 км'];
+    $distLbl = $distLabelsWarn[$dist] ?? 'забегу';
+
+    if ($minWeeksNeeded > $trainWeeksAvailable * 0.9) {
+        $warnings[] = "НЕДОСТАТОЧНО ВРЕМЕНИ для безопасной подготовки к {$distLbl}. Прогрессия длительной ({$longStart}→{$longPeak} км) требует минимум " . ((int) ceil($minWeeksNeeded + $taperW + 2)) . " недель. У пользователя {$totalWeeks} недель. Снижай пиковую длительную и ОБЯЗАТЕЛЬНО предупреди бегуна о риске травмы.";
+        $longPeak = min($longPeak, (int) round($longStart + $trainWeeksAvailable * $safeIncrement));
+    }
+
+    if ($weeklyKm < 15 && in_array($dist, ['marathon', '42.2k']) && $totalWeeks < 16) {
+        $warnings[] = "КРАЙНЕ НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ: марафон при базе {$weeklyKm} км/нед за {$totalWeeks} недель. Безопасная подготовка к марафону требует минимум 16-20 недель при базе 25+ км/нед. Предложи бегуну более короткую дистанцию или сдвинуть дату забега.";
+    } elseif ($weeklyKm < 10 && in_array($dist, ['half', '21.1k']) && $totalWeeks < 10) {
+        $warnings[] = "НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ: полумарафон при базе {$weeklyKm} км/нед за {$totalWeeks} недель. Рекомендуй 10-12 недель при базе 15+ км/нед.";
+    }
+
+    $peakWeekNum = $totalWeeks - $taperW - $spec['long_peak_before_race'] + 1;
+    $peakWeekNum = max($preBaseW + $baseW + $buildW, min($totalWeeks - $taperW, $peakWeekNum));
+
+    // Расчёт длительной по неделям (инкремент только по не-recovery неделям)
+    $trainingWeeksBeforePeak = 0;
+    for ($w = 1; $w < $peakWeekNum; $w++) {
+        if (!in_array($w, $recoveryWeeks)) {
+            $trainingWeeksBeforePeak++;
+        }
+    }
+    $increment = $trainingWeeksBeforePeak > 0
+        ? ($longPeak - $longStart) / $trainingWeeksBeforePeak
+        : 0;
+    $increment = min(3.0, $increment);
+
+    $longRunByWeek = [];
+    $trainingIdx = 0;
+    for ($w = 1; $w <= $totalWeeks; $w++) {
+        if ($w <= $peakWeekNum) {
+            if (in_array($w, $recoveryWeeks)) {
+                $progressKm = $longStart + $trainingIdx * $increment;
+                $km = $progressKm * 0.80;
+            } else {
+                $km = $longStart + $trainingIdx * $increment;
+                $km = min($km, $longPeak);
+                $trainingIdx++;
+            }
+        } elseif ($w <= $totalWeeks - $taperW) {
+            $weeksAfterPeak = $w - $peakWeekNum;
+            $km = $longPeak - $weeksAfterPeak * 3;
+            $km = max($longStart, $km);
+            if (in_array($w, $recoveryWeeks)) {
+                $km = $km * 0.80;
+            }
+        } else {
+            $taperIdx = $w - ($totalWeeks - $taperW);
+            $km = max(8, $longPeak * (0.55 - 0.15 * ($taperIdx - 1)));
+        }
+
+        $longRunByWeek[$w] = round($km);
+    }
+
+    // ── Объёмы ──
+    if ($weeklyKm > 0) {
+        $startVolume = round($weeklyKm * ($hasBase ? 1.05 : 1.0));
+    } else {
+        $startVolume = round($longStart * $sessions * 0.9);
+    }
+    $peakVolume = round($startVolume * ($isNovice ? 1.35 : 1.55));
+    $peakVolume = max($peakVolume, (int) round($longPeak * 1.4));
+    $startVolume = max($startVolume, (int) round($longStart * 1.5));
+
+    // ── Ключевые тренировки по фазам ──
+    $maxKeyBase = $isNovice ? 0 : 1;
+    $maxKeyBuild = min($sessions <= 3 ? 1 : 2, 2);
+    $maxKeyPeak = min($sessions <= 3 ? 2 : 3, 3);
+
+    // ── Фазы ──
+    $phases = [];
+    $weekCursor = 1;
+
+    if ($preBaseW > 0) {
+        $phases[] = [
+            'name' => 'pre_base',
+            'label' => 'Общая подготовка',
+            'weeks_from' => $weekCursor,
+            'weeks_to' => $weekCursor + $preBaseW - 1,
+            'max_key_workouts' => 0,
+            'description' => "Лёгкий бег, ОФП, наработка регулярности. Прирост объёма до 10%/нед. Без темповых/интервалов. Длительная — в лёгком темпе.",
+        ];
+        $weekCursor += $preBaseW;
+    }
+
+    if ($baseW > 0) {
+        $phases[] = [
+            'name' => 'base',
+            'label' => 'Базовый',
+            'weeks_from' => $weekCursor,
+            'weeks_to' => $weekCursor + $baseW - 1,
+            'max_key_workouts' => $maxKeyBase,
+            'description' => $hasBase && !$isNovice
+                ? "Ввод в план. Лёгкий бег + длительная. " . ($maxKeyBase > 0 ? "Допустим 1 фартлек со 2-й недели." : "Без интенсивности.")
+                : "Аэробный объём. Лёгкий бег + длительная. Без темповых/интервалов. Прирост объёма до 10%/нед.",
+        ];
+        $weekCursor += $baseW;
+    }
+
+    $phases[] = [
+        'name' => 'build',
+        'label' => 'Развивающий',
+        'weeks_from' => $weekCursor,
+        'weeks_to' => $weekCursor + $buildW - 1,
+        'max_key_workouts' => $maxKeyBuild,
+        'description' => "{$maxKeyBuild} ключевые/нед (темп/интервалы). Длительная растёт. Объём +5-10%/нед.",
+    ];
+    $weekCursor += $buildW;
+
+    if ($peakW > 0) {
+        $phases[] = [
+            'name' => 'peak',
+            'label' => 'Пиковый',
+            'weeks_from' => $weekCursor,
+            'weeks_to' => $weekCursor + $peakW - 1,
+            'max_key_workouts' => $maxKeyPeak,
+            'description' => "Максимальная интенсивность. {$maxKeyPeak} ключевых/нед. Объём стабилен. Пиковая длительная.",
+        ];
+        $weekCursor += $peakW;
+    }
+
+    $phases[] = [
+        'name' => 'taper',
+        'label' => 'Подводка',
+        'weeks_from' => $weekCursor,
+        'weeks_to' => $totalWeeks,
+        'max_key_workouts' => 1,
+        'description' => "Объём -40-60% от пикового. 1 короткая интенсивная/нед. Последняя неделя — совсем лёгкая.",
+    ];
+
+    return [
+        'total_weeks' => $totalWeeks,
+        'distance' => $dist,
+        'start_volume_km' => $startVolume,
+        'peak_volume_km' => $peakVolume,
+        'phases' => $phases,
+        'recovery_weeks' => $recoveryWeeks,
+        'long_run' => [
+            'start_km' => (int) $longStart,
+            'peak_km' => (int) $longPeak,
+            'peak_week' => $peakWeekNum,
+            'by_week' => $longRunByWeek,
+        ],
+        'spec' => $spec,
+        'is_novice' => $isNovice,
+        'has_base' => $hasBase,
+        'weekly_base_km' => $weeklyKm,
+        'sessions' => $sessions,
+        'warnings' => $warnings,
+    ];
+}
+
+/**
+ * Форматирует результат computeMacrocycle() в текст для промпта.
+ */
+function formatMacrocyclePrompt(array $mc): string {
+    $out = '';
+    $spec = $mc['spec'];
+    $dist = $mc['distance'];
+    $tw = $mc['total_weeks'];
+
+    // Предупреждения о нереалистичных целях
+    if (!empty($mc['warnings'])) {
+        $out .= "⚠⚠⚠ ВНИМАНИЕ — ПРОБЛЕМЫ С ЦЕЛЬЮ ПОЛЬЗОВАТЕЛЯ ⚠⚠⚠\n";
+        foreach ($mc['warnings'] as $warn) {
+            $out .= "- {$warn}\n";
+        }
+        $out .= "При генерации плана ОБЯЗАТЕЛЬНО добавь в week_focus первой недели предупреждение о нереалистичности цели.\n";
+        $out .= "Генерируй план максимально безопасный — лучше не достичь цели, чем получить травму.\n\n";
+    }
+
+    // Заголовок
+    $label = '';
+    if ($mc['has_base'] && $tw <= 12) {
+        $label = ", ускоренная подготовка — бегун имеет базу {$mc['weekly_base_km']} км/нед";
+    } elseif ($mc['is_novice']) {
+        $label = ", новичок — удлинённый базовый период";
+    }
+    $out .= "МАКРОЦИКЛ ({$tw} недель{$label}):\n";
+
+    // Фазы
+    foreach ($mc['phases'] as $phase) {
+        $wRange = $phase['weeks_from'] == $phase['weeks_to']
+            ? "неделя {$phase['weeks_from']}"
+            : "недели {$phase['weeks_from']}-{$phase['weeks_to']}";
+
+        $longFirst = $mc['long_run']['by_week'][$phase['weeks_from']] ?? '?';
+        $longLast = $mc['long_run']['by_week'][$phase['weeks_to']] ?? '?';
+        $longRange = $longFirst == $longLast ? "{$longFirst} км" : "{$longFirst}→{$longLast} км";
+
+        $out .= "- {$phase['label']} ({$wRange}): {$phase['description']} Длительная: {$longRange}. Ключевых: до {$phase['max_key_workouts']}/нед.\n";
+    }
+
+    // Recovery weeks
+    if (!empty($mc['recovery_weeks'])) {
+        $rw = implode(', ', $mc['recovery_weeks']);
+        $out .= "Разгрузочные недели: {$rw} (объём -20%, убрать интенсивность, длительную сократить на 20%).\n";
+    }
+
+    // Прогрессия длительной
+    $out .= "\nПРОГРЕССИЯ ДЛИТЕЛЬНОЙ ПО НЕДЕЛЯМ (следуй этим числам!):\n";
+    $longParts = [];
+    foreach ($mc['long_run']['by_week'] as $w => $km) {
+        if ($w == $tw && in_array($dist, ['marathon', '42.2k', 'half', '21.1k', '5k', '10k'])) {
+            $longParts[] = "нед{$w}: забег";
+        } else {
+            $longParts[] = "нед{$w}: {$km}";
+        }
+    }
+    $out .= implode(' → ', $longParts) . " (км)\n";
+    $out .= "ПИКОВАЯ ДЛИТЕЛЬНАЯ: {$mc['long_run']['peak_km']} км (неделя {$mc['long_run']['peak_week']}). ЭТО ОБЯЗАТЕЛЬНЫЙ МИНИМУМ.\n\n";
+
+    // Объёмы
+    $out .= "ОБЪЁМЫ: стартовый ~{$mc['start_volume_km']} км/нед → пиковый ~{$mc['peak_volume_km']} км/нед.\n";
+    $out .= "Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n\n";
+
+    // Тренировки по дистанции
+    $distLabels = ['5k' => '5 КМ', '10k' => '10 КМ', 'half' => 'ПОЛУМАРАФОНА', '21.1k' => 'ПОЛУМАРАФОНА', 'marathon' => 'МАРАФОНА', '42.2k' => 'МАРАФОНА'];
+    $distLabel = $distLabels[$dist] ?? 'ЗАБЕГА';
+    $out .= "ТРЕНИРОВКИ ДЛЯ {$distLabel}:\n";
+    $out .= "- Интервалы: {$spec['intervals']}.\n";
+    $out .= "- Темповый: {$spec['tempo']}.\n";
+    $out .= "- Длительная: {$spec['long_desc']}.\n";
+    $out .= "- Фартлек: {$spec['fartlek']}.\n";
+    if (!empty($spec['marathon_pace'])) {
+        $out .= "- Марафонский темп: {$spec['marathon_pace']}.\n";
+    }
+
+    $out .= "\nКАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n";
+    $out .= "distance_km для интервалов/фартлека считает код — не заполняй.\n\n";
+
+    // Контрольные забеги
+    $out .= "КОНТРОЛЬНЫЕ ЗАБЕГИ (type: \"control\"):\n";
+    $out .= "Тест-забег на дистанцию короче целевой для замера прогресса. is_key_workout: true. pace: null.\n";
+    $out .= "Ставить каждые 3-4 недели (перед разгрузочной). Не в первые 2-3 недели и не в последние 2.\n";
+    $out .= "Дистанция контрольной: {$spec['control_dist']}.\n\n";
+
+    // Новичок-модификации
+    if ($mc['is_novice']) {
+        $out .= "НОВИЧОК: интервалы вводить не ранее недели 4-5. Начинать с 3-4x400 м. Контрольные забеги — не ранее недели 4, дистанция 1-2 км.\n\n";
+    }
+
+    return $out;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Общие блоки промпта (хелперы)
+// ════════════════════════════════════════════════════════════════
+
+function buildUserInfoBlock($userData) {
+    $block = "═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n\n";
+
     if (!empty($userData['gender'])) {
         $gender = $userData['gender'] === 'male' ? 'мужской' : 'женский';
-        $prompt .= "Пол: {$gender}\n";
+        $block .= "Пол: {$gender}\n";
     }
     
     if (!empty($userData['birth_year'])) {
         $age = date('Y') - (int)$userData['birth_year'];
-        $prompt .= "Возраст: ~{$age} лет\n";
+        $block .= "Возраст: ~{$age} лет\n";
     }
     
     if (!empty($userData['height_cm'])) {
-        $prompt .= "Рост: {$userData['height_cm']} см\n";
+        $block .= "Рост: {$userData['height_cm']} см\n";
     }
     
     if (!empty($userData['weight_kg'])) {
-        $prompt .= "Вес: {$userData['weight_kg']} кг\n";
+        $block .= "Вес: {$userData['weight_kg']} кг\n";
     }
     
-    // Опыт и уровень
     if (!empty($userData['experience_level'])) {
         $levelMap = [
             'novice' => 'Новичок (не бегает или менее 3 месяцев)',
@@ -173,23 +1004,26 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
             'expert' => 'Опытный (более 2 лет регулярного бега)'
         ];
         $level = $levelMap[$userData['experience_level']] ?? $userData['experience_level'];
-        $prompt .= "Уровень подготовки: {$level}\n";
+        $block .= "Уровень подготовки: {$level}\n";
     }
     
     if (!empty($userData['weekly_base_km'])) {
-        $prompt .= "Текущий объем бега: {$userData['weekly_base_km']} км в неделю\n";
+        $block .= "Текущий объем бега: {$userData['weekly_base_km']} км в неделю\n";
     }
     
     if (!empty($userData['sessions_per_week'])) {
-        $prompt .= "Желаемое количество тренировок в неделю: {$userData['sessions_per_week']}\n";
+        $block .= "Желаемое количество тренировок в неделю: {$userData['sessions_per_week']}\n";
     }
-    
-    // Цель и параметры
-    $prompt .= "\n═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n\n";
+
+    return $block;
+}
+
+function buildGoalBlock($userData, $goalType) {
+    $block = "\n═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n\n";
     
     switch ($goalType) {
         case 'race':
-            $prompt .= "Цель: Подготовка к забегу\n";
+            $block .= "Цель: Подготовка к забегу\n";
             if (!empty($userData['race_distance'])) {
                 $distanceMap = [
                     '5k' => '5 км',
@@ -200,26 +1034,24 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     '42.2k' => '42.2 км (марафон)'
                 ];
                 $distance = $distanceMap[$userData['race_distance']] ?? $userData['race_distance'];
-                $prompt .= "Дистанция забега: {$distance}\n";
+                $block .= "Дистанция забега: {$distance}\n";
             }
             if (!empty($userData['race_date'])) {
-                $prompt .= "Дата забега: {$userData['race_date']}\n";
+                $block .= "Дата забега: {$userData['race_date']}\n";
                 $racePos = computeRaceDayPosition($userData['training_start_date'] ?? null, $userData['race_date']);
                 if ($racePos) {
-                    $prompt .= "ДЕНЬ ЗАБЕГА: неделя {$racePos['week']}, день индекс {$racePos['dayIndex']} ({$racePos['dayName']}). Поставь type: \"race\" именно на этот индекс.\n";
+                    $block .= "ДЕНЬ ЗАБЕГА: неделя {$racePos['week']}, день индекс {$racePos['dayIndex']} ({$racePos['dayName']}). Поставь type: \"race\" именно на этот индекс.\n";
                 }
             }
             if (!empty($userData['race_target_time'])) {
-                $prompt .= "Целевое время: {$userData['race_target_time']}\n";
+                $block .= "Целевое время: {$userData['race_target_time']}\n";
             }
             if (!empty($userData['is_first_race_at_distance'])) {
-                $prompt .= "Это первый забег на эту дистанцию: " . ($userData['is_first_race_at_distance'] ? 'Да' : 'Нет') . "\n";
+                $block .= "Это первый забег на эту дистанцию: " . ($userData['is_first_race_at_distance'] ? 'Да' : 'Нет') . "\n";
             }
             if (!empty($userData['last_race_time']) && !empty($userData['last_race_distance'])) {
-                $prompt .= "Последний результат: {$userData['last_race_distance']} за {$userData['last_race_time']}\n";
+                $block .= "Последний результат: {$userData['last_race_distance']} за {$userData['last_race_time']}\n";
             }
-            
-            // Расширенный профиль для race
             if (!empty($userData['running_experience'])) {
                 $expMap = [
                     'less_3m' => 'Менее 3 месяцев',
@@ -229,43 +1061,40 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     'more_2y' => 'Более 2 лет'
                 ];
                 $exp = $expMap[$userData['running_experience']] ?? $userData['running_experience'];
-                $prompt .= "Стаж регулярного бега: {$exp}\n";
+                $block .= "Стаж регулярного бега: {$exp}\n";
             }
-            
             if (!empty($userData['easy_pace_sec'])) {
                 $paceMin = (int) floor($userData['easy_pace_sec'] / 60);
                 $paceSec = (int) ($userData['easy_pace_sec'] % 60);
-                $prompt .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
+                $block .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
             }
-            
             if (!empty($userData['last_race_date'])) {
-                $prompt .= "Дата последнего забега: {$userData['last_race_date']}\n";
+                $block .= "Дата последнего забега: {$userData['last_race_date']}\n";
             }
-            
             if (!empty($userData['last_race_distance_km']) && $userData['last_race_distance'] === 'other') {
-                $prompt .= "Последний забег: {$userData['last_race_distance_km']} км\n";
+                $block .= "Последний забег: {$userData['last_race_distance_km']} км\n";
             }
             break;
             
         case 'weight_loss':
-            $prompt .= "Цель: Снижение веса\n";
+            $block .= "Цель: Снижение веса\n";
             if (!empty($userData['weight_goal_kg'])) {
                 $currentWeight = $userData['weight_kg'] ?? 0;
                 if ($currentWeight > 0) {
                     $diff = $currentWeight - $userData['weight_goal_kg'];
-                    $prompt .= "Текущий вес: {$currentWeight} кг\n";
-                    $prompt .= "Целевой вес: {$userData['weight_goal_kg']} кг (нужно сбросить {$diff} кг)\n";
+                    $block .= "Текущий вес: {$currentWeight} кг\n";
+                    $block .= "Целевой вес: {$userData['weight_goal_kg']} кг (нужно сбросить {$diff} кг)\n";
                 } else {
-                    $prompt .= "Целевой вес: {$userData['weight_goal_kg']} кг\n";
+                    $block .= "Целевой вес: {$userData['weight_goal_kg']} кг\n";
                 }
             }
             if (!empty($userData['weight_goal_date'])) {
-                $prompt .= "К какой дате достичь цели: {$userData['weight_goal_date']}\n";
+                $block .= "К какой дате достичь цели: {$userData['weight_goal_date']}\n";
             }
             break;
             
         case 'time_improvement':
-            $prompt .= "Цель: Улучшение времени на дистанции\n";
+            $block .= "Цель: Улучшение времени на дистанции\n";
             if (!empty($userData['race_distance'])) {
                 $distanceMap = [
                     '5k' => '5 км',
@@ -276,25 +1105,23 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     '42.2k' => '42.2 км (марафон)'
                 ];
                 $distance = $distanceMap[$userData['race_distance']] ?? $userData['race_distance'];
-                $prompt .= "Дистанция: {$distance}\n";
+                $block .= "Дистанция: {$distance}\n";
             }
             $targetTime = $userData['race_target_time'] ?? $userData['target_marathon_time'] ?? null;
             if (!empty($targetTime)) {
-                $prompt .= "Целевое время: {$targetTime}\n";
+                $block .= "Целевое время: {$targetTime}\n";
             }
             $targetDate = $userData['race_date'] ?? $userData['target_marathon_date'] ?? null;
             if (!empty($targetDate)) {
-                $prompt .= "Дата целевого забега: {$targetDate}\n";
+                $block .= "Дата целевого забега: {$targetDate}\n";
                 $racePos = computeRaceDayPosition($userData['training_start_date'] ?? null, $targetDate);
                 if ($racePos) {
-                    $prompt .= "ДЕНЬ ЗАБЕГА: неделя {$racePos['week']}, день индекс {$racePos['dayIndex']} ({$racePos['dayName']}). Поставь type: \"race\" именно на этот индекс.\n";
+                    $block .= "ДЕНЬ ЗАБЕГА: неделя {$racePos['week']}, день индекс {$racePos['dayIndex']} ({$racePos['dayName']}). Поставь type: \"race\" именно на этот индекс.\n";
                 }
             }
             if (!empty($userData['last_race_time'])) {
-                $prompt .= "Текущее время: {$userData['last_race_time']}\n";
+                $block .= "Текущее время: {$userData['last_race_time']}\n";
             }
-            
-            // Расширенный профиль для time_improvement
             if (!empty($userData['running_experience'])) {
                 $expMap = [
                     'less_3m' => 'Менее 3 месяцев',
@@ -304,27 +1131,24 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     'more_2y' => 'Более 2 лет'
                 ];
                 $exp = $expMap[$userData['running_experience']] ?? $userData['running_experience'];
-                $prompt .= "Стаж регулярного бега: {$exp}\n";
+                $block .= "Стаж регулярного бега: {$exp}\n";
             }
-            
             if (!empty($userData['easy_pace_sec'])) {
                 $paceMin = (int) floor($userData['easy_pace_sec'] / 60);
                 $paceSec = (int) ($userData['easy_pace_sec'] % 60);
-                $prompt .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
+                $block .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
             }
-            
             if (!empty($userData['last_race_date'])) {
-                $prompt .= "Дата последнего забега: {$userData['last_race_date']}\n";
+                $block .= "Дата последнего забега: {$userData['last_race_date']}\n";
             }
-            
             if (!empty($userData['last_race_distance_km']) && $userData['last_race_distance'] === 'other') {
-                $prompt .= "Последний забег: {$userData['last_race_distance_km']} км\n";
+                $block .= "Последний забег: {$userData['last_race_distance_km']} км\n";
             }
             break;
             
         case 'health':
         default:
-            $prompt .= "Цель: Бег для здоровья и общего физического развития\n";
+            $block .= "Цель: Бег для здоровья и общего физического развития\n";
             if (!empty($userData['health_program'])) {
                 $programMap = [
                     'start_running' => 'Начни бегать (8 недель)',
@@ -333,7 +1157,7 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     'custom' => 'Свой план'
                 ];
                 $program = $programMap[$userData['health_program']] ?? $userData['health_program'];
-                $prompt .= "Программа: {$program}\n";
+                $block .= "Программа: {$program}\n";
             }
             if (!empty($userData['current_running_level'])) {
                 $levelMap = [
@@ -342,420 +1166,378 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
                     'comfortable' => 'Легко, могу больше'
                 ];
                 $level = $levelMap[$userData['current_running_level']] ?? $userData['current_running_level'];
-                $prompt .= "Может пробежать 1 км без остановки: {$level}\n";
+                $block .= "Может пробежать 1 км без остановки: {$level}\n";
             }
             if (!empty($userData['health_plan_weeks'])) {
-                $prompt .= "Срок плана: {$userData['health_plan_weeks']} недель\n";
+                $block .= "Срок плана: {$userData['health_plan_weeks']} недель\n";
             }
             break;
     }
     
-    // Дата начала (критично для расчёта недель и дат в плане)
-    $startDate = $userData['training_start_date'] ?? null;
+    return $block;
+}
+
+function buildStartDateBlock($startDate, $suggestedWeeks) {
+    $block = "";
     if ($startDate) {
-        $prompt .= "\nДата начала тренировок: {$startDate}\n";
-        $prompt .= "Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n";
+        $block .= "\nДата начала тренировок: {$startDate}\n";
+        $block .= "Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n";
     }
-
-    // Количество недель плана (из формы)
-    $suggestedWeeks = getSuggestedPlanWeeks($userData, $goalType);
     if ($suggestedWeeks !== null) {
-        $prompt .= "Количество недель плана: {$suggestedWeeks}. Сформируй ровно столько недель.\n";
+        $block .= "Количество недель плана: {$suggestedWeeks}. Сформируй ровно столько недель.\n";
+    }
+    return $block;
     }
 
-    // Предпочтения
-    $prompt .= "\n═══ ПРЕДПОЧТЕНИЯ ═══\n\n";
+function buildPreferencesBlock($userData) {
+    $block = "\n═══ ПРЕДПОЧТЕНИЯ ═══\n\n";
     
     if (!empty($userData['preferred_days']) && is_array($userData['preferred_days'])) {
         $dayLabels = [
-            'mon' => 'Понедельник',
-            'tue' => 'Вторник',
-            'wed' => 'Среда',
-            'thu' => 'Четверг',
-            'fri' => 'Пятница',
-            'sat' => 'Суббота',
-            'sun' => 'Воскресенье'
+            'mon' => 'Понедельник', 'tue' => 'Вторник', 'wed' => 'Среда',
+            'thu' => 'Четверг', 'fri' => 'Пятница', 'sat' => 'Суббота', 'sun' => 'Воскресенье'
         ];
         $days = array_map(function($day) use ($dayLabels) {
             return $dayLabels[$day] ?? $day;
         }, $userData['preferred_days']);
-        $prompt .= "Предпочитаемые дни для бега: " . implode(', ', $days) . "\n";
+        $block .= "Предпочитаемые дни для бега: " . implode(', ', $days) . "\n";
     }
     
     if (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days'])) {
         $dayLabels = [
-            'mon' => 'Понедельник',
-            'tue' => 'Вторник',
-            'wed' => 'Среда',
-            'thu' => 'Четверг',
-            'fri' => 'Пятница',
-            'sat' => 'Суббота',
-            'sun' => 'Воскресенье'
+            'mon' => 'Понедельник', 'tue' => 'Вторник', 'wed' => 'Среда',
+            'thu' => 'Четверг', 'fri' => 'Пятница', 'sat' => 'Суббота', 'sun' => 'Воскресенье'
         ];
         $days = array_map(function($day) use ($dayLabels) {
             return $dayLabels[$day] ?? $day;
         }, $userData['preferred_ofp_days']);
-        $prompt .= "Предпочитаемые дни для ОФП: " . implode(', ', $days) . "\n";
+        $block .= "Предпочитаемые дни для ОФП: " . implode(', ', $days) . "\n";
     } else {
-        $prompt .= "Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n";
+        $block .= "Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n";
     }
     
     if (!empty($userData['training_time_pref'])) {
-        $timeMap = [
-            'morning' => 'Утро',
-            'day' => 'День',
-            'evening' => 'Вечер'
-        ];
+        $timeMap = ['morning' => 'Утро', 'day' => 'День', 'evening' => 'Вечер'];
         $time = $timeMap[$userData['training_time_pref']] ?? $userData['training_time_pref'];
-        $prompt .= "Предпочитаемое время тренировок: {$time}\n";
+        $block .= "Предпочитаемое время тренировок: {$time}\n";
     }
     
     if (!empty($userData['has_treadmill'])) {
-        $prompt .= "Есть доступ к беговой дорожке: Да\n";
+        $block .= "Есть доступ к беговой дорожке: Да\n";
     }
     
     if (!empty($userData['ofp_preference'])) {
         $ofpMap = [
-            'gym' => 'В тренажерном зале',
-            'home' => 'Дома самостоятельно',
-            'both' => 'И в зале, и дома',
-            'group_classes' => 'Групповые занятия',
+            'gym' => 'В тренажерном зале', 'home' => 'Дома самостоятельно',
+            'both' => 'И в зале, и дома', 'group_classes' => 'Групповые занятия',
             'online' => 'Онлайн-платформы'
         ];
         $ofp = $ofpMap[$userData['ofp_preference']] ?? $userData['ofp_preference'];
-        $prompt .= "Где удобно делать ОФП: {$ofp}\n";
+        $block .= "Где удобно делать ОФП: {$ofp}\n";
     }
     
-    // Ограничения по здоровью
     if (!empty($userData['health_notes'])) {
-        $prompt .= "\nОграничения по здоровью: {$userData['health_notes']}\n";
+        $block .= "\nОграничения по здоровью: {$userData['health_notes']}\n";
     }
 
-    // Тренировочные зоны (рассчитанные)
+    return $block;
+}
+
+function buildPaceZonesBlock($userData) {
     $zones = calculatePaceZones($userData);
-    if ($zones) {
-        $prompt .= "\n═══ ТРЕНИРОВОЧНЫЕ ЗОНЫ (используй в полях pace / interval_pace) ═══\n\n";
-        $prompt .= "Лёгкий бег (easy): " . formatPace($zones['easy']) . " /км — основной объём, разговорный темп, RPE 3-4\n";
-        $prompt .= "Длительная (long): " . formatPace($zones['long']) . " /км — немного медленнее лёгкого, RPE 3-4\n";
-        $prompt .= "Темповый (tempo): " . formatPace($zones['tempo']) . " /км — комфортно-тяжело, RPE 6-7\n";
-        $prompt .= "Интервальный (interval): " . formatPace($zones['interval']) . " /км — тяжело, RPE 8-9, для отрезков 400м-2км\n";
-        $prompt .= "Восстановительная трусца (между интервалами): " . formatPace($zones['recovery']) . " /км\n";
-        $prompt .= "\nВАЖНО: Подставляй эти темпы в поля pace (для easy/long/tempo) и interval_pace (для interval). Не придумывай другие темпы.\n";
-    }
+    if (!$zones) return "";
 
-    // Принципы для выбранной цели
-    $prompt .= "\n═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА ═══\n\n";
+    $block = "\n═══ ТРЕНИРОВОЧНЫЕ ЗОНЫ (используй в полях pace / interval_pace) ═══\n\n";
+    $block .= "Лёгкий бег (easy): " . formatPace($zones['easy']) . " /км — основной объём, разговорный темп, RPE 3-4\n";
+    $block .= "Длительная (long): " . formatPace($zones['long']) . " /км — немного медленнее лёгкого, RPE 3-4\n";
+    $block .= "Темповый (tempo): " . formatPace($zones['tempo']) . " /км — комфортно-тяжело, RPE 6-7\n";
+    $block .= "Интервальный (interval): " . formatPace($zones['interval']) . " /км — тяжело, RPE 8-9, для отрезков 400м-2км\n";
+    $block .= "Восстановительная трусца (между интервалами): " . formatPace($zones['recovery']) . " /км\n";
+    $block .= "\nВАЖНО: Подставляй эти темпы в поля pace (для easy/long/tempo) и interval_pace (для interval). Не придумывай другие темпы.\n";
 
-    // Определяем уровень для выбора стартового объёма
+    return $block;
+}
+
+function buildTrainingPrinciplesBlock($userData, $goalType) {
+    $block = "\n═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА ═══\n\n";
+
     $expLevel = $userData['experience_level'] ?? 'novice';
     $weeklyKm = !empty($userData['weekly_base_km']) ? (float) $userData['weekly_base_km'] : 0;
     $isNovice = in_array($expLevel, ['novice', 'beginner']);
+    $zones = calculatePaceZones($userData);
 
     switch ($goalType) {
         case 'health':
             $program = $userData['health_program'] ?? '';
-            $prompt .= "Цель: здоровье и регулярная активность.\n\n";
+            $block .= "Цель: здоровье и регулярная активность.\n\n";
             if ($program === 'start_running') {
-                $prompt .= "Программа «Начни бегать» (8 недель):\n";
-                $prompt .= "- 3 беговых дня, между ними — отдых. Темп не указывать — только по ощущениям (RPE 3-4, можно разговаривать).\n";
-                $prompt .= "- Недели 1-2: бег 1 мин / ходьба 2 мин, повторить 8 раз (24 мин).\n";
-                $prompt .= "- Недели 3-4: бег 3 мин / ходьба 2 мин × 5 (25 мин).\n";
-                $prompt .= "- Недели 5-6: бег 5 мин / ходьба 1 мин × 4 (24 мин).\n";
-                $prompt .= "- Недели 7-8: непрерывный бег 15-20 мин.\n";
-                $prompt .= "- Каждая тренировка начинается с 5 мин ходьбы (разминка). Тип: easy. distance_km: null. duration_minutes: суммарное время. notes: краткое описание интервалов бег/ходьба.\n";
+                $block .= "Программа «Начни бегать» (8 недель):\n";
+                $block .= "- 3 беговых дня, между ними — отдых. Темп не указывать — только по ощущениям (RPE 3-4, можно разговаривать).\n";
+                $block .= "- Недели 1-2: бег 1 мин / ходьба 2 мин, повторить 8 раз (24 мин).\n";
+                $block .= "- Недели 3-4: бег 3 мин / ходьба 2 мин × 5 (25 мин).\n";
+                $block .= "- Недели 5-6: бег 5 мин / ходьба 1 мин × 4 (24 мин).\n";
+                $block .= "- Недели 7-8: непрерывный бег 15-20 мин.\n";
+                $block .= "- Каждая тренировка начинается с 5 мин ходьбы (разминка). Тип: easy. distance_km: null. duration_minutes: суммарное время. notes: краткое описание интервалов бег/ходьба.\n";
             } elseif ($program === 'couch_to_5k') {
-                $prompt .= "Программа «С дивана до 5 км» (10 недель):\n";
-                $prompt .= "- 3 тренировки в неделю. Темп не указывать — только по ощущениям.\n";
-                $prompt .= "- Недели 1-2: бег 1-1.5 мин / ходьба 2 мин, 8-10 повторов.\n";
-                $prompt .= "- Недели 3-4: бег 3-5 мин / ходьба 1.5-3 мин.\n";
-                $prompt .= "- Недели 5-6: непрерывный бег 20 мин.\n";
-                $prompt .= "- Недели 7-8: бег 25 мин.\n";
-                $prompt .= "- Недели 9-10: бег 30 мин (≈5 км).\n";
-                $prompt .= "- Тип: easy. distance_km: null. duration_minutes: суммарное время (обязательно!). notes: краткое описание интервалов бег/ходьба.\n";
+                $block .= "Программа «С дивана до 5 км» (10 недель):\n";
+                $block .= "- 3 тренировки в неделю. Темп не указывать — только по ощущениям.\n";
+                $block .= "- Недели 1-2: бег 1-1.5 мин / ходьба 2 мин, 8-10 повторов.\n";
+                $block .= "- Недели 3-4: бег 3-5 мин / ходьба 1.5-3 мин.\n";
+                $block .= "- Недели 5-6: непрерывный бег 20 мин.\n";
+                $block .= "- Недели 7-8: бег 25 мин.\n";
+                $block .= "- Недели 9-10: бег 30 мин (≈5 км).\n";
+                $block .= "- Тип: easy. distance_km: null. duration_minutes: суммарное время (обязательно!). notes: краткое описание интервалов бег/ходьба.\n";
             } elseif ($program === 'regular_running') {
-                $prompt .= "Программа «Регулярный бег» (12 недель):\n";
-                $prompt .= "- 3-4 лёгких пробежки в неделю. Одна чуть длиннее (длительная).\n";
-                $prompt .= "- Старт: " . ($weeklyKm > 0 ? "{$weeklyKm} км/нед" : "10-15 км/нед") . ", прирост до 10% в неделю.\n";
-                $prompt .= "- Все пробежки в лёгком темпе (разговорный, RPE 3-4).\n";
-                $prompt .= "- Неделя 4, 8 — разгрузочные (объём -20%).\n";
+                $block .= "Программа «Регулярный бег» (12 недель):\n";
+                $block .= "- 3-4 лёгких пробежки в неделю. Одна чуть длиннее (длительная).\n";
+                $block .= "- Старт: " . ($weeklyKm > 0 ? "{$weeklyKm} км/нед" : "10-15 км/нед") . ", прирост до 10% в неделю.\n";
+                $block .= "- Все пробежки в лёгком темпе (разговорный, RPE 3-4).\n";
+                $block .= "- Неделя 4, 8 — разгрузочные (объём -20%).\n";
             } else {
-                $prompt .= "Свой план:\n";
-                $prompt .= "- 3-4 беговых дня, прогрессия плавная (до 10%/нед).\n";
+                $block .= "Свой план:\n";
+                $block .= "- 3-4 беговых дня, прогрессия плавная (до 10%/нед).\n";
                 $runLevel = $userData['current_running_level'] ?? '';
                 if ($runLevel === 'zero') {
-                    $prompt .= "- Начинающий с нуля: старт с чередования бег/ходьба, как «Начни бегать».\n";
+                    $block .= "- Начинающий с нуля: старт с чередования бег/ходьба, как «Начни бегать».\n";
                 } elseif ($runLevel === 'basic') {
-                    $prompt .= "- Бегает с трудом: короткие отрезки 2-3 км, акцент на регулярность, не на объём.\n";
+                    $block .= "- Бегает с трудом: короткие отрезки 2-3 км, акцент на регулярность, не на объём.\n";
                 } else {
-                    $prompt .= "- Бегает комфортно: непрерывный бег, можно добавить одну длительную.\n";
+                    $block .= "- Бегает комфортно: непрерывный бег, можно добавить одну длительную.\n";
                 }
             }
             if ($isNovice) {
-                $prompt .= "\nДля начинающих: НЕ указывай темп в мин/км — только по ощущениям. Писать «в комфортном темпе» или «темп разговорный».\n";
+                $block .= "\nДля начинающих: НЕ указывай темп в мин/км — только по ощущениям. Писать «в комфортном темпе» или «темп разговорный».\n";
             }
             break;
 
         case 'race':
         case 'time_improvement':
             $goalLabel = $goalType === 'race' ? 'подготовка к забегу' : 'улучшение результата';
-            $prompt .= "Цель: {$goalLabel}.\n\n";
+            $block .= "Цель: {$goalLabel}.\n\n";
 
-            // Макроцикл
+            $mc = computeMacrocycle($userData, $goalType);
+            if ($mc) {
+                $block .= formatMacrocyclePrompt($mc);
+            } else {
+                $dist = $userData['race_distance'] ?? '';
             $totalWeeks = getSuggestedPlanWeeks($userData, $goalType);
-            if ($totalWeeks && $totalWeeks >= 8) {
-                $taper = min(3, max(2, (int) round($totalWeeks * 0.12)));
-                $intense = min(6, max(3, (int) round($totalWeeks * 0.35)));
-                $base = $totalWeeks - $taper - $intense;
-                $prompt .= "МАКРОЦИКЛ ({$totalWeeks} недель):\n";
-                $prompt .= "- Базовый период (недели 1-{$base}): аэробный объём. Лёгкий бег + 1 длительная. Без темповых/интервалов. Прирост объёма до 10%/нед. Каждые 3-4 недели — разгрузка.\n";
-                $intStart = $base + 1;
-                $intEnd = $base + $intense;
-                $prompt .= "- Интенсивный период (недели {$intStart}-{$intEnd}): добавляются 1-2 ключевые тренировки (темп/интервалы). Длительная остаётся. Объём стабилен или слегка растёт.\n";
-                $tapStart = $intEnd + 1;
-                $prompt .= "- Подводка (недели {$tapStart}-{$totalWeeks}): объём снижается на 40-60% от пикового. Интенсивность сохраняется (короткие быстрые отрезки), но объём низкий. Последняя неделя — совсем лёгкая.\n\n";
-            } elseif ($totalWeeks && $totalWeeks >= 4) {
-                $prompt .= "МАКРОЦИКЛ ({$totalWeeks} недель, короткий):\n";
-                $prompt .= "- Недели 1-" . ($totalWeeks - 2) . ": постепенный ввод ключевых тренировок, прирост объёма.\n";
-                $prompt .= "- Последние 1-2 недели: подводка (снижение объёма, сохранение коротких быстрых отрезков).\n\n";
+                $block .= "План на " . ($totalWeeks ?: '?') . " недель. Стандартная периодизация: базовый → развивающий → подводка.\n";
+                $block .= "80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n\n";
             }
 
-            // Дистанционно-специфичные шаблоны
-            $dist = $userData['race_distance'] ?? '';
-            $prompt .= "СТРУКТУРА ТРЕНИРОВОЧНОЙ НЕДЕЛИ:\n";
-            $prompt .= "- 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n";
-            $prompt .= "- Между двумя ключевыми тренировками — минимум 1 день лёгкого бега или отдыха.\n\n";
-
-            if ($dist === '5k') {
-                $prompt .= "ТРЕНИРОВКИ ДЛЯ 5 КМ:\n";
-                $prompt .= "- Интервалы: 6-10 × 400 м (отдых трусцой 200 м) или 4-6 × 800 м (отдых 400 м трусцой) или 3-5 × 1000 м.\n";
-                $prompt .= "- Темповый: 2-4 км непрерывного бега в темповом темпе.\n";
-                $prompt .= "- Длительная: 8-12 км в лёгком темпе.\n";
-                $prompt .= "- Фартлек: 30-40 мин с ускорениями 1-2 мин через 2-3 мин трусцой.\n";
-            } elseif ($dist === '10k') {
-                $prompt .= "ТРЕНИРОВКИ ДЛЯ 10 КМ:\n";
-                $prompt .= "- Интервалы: 5-8 × 1000 м (отдых 400 м трусцой) или 3-5 × 2000 м (отдых 600-800 м).\n";
-                $prompt .= "- Темповый: 4-6 км в темповом темпе.\n";
-                $prompt .= "- Длительная: 12-16 км в лёгком темпе.\n";
-                $prompt .= "- Фартлек: 40-50 мин с ускорениями 2-3 мин через 2-3 мин трусцой.\n";
-            } elseif (in_array($dist, ['half', '21.1k'])) {
-                $prompt .= "ТРЕНИРОВКИ ДЛЯ ПОЛУМАРАФОНА:\n";
-                $prompt .= "- Интервалы: 4-6 × 1600-2000 м (отдых 600 м трусцой).\n";
-                $prompt .= "- Темповый: 6-10 км в темповом темпе.\n";
-                $prompt .= "- Длительная: 16-22 км в лёгком темпе. Последние 3-5 км можно в целевом темпе (прогрессивная длительная).\n";
-                $prompt .= "- Длительная с вкраплениями: 18-20 км, из них 3 × 2 км в целевом темпе с 1 км лёгкого между.\n";
-            } elseif (in_array($dist, ['marathon', '42.2k'])) {
-                $prompt .= "ТРЕНИРОВКИ ДЛЯ МАРАФОНА:\n";
-                $prompt .= "- Интервалы: 4-6 × 1600-2000 м (отдых 800 м трусцой).\n";
-                $prompt .= "- Темповый: 8-12 км в темповом темпе.\n";
-                $prompt .= "- Длительная: 22-32 км в лёгком/марафонском темпе. Пиковая длительная — за 3-4 недели до старта, не более 35 км.\n";
-                $prompt .= "- Марафонский темп: 10-16 км в целевом марафонском темпе (вставки внутри длительной или отдельная тренировка).\n";
-            } else {
-                $prompt .= "ОБЩИЕ ТРЕНИРОВКИ:\n";
-                $prompt .= "- Интервалы: 4-8 × 800-1600 м с трусцой между отрезками.\n";
-                $prompt .= "- Темповый: 3-8 км непрерывного бега.\n";
-                $prompt .= "- Длительная: на 50-70% больше средней дневной дистанции.\n";
-            }
-
-            $prompt .= "\nКАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n";
             if ($zones) {
-                $prompt .= "Используй рассчитанные зоны: interval_pace=\"" . formatPace($zones['interval']) . "\", темповый pace=\"" . formatPace($zones['tempo']) . "\".\n";
-            }
-            $prompt .= "distance_km для интервалов/фартлека считает код — не заполняй.\n\n";
-
-            // Контрольные забеги
-            $prompt .= "КОНТРОЛЬНЫЕ ЗАБЕГИ (type: \"control\"):\n";
-            $prompt .= "Контрольный забег — это тест-забег на дистанцию короче целевой, выполняемый на максимальное усилие для замера прогресса.\n";
-            $prompt .= "ЗАЧЕМ: объективно отследить улучшение формы, скорректировать тренировочные темпы, потренировать волевой бег.\n";
-            $prompt .= "КОГДА СТАВИТЬ:\n";
-            $prompt .= "- Каждые 3-4 недели, в конце мезоцикла (перед разгрузочной неделей).\n";
-            $prompt .= "- НЕ ставить в первые 2-3 недели плана (нет базы для сравнения).\n";
-            $prompt .= "- НЕ ставить в последние 2 недели перед забегом (подводка).\n";
-            $prompt .= "- День перед контрольной — отдых или очень лёгкий бег. День после — тоже лёгкий.\n";
-
-            if (in_array($dist, ['5k'])) {
-                $prompt .= "ДИСТАНЦИЯ КОНТРОЛЬНОЙ ДЛЯ 5 КМ: 1-2 км (бег на результат) или 3 км.\n";
-            } elseif (in_array($dist, ['10k'])) {
-                $prompt .= "ДИСТАНЦИЯ КОНТРОЛЬНОЙ ДЛЯ 10 КМ: 3 км или 5 км (бег на результат).\n";
-            } elseif (in_array($dist, ['half', '21.1k'])) {
-                $prompt .= "ДИСТАНЦИЯ КОНТРОЛЬНОЙ ДЛЯ ПОЛУМАРАФОНА: 5-10 км (бег на результат).\n";
-            } elseif (in_array($dist, ['marathon', '42.2k'])) {
-                $prompt .= "ДИСТАНЦИЯ КОНТРОЛЬНОЙ ДЛЯ МАРАФОНА: 10-15 км в целевом марафонском темпе, или 10 км на результат.\n";
-            } else {
-                $prompt .= "ДИСТАНЦИЯ КОНТРОЛЬНОЙ: 30-50% от целевой дистанции, бег на результат.\n";
-            }
-            $prompt .= "is_key_workout для контрольных забегов: ВСЕГДА true.\n";
-            $prompt .= "pace для контрольного забега: null (бегун бежит на результат, темп не назначается).\n\n";
-
-            if ($isNovice) {
-                $prompt .= "Уровень НОВИЧОК: интервалы вводить не ранее недели 4-5 (базовый период). Начинать с 3-4 × 400 м, постепенно увеличивая.\n";
-                $prompt .= "Контрольные забеги для новичка: не ранее недели 4, дистанция 1-2 км.\n";
+                $block .= "Используй рассчитанные зоны: interval_pace=\"" . formatPace($zones['interval']) . "\", темповый pace=\"" . formatPace($zones['tempo']) . "\".\n\n";
             }
             break;
 
         case 'weight_loss':
-            $prompt .= "Цель: снижение веса к указанной дате.\n\n";
-            $prompt .= "ПРИНЦИПЫ:\n";
-            $prompt .= "- 3-4 беговых дня в неделю. Весь бег — в лёгком темпе (жиросжигание в аэробной зоне).\n";
-            $prompt .= "- 1 длительная пробежка в неделю (30-60 мин) — основной инструмент.\n";
-            $prompt .= "- 1 тренировка с ускорениями (фартлек или короткие интервалы) для метаболизма, но не обязательно в первые 2-3 недели.\n";
-            $prompt .= "- Прирост объёма: до 10%/нед. Старт с текущего объёма" . ($weeklyKm > 0 ? " ({$weeklyKm} км/нед)" : "") . ".\n";
+            $block .= "Цель: снижение веса к указанной дате.\n\n";
+            $block .= "ПРИНЦИПЫ:\n";
+            $block .= "- 3-4 беговых дня в неделю. Весь бег — в лёгком темпе (жиросжигание в аэробной зоне).\n";
+            $block .= "- 1 длительная пробежка в неделю (30-60 мин) — основной инструмент.\n";
+            $block .= "- 1 тренировка с ускорениями (фартлек или короткие интервалы) для метаболизма, но не обязательно в первые 2-3 недели.\n";
+            $block .= "- Прирост объёма: до 10%/нед. Старт с текущего объёма" . ($weeklyKm > 0 ? " ({$weeklyKm} км/нед)" : "") . ".\n";
             if (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days'])) {
-                $prompt .= "- ОФП 2 раза в неделю (в указанные дни): круговые тренировки, акцент на крупные мышечные группы для сохранения мышечной массы.\n";
+                $block .= "- ОФП 2 раза в неделю (в указанные дни): круговые тренировки, акцент на крупные мышечные группы для сохранения мышечной массы.\n";
             }
-            $prompt .= "- Безопасная скорость: не более 0.5-1 кг/нед. Питание — вне плана, но тренировки оптимизированы для дефицита калорий.\n";
+            $block .= "- Безопасная скорость: не более 0.5-1 кг/нед. Питание — вне плана, но тренировки оптимизированы для дефицита калорий.\n";
             if ($isNovice) {
-                $prompt .= "- Начинающий: старт с бег/ходьба, акцент на регулярность и длительность (время), а не скорость.\n";
+                $block .= "- Начинающий: старт с бег/ходьба, акцент на регулярность и длительность (время), а не скорость.\n";
             }
             break;
 
         default:
-            $prompt .= "Общие принципы: прогрессия нагрузки, чередование нагрузки и отдыха, разнообразие (лёгкий бег, длительная, при необходимости темп/интервалы).\n";
+            $block .= "Общие принципы: прогрессия нагрузки, чередование нагрузки и отдыха, разнообразие (лёгкий бег, длительная, при необходимости темп/интервалы).\n";
     }
 
-    $prompt .= "\nРАЗГРУЗОЧНАЯ НЕДЕЛЯ (каждые 3-4 недели):\n";
-    $prompt .= "- Объём снижен на 20-30% от предыдущей недели.\n";
-    $prompt .= "- Все тренировки — лёгкий бег. Убрать интервалы и темповые. Длительную сократить на 30%.\n";
-    $prompt .= "- Если есть ОФП — оставить, но облегчить (меньше подходов).\n\n";
+    $block .= "\nРАЗГРУЗОЧНАЯ НЕДЕЛЯ (каждые 3-4 недели):\n";
+    $block .= "- Объём снижен на 20-30% от предыдущей недели.\n";
+    $block .= "- Все тренировки — лёгкий бег. Убрать интервалы и темповые. Длительную сократить на 30%.\n";
+    $block .= "- Если есть ОФП — оставить, но облегчить (меньше подходов).\n\n";
 
-    $prompt .= "ОБЩИЕ ПРАВИЛА:\n";
-    $prompt .= "- Прирост недельного км: не более 10%.\n";
-    $prompt .= "- 80% объёма — лёгкий бег, до 20% — ключевые тренировки (принцип 80/20).\n";
-    $prompt .= "- Длительная — в конце недели (суббота/воскресенье), если пользователь выбрал эти дни.\n";
+    $block .= "ОБЩИЕ ПРАВИЛА:\n";
+    $block .= "- Прирост недельного км: не более 10%.\n";
+    $block .= "- 80% объёма — лёгкий бег, до 20% — ключевые тренировки (принцип 80/20).\n";
+    $block .= "- Длительная — в конце недели (суббота/воскресенье), если пользователь выбрал эти дни.\n";
 
-    $prompt .= "\n═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ (is_key_workout) ═══\n\n";
-    $prompt .= "Ключевая тренировка — та, которая даёт основной тренировочный стимул в неделе. Именно эти тренировки продвигают бегуна к цели, всё остальное (лёгкий бег, отдых) — поддержка восстановления между ними.\n\n";
+    return $block;
+}
 
-    $prompt .= "ТИПЫ КЛЮЧЕВЫХ ТРЕНИРОВОК:\n";
-    $prompt .= "- Темповый бег (tempo) — развивает лактатный порог, учит тело работать на высокой интенсивности дольше.\n";
-    $prompt .= "- Интервалы (interval) — развивают МПК (VO2max), скорость и экономичность бега.\n";
-    $prompt .= "- Фартлек (fartlek) — развивает умение переключать темп, скоростную выносливость. Структурированный фартлек — ключевая, лёгкий игровой — нет.\n";
-    $prompt .= "- Длительная (long) — развивает аэробную базу, жировой обмен, ментальную выносливость. ЭТО ТОЖЕ КЛЮЧЕВАЯ ТРЕНИРОВКА.\n";
-    $prompt .= "- Забег (race) — пиковая нагрузка, всегда ключевая.\n\n";
+function buildKeyWorkoutsBlock($userData) {
+    $block = "\n═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ (is_key_workout) ═══\n\n";
+    $block .= "Ключевая тренировка — та, которая даёт основной тренировочный стимул в неделе. Именно эти тренировки продвигают бегуна к цели, всё остальное (лёгкий бег, отдых) — поддержка восстановления между ними.\n\n";
 
-    $prompt .= "НЕ ЯВЛЯЮТСЯ КЛЮЧЕВЫМИ:\n";
-    $prompt .= "- Лёгкий бег (easy) — восстановительный бег.\n";
-    $prompt .= "- ОФП (other), СБУ (sbu) — вспомогательные.\n";
-    $prompt .= "- Отдых (rest).\n\n";
+    $block .= "ТИПЫ КЛЮЧЕВЫХ ТРЕНИРОВОК:\n";
+    $block .= "- Темповый бег (tempo) — развивает лактатный порог, учит тело работать на высокой интенсивности дольше.\n";
+    $block .= "- Интервалы (interval) — развивают МПК (VO2max), скорость и экономичность бега.\n";
+    $block .= "- Фартлек (fartlek) — развивает умение переключать темп, скоростную выносливость. Структурированный фартлек — ключевая, лёгкий игровой — нет.\n";
+    $block .= "- Длительная (long) — развивает аэробную базу, жировой обмен, ментальную выносливость. ЭТО ТОЖЕ КЛЮЧЕВАЯ ТРЕНИРОВКА.\n";
+    $block .= "- Забег (race) — пиковая нагрузка, всегда ключевая.\n\n";
 
-    $prompt .= "ПРАВИЛА РАССТАНОВКИ:\n";
+    $block .= "НЕ ЯВЛЯЮТСЯ КЛЮЧЕВЫМИ:\n";
+    $block .= "- Лёгкий бег (easy) — восстановительный бег.\n";
+    $block .= "- ОФП (other), СБУ (sbu) — вспомогательные.\n";
+    $block .= "- Отдых (rest).\n\n";
+
+    $block .= "ПРАВИЛА РАССТАНОВКИ:\n";
     $sessions = (int)($userData['sessions_per_week'] ?? 3);
     if ($sessions <= 3) {
-        $prompt .= "- При {$sessions} тренировках в неделю: 1-2 ключевые (длительная + 1 интенсивная в интенсивном периоде).\n";
+        $block .= "- При {$sessions} тренировках в неделю: 1-2 ключевые (длительная + 1 интенсивная в интенсивном периоде).\n";
     } elseif ($sessions <= 5) {
-        $prompt .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные).\n";
+        $block .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные).\n";
     } else {
-        $prompt .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные), остальное — лёгкий бег.\n";
+        $block .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные), остальное — лёгкий бег.\n";
     }
-    $prompt .= "- Между двумя ключевыми — минимум 1 день лёгкого бега или отдыха. НИКОГДА две ключевые подряд.\n";
-    $prompt .= "- В разгрузочную неделю — 0-1 ключевая (только сокращённая длительная), убрать интенсивность.\n";
-    $prompt .= "- В базовый период — только длительная как ключевая, без темпа/интервалов.\n";
-    $prompt .= "- В подводку — сохранять 1-2 короткие интенсивные, но со сниженным объёмом.\n\n";
+    $block .= "- Между двумя ключевыми — минимум 1 день лёгкого бега или отдыха. НИКОГДА две ключевые подряд.\n";
+    $block .= "- В разгрузочную неделю — 0-1 ключевая (только сокращённая длительная), убрать интенсивность.\n";
+    $block .= "- В базовый период — только длительная как ключевая, без темпа/интервалов.\n";
+    $block .= "- В подводку — сохранять 1-2 короткие интенсивные, но со сниженным объёмом.\n\n";
 
-    $prompt .= "Для каждого дня ставь поле \"is_key_workout\": true/false. Это важно для визуального выделения в приложении.\n";
+    $block .= "Для каждого дня ставь поле \"is_key_workout\": true/false. Это важно для визуального выделения в приложении.\n";
 
-    // Обязательные правила: план строго по форме
-    $prompt .= "\n═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n\n";
-    $prompt .= "1. Расписание по дням:\n";
+    return $block;
+}
+
+function buildMandatoryRulesBlock($userData) {
+    $block = "\n═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n\n";
+    $block .= "1. Расписание по дням:\n";
     if (!empty($userData['preferred_days']) && is_array($userData['preferred_days'])) {
         $daysList = implode(', ', $userData['preferred_days']);
-        $prompt .= "   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: {$daysList}. В остальные дни — отдых (rest)" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП в указанные дни" : "") . ".\n";
+        $block .= "   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: {$daysList}. В остальные дни — отдых (rest)" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП в указанные дни" : "") . ".\n";
     } else {
-        $prompt .= "   — Количество беговых дней в неделю: " . ($userData['sessions_per_week'] ?? 3) . ". Остальные дни — rest" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП по предпочтениям" : "") . ".\n";
+        $block .= "   — Количество беговых дней в неделю: " . ($userData['sessions_per_week'] ?? 3) . ". Остальные дни — rest" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП по предпочтениям" : "") . ".\n";
     }
     if (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days'])) {
         $ofpList = implode(', ', $userData['preferred_ofp_days']);
-        $prompt .= "   — ОФП (type: other) ставить ТОЛЬКО в эти дни: {$ofpList}.\n";
+        $block .= "   — ОФП (type: other) ставить ТОЛЬКО в эти дни: {$ofpList}.\n";
     } else {
-        $prompt .= "   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n";
+        $block .= "   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n";
     }
-    $prompt .= "2. Объём и сложность — по уровню подготовки и weekly_base_km выше; не завышай нагрузку.\n";
-    $prompt .= "3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n";
-    $prompt .= "4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: \"rest\", все поля null.\n\n";
+    $block .= "2. Объём и сложность — по уровню подготовки и weekly_base_km. ВАЖНО: для подготовки к забегу длительная должна достигать указанного минимума (см. ПИКОВАЯ ДЛИТЕЛЬНАЯ выше). Не занижай нагрузку — план должен РЕАЛЬНО подготовить к дистанции.\n";
+    $block .= "3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n";
+    $block .= "4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: \"rest\", все поля null.\n\n";
 
-    // Задача
+    return $block;
+}
+
+function buildFormatResponseBlock() {
+    $block = "═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n\n";
+    $block .= "Верни один JSON-объект с ключом \"weeks\". В каждой неделе массив \"days\" из ровно 7 элементов (пн … вс).\n";
+    $block .= "Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n\n";
+
+    $block .= "КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n\n";
+
+    $block .= "ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n";
+    $block .= "{\n";
+    $block .= "  \"type\": \"...\",\n";
+    $block .= "  \"distance_km\": null,\n";
+    $block .= "  \"pace\": null,\n";
+    $block .= "  \"warmup_km\": null,\n";
+    $block .= "  \"cooldown_km\": null,\n";
+    $block .= "  \"reps\": null,\n";
+    $block .= "  \"interval_m\": null,\n";
+    $block .= "  \"interval_pace\": null,\n";
+    $block .= "  \"rest_m\": null,\n";
+    $block .= "  \"rest_type\": null,\n";
+    $block .= "  \"segments\": null,\n";
+    $block .= "  \"exercises\": null,\n";
+    $block .= "  \"duration_minutes\": null,\n";
+    $block .= "  \"notes\": null,\n";
+    $block .= "  \"is_key_workout\": false\n";
+    $block .= "}\n\n";
+
+    $block .= "ПРИМЕРЫ ПО ТИПАМ (все поля всегда присутствуют):\n\n";
+
+    $block .= "1) Лёгкий бег (easy):\n";
+    $block .= "{\"type\":\"easy\",\"distance_km\":8,\"pace\":\"6:00\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
+
+    $block .= "2) Длительная (long):\n";
+    $block .= "{\"type\":\"long\",\"distance_km\":15,\"pace\":\"6:30\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "3) Темповый (tempo):\n";
+    $block .= "{\"type\":\"tempo\",\"distance_km\":6,\"pace\":\"5:00\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "4) Контрольный забег (control) — pace всегда null:\n";
+    $block .= "{\"type\":\"control\",\"distance_km\":3,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "5) Забег (race):\n";
+    $block .= "{\"type\":\"race\",\"distance_km\":21.1,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "6) Интервалы (interval):\n";
+    $block .= "{\"type\":\"interval\",\"distance_km\":null,\"pace\":null,\"warmup_km\":2,\"cooldown_km\":1.5,\"reps\":5,\"interval_m\":1000,\"interval_pace\":\"4:20\",\"rest_m\":400,\"rest_type\":\"jog\",\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "7) Фартлек (fartlek):\n";
+    $block .= "{\"type\":\"fartlek\",\"distance_km\":null,\"pace\":null,\"warmup_km\":2,\"cooldown_km\":1.5,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":[{\"reps\":6,\"distance_m\":200,\"pace\":\"4:30\",\"recovery_m\":200,\"recovery_type\":\"jog\"}],\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
+
+    $block .= "8) ОФП (other):\n";
+    $block .= "{\"type\":\"other\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":[{\"name\":\"Приседания\",\"sets\":3,\"reps\":10,\"weight_kg\":20,\"distance_m\":null,\"duration_min\":null},{\"name\":\"Планка\",\"sets\":null,\"reps\":null,\"weight_kg\":null,\"distance_m\":null,\"duration_min\":1}],\"duration_minutes\":30,\"notes\":null,\"is_key_workout\":false}\n\n";
+
+    $block .= "9) СБУ (sbu):\n";
+    $block .= "{\"type\":\"sbu\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":[{\"name\":\"Бег с высоким подниманием бедра\",\"sets\":null,\"reps\":null,\"weight_kg\":null,\"distance_m\":30,\"duration_min\":null}],\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
+
+    $block .= "10) Отдых (rest):\n";
+    $block .= "{\"type\":\"rest\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
+
+    $block .= "11) Свободный день (free):\n";
+    $block .= "{\"type\":\"free\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
+
+    $block .= "ПРАВИЛА:\n";
+    $block .= "- НЕ генерируй поле \"description\" — код построит его автоматически из структурированных полей.\n";
+    $block .= "- distance_km для interval и fartlek: null (код посчитает из warmup + reps × distance + cooldown).\n";
+    $block .= "- duration_minutes для interval и fartlek: null (код посчитает).\n";
+    $block .= "- Дата НЕ нужна — рассчитается автоматически.\n";
+    $block .= "- Не добавляй комментарии и текст вне JSON. Ответ должен начинаться с { и заканчиваться }.\n";
+
+    return $block;
+}
+
+// ════════════════════════════════════════════════════════════════
+// 1. ПЕРВИЧНАЯ ГЕНЕРАЦИЯ ПЛАНА (новый пользователь, план с нуля)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Промпт для создания НОВОГО плана тренировок с нуля.
+ * Используется при первой регистрации / специализации.
+ */
+function buildTrainingPlanPrompt($userData, $goalType = 'health') {
+    $prompt = "";
+
+    $prompt .= "Ты опытный тренер по бегу. Строй план по данным пользователя и научно обоснованным принципам: прогрессия нагрузки, восстановление, периодизация (где уместно), распределение интенсивности.\n";
+    $prompt .= "Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста. Все решения опирай на указанные ниже данные пользователя и на принципы для выбранной цели.\n\n";
+
+    $prompt .= buildUserInfoBlock($userData);
+    $prompt .= buildGoalBlock($userData, $goalType);
+
+    $startDate = $userData['training_start_date'] ?? null;
+    $suggestedWeeks = getSuggestedPlanWeeks($userData, $goalType);
+    $prompt .= buildStartDateBlock($startDate, $suggestedWeeks);
+
+    $prompt .= buildPreferencesBlock($userData);
+    $prompt .= buildPaceZonesBlock($userData);
+    $prompt .= buildTrainingPrinciplesBlock($userData, $goalType);
+    $prompt .= buildKeyWorkoutsBlock($userData);
+    $prompt .= buildMandatoryRulesBlock($userData);
+
     $prompt .= "═══ ЗАДАЧА ═══\n\n";
     $prompt .= "Сформируй персональный план по данным пользователя и по блоку «ПРИНЦИПЫ И СТРУКТУРА ПЛАНА» выше. Учитывай предпочтения по дням, объём (weekly_base_km, sessions_per_week), уровень подготовки и ограничения по здоровью.\n";
     $prompt .= "Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.) — все поля в каждом дне, неиспользуемые = null.\n";
     $prompt .= "НЕ генерируй поле \"description\" — код построит его автоматически. НЕ считай distance_km и duration_minutes для интервалов/фартлеков — код посчитает.\n\n";
 
-    $prompt .= "═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n\n";
-    $prompt .= "Верни один JSON-объект с ключом \"weeks\". В каждой неделе массив \"days\" из ровно 7 элементов (пн … вс).\n";
-    $prompt .= "Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n\n";
-
-    $prompt .= "КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n\n";
-
-    $prompt .= "ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n";
-    $prompt .= "{\n";
-    $prompt .= "  \"type\": \"...\",\n";
-    $prompt .= "  \"distance_km\": null,\n";
-    $prompt .= "  \"pace\": null,\n";
-    $prompt .= "  \"warmup_km\": null,\n";
-    $prompt .= "  \"cooldown_km\": null,\n";
-    $prompt .= "  \"reps\": null,\n";
-    $prompt .= "  \"interval_m\": null,\n";
-    $prompt .= "  \"interval_pace\": null,\n";
-    $prompt .= "  \"rest_m\": null,\n";
-    $prompt .= "  \"rest_type\": null,\n";
-    $prompt .= "  \"segments\": null,\n";
-    $prompt .= "  \"exercises\": null,\n";
-    $prompt .= "  \"duration_minutes\": null,\n";
-    $prompt .= "  \"notes\": null,\n";
-    $prompt .= "  \"is_key_workout\": false\n";
-    $prompt .= "}\n\n";
-
-    $prompt .= "ПРИМЕРЫ ПО ТИПАМ (все поля всегда присутствуют):\n\n";
-
-    $prompt .= "1) Лёгкий бег (easy):\n";
-    $prompt .= "{\"type\":\"easy\",\"distance_km\":8,\"pace\":\"6:00\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
-
-    $prompt .= "2) Длительная (long):\n";
-    $prompt .= "{\"type\":\"long\",\"distance_km\":15,\"pace\":\"6:30\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "3) Темповый (tempo):\n";
-    $prompt .= "{\"type\":\"tempo\",\"distance_km\":6,\"pace\":\"5:00\",\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "4) Контрольный забег (control) — pace всегда null:\n";
-    $prompt .= "{\"type\":\"control\",\"distance_km\":3,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "5) Забег (race):\n";
-    $prompt .= "{\"type\":\"race\",\"distance_km\":21.1,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "6) Интервалы (interval):\n";
-    $prompt .= "{\"type\":\"interval\",\"distance_km\":null,\"pace\":null,\"warmup_km\":2,\"cooldown_km\":1.5,\"reps\":5,\"interval_m\":1000,\"interval_pace\":\"4:20\",\"rest_m\":400,\"rest_type\":\"jog\",\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "7) Фартлек (fartlek):\n";
-    $prompt .= "{\"type\":\"fartlek\",\"distance_km\":null,\"pace\":null,\"warmup_km\":2,\"cooldown_km\":1.5,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":[{\"reps\":6,\"distance_m\":200,\"pace\":\"4:30\",\"recovery_m\":200,\"recovery_type\":\"jog\"}],\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":true}\n\n";
-
-    $prompt .= "8) ОФП (other):\n";
-    $prompt .= "{\"type\":\"other\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":[{\"name\":\"Приседания\",\"sets\":3,\"reps\":10,\"weight_kg\":20,\"distance_m\":null,\"duration_min\":null},{\"name\":\"Планка\",\"sets\":null,\"reps\":null,\"weight_kg\":null,\"distance_m\":null,\"duration_min\":1}],\"duration_minutes\":30,\"notes\":null,\"is_key_workout\":false}\n\n";
-
-    $prompt .= "9) СБУ (sbu):\n";
-    $prompt .= "{\"type\":\"sbu\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":[{\"name\":\"Бег с высоким подниманием бедра\",\"sets\":null,\"reps\":null,\"weight_kg\":null,\"distance_m\":30,\"duration_min\":null}],\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
-
-    $prompt .= "10) Отдых (rest):\n";
-    $prompt .= "{\"type\":\"rest\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
-
-    $prompt .= "11) Свободный день (free):\n";
-    $prompt .= "{\"type\":\"free\",\"distance_km\":null,\"pace\":null,\"warmup_km\":null,\"cooldown_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"exercises\":null,\"duration_minutes\":null,\"notes\":null,\"is_key_workout\":false}\n\n";
-
-    $prompt .= "ПРАВИЛА:\n";
-    $prompt .= "- НЕ генерируй поле \"description\" — код построит его автоматически из структурированных полей.\n";
-    $prompt .= "- distance_km для interval и fartlek: null (код посчитает из warmup + reps × distance + cooldown).\n";
-    $prompt .= "- duration_minutes для interval и fartlek: null (код посчитает).\n";
-    $prompt .= "- Дата НЕ нужна — рассчитается автоматически.\n";
-    $prompt .= "- Не добавляй комментарии и текст вне JSON. Ответ должен начинаться с { и заканчиваться }.\n";
+    $prompt .= buildFormatResponseBlock();
 
     return $prompt;
 }
 
+// ════════════════════════════════════════════════════════════════
+// 2. ПЕРЕСЧЁТ ПЛАНА (коррекция текущего, середина цикла)
+// ════════════════════════════════════════════════════════════════
+
 /**
- * Промпт для ПЕРЕСЧЁТА плана — учитывает историю тренировок, detraining, текущую форму.
- * Внутри вызывает buildTrainingPlanPrompt() и дополняет контекстом пересчёта.
+ * Промпт для ПЕРЕСЧЁТА текущего плана.
+ * Сохранённые недели остаются, генерируется только продолжение.
+ * Учитывает историю тренировок, detraining, текущую форму.
  *
- * @param array $userData Данные пользователя
- * @param string $goalType Тип цели
- * @param array $recalcContext Контекст пересчёта (history, compliance, detraining и т.д.)
- * @return string Промпт для LLM
+ * НЕЗАВИСИМЫЙ промпт — НЕ вызывает buildTrainingPlanPrompt().
  */
 function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     $origStartDate = $userData['training_start_date'] ?? null;
@@ -769,49 +1551,59 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
         $modifiedUser['health_plan_weeks'] = $weeksToGenerate;
     }
 
-    $basePrompt = buildTrainingPlanPrompt($modifiedUser, $goalType);
+    $prompt = "";
 
-    $recalcBlock = buildRecalcContextBlock($recalcContext, $origStartDate);
+    // ── Роль: с первых строк ясно, что это ПЕРЕСЧЁТ ──
+    $prompt .= "Ты опытный тренер по бегу. Твоя задача — ПЕРЕСЧИТАТЬ существующий план тренировок.\n";
+    $prompt .= "Пользователь УЖЕ тренируется по плану. Первые {$keptWeeks} недель СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ (оставшуюся часть).\n";
+    $prompt .= "Это НЕ новый план с нуля. Ты должен учесть реальное текущее состояние бегуна: его объёмы, темпы, самочувствие, паузы.\n";
+    $prompt .= "Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста.\n\n";
 
-    $taskMarker = "═══ ЗАДАЧА ═══";
-    $pos = strpos($basePrompt, $taskMarker);
-    if ($pos === false) {
-        return $basePrompt . "\n\n" . $recalcBlock;
-    }
+    // ── Данные пользователя ──
+    $prompt .= buildUserInfoBlock($modifiedUser);
+    $prompt .= buildGoalBlock($modifiedUser, $goalType);
 
-    $beforeTask = substr($basePrompt, 0, $pos);
-    $fromTask = substr($basePrompt, $pos);
+    $suggestedWeeks = $weeksToGenerate;
+    $prompt .= buildStartDateBlock($newStartDate, $suggestedWeeks);
 
-    $newTask = "═══ ЗАДАЧА: ПЕРЕСЧЁТ ПЛАНА ═══\n\n";
-    $newTask .= "Это КОРРЕКЦИЯ существующего плана, а не генерация с нуля.\n";
-    $newTask .= "Первые {$keptWeeks} недель плана СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ.\n";
+    $prompt .= buildPreferencesBlock($modifiedUser);
+    $prompt .= buildPaceZonesBlock($modifiedUser);
+
+    // ── Текущее состояние (КЛЮЧЕВОЙ блок для пересчёта) ──
+    $prompt .= "\n" . buildRecalcContextBlock($recalcContext, $origStartDate);
+
+    // ── Принципы тренировок (типы, структура) ──
+    $prompt .= buildTrainingPrinciplesBlock($modifiedUser, $goalType);
+    $prompt .= buildKeyWorkoutsBlock($modifiedUser);
+    $prompt .= buildMandatoryRulesBlock($modifiedUser);
+
+    // ── Задача: пересчёт-специфичная ──
+    $prompt .= "═══ ЗАДАЧА: ПЕРЕСЧЁТ ПЛАНА ═══\n\n";
+    $prompt .= "Это КОРРЕКЦИЯ существующего плана, а не генерация с нуля.\n";
+    $prompt .= "Первые {$keptWeeks} недель плана СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ.\n";
     if ($weeksToGenerate !== null) {
-        $newTask .= "Сгенерируй ровно {$weeksToGenerate} недель (нумерация week_number от 1 до {$weeksToGenerate}).\n";
+        $prompt .= "Сгенерируй ровно {$weeksToGenerate} недель (нумерация week_number от 1 до {$weeksToGenerate}).\n";
     }
-    $newTask .= "Дата начала первой генерируемой недели: {$newStartDate}.\n\n";
-    $newTask .= "Учитывай ТЕКУЩЕЕ СОСТОЯНИЕ из блока выше: реальные объёмы, темпы, самочувствие.\n\n";
-    $newTask .= "ПРИНЦИПЫ ПЕРЕСЧЁТА:\n";
-    $newTask .= "1. Первые 1-2 недели — плавный возврат к нагрузке:\n";
-    $newTask .= "   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n";
-    $newTask .= "   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n";
-    $newTask .= "   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n";
-    $newTask .= "2. Далее — стандартная прогрессия (до +10%/нед), возвращение к обычной структуре.\n";
-    $newTask .= "3. Если до забега мало времени — сжать фазы, но НЕ форсировать нагрузку.\n";
-    $newTask .= "4. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n";
-    $newTask .= "5. НЕ генерируй \"description\" — код построит автоматически.\n\n";
+    $prompt .= "Дата начала первой генерируемой недели: {$newStartDate}.\n\n";
+    $prompt .= "Учитывай ТЕКУЩЕЕ СОСТОЯНИЕ из блока выше: реальные объёмы, темпы, самочувствие.\n\n";
+    $prompt .= "ПРИНЦИПЫ ПЕРЕСЧЁТА:\n";
+    $prompt .= "1. Первые 1-2 недели — плавный возврат к нагрузке:\n";
+    $prompt .= "   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n";
+    $prompt .= "   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n";
+    $prompt .= "   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n";
+    $prompt .= "2. Далее — стандартная прогрессия (до +10%/нед), возвращение к обычной структуре.\n";
+    $prompt .= "3. Если до забега мало времени — сжать фазы, но НЕ форсировать нагрузку.\n";
+    $prompt .= "4. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n";
+    $prompt .= "5. НЕ генерируй \"description\" — код построит автоматически.\n\n";
 
-    $formatPos = strpos($fromTask, "═══ ФОРМАТ ОТВЕТА");
-    if ($formatPos !== false) {
-        $formatSection = substr($fromTask, $formatPos);
-    } else {
-        $formatSection = '';
-    }
+    // ── Формат ──
+    $prompt .= buildFormatResponseBlock();
 
-    return $beforeTask . $recalcBlock . "\n\n" . $newTask . $formatSection;
+    return $prompt;
 }
 
 /**
- * Формирует текстовый блок с контекстом пересчёта для вставки в промпт.
+ * Формирует блок «ТЕКУЩЕЕ СОСТОЯНИЕ» для промпта пересчёта.
  */
 function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
     $lines = ["═══ ТЕКУЩЕЕ СОСТОЯНИЕ (для пересчёта) ═══\n"];
@@ -914,15 +1706,15 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
     return implode("\n", $lines);
 }
 
+// ════════════════════════════════════════════════════════════════
+// 3. НОВЫЙ ПЛАН ПОСЛЕ ЗАВЕРШЕНИЯ ПРЕДЫДУЩЕГО (продолжение цикла)
+// ════════════════════════════════════════════════════════════════
+
 /**
  * Промпт для генерации НОВОГО плана после завершения предыдущего.
- * Берёт базовый промпт из buildTrainingPlanPrompt() и дополняет его
- * полной историей достижений из предыдущего плана.
+ * Учитывает полную историю достижений предыдущего цикла.
  *
- * @param array  $userData       Данные пользователя (training_start_date = новый старт)
- * @param string $goalType       Тип цели
- * @param array  $nextPlanContext Контекст с историей предыдущего плана
- * @return string Промпт для LLM
+ * НЕЗАВИСИМЫЙ промпт — НЕ вызывает buildTrainingPlanPrompt().
  */
 function buildNextPlanPrompt($userData, $goalType, array $nextPlanContext) {
     $newStartDate = $nextPlanContext['new_start_date'] ?? date('Y-m-d', strtotime('monday this week'));
@@ -932,46 +1724,53 @@ function buildNextPlanPrompt($userData, $goalType, array $nextPlanContext) {
     $modifiedUser['training_start_date'] = $newStartDate;
     $modifiedUser['health_plan_weeks'] = $newPlanWeeks;
 
-    $basePrompt = buildTrainingPlanPrompt($modifiedUser, $goalType);
+    $prompt = "";
 
-    $historyBlock = buildPreviousPlanHistoryBlock($nextPlanContext);
+    // ── Роль: с первых строк ясно, что это НОВЫЙ ПЛАН после завершённого ──
+    $prompt .= "Ты опытный тренер по бегу. Твоя задача — построить НОВЫЙ план тренировок для бегуна, который ЗАВЕРШИЛ предыдущий тренировочный цикл.\n";
+    $prompt .= "Это НЕ план для новичка — у пользователя есть серьёзная тренировочная база из предыдущего плана.\n";
+    $prompt .= "Стартовый объём и темпы определяй по РЕАЛЬНЫМ данным из блока «ИСТОРИЯ ПРЕДЫДУЩЕГО ПЛАНА», а НЕ по полю weekly_base_km из профиля.\n";
+    $prompt .= "Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста.\n\n";
 
-    $taskMarker = "═══ ЗАДАЧА ═══";
-    $pos = strpos($basePrompt, $taskMarker);
-    if ($pos === false) {
-        return $basePrompt . "\n\n" . $historyBlock;
-    }
+    // ── Данные пользователя ──
+    $prompt .= buildUserInfoBlock($modifiedUser);
+    $prompt .= buildGoalBlock($modifiedUser, $goalType);
+    $prompt .= buildStartDateBlock($newStartDate, $newPlanWeeks);
+    $prompt .= buildPreferencesBlock($modifiedUser);
+    $prompt .= buildPaceZonesBlock($modifiedUser);
 
-    $beforeTask = substr($basePrompt, 0, $pos);
-    $fromTask = substr($basePrompt, $pos);
+    // ── История предыдущего плана (КЛЮЧЕВОЙ блок для нового плана) ──
+    $prompt .= "\n" . buildPreviousPlanHistoryBlock($nextPlanContext);
 
-    $newTask = "═══ ЗАДАЧА: НОВЫЙ ПЛАН (ПРОДОЛЖЕНИЕ ТРЕНИРОВОЧНОГО ЦИКЛА) ═══\n\n";
-    $newTask .= "Пользователь ЗАВЕРШИЛ предыдущий план и хочет новый. Это НЕ план для новичка — у пользователя есть серьёзная тренировочная база.\n\n";
-    $newTask .= "Сгенерируй ровно {$newPlanWeeks} недель (нумерация week_number от 1 до {$newPlanWeeks}).\n";
-    $newTask .= "Дата начала первой недели: {$newStartDate}.\n\n";
-    $newTask .= "ПРИНЦИПЫ НОВОГО ПЛАНА:\n";
-    $newTask .= "1. СТАРТОВЫЙ ОБЪЁМ = средний объём за последние 4 недели предыдущего плана (см. блок ИСТОРИЯ).\n";
-    $newTask .= "   НЕ начинай с нуля и НЕ начинай с weekly_base_km из профиля — начинай с РЕАЛЬНОГО текущего уровня.\n";
-    $newTask .= "2. Первая неделя — разгрузочная (recovery): 80-85% от последнего реального объёма.\n";
-    $newTask .= "   Это переходный микроцикл между планами.\n";
-    $newTask .= "3. Со 2-й недели — стандартная прогрессия (+5-10% в неделю), с разгрузочными неделями каждую 4-ю.\n";
-    $newTask .= "4. Если пиковый объём предыдущего плана > weekly_base_km, обнови ориентир на пиковый.\n";
-    $newTask .= "5. Учти лучшие результаты ключевых тренировок для выбора темпов.\n";
-    $newTask .= "6. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n";
-    $newTask .= "7. НЕ генерируй \"description\" — код построит автоматически.\n\n";
+    // ── Принципы тренировок (типы, структура) ──
+    $prompt .= buildTrainingPrinciplesBlock($modifiedUser, $goalType);
+    $prompt .= buildKeyWorkoutsBlock($modifiedUser);
+    $prompt .= buildMandatoryRulesBlock($modifiedUser);
 
-    $formatPos = strpos($fromTask, "═══ ФОРМАТ ОТВЕТА");
-    if ($formatPos !== false) {
-        $formatSection = substr($fromTask, $formatPos);
-    } else {
-        $formatSection = '';
-    }
+    // ── Задача: новый-план-специфичная ──
+    $prompt .= "═══ ЗАДАЧА: НОВЫЙ ПЛАН (ПРОДОЛЖЕНИЕ ТРЕНИРОВОЧНОГО ЦИКЛА) ═══\n\n";
+    $prompt .= "Пользователь ЗАВЕРШИЛ предыдущий план и хочет новый.\n";
+    $prompt .= "Сгенерируй ровно {$newPlanWeeks} недель (нумерация week_number от 1 до {$newPlanWeeks}).\n";
+    $prompt .= "Дата начала первой недели: {$newStartDate}.\n\n";
+    $prompt .= "ПРИНЦИПЫ НОВОГО ПЛАНА:\n";
+    $prompt .= "1. СТАРТОВЫЙ ОБЪЁМ = средний объём за последние 4 недели предыдущего плана (см. блок ИСТОРИЯ).\n";
+    $prompt .= "   НЕ начинай с нуля и НЕ начинай с weekly_base_km из профиля — начинай с РЕАЛЬНОГО текущего уровня.\n";
+    $prompt .= "2. Первая неделя — разгрузочная (recovery): 80-85% от последнего реального объёма.\n";
+    $prompt .= "   Это переходный микроцикл между планами.\n";
+    $prompt .= "3. Со 2-й недели — стандартная прогрессия (+5-10% в неделю), с разгрузочными неделями каждую 4-ю.\n";
+    $prompt .= "4. Если пиковый объём предыдущего плана > weekly_base_km, обнови ориентир на пиковый.\n";
+    $prompt .= "5. Учти лучшие результаты ключевых тренировок для выбора темпов.\n";
+    $prompt .= "6. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n";
+    $prompt .= "7. НЕ генерируй \"description\" — код построит автоматически.\n\n";
 
-    return $beforeTask . $historyBlock . "\n\n" . $newTask . $formatSection;
+    // ── Формат ──
+    $prompt .= buildFormatResponseBlock();
+
+    return $prompt;
 }
 
 /**
- * Формирует текстовый блок с полной историей предыдущего плана.
+ * Формирует блок «ИСТОРИЯ ПРЕДЫДУЩЕГО ПЛАНА» для промпта нового плана.
  */
 function buildPreviousPlanHistoryBlock(array $ctx): string {
     $lines = ["═══ ИСТОРИЯ ПРЕДЫДУЩЕГО ПЛАНА ═══\n"];
@@ -1101,15 +1900,4 @@ function buildPreviousPlanHistoryBlock(array $ctx): string {
     $lines[] = "Нумерация недель начинается с 1.\n";
 
     return implode("\n", $lines);
-}
-
-/**
- * Рассчитывает коэффициент detraining на основе дней с последней тренировки.
- */
-function calculateDetrainingFactor(int $daysSince): float {
-    if ($daysSince <= 3) return 1.0;
-    if ($daysSince <= 7) return 0.95;
-    if ($daysSince <= 14) return 0.85;
-    if ($daysSince <= 21) return 0.75;
-    return max(0.5, 1.0 - $daysSince * 0.015);
 }

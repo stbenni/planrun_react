@@ -73,31 +73,46 @@ $lastSentJson = '';
 $pingCounter = 0;
 
 while (true) {
-    if (connection_aborted()) {
-        exit;
-    }
-
-    $counts = $repository->getUnreadCounts((int)$userId);
-    if ($isAdmin) {
-        $adminModeUnread = $repository->getAdminUnreadCount();
-        $counts['total'] = ($counts['total'] ?? 0) + $adminModeUnread;
-        $counts['by_type'] = $counts['by_type'] ?? [];
-        $counts['by_type']['admin_mode'] = $adminModeUnread;
-    }
-    $dataJson = json_encode($counts);
-
-    // Отправляем событие если данные изменились или каждые 15 сек (ping)
     $pingCounter++;
-    $shouldSend = ($dataJson !== $lastSentJson) || ($pingCounter >= 15);
+    $shouldPing = $pingCounter >= 15;
+
+    if ($shouldPing) {
+        if (!@$db->ping()) {
+            break;
+        }
+    }
+
+    try {
+        $counts = $repository->getUnreadCounts((int)$userId);
+        if ($isAdmin) {
+            $adminModeUnread = $repository->getAdminUnreadCount();
+            $counts['total'] = ($counts['total'] ?? 0) + $adminModeUnread;
+            $counts['by_type'] = $counts['by_type'] ?? [];
+            $counts['by_type']['admin_mode'] = $adminModeUnread;
+        }
+    } catch (Throwable $e) {
+        break;
+    }
+
+    $dataJson = json_encode($counts);
+    $shouldSend = ($dataJson !== $lastSentJson) || $shouldPing;
 
     if ($shouldSend) {
         echo "event: chat_unread\n";
         echo "data: {$dataJson}\n\n";
-        flush();
+        if (!@flush()) {
+            break;
+        }
+
+        if (connection_aborted()) {
+            break;
+        }
 
         $lastSentJson = $dataJson;
-        if ($pingCounter >= 15) $pingCounter = 0;
+        if ($shouldPing) $pingCounter = 0;
     }
 
     sleep(2);
 }
+
+$db->close();

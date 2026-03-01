@@ -194,75 +194,121 @@ class ChatService extends BaseService {
         $toolsUsed = [];
         $messages = $this->resolveToolCalls($messages, $userId, $toolsUsed);
 
+        $planUpdatedSent = false;
         if (in_array('update_training_day', $toolsUsed, true)) {
             echo json_encode(['plan_updated' => true]) . "\n";
-            if (ob_get_level()) ob_flush();
             flush();
+            $planUpdatedSent = true;
         }
         if (in_array('recalculate_plan', $toolsUsed, true)) {
             echo json_encode(['plan_recalculating' => true]) . "\n";
-            if (ob_get_level()) ob_flush();
             flush();
         }
         if (in_array('generate_next_plan', $toolsUsed, true)) {
             echo json_encode(['plan_generating_next' => true]) . "\n";
-            if (ob_get_level()) ob_flush();
             flush();
         }
 
         $chunks = [];
         $thinkBuffer = '';
         $insideThink = false;
-        $this->callLlmStream($messages, function ($chunk) use (&$chunks, &$thinkBuffer, &$insideThink) {
+        $actionBuffer = '';
+        $insideAction = false;
+
+        $emitChunk = function (string $text) use (&$chunks) {
+            if ($text === '') return;
+            $chunks[] = $text;
+            echo json_encode(['chunk' => $text]) . "\n";
+            flush();
+        };
+
+        $this->callLlmStream($messages, function ($chunk) use (&$chunks, &$thinkBuffer, &$insideThink, &$actionBuffer, &$insideAction, $emitChunk) {
             $thinkBuffer .= $chunk;
 
             if ($insideThink) {
-                if (stripos($thinkBuffer, '[/THINK]') !== false) {
-                    $parts = preg_split('/\[\/THINK\]\s*/i', $thinkBuffer, 2);
+                if (preg_match('/\[\/THINK\]/i', $thinkBuffer) || preg_match('/<\/think>/i', $thinkBuffer)) {
+                    $parts = preg_split('/(\[\/THINK\]|<\/think>)\s*/i', $thinkBuffer, 2);
                     $thinkBuffer = '';
                     $insideThink = false;
                     $after = $parts[1] ?? '';
                     if ($after !== '') {
-                        $chunks[] = $after;
-                        echo json_encode(['chunk' => $after]) . "\n";
-                        if (ob_get_level()) ob_flush();
-                        flush();
-                    }
-                } elseif (stripos($thinkBuffer, '</think>') !== false) {
-                    $parts = preg_split('/<\/think>\s*/i', $thinkBuffer, 2);
-                    $thinkBuffer = '';
-                    $insideThink = false;
-                    $after = $parts[1] ?? '';
-                    if ($after !== '') {
-                        $chunks[] = $after;
-                        echo json_encode(['chunk' => $after]) . "\n";
-                        if (ob_get_level()) ob_flush();
-                        flush();
+                        $emitChunk($after);
                     }
                 }
                 return;
             }
 
-            if (preg_match('/\[THINK\]/i', $thinkBuffer) || preg_match('/<think>/i', $thinkBuffer)) {
+            if (preg_match('/(\[THINK\]|<think>)/i', $thinkBuffer, $tm, PREG_OFFSET_CAPTURE)) {
+                $before = substr($thinkBuffer, 0, $tm[0][1]);
                 $insideThink = true;
-                $thinkBuffer = preg_replace('/^.*(\[THINK\]|<think>)/is', '', $thinkBuffer);
+                $thinkBuffer = substr($thinkBuffer, $tm[0][1] + strlen($tm[0][0]));
+                if ($before !== '') {
+                    $emitChunk($before);
+                }
                 return;
+            }
+
+            $tagPrefixes = ['[THINK', '[think', '<think', '<THINK'];
+            foreach ($tagPrefixes as $prefix) {
+                $prefixLen = strlen($prefix);
+                $bufferEnd = substr($thinkBuffer, -$prefixLen);
+                for ($i = 1; $i <= $prefixLen; $i++) {
+                    if (substr($bufferEnd, -$i) === substr($prefix, 0, $i)) {
+                        $safe = substr($thinkBuffer, 0, -$i);
+                        $thinkBuffer = substr($thinkBuffer, -$i);
+                        if ($safe !== '' && $safe !== false) {
+                            $emitChunk($safe);
+                        }
+                        return;
+                    }
+                }
             }
 
             $out = $thinkBuffer;
             $thinkBuffer = '';
-            $chunks[] = $out;
-            echo json_encode(['chunk' => $out]) . "\n";
-            if (ob_get_level()) ob_flush();
-            flush();
+
+            if ($insideAction) {
+                $actionBuffer .= $out;
+                if (strpos($actionBuffer, '-->') !== false) {
+                    $parts = explode('-->', $actionBuffer, 2);
+                    $insideAction = false;
+                    $actionBuffer = '';
+                    $after = trim($parts[1] ?? '');
+                    if ($after !== '') {
+                        $emitChunk($after);
+                    }
+                }
+                return;
+            }
+
+            if (preg_match('/<!--\s*ACTION/i', $out)) {
+                $pos = strpos($out, '<!--');
+                $before = substr($out, 0, $pos);
+                $rest = substr($out, $pos);
+                if ($before !== '' && $before !== false) {
+                    $emitChunk($before);
+                }
+                if (strpos($rest, '-->') !== false) {
+                    $parts = explode('-->', $rest, 2);
+                    $after = trim($parts[1] ?? '');
+                    if ($after !== '') {
+                        $emitChunk($after);
+                    }
+                } else {
+                    $insideAction = true;
+                    $actionBuffer = $rest;
+                }
+                return;
+            }
+
+            $emitChunk($out);
         });
 
         $fullContent = $this->sanitizeResponse(implode('', $chunks));
         $planWasUpdated = false;
         $fullContent = $this->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
-        if ($planWasUpdated) {
+        if ($planWasUpdated && !$planUpdatedSent) {
             echo json_encode(['plan_updated' => true]) . "\n";
-            if (ob_get_level()) ob_flush();
             flush();
         }
         if ($fullContent !== '') {
@@ -589,11 +635,9 @@ PROMPT;
         if ($text === '') {
             return '';
         }
-        // Reasoning-блоки моделей: [THINK]...[/THINK], <think>...</think>
-        $text = preg_replace('/\[THINK\][\s\S]*?\[\/THINK\]\s*/i', '', $text);
-        $text = preg_replace('/<think>[\s\S]*?<\/think>\s*/i', '', $text);
-        // Незакрытый [THINK] — обрезать всё от начала до первой кириллицы после него
-        $text = preg_replace('/^\[THINK\][\s\S]*?(?=[\p{Cyrillic}])/iu', '', $text);
+        $text = preg_replace('/\[THINK\][\s\S]*?\[\/THINK\]\s*/i', '', $text) ?? $text;
+        $text = preg_replace('/<think>[\s\S]*?<\/think>\s*/i', '', $text) ?? $text;
+        $text = preg_replace('/^\[THINK\][\s\S]*?(?=[\p{Cyrillic}])/iu', '', $text) ?? $text;
         $text = trim($text);
         // Убрать мусор в начале: точки, тире, многоточие, >, пробелы
         $text = preg_replace('/^[-.\s>…]+/u', '', $text);
@@ -1506,8 +1550,8 @@ PROMPT;
                     if ($line === '' || strpos($line, 'data: ') !== 0) {
                         continue;
                     }
-                    $json = substr($line, 5);
-                    if ($json === '[DONE]') {
+                    $json = substr($line, 6);
+                    if (trim($json) === '[DONE]') {
                         continue;
                     }
                     $decoded = json_decode($json, true);
@@ -1596,7 +1640,11 @@ PROMPT;
      */
     public function getMessages(int $userId, string $type = 'ai', int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($userId, $type);
-        $messages = $this->repository->getMessages($conversation['id'], $limit, $offset);
+        if ($type === 'admin') {
+            $messages = $this->repository->getAdminTabMessages($conversation['id'], $userId, $limit, $offset);
+        } else {
+            $messages = $this->repository->getMessages($conversation['id'], $limit, $offset);
+        }
         return [
             'conversation_id' => $conversation['id'],
             'messages' => $messages
@@ -1684,13 +1732,27 @@ PROMPT;
     }
 
     /**
+     * Очистить direct-диалог между текущим пользователем и собеседником
+     */
+    public function clearDirectDialog(int $currentUserId, int $targetUserId): int {
+        if ($currentUserId === $targetUserId) {
+            throw new InvalidArgumentException('Нельзя очистить диалог с самим собой');
+        }
+        return $this->repository->deleteDirectMessagesBetweenUsers($currentUserId, $targetUserId);
+    }
+
+    /**
      * Админ: получить сообщения пользователя (admin-чат)
      * При запросе сообщений помечает входящие от пользователя как прочитанные
      */
     public function getAdminMessages(int $targetUserId, int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $this->repository->markUserMessagesReadByAdmin($conversation['id']);
-        return $this->getMessages($targetUserId, 'admin', $limit, $offset);
+        $messages = $this->repository->getMessages($conversation['id'], $limit, $offset);
+        return [
+            'conversation_id' => $conversation['id'],
+            'messages' => $messages
+        ];
     }
 
     /**

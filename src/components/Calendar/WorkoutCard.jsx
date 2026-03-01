@@ -38,6 +38,7 @@ function getWorkoutStripColorClass(type) {
     'long-run': 'long',
     control: 'control',
     race: 'race',
+    marathon: 'race', // ключевая сессия как race
     other: 'other',
     sbu: 'sbu',
     rest: 'rest',
@@ -45,6 +46,8 @@ function getWorkoutStripColorClass(type) {
     hiking: 'hiking',
     cycling: 'run',
     swimming: 'run',
+    run: 'run',
+    running: 'run',
   };
   return stripByType[type] || (type === 'free' ? null : 'run');
 }

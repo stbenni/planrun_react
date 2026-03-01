@@ -32,13 +32,37 @@ const useAuthStore = create(
       lastActiveAt: 0,
       /** Идёт разблокировка (pinLogin/biometricLogin) — onTokenExpired не должен вмешиваться */
       _unlocking: false,
+      /** Идёт бесшовное восстановление по credentials — не допускаем параллельных попыток */
+      _credentialRecoveryInProgress: false,
+      /** Включена ли блокировка при уходе в фон (true только при PIN/биометрии) */
+      _lockEnabled: false,
 
       // Инициализация
       initialize: async () => {
         const apiClient = new ApiClient();
-        // Обработчик истечения токена выставляем до любых запросов
+        // Обработчик истечения токена: пытаемся восстановить сессию по credentials,
+        // только если не удалось — разлогиниваем. Работает для всех native-пользователей,
+        // включая тех, кто не настраивал PIN/биометрию.
         apiClient.onTokenExpired = async () => {
-          if (get()._unlocking) return;
+          if (get()._unlocking || get().isLocked) return;
+          if (get()._credentialRecoveryInProgress) return;
+
+          if (isNativeCapacitor()) {
+            set({ _credentialRecoveryInProgress: true });
+            try {
+              const hasCredentials = await CredentialBackupService.hasCredentials();
+              if (hasCredentials) {
+                const result = await CredentialBackupService.recoverAndLoginBiometric(apiClient);
+                if (result?.success) {
+                  return;
+                }
+              }
+            } catch (_) {
+            } finally {
+              set({ _credentialRecoveryInProgress: false });
+            }
+          }
+
           await get().logout(false);
         };
         // api в store всегда задаём, чтобы форма логина работала даже при ошибке getCurrentUser
@@ -55,44 +79,41 @@ const useAuthStore = create(
         try {
           const isNative = isNativeCapacitor();
 
-          // Быстрый путь: на native без токенов — сразу логин
-          // Проверяем localStorage и TokenStorage (бэкап в Preferences переживает обновление)
           if (isNative) {
-            const hasLocal = typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token');
-            if (!hasLocal) {
-              try {
-                const stored = await TokenStorageService.getTokens();
-                if (!stored?.accessToken || !stored?.refreshToken) {
-                  set({ loading: false });
-                  clearTimeout(safetyTimeout);
-                  return;
-                }
-                // Токены есть в бэкапе — синхронизируем в localStorage для ApiClient
-                if (typeof localStorage !== 'undefined') {
-                  localStorage.setItem('auth_token', stored.accessToken);
-                  localStorage.setItem('refresh_token', stored.refreshToken);
-                }
-              } catch (_) {
-                set({ loading: false });
-                clearTimeout(safetyTimeout);
-                return;
-              }
-            }
-          }
-
-          // Native: при включённых PIN или биометрии показываем экран блокировки
-          if (isNative) {
+            // Проверяем PIN/биометрию ДО токенов — lock screen должен показываться
+            // даже если localStorage/SecureStorage очищены после обновления.
+            // PinAuthService и CredentialBackupService хранят данные в Preferences,
+            // которые переживают обновления. Recovery-цепочка при unlock восстановит сессию.
             const [pinEnabled, biometricEnabled] = await Promise.all([
               PinAuthService.isPinEnabled(),
               BiometricService.isBiometricEnabled()
             ]);
+
+            // Синхронизируем токены из бэкапа в localStorage (если localStorage очищен)
+            const hasLocal = typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token');
+            if (!hasLocal) {
+              try {
+                const stored = await TokenStorageService.getTokens();
+                if (stored?.accessToken && stored?.refreshToken && typeof localStorage !== 'undefined') {
+                  localStorage.setItem('auth_token', stored.accessToken);
+                  localStorage.setItem('refresh_token', stored.refreshToken);
+                }
+              } catch (_) {}
+            }
+
             if (pinEnabled || biometricEnabled) {
-              set({ isLocked: true, loading: false });
+              set({ isLocked: true, _lockEnabled: true, loading: false });
               get().setupBackgroundLock?.();
               clearTimeout(safetyTimeout);
               return;
             }
-            // Capacitor web или токены есть — проверяем авторизацию
+
+            // Нет PIN/биометрии и нет токенов — показываем логин
+            if (!hasLocal && !localStorage?.getItem('auth_token')) {
+              set({ loading: false });
+              clearTimeout(safetyTimeout);
+              return;
+            }
           }
 
           // Проверяем авторизацию через PHP сессию (cookies) или JWT
@@ -109,8 +130,9 @@ const useAuthStore = create(
                   BiometricService.isBiometricEnabled()
                 ]);
                 if (pinEnabled || biometricEnabled) {
-                  get().setupBackgroundLock?.();
+                  set({ _lockEnabled: true });
                 }
+                get().setupBackgroundLock?.();
               }
               // План — в фоне, не блокируя показ UI (Dashboard подхватит из store)
               if (userData.onboarding_completed) {
@@ -133,15 +155,15 @@ const useAuthStore = create(
         }
       },
 
-      /** Настроить блокировку при уходе в фон на 15 мин (только Capacitor, при PIN/биометрии) */
+      /** Настроить foreground-refresh и блокировку при уходе в фон (Capacitor, все пользователи).
+       *  Блокировка срабатывает только при _lockEnabled (PIN/биометрия). */
       setupBackgroundLock: () => {
         if (get()._backgroundLockSetup) return;
         set({ _backgroundLockSetup: true, lastActiveAt: Date.now() });
         const LOCK_AFTER_MS = 15 * 60 * 1000;
-        // Синхронная проверка: если время вышло — блокируем немедленно (без мигания контента)
         const checkAndLockSync = () => {
-          const { isLocked, lastActiveAt } = get();
-          if (isLocked) return;
+          const { isLocked, lastActiveAt, _lockEnabled } = get();
+          if (!_lockEnabled || isLocked) return;
           if (lastActiveAt && Date.now() - lastActiveAt > LOCK_AFTER_MS) {
             set({ isLocked: true });
           }
@@ -151,9 +173,7 @@ const useAuthStore = create(
           checkAndLockSync();
           const { isAuthenticated, isLocked, api } = get();
           if (!api) return;
-          if (isLocked) {
-            api.refreshAccessToken().catch(() => {});
-          } else if (isAuthenticated) {
+          if (!isLocked && isAuthenticated) {
             api.getCurrentUser().catch(() => {});
           }
         };
@@ -211,13 +231,16 @@ const useAuthStore = create(
         const { api } = get();
         if (!api) throw new Error('API client not initialized');
 
-        await api.setToken(tokens.accessToken, tokens.refreshToken);
+        if (tokens?.accessToken && tokens?.refreshToken) {
+          await api.setToken(tokens.accessToken, tokens.refreshToken);
+        }
 
         let userData;
         try {
-          userData = await api.getCurrentUser();
+          userData = await api.getCurrentUser({ throwOnNetworkError: true });
         } catch (authErr) {
-          const isNetworkErr = authErr?.code === 'NETWORK_ERROR' || /нет соединения|network|fetch/i.test(authErr?.message || '');
+          const isNetworkErr = authErr?.code === 'NETWORK_ERROR' || authErr?.code === 'TIMEOUT' ||
+            /нет соединения|network|fetch/i.test(authErr?.message || '');
           if (isNetworkErr) throw authErr;
           userData = null;
         }
@@ -226,14 +249,17 @@ const useAuthStore = create(
           try {
             const recover = await recoveryFn(api);
             if (recover?.success) {
-              userData = await api.getCurrentUser();
+              userData = await api.getCurrentUser({ throwOnNetworkError: true });
             }
-          } catch (_) {}
+          } catch (recErr) {
+            const isNetworkErr = recErr?.code === 'NETWORK_ERROR' || recErr?.code === 'TIMEOUT' ||
+              /нет соединения|network|fetch/i.test(recErr?.message || '');
+            if (isNetworkErr) throw recErr;
+          }
         }
 
         if (userData?.authenticated) {
           set({ user: userData, isAuthenticated: true, isLocked: false });
-          // План и push — в фоне, не блокируя разблокировку
           if (userData.onboarding_completed) {
             import('./usePlanStore').then(async (mod) => {
               const planStore = mod.default.getState();
@@ -281,6 +307,7 @@ const useAuthStore = create(
               }).catch(() => {});
             }
             if (isNativeCapacitor()) {
+              get().setupBackgroundLock?.();
               import('../services/PushService').then(({ registerPushNotifications }) => {
                 registerPushNotifications(get().api).catch(() => {});
               });
@@ -398,19 +425,21 @@ const useAuthStore = create(
             'Используйте биометрию для входа в PlanRun'
           );
 
-          if (!result.success || !result.tokens) {
+          if (!result.success) {
             return {
               success: false,
               error: result.error || 'Биометрическая аутентификация не прошла'
             };
           }
 
-          return await get()._completeUnlock(result.tokens, async (api) => {
+          const recoveryFn = async (api) => {
             if (await CredentialBackupService.hasCredentials()) {
               return CredentialBackupService.recoverAndLoginBiometric(api);
             }
             return { success: false };
-          });
+          };
+
+          return await get()._completeUnlock(result.tokens, recoveryFn);
         } catch (error) {
           const isNetworkError = error?.code === 'NETWORK_ERROR' || /нет соединения|network|fetch/i.test(error?.message || '');
           return {

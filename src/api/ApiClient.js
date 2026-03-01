@@ -82,7 +82,8 @@ class ApiClient {
           localStorage.setItem('auth_token', token);
           localStorage.setItem('refresh_token', refreshToken);
         }
-        // SecureStorage fire-and-forget: localStorage уже записан, KeyStore может зависать на Android
+        // Не блокируем: localStorage уже записан, SecureStorage/Preferences сохраняются в фоне.
+        // TokenStorageService.saveTokens сначала пишет Preferences (быстро), потом SecureStorage (может зависнуть).
         TokenStorageService.saveTokens(token, refreshToken).catch((e) => {
           if (process.env.NODE_ENV !== 'production') {
             console.warn('[ApiClient] SecureStorage save:', e?.message);
@@ -351,8 +352,10 @@ class ApiClient {
         }
         throw new Error(data.error || data.message || 'Failed to refresh token');
       } catch (error) {
-        // При сетевой ошибке не разлогиниваем — токены могут быть валидны
-        const isNetworkError = error?.message?.includes('fetch') || error?.name === 'TypeError';
+        const isNetworkError = error?.isNetworkError ||
+          error?.name === 'TypeError' ||
+          error?.name === 'AbortError' ||
+          /fetch|network|timeout|abort|ECONNREFUSED|ENOTFOUND|ERR_NAME|Failed to fetch|Load failed|NetworkError|SecureStorage/i.test(error?.message || '');
         if (!isNetworkError && !tokenExpiredHandled && this.onTokenExpired) {
           this._tokenExpiredFiredInRefresh = true;
           this.onTokenExpired();
@@ -938,6 +941,10 @@ class ApiClient {
     }
   }
 
+  async assessGoal(formData) {
+    return this.request('assess_goal', formData, 'POST');
+  }
+
   /**
    * Завершение специализации (второй этап после минимальной регистрации)
    */
@@ -990,14 +997,12 @@ class ApiClient {
 
   /**
    * Получить текущего пользователя
+   * @param {{ throwOnNetworkError?: boolean }} opts — если true, сетевые/timeout ошибки пробрасываются наружу
    */
-  async getCurrentUser() {
+  async getCurrentUser(opts = {}) {
     try {
-      // Сначала проверяем авторизацию через простой endpoint
       const authCheck = await this.request('check_auth', {}, 'GET');
       
-      // Проверяем структуру ответа
-      // BaseController возвращает {success: true, data: {...}}
       const data = authCheck?.data || authCheck;
       const isAuthenticated = data?.authenticated;
       const userId = data?.user_id;
@@ -1023,23 +1028,23 @@ class ApiClient {
         };
       }
       
-      // Пользователь не авторизован
       return null;
     } catch (error) {
-      // Если ошибка парсинга или редиректа, логируем для отладки
+      if (opts.throwOnNetworkError &&
+          (error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT')) {
+        throw error;
+      }
+
       if (error.code === 'PARSE_ERROR' || error.code === 'HTML_RESPONSE' || error.code === 'REDIRECT_ERROR') {
         console.error('Error checking auth (server response issue):', error.message);
-        // Возвращаем null, чтобы не блокировать приложение
         return null;
       }
       
-      // Если ошибка авторизации (403), возвращаем null
       if (error.code === 'UNAUTHORIZED' || error.code === 'NOT_AUTHENTICATED' || 
           error.code === 'FORBIDDEN' || error.message?.includes('авторизац') ||
           error.message?.includes('Требуется авторизация')) {
         return null;
       }
-      // Для других ошибок тоже возвращаем null (пользователь не авторизован)
       console.error('Error checking auth:', error);
       return null;
     }
@@ -1379,14 +1384,13 @@ class ApiClient {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const onExternalAbort = () => controller.abort();
     if (externalSignal) {
       if (externalSignal.aborted) {
         clearTimeout(timeoutId);
         throw new DOMException('Aborted', 'AbortError');
       }
-      externalSignal.addEventListener('abort', () => {
-        controller.abort();
-      });
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
     const response = await fetch(url, {
@@ -1502,6 +1506,14 @@ class ApiClient {
    */
   async chatSendMessageToUser(targetUserId, content) {
     return this.request('chat_send_message_to_user', { target_user_id: targetUserId, content: (content || '').trim() }, 'POST');
+  }
+
+  /**
+   * Очистить direct-диалог с пользователем
+   * @param {number} targetUserId ID собеседника
+   */
+  async chatClearDirectDialog(targetUserId) {
+    return this.request('chat_clear_direct_dialog', { target_user_id: targetUserId }, 'POST');
   }
 
   /**

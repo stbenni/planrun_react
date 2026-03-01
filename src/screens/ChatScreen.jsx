@@ -38,6 +38,7 @@ const ChatScreen = () => {
   const { total: unreadTotal = 0, by_type: unreadByType = {} } = useChatUnread();
   const adminUnreadCount = unreadByType.admin_mode ?? 0;
   const adminTabUnreadCount = unreadByType.admin ?? 0;
+  const myUserId = Number(user?.user_id ?? user?.id) || 0;
   const isAdmin = user?.role === 'admin';
 
   const openAdminModeFromState = location.state?.openAdminMode === true;
@@ -96,7 +97,7 @@ const ChatScreen = () => {
   const [directDialogs, setDirectDialogs] = useState([]);
   const [directDialogsLoading, setDirectDialogsLoading] = useState(false);
 
-  const contactUnreadCount = contactUser ? (directDialogs.find((d) => d.user_id === contactUser.id)?.unread_count ?? 0) : 0;
+  const contactUnreadCount = contactUser ? (directDialogs.find((d) => Number(d.user_id) === Number(contactUser.id))?.unread_count ?? 0) : 0;
   const userDialogChat = (contactUser || contactSlugFromUrl)
     ? { id: contactUser ? dialogId(contactUser.id) : TAB_USER_DIALOG, label: `Диалог с ${contactUser?.username || 'пользователем'}`, Icon: MessageCircle, description: 'Персональное сообщение', user: contactUser, unreadCount: contactUnreadCount }
     : null;
@@ -108,7 +109,7 @@ const ChatScreen = () => {
     user: { id: u.user_id, username: u.username, username_slug: u.username_slug, avatar_path: u.avatar_path },
     unreadCount: u.unread_count ?? 0,
   }));
-  const hasContactInDialogs = contactUser && directDialogs.some((d) => d.user_id === contactUser.id);
+  const hasContactInDialogs = contactUser && directDialogs.some((d) => Number(d.user_id) === Number(contactUser.id));
   const personalChats = [...SYSTEM_CHATS, ...directDialogChats, ...(userDialogChat && !hasContactInDialogs ? [userDialogChat] : [])];
   const chats = isAdmin
     ? [...personalChats, ADMIN_CHAT]
@@ -138,6 +139,13 @@ const ChatScreen = () => {
   const [sending, setSending] = useState(false);
   const [streamPhase, setStreamPhase] = useState(null);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setInput('');
+    setError(null);
+    streamAbortRef.current?.abort();
+    setStreamPhase(null);
+  }, [selectedChat]);
   const [recalcMessage, setRecalcMessage] = useState(null);
   const [nextPlanMessage, setNextPlanMessage] = useState(null);
   const [mobileListVisible, setMobileListVisible] = useState(!openAdminModeFromState && !openAdminTabFromState && !contactUserFromState && !contactSlugFromUrl);
@@ -160,9 +168,16 @@ const ChatScreen = () => {
   const isMountedRef = useRef(true);
   const isChatTabVisibleRef = useRef(isTabActive);
   isChatTabVisibleRef.current = isTabActive;
+  const streamAbortRef = useRef(null);
+  const notificationTimersRef = useRef([]);
+  const prevMessagesLenRef = useRef(0);
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
+    return () => {
+      isMountedRef.current = false;
+      streamAbortRef.current?.abort();
+      notificationTimersRef.current.forEach(clearTimeout);
+    };
   }, []);
 
   const scrollToBottom = () => {
@@ -170,7 +185,7 @@ const ChatScreen = () => {
   };
 
   const loadMessages = useCallback(async () => {
-    if (!api || selectedChat === TAB_ADMIN_MODE || selectedChat?.startsWith?.('dialog_')) {
+    if (!api || selectedChat === TAB_ADMIN_MODE || selectedChat === TAB_USER_DIALOG || selectedChat?.startsWith?.('dialog_')) {
       setLoading(false);
       return;
     }
@@ -273,10 +288,10 @@ const ChatScreen = () => {
     }
   }, [selectedChat, selectedChatUser?.id, loadChatAdminMessages]);
 
-  const dialogUserId = selectedChat?.startsWith?.('dialog_') ? parseInt(selectedChat.replace('dialog_', ''), 10) : (selectedChat === TAB_USER_DIALOG && contactUser?.id) ? contactUser.id : null;
-  const dialogUser = dialogUserId ? directDialogs.find((d) => d.user_id === dialogUserId) : null;
+  const dialogUserId = selectedChat?.startsWith?.('dialog_') ? parseInt(selectedChat.replace('dialog_', ''), 10) : (selectedChat === TAB_USER_DIALOG && contactUser?.id) ? Number(contactUser.id) : null;
+  const dialogUser = dialogUserId ? directDialogs.find((d) => Number(d.user_id) === dialogUserId) : null;
   const contactUserForDialog = dialogUserId
-    ? (dialogUser ? { id: dialogUser.user_id, username: dialogUser.username, username_slug: dialogUser.username_slug, avatar_path: dialogUser.avatar_path } : contactUser?.id === dialogUserId ? contactUser : null)
+    ? (dialogUser ? { id: dialogUser.user_id, username: dialogUser.username, username_slug: dialogUser.username_slug, avatar_path: dialogUser.avatar_path } : Number(contactUser?.id) === dialogUserId ? contactUser : null)
     : contactUser;
   const isUserDialog = !!dialogUserId && !!contactUserForDialog;
 
@@ -303,16 +318,11 @@ const ChatScreen = () => {
     }
   }, [selectedUserIdFromState, selectedUsernameFromState, selectedUserEmailFromState, chatUsers, adminSection, chatUsersLoading]);
 
+  // Загрузка/перезагрузка сообщений при смене вкладки или при возврате в чат
   useEffect(() => {
+    if (!isTabActive || !api) return;
     loadMessages();
-  }, [loadMessages]);
-
-  // При возврате в чат — подгружаем свежие сообщения с сервера (ответ ИИ мог прийти в фоне)
-  useEffect(() => {
-    if (isTabActive && api) {
-      loadMessages();
-      if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) loadUserDialogMessages(contactUserForDialog.id);
-    }
+    if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) loadUserDialogMessages(contactUserForDialog.id);
   }, [isTabActive, api, loadMessages, selectedChat, contactUserForDialog?.id, loadUserDialogMessages]);
 
   // При открытии чата (AI или «От администрации») помечаем сообщения прочитанными
@@ -323,13 +333,17 @@ const ChatScreen = () => {
     }
   }, [isTabActive, selectedChat, conversationId, api]);
 
-  // Автопрочитывание и подгрузка: при SSE (chat_unread) — помечаем прочитанными и перезагружаем сообщения открытого чата
+  // SSE: перезагружать только когда данные непрочитанных реально изменились
+  const sseSnapshotRef = useRef(null);
   useEffect(() => {
     if (!api || !isTabActive) return;
-    const onSSE = () => {
+    const onSSE = (data) => {
+      const key = `${data?.total ?? 0}|${JSON.stringify(data?.by_type ?? {})}`;
+      if (key === sseSnapshotRef.current) return;
+      sseSnapshotRef.current = key;
+
       if (selectedChat === TAB_AI && conversationId) {
         api.chatMarkRead(conversationId).catch(() => {});
-        loadMessages();
       } else if (selectedChat === TAB_ADMIN && conversationId) {
         api.chatMarkRead(conversationId).catch(() => {});
         loadMessages();
@@ -349,10 +363,11 @@ const ChatScreen = () => {
     if (scrollToMessageId && messages.length > 0 && selectedChat === TAB_ADMIN) {
       const el = document.querySelector(`[data-message-id="${scrollToMessageId}"]`);
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
+    } else if (messages.length !== prevMessagesLenRef.current) {
       scrollToBottom();
     }
-  }, [messages, selectedChat, scrollToMessageId]);
+    prevMessagesLenRef.current = messages.length;
+  }, [messages.length, selectedChat, scrollToMessageId]);
 
   useEffect(() => {
     if (isUserDialog && userDialogMessages.length > 0) scrollToBottom();
@@ -413,11 +428,11 @@ const ChatScreen = () => {
     const userMsg = {
       id: 'temp-' + Date.now(),
       sender_type: 'user',
-      sender_id: user?.id,
+      sender_id: user?.user_id ?? user?.id,
       content,
       created_at: new Date().toISOString(),
     };
-    if (selectedChat !== TAB_USER_DIALOG) {
+    if (selectedChat !== TAB_USER_DIALOG && !selectedChat?.startsWith?.('dialog_')) {
       setMessages((prev) => [...prev, userMsg]);
     }
 
@@ -439,7 +454,7 @@ const ChatScreen = () => {
     }
 
     if (selectedChat?.startsWith?.('dialog_') && contactUserForDialog?.id) {
-      if (contactUserForDialog.id === user?.id) {
+      if (Number(contactUserForDialog.id) === myUserId) {
         setError('Нельзя отправить сообщение самому себе');
         setSending(false);
         return;
@@ -452,6 +467,7 @@ const ChatScreen = () => {
             m.id === userMsg.id ? { ...m, id: res?.message_id ?? m.id } : m
           )
         );
+        loadDirectDialogs();
       } catch (e) {
         setError(e.message || 'Ошибка отправки');
         setUserDialogMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
@@ -469,26 +485,30 @@ const ChatScreen = () => {
     };
     setMessages((prev) => [...prev, aiPlaceholder]);
     setStreamPhase('connecting');
-
-    // Запрос в фоне: не блокируем UI; батчим обновления по кадрам, чтобы не грузить главный поток
     setSending(false);
+
+    const abortController = new AbortController();
+    streamAbortRef.current = abortController;
 
     let accumulated = '';
     let flushScheduled = false;
     const flushToState = () => {
-      if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+      if (!isMountedRef.current || abortController.signal.aborted) return;
       const text = accumulated;
       setMessages((prev) => {
-        const next = [...prev];
-        const idx = next.findIndex((m) => m.id === aiPlaceholder.id);
-        if (idx >= 0) next[idx] = { ...next[idx], content: text };
-        return next;
+        const last = prev[prev.length - 1];
+        if (last?.id === aiPlaceholder.id) {
+          const next = prev.slice();
+          next[next.length - 1] = { ...last, content: text };
+          return next;
+        }
+        return prev;
       });
     };
     api.chatSendMessageStream(
       content,
       (chunk) => {
-        if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+        if (!isMountedRef.current || abortController.signal.aborted) return;
         accumulated += chunk;
         if (!flushScheduled) {
           flushScheduled = true;
@@ -499,18 +519,21 @@ const ChatScreen = () => {
         }
       },
       {
-        onFirstChunk: () => isChatTabVisibleRef.current && setStreamPhase('streaming'),
+        signal: abortController.signal,
+        onFirstChunk: () => !abortController.signal.aborted && setStreamPhase('streaming'),
         onPlanUpdated: () => usePlanStore.getState().loadPlan(),
         onPlanRecalculating: () => {
-          if (isChatTabVisibleRef.current) {
+          if (!abortController.signal.aborted) {
             setRecalcMessage('Пересчёт плана запущен. Обновите календарь через 3–5 минут.');
-            setTimeout(() => setRecalcMessage(null), 8000);
+            const t = setTimeout(() => setRecalcMessage(null), 8000);
+            notificationTimersRef.current.push(t);
           }
         },
         onPlanGeneratingNext: () => {
-          if (isChatTabVisibleRef.current) {
+          if (!abortController.signal.aborted) {
             setNextPlanMessage('Новый план генерируется. Обновите календарь через 3–5 минут.');
-            setTimeout(() => setNextPlanMessage(null), 8000);
+            const t = setTimeout(() => setNextPlanMessage(null), 8000);
+            notificationTimersRef.current.push(t);
           }
         },
         timeoutMs: 180000,
@@ -523,23 +546,26 @@ const ChatScreen = () => {
         return fullContent;
       })
       .then((fullContent) => {
-        if (!isMountedRef.current || !isChatTabVisibleRef.current) return;
+        if (!isMountedRef.current || abortController.signal.aborted) return;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === aiPlaceholder.id ? { ...m, sender_type: 'ai', content: fullContent } : m
           )
         );
-        setStreamPhase('done');
         if (!fullContent) setError('AI не вернул ответ. Попробуйте ещё раз.');
       })
       .catch((e) => {
-        if (isMountedRef.current && isChatTabVisibleRef.current) {
+        if (e?.name === 'AbortError') return;
+        if (isMountedRef.current) {
           setError(e?.message || 'Ошибка отправки');
           setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
         }
       })
       .finally(() => {
-        if (isMountedRef.current && isChatTabVisibleRef.current) setStreamPhase(null);
+        if (isMountedRef.current) {
+          setStreamPhase(null);
+          if (streamAbortRef.current === abortController) streamAbortRef.current = null;
+        }
       });
   };
 
@@ -553,6 +579,19 @@ const ChatScreen = () => {
       setError(e.message || 'Не удалось очистить чат');
     }
   }, [api]);
+
+  const handleClearDirectDialog = useCallback(async () => {
+    if (!api || !contactUserForDialog?.id) return;
+    if (!window.confirm(`Очистить диалог с ${contactUserForDialog.username || 'пользователем'}? Это действие нельзя отменить.`)) return;
+    try {
+      await api.chatClearDirectDialog(contactUserForDialog.id);
+      setUserDialogMessages([]);
+      setError(null);
+      loadDirectDialogs();
+    } catch (e) {
+      setError(e.message || 'Не удалось очистить диалог');
+    }
+  }, [api, contactUserForDialog?.id, contactUserForDialog?.username, loadDirectDialogs]);
 
   const [markAllReadLoading, setMarkAllReadLoading] = useState(false);
   const handleMarkAllRead = useCallback(async () => {
@@ -841,7 +880,7 @@ const ChatScreen = () => {
           <div className="skeleton-line" style={{ width: '40%', height: 14 }}></div>
         </div>
       )}
-      {!contactUserLoading && contactUserForDialog?.id === user?.id && (
+      {!contactUserLoading && Number(contactUserForDialog?.id) === myUserId && (
         <div className="chat-error" role="alert">
           Вы не можете написать себе. Перейдите в другой чат.
         </div>
@@ -859,9 +898,14 @@ const ChatScreen = () => {
           </span>
           <div>
             <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
-            <p className="chat-main-header-subtitle">Сообщение придёт в чат «От администрации» получателя</p>
+            <p className="chat-main-header-subtitle">Личное сообщение</p>
           </div>
         </div>
+        {userDialogMessages.length > 0 && (
+          <button type="button" className="chat-clear-btn" onClick={handleClearDirectDialog} disabled={sending || userDialogLoading} title="Очистить диалог">
+            Очистить
+          </button>
+        )}
       </div>
       )}
       {!contactUserLoading && (
@@ -879,8 +923,8 @@ const ChatScreen = () => {
         ) : (
           <>
             {userDialogMessages.map((msg) => {
-              const isFromMe = msg.sender_type === 'user' && msg.sender_id === user?.id;
-              const isFromOtherUser = msg.sender_type === 'user' && msg.sender_id !== user?.id;
+              const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
+              const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
               return (
                 <div key={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
                   {!isFromMe && (
@@ -932,13 +976,13 @@ const ChatScreen = () => {
         <input
           type="text"
           className="chat-input"
-          placeholder={contactUserForDialog?.id === user?.id ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
+          placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          disabled={sending || userDialogLoading || contactUserForDialog?.id === user?.id}
+          disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
           maxLength={4000}
         />
-        <button type="submit" className="chat-send-btn" disabled={sending || userDialogLoading || !input.trim() || contactUserForDialog?.id === user?.id} title={sending ? 'Отправка…' : 'Отправить'}>
+        <button type="submit" className="chat-send-btn" disabled={sending || userDialogLoading || !input.trim() || Number(contactUserForDialog?.id) === myUserId} title={sending ? 'Отправка…' : 'Отправить'}>
           {sending ? '…' : '➤'}
         </button>
       </form>
@@ -986,8 +1030,8 @@ const ChatScreen = () => {
         ) : (
           <>
             {messages.map((msg) => {
-              const isFromMe = msg.sender_type === 'user' && msg.sender_id === user?.id;
-              const isFromOtherUser = msg.sender_type === 'user' && msg.sender_id !== user?.id;
+              const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
+              const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
               return (
               <div key={msg.id} data-message-id={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
                 {!isFromMe && (
@@ -1012,7 +1056,7 @@ const ChatScreen = () => {
                   <div className="chat-message-content">
                     {msg.content ? (
                       msg.content
-                    ) : sending && msg.id?.startsWith('temp-ai-') ? (
+                    ) : streamPhase && msg.id?.startsWith('temp-ai-') ? (
                       <span className="chat-message-status">
                         {streamPhase === 'connecting' && (
                           <span className="chat-typing-dots" aria-hidden="true">
@@ -1072,11 +1116,11 @@ const ChatScreen = () => {
           placeholder="Напишите сообщение..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          disabled={sending || loading}
+          disabled={sending || loading || !!streamPhase}
           maxLength={4000}
         />
-        <button type="submit" className="chat-send-btn" disabled={sending || loading || !input.trim()} title={sending ? 'Отправка…' : 'Отправить'}>
-          {sending ? '…' : '➤'}
+        <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || !input.trim()} title={sending || streamPhase ? 'Отправка…' : 'Отправить'}>
+          {sending || streamPhase ? '…' : '➤'}
         </button>
       </form>
     </>

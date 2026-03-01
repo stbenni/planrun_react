@@ -455,7 +455,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       let planStatus;
       let plan;
 
-      if (storePlanStatus != null && storeHasPlan && storePlan != null) {
+      if (storePlanStatus != null && storeHasPlan && storePlan != null && !storePlanStatus?.generating) {
         planStatus = storePlanStatus;
         plan = storePlan;
       }
@@ -695,7 +695,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     if (!planGenerating || !isTabActive || !api) return;
     const interval = setInterval(() => {
       loadDashboardData({ silent: true });
-    }, 30000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [planGenerating, isTabActive, api, loadDashboardData]);
 
@@ -775,22 +775,26 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     setRegenerating(true);
     setPlanError(null);
     setShowPlanMessage(true);
+    setPlanExists(false);
+    setPlanGenerating(true);
+    usePlanStore.getState().clearPlan();
     
     try {
       const result = await api.regeneratePlan();
       if (result && result.success) {
-        // План начал генерироваться, обновляем данные через несколько секунд
         setTimeout(() => {
           loadDashboardData();
         }, 5000);
       } else {
         setPlanError(result?.error || 'Ошибка при запуске генерации плана');
         setShowPlanMessage(false);
+        setPlanGenerating(false);
         clearPlanMessage();
       }
     } catch (error) {
       setPlanError(error.message || 'Ошибка при запуске генерации плана');
       setShowPlanMessage(false);
+      setPlanGenerating(false);
       clearPlanMessage();
     } finally {
       setRegenerating(false);

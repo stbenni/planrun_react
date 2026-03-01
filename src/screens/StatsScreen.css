@@ -1000,11 +1000,24 @@
   color: var(--primary-500);
 }
 
-.workout-item-type[data-type="walking"] .workout-item-type__icon { color: var(--success-500); }
-.workout-item-type[data-type="hiking"] .workout-item-type__icon { color: var(--warning-600); }
+/* Цвета иконок по типу тренировки (как в календаре) */
+.workout-item-type[data-type="easy"] .workout-item-type__icon { color: var(--workout-easy); }
+.workout-item-type[data-type="tempo"] .workout-item-type__icon { color: var(--workout-tempo); }
+.workout-item-type[data-type="interval"] .workout-item-type__icon { color: var(--workout-interval); }
+.workout-item-type[data-type="long"] .workout-item-type__icon,
+.workout-item-type[data-type="long-run"] .workout-item-type__icon { color: var(--workout-long); }
+.workout-item-type[data-type="fartlek"] .workout-item-type__icon { color: var(--workout-interval); }
+.workout-item-type[data-type="control"] .workout-item-type__icon { color: var(--workout-control); }
+.workout-item-type[data-type="race"] .workout-item-type__icon,
+.workout-item-type[data-type="marathon"] .workout-item-type__icon { color: var(--primary-500); }
+.workout-item-type[data-type="sbu"] .workout-item-type__icon { color: var(--workout-strip-sbu); }
+.workout-item-type[data-type="walking"] .workout-item-type__icon { color: var(--workout-strip-walking); }
+.workout-item-type[data-type="hiking"] .workout-item-type__icon { color: var(--workout-strip-hiking); }
 .workout-item-type[data-type="cycling"] .workout-item-type__icon { color: var(--info-500); }
 .workout-item-type[data-type="swimming"] .workout-item-type__icon { color: var(--info-600); }
 .workout-item-type[data-type="other"] .workout-item-type__icon { color: var(--gray-600); }
+.workout-item-type[data-type="run"] .workout-item-type__icon,
+.workout-item-type[data-type="running"] .workout-item-type__icon { color: var(--workout-strip-run, var(--workout-easy)); }
 
 .workout-item-type__label {
   font-size: var(--text-xs);

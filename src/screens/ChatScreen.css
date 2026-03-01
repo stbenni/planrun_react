@@ -436,7 +436,7 @@
 }
 
 /* Мобильная адаптация: показываем либо список, либо чат */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .chat-sidebar {
     max-width: none;
   }
@@ -456,8 +456,7 @@
   }
 }
 
-/* На десктопе: скрываем кнопку «Назад» */
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .chat-back-btn {
     display: none;
   }

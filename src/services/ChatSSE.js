@@ -7,6 +7,9 @@
 const listeners = new Set();
 let eventSource = null;
 let unreadData = { total: 0, by_type: {} };
+let reconnectTimer = null;
+let reconnectDelay = 1000;
+const MAX_RECONNECT_DELAY = 30000;
 
 function getSSEUrl() {
   const base = typeof window !== 'undefined' && window.location.origin ? `${window.location.origin}/api` : '/api';
@@ -29,6 +32,16 @@ function notifyListeners(data) {
   listeners.forEach((fn) => fn(data));
 }
 
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  if (listeners.size === 0) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (listeners.size > 0) connect();
+  }, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+}
+
 function connect() {
   if (typeof window === 'undefined') return;
   if (eventSource && (eventSource.readyState === EventSource.OPEN || eventSource.readyState === EventSource.CONNECTING)) {
@@ -43,15 +56,25 @@ function connect() {
     notifyListeners(data);
   });
 
+  es.onopen = () => {
+    reconnectDelay = 1000;
+  };
+
   es.onerror = () => {
     es.close();
     eventSource = null;
+    scheduleReconnect();
   };
 
   eventSource = es;
 }
 
 function disconnect() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectDelay = 1000;
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -59,8 +82,10 @@ function disconnect() {
 }
 
 function subscribe(callback) {
+  const wasEmpty = listeners.size === 0;
   listeners.add(callback);
   callback(unreadData);
+  if (wasEmpty) connect();
 }
 
 function unsubscribe(callback) {

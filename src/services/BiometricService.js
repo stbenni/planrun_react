@@ -212,8 +212,10 @@ class BiometricService {
 
   /**
    * Полный цикл биометрической аутентификации.
-   * Сначала authenticate (диалог «приложите палец») — как в типичных приложениях.
-   * Затем getTokens. Таймаут 30 сек — защита от зависания BiometricPrompt на Android.
+   * Сначала authenticate (диалог «приложите палец»), затем getTokens.
+   * Если токены не найдены (после обновления/потери KeyStore), возвращает success: true с tokens: null —
+   * вызывающий код переходит к credential recovery.
+   * Таймаут 30 сек — защита от зависания BiometricPrompt на Android.
    */
   async authenticateAndGetTokens(reason = 'Подтвердите вашу личность для входа') {
     const TIMEOUT_MS = 30000;
@@ -222,15 +224,13 @@ class BiometricService {
       if (!isEnabled) {
         return { success: false, error: 'Биометрическая аутентификация не настроена' };
       }
-      const tokens = await this.getTokens();
-      if (!tokens?.accessToken || !tokens?.refreshToken) {
-        return { success: false, error: 'Токены не найдены. Войдите по паролю.' };
-      }
       const authResult = await this.authenticate(reason);
       if (!authResult.success) {
         return { success: false, error: authResult.error || 'Биометрическая аутентификация не прошла' };
       }
-      return { success: true, tokens };
+      const tokens = await this.getTokens();
+      const hasTokens = !!(tokens?.accessToken && tokens?.refreshToken);
+      return { success: true, tokens: hasTokens ? tokens : null };
     };
     try {
       const timeoutPromise = new Promise((_, reject) =>

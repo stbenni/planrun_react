@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { ClipboardListIcon, TimeIcon, CheckIcon, AlertTriangleIcon, XCircleIcon } from '../components/common/Icons';
 import './RegisterScreen.css';
 import './LoginScreen.css'; /* стили логина для короткого попапа регистрации */
 
@@ -82,6 +83,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const [planSubmitResult, setPlanSubmitResult] = useState(null);
   const [goalStepFieldsHeight, setGoalStepFieldsHeight] = useState(0);
   const goalStepFieldsInnerRef = useRef(null);
+  const [goalAssessment, setGoalAssessment] = useState(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const assessmentTimerRef = useRef(null);
 
   // Функция для получения следующего понедельника
   function getNextMonday() {
@@ -128,6 +132,44 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [step]);
+
+  // Оценка реалистичности цели (VDOT)
+  useEffect(() => {
+    if (!showRaceFields) { setGoalAssessment(null); return; }
+    if (!formData.race_distance || !formData.race_date) return;
+
+    clearTimeout(assessmentTimerRef.current);
+    assessmentTimerRef.current = setTimeout(async () => {
+      setAssessmentLoading(true);
+      try {
+        const currentApi = api || useAuthStore.getState().api;
+        if (!currentApi) return;
+        const result = await currentApi.assessGoal({
+          goal_type: formData.goal_type,
+          race_distance: formData.race_distance,
+          race_date: formData.race_date,
+          race_target_time: formData.race_target_time || '',
+          training_start_date: formData.training_start_date,
+          weekly_base_km: formData.weekly_base_km || 0,
+          sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || 3,
+          experience_level: formData.experience_level,
+          last_race_distance: formData.last_race_distance || '',
+          last_race_distance_km: formData.last_race_distance_km || '',
+          last_race_time: formData.last_race_time || '',
+          easy_pace_sec: formData.easy_pace_sec || '',
+        });
+        if (result?.verdict) setGoalAssessment(result);
+      } catch { /* ignore */ }
+      finally { setAssessmentLoading(false); }
+    }, 800);
+
+    return () => clearTimeout(assessmentTimerRef.current);
+  }, [
+    showRaceFields, formData.race_distance, formData.race_date, formData.race_target_time,
+    formData.training_start_date, formData.weekly_base_km, formData.sessions_per_week,
+    formData.experience_level, formData.last_race_distance, formData.last_race_time,
+    formData.easy_pace_sec, formData.preferred_days?.length, api,
+  ]);
 
   // Для режима self пропускаем шаг 2 (цель)
   const getTotalSteps = () => {
@@ -1194,8 +1236,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                   {/* Расширенный профиль бегуна */}
                   {showExtendedProfile && (
                     <div className="extended-profile">
-                      <h3 style={{ margin: '25px 0 15px', color: '#374151', fontSize: '1.1em' }}>📊 Расскажи больше о своём беге</h3>
-                      <p style={{ color: '#6b7280', marginBottom: '20px', fontSize: '0.95em' }}>
+                      <h3 style={{ margin: '25px 0 15px', color: 'var(--text-primary)', fontSize: '1.1em' }}>Расскажи больше о своём беге</h3>
+                      <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.95em' }}>
                         Эти данные помогут создать более точный план (необязательно)
                       </p>
                       
@@ -1370,7 +1412,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="form-group">
                     <label>Выбери дни для бега</label>
                     <div className="checkbox-group">
@@ -1501,6 +1543,119 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
             </div>
           )}
 
+          {/* Оценка реалистичности цели — всегда видна на последнем шаге для race/time_improvement */}
+          {!isMinimalFlow && showRaceFields && step === totalSteps - 1 && (
+            <div className="goal-assessment-card goal-assessment-card--always-visible">
+
+              {/* Состояние: не хватает данных */}
+              {!goalAssessment && !assessmentLoading && (
+                <div className="goal-assessment-card__header">
+                  <span className="goal-assessment-card__icon"><ClipboardListIcon size={18} /></span>
+                  <span className="goal-assessment-card__title">Оценка цели</span>
+                </div>
+              )}
+              {!goalAssessment && !assessmentLoading && (
+                <div className="goal-assessment-card__msg goal-assessment-card__msg--info">
+                  <p>
+                    {!formData.race_distance
+                      ? 'Укажите дистанцию забега на шаге «Цель», чтобы получить оценку.'
+                      : !formData.race_date
+                        ? 'Укажите дату забега на шаге «Цель».'
+                        : 'Заполните данные профиля выше — оценка появится автоматически.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Состояние: загрузка */}
+              {assessmentLoading && (
+                <div className="goal-assessment-card__header">
+                  <span className="goal-assessment-card__icon goal-assessment-card__icon--spin"><TimeIcon size={18} /></span>
+                  <span className="goal-assessment-card__title">Оцениваем цель...</span>
+                </div>
+              )}
+
+              {/* Состояние: результат */}
+              {goalAssessment && !assessmentLoading && (
+                <>
+                  <div className={`goal-assessment-card__verdict goal-assessment-card__verdict--${goalAssessment.verdict}`}>
+                    <span className="goal-assessment-card__icon">
+                      {goalAssessment.verdict === 'realistic' ? <CheckIcon size={18} /> : goalAssessment.verdict === 'challenging' ? <AlertTriangleIcon size={18} /> : <XCircleIcon size={18} />}
+                    </span>
+                    <span className="goal-assessment-card__title">
+                      {goalAssessment.verdict === 'realistic' ? 'Цель реалистична' : goalAssessment.verdict === 'challenging' ? 'Амбициозная цель' : 'Цель труднодостижима'}
+                    </span>
+                  </div>
+
+                  {goalAssessment.messages?.map((msg, i) => (
+                    <div key={i} className={`goal-assessment-card__msg goal-assessment-card__msg--${msg.type}`}>
+                      <p>{msg.text}</p>
+                      {msg.suggestions?.length > 0 && (
+                        <div className="goal-assessment-card__suggestions">
+                          {msg.suggestions.map((s, j) => (
+                            s.action ? (
+                              <button key={j} type="button" className="btn btn-secondary btn--sm"
+                                onClick={() => handleChange(s.action.field, s.action.value)}>
+                                {s.text}
+                              </button>
+                            ) : (
+                              <p key={j} className="goal-assessment-card__tip">{s.text}</p>
+                            )
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {(goalAssessment.predictions && Object.keys(goalAssessment.predictions).length > 0 || goalAssessment.training_paces) && (
+                    <div className="goal-assessment-card__data">
+                      {goalAssessment.vdot && (
+                        <div className="goal-assessment-card__vdot">
+                          VDOT: <strong>{goalAssessment.vdot}</strong>{goalAssessment.vdot_source ? ` (на основе: ${goalAssessment.vdot_source})` : ''}
+                        </div>
+                      )}
+                      {goalAssessment.predictions && Object.keys(goalAssessment.predictions).length > 0 && (
+                        <div className="goal-assessment-card__section">
+                          <div className="goal-assessment-card__section-title">Прогноз по дистанциям</div>
+                          <div className="goal-assessment-card__grid">
+                            {Object.entries(goalAssessment.predictions).map(([dist, time]) => (
+                              <div key={dist} className="goal-assessment-card__cell">
+                                <span className="goal-assessment-card__label">{dist === 'half' ? 'Полумарафон' : dist === 'marathon' ? 'Марафон' : dist.toUpperCase()}</span>
+                                <span className="goal-assessment-card__value">{time}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {goalAssessment.training_paces && (
+                        <div className="goal-assessment-card__section">
+                          <div className="goal-assessment-card__section-title">Тренировочные зоны (мин/км)</div>
+                          <div className="goal-assessment-card__grid">
+                            <div className="goal-assessment-card__cell">
+                              <span className="goal-assessment-card__label">Лёгкий</span>
+                              <span className="goal-assessment-card__value">{goalAssessment.training_paces.easy}</span>
+                            </div>
+                            <div className="goal-assessment-card__cell">
+                              <span className="goal-assessment-card__label">Марафонский</span>
+                              <span className="goal-assessment-card__value">{goalAssessment.training_paces.marathon}</span>
+                            </div>
+                            <div className="goal-assessment-card__cell">
+                              <span className="goal-assessment-card__label">Пороговый</span>
+                              <span className="goal-assessment-card__value">{goalAssessment.training_paces.threshold}</span>
+                            </div>
+                            <div className="goal-assessment-card__cell">
+                              <span className="goal-assessment-card__label">Интервальный</span>
+                              <span className="goal-assessment-card__value">{goalAssessment.training_paces.interval}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {!isMinimalFlow && (step > 0 || specializationOnly) && (
             <div className="register-form-actions">
               {step > 0 && (
@@ -1524,11 +1679,11 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               {step !== 0 && (
                 <button
                   type="button"
-                  className="btn btn-primary btn--block"
-                  disabled={loading}
+                  className={`btn btn-primary btn--block ${goalAssessment?.verdict === 'unrealistic' && step === totalSteps - 1 ? 'btn--disabled-unrealistic' : ''}`}
+                  disabled={loading || (goalAssessment?.verdict === 'unrealistic' && step === totalSteps - 1)}
                   onClick={(e) => { e.preventDefault(); handleNext(); }}
                 >
-                  {loading ? 'Обработка...' : (specializationOnly && step === totalSteps - 1) ? 'Сохранить' : (step === 3 || (specializationOnly && step === 2)) ? 'Создать аккаунт' : 'Далее →'}
+                  {loading ? 'Обработка...' : (goalAssessment?.verdict === 'unrealistic' && step === totalSteps - 1) ? 'Исправьте параметры выше' : (specializationOnly && step === totalSteps - 1) ? 'Сохранить' : (step === 3 || (specializationOnly && step === 2)) ? 'Создать аккаунт' : 'Далее →'}
                 </button>
               )}
             </div>

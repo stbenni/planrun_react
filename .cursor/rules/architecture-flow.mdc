@@ -37,12 +37,12 @@ alwaysApply: true
 | AddTrainingModal.jsx | api (через props) | api.saveResult (при editResultData), api.addTrainingDayByDate (при новом дне) |
 | StatsScreen.jsx | api, user | api.getAllWorkoutsSummary, api.getAllWorkoutsList, api.getAllResults, api.getPlan, api.getDay |
 | WorkoutDetailsModal.jsx | api (через props) | api.getWorkoutTimeline |
-| ChatScreen.jsx | api, user | api.chatGetMessages, api.chatGetDirectDialogs, api.getAdminChatUsers, api.chatGetDirectMessages, api.chatAdminGetMessages, api.chatSendMessageStream, api.chatSendMessage, api.chatClearAi, api.chatMarkRead, api.chatMarkAllRead, api.chatAdminMarkConversationRead, api.chatSendMessageToAdmin, api.chatSendMessageToUser, api.chatAdminSendMessage, api.getUserBySlug |
+| ChatScreen.jsx | api, user | api.chatGetMessages, api.chatGetDirectDialogs, api.getAdminChatUsers, api.chatGetDirectMessages, api.chatAdminGetMessages, api.chatSendMessageStream, api.chatSendMessage, api.chatClearAi, api.chatClearDirectDialog, api.chatMarkRead, api.chatMarkAllRead, api.chatAdminMarkConversationRead, api.chatSendMessageToAdmin, api.chatSendMessageToUser, api.chatAdminSendMessage, api.getUserBySlug |
 | SettingsScreen.jsx | api, updateUser | множество: getProfile, updateProfile, getIntegrationsStatus, integration_oauth_url, sync_workouts, unlink_integration, uploadAvatar, getSiteSettings, getNotificationsDismissed, dismissNotification, и др. |
 | UserProfileScreen.jsx | api, user, updateUser | api.getUserBySlug, api.getAllWorkoutsSummary, api.getAllWorkoutsList, api.getAllResults, api.getPlan, api.getDay |
 | AdminScreen.jsx | api, user | api.getAdminUsers, api.getAdminUser, api.updateAdminUser, api.getAdminSettings, api.updateAdminSettings |
 | SpecializationModal.jsx | updateUser, api, setPlanGenerationMessage | api.completeSpecialization |
-| RegisterScreen.jsx | api, updateUser | api.sendVerificationCode, api.registerMinimal, api.completeSpecialization |
+| RegisterScreen.jsx | api, updateUser | api.sendVerificationCode, api.registerMinimal, api.completeSpecialization, api.assessGoal |
 
 ---
 
@@ -148,6 +148,7 @@ alwaysApply: true
 | IntegrationsController | — | StravaProvider, HuaweiHealthProvider, WorkoutService (sync) |
 | UserController | — | прямые запросы, EmailService |
 | AuthController | AuthService, JwtService | — |
+| (inline) assess_goal | — | prompt_builder.php: assessGoalRealism, estimateVDOT, computeMacrocycle |
 
 **ChatService при tools:**
 - update_training_day → TrainingPlanService

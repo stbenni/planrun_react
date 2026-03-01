@@ -571,6 +571,11 @@ h1 {
 }
 
 /* Training types - улучшенное цветовое кодирование */
+.easy {
+    border-left-color: var(--workout-easy, var(--success-600));
+    background: linear-gradient(to right, var(--success-50) 0%, white 10%);
+}
+
 .long-run {
     border-left-color: var(--info-600);
     background: linear-gradient(to right, var(--info-50) 0%, white 10%);
@@ -582,8 +587,8 @@ h1 {
 }
 
 .tempo {
-    border-left-color: var(--success-600);
-    background: linear-gradient(to right, var(--success-50) 0%, white 10%);
+    border-left-color: var(--workout-tempo, var(--warning-600));
+    background: linear-gradient(to right, var(--warning-50) 0%, white 10%);
 }
 
 .key-session {
@@ -1728,6 +1733,7 @@ h1 {
     }
     
     /* Упрощаем цветные рамки на мобильной версии - делаем их тоньше и менее заметными */
+    .training-cell.easy,
     .training-cell.long-run,
     .training-cell.interval,
     .training-cell.tempo,
@@ -1787,6 +1793,7 @@ h1 {
     }
     
     /* Упрощаем цветные рамки на очень маленьких экранах */
+    .training-cell.easy,
     .training-cell.long-run,
     .training-cell.interval,
     .training-cell.tempo,

@@ -127,6 +127,15 @@ try {
         exit;
     }
 
+    // Оценка реалистичности цели — без авторизации (вызывается при регистрации)
+    if ($action === 'assess_goal' && $method === 'POST') {
+        require_once __DIR__ . '/planrun_ai/prompt_builder.php';
+        $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $result = assessGoalRealism($input);
+        echo json_encode(['success' => true, 'data' => $result], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     // Публичный профиль по slug — без авторизации, всегда возвращаем user + access
     if ($action === 'get_user_by_slug' && $method === 'GET') {
         require_once __DIR__ . '/auth.php';
@@ -825,6 +834,14 @@ try {
             }
             $controller = new ChatController($db);
             $controller->sendMessageToUser();
+            break;
+
+        case 'chat_clear_direct_dialog':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new ChatController($db);
+            $controller->clearDirectDialog();
             break;
 
         case 'chat_admin_send_message':

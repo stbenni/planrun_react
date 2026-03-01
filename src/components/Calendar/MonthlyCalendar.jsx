@@ -47,9 +47,9 @@ function getWorkoutStripClass(type) {
   if (!type) return null;
   const map = {
     easy: 'easy', tempo: 'tempo', interval: 'interval', fartlek: 'interval',
-    long: 'long', 'long-run': 'long', control: 'control', race: 'race',
+    long: 'long', 'long-run': 'long', control: 'control', race: 'race', marathon: 'race',
     other: 'other', sbu: 'sbu', rest: 'rest', walking: 'walking', hiking: 'hiking',
-    cycling: 'run', swimming: 'run',
+    cycling: 'run', swimming: 'run', run: 'run', running: 'run',
   };
   return map[type] || (type === 'free' ? null : 'run');
 }
@@ -420,7 +420,7 @@ const MonthlyCalendar = ({
                         type === 'interval' ? ZapIcon : type === 'tempo' ? FlameIcon :
                         type === 'other' ? OtherIcon : type === 'sbu' ? SbuIcon :
                         type === 'fartlek' ? TargetIcon : type === 'control' ? BarChartIcon :
-                        type === 'race' ? FlagIcon : type === 'rest' ? RestIcon : ClipboardListIcon;
+                        type === 'race' || type === 'marathon' ? FlagIcon : type === 'rest' ? RestIcon : ClipboardListIcon;
                       return (
                         <div key={key} className={`month-day-icon${stripClass ? ` month-day-icon--${stripClass}` : ''}`} title={day.planDay?.text}>
                           <Icon size={14} aria-hidden />

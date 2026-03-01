@@ -105,11 +105,13 @@ class ChatController extends BaseController {
             header('Content-Type: application/x-ndjson; charset=utf-8');
             header('Cache-Control: no-cache');
             header('X-Accel-Buffering: no');
-            if (ob_get_level()) ob_end_clean();
+            while (ob_get_level()) ob_end_clean();
 
             $this->chatService->streamResponse($this->currentUserId, $content);
         } catch (Exception $e) {
-            $this->handleException($e);
+            $errorMsg = $e->getMessage() ?: 'Ошибка чата';
+            echo json_encode(['error' => $errorMsg]) . "\n";
+            flush();
         }
     }
 
@@ -246,6 +248,31 @@ class ChatController extends BaseController {
         try {
             $result = $this->chatService->sendAdminMessage($targetUserId, $this->currentUserId, $content);
             $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Очистить direct-диалог с пользователем
+     * POST chat_clear_direct_dialog
+     */
+    public function clearDirectDialog() {
+        if (!$this->requireAuth()) return;
+
+        $data = $this->getJsonBody();
+        $targetUserId = (int)($data['target_user_id'] ?? 0);
+
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID пользователя', 400);
+            return;
+        }
+
+        try {
+            $deleted = $this->chatService->clearDirectDialog($this->currentUserId, $targetUserId);
+            $this->returnSuccess(['deleted' => $deleted]);
+        } catch (InvalidArgumentException $e) {
+            $this->returnError($e->getMessage(), 400);
         } catch (Exception $e) {
             $this->handleException($e);
         }
