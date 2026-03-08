@@ -50,4 +50,26 @@ class StatsRepository extends BaseRepository {
                 GROUP BY DATE(start_time)";
         return $this->fetchAll($sql, [$userId], 'i');
     }
+
+    /**
+     * Получить сводку ручных тренировок по дням из workout_log
+     * Структура совместима с getWorkoutsSummary для слияния в StatsService
+     */
+    public function getWorkoutLogSummary($userId) {
+        $sql = "SELECT 
+                    wl.training_date as workout_date,
+                    COUNT(*) as workout_count,
+                    SUM(wl.distance_km) as total_distance,
+                    SUM(wl.duration_minutes) as total_duration,
+                    NULL as total_duration_seconds,
+                    SUBSTRING_INDEX(GROUP_CONCAT(wl.pace ORDER BY wl.id ASC), ',', 1) as avg_pace,
+                    AVG(wl.avg_heart_rate) as avg_hr,
+                    MIN(wl.id) as first_workout_id,
+                    SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(NULLIF(TRIM(LOWER(at.name)), ''), 'running') ORDER BY wl.id ASC), ',', 1) as activity_type
+                FROM workout_log wl
+                LEFT JOIN activity_types at ON wl.activity_type_id = at.id
+                WHERE wl.user_id = ? AND wl.is_completed = 1
+                GROUP BY wl.training_date";
+        return $this->fetchAll($sql, [$userId], 'i');
+    }
 }

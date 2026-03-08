@@ -28,7 +28,8 @@ export function getDateForDay(startDate, dayOfWeek) {
  * @returns {string} CSS класс
  */
 export function getTrainingClass(type, isKey = false) {
-  if (isKey) return 'key-session';
+  // Выделение только для контрольных; ключевые (tempo, interval, long и т.д.) больше не выделяются
+  if (type === 'control') return 'control';
   
   const classes = {
     rest: 'rest-day',
@@ -36,12 +37,12 @@ export function getTrainingClass(type, isKey = false) {
     interval: 'interval',
     tempo: 'tempo',
     easy: 'easy', // Легкий бег — зелёный (--workout-easy)
-    marathon: 'key-session',
+    marathon: 'long-run',
     control: 'control',
     free: 'free-training',
     other: '', // ОФП
     sbu: 'interval', // СБУ использует класс интервалов (оранжевый цвет)
-    race: 'key-session',
+    race: 'interval',
     fartlek: 'interval',
   };
   
@@ -301,7 +302,8 @@ export function getDayName(dayKey) {
 /** Типы бега — одна категория для сопоставления */
 const RUNNING_TYPES = ['easy', 'long', 'long-run', 'tempo', 'interval', 'fartlek', 'control', 'race', 'run', 'running'];
 
-function planTypeToCategory(type) {
+/** Маппинг типа плана в категорию активности (running, walking, hiking и т.д.) */
+export function planTypeToCategory(type) {
   if (!type) return null;
   const t = String(type).toLowerCase().trim();
   if (RUNNING_TYPES.includes(t)) return 'running';
@@ -314,7 +316,8 @@ function planTypeToCategory(type) {
   return t;
 }
 
-function workoutTypeToCategory(type) {
+/** Маппинг activity_type тренировки в категорию */
+export function workoutTypeToCategory(type) {
   if (!type) return 'running';
   const t = String(type).toLowerCase().trim();
   if (RUNNING_TYPES.includes(t)) return 'running';
@@ -405,4 +408,25 @@ export function getDayCompletionStatus(dateStr, planDayForDate, workoutsData, re
     return { status: 'completed' };
   }
   return { status: 'planned' };
+}
+
+/**
+ * Получить множество категорий активности (running, walking, hiking и т.д.) из плана на неделю.
+ * Если план беговой — только running. Если есть ходьба/поход — running + walking + hiking.
+ * @param {Object} week { start_date, days: { mon, tue, ... } }
+ * @returns {Set<string>} allowed categories
+ */
+export function getPlanWeekCategories(week) {
+  const categories = new Set();
+  if (!week?.days) return new Set(['running']);
+  Object.values(week.days).forEach((raw) => {
+    const items = Array.isArray(raw) ? raw : [raw];
+    items.forEach((item) => {
+      if (item && item.type !== 'rest' && item.type !== 'free') {
+        const cat = planTypeToCategory(item.type);
+        if (cat) categories.add(cat);
+      }
+    });
+  });
+  return categories.size > 0 ? categories : new Set(['running']);
 }

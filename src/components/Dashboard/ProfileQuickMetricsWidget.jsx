@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
+import LogoLoading from '../common/LogoLoading';
 import '../Dashboard/Dashboard.css';
 
 const ProfileQuickMetricsWidget = ({ api, viewContext = null, plan = null, progressDataMap = null, weekProgress = { completed: 0, total: 0 } }) => {
@@ -60,7 +61,7 @@ const ProfileQuickMetricsWidget = ({ api, viewContext = null, plan = null, progr
   if (loading && !stats) {
     return (
       <div className="dashboard-module-card dashboard-module-card--metrics">
-        <div className="profile-quick-metrics-loading">Загрузка...</div>
+        <div className="profile-quick-metrics-loading"><LogoLoading size="sm" /></div>
       </div>
     );
   }

@@ -94,6 +94,7 @@ alwaysApply: true
 | **WorkoutDetailsModal** | DayModal, UserProfileScreen, StatsScreen |
 | **LockScreen** | App (при isLocked) |
 | **Modal** | ResultModal, AddTrainingModal, DayModal, и др. |
+| **LogoLoading** | App, DayModal, WorkoutDetailsModal, UserProfileScreen, AddTrainingModal, DashboardStatsWidget, ProfileQuickMetricsWidget, WeekCalendar, RouteMap, AdminScreen |
 | **Icons** | Day, Week, WorkoutCard, AddTrainingModal, ResultModal, MonthlyCalendar, Dashboard, и др. |
 
 ---
@@ -180,6 +181,7 @@ alwaysApply: true
 | **TrainingPlanService.php** | TrainingPlanController; ChatService (tools) |
 | **workoutFormUtils.js** | AddTrainingModal, ResultModal, WorkoutDetailsModal |
 | **Modal.jsx** | AddTrainingModal, ResultModal, WorkoutDetailsModal, DayModal, и все модалки через `<Modal>` |
+| **LogoLoading.jsx** | App, DayModal, WorkoutDetailsModal, UserProfileScreen, AddTrainingModal, DashboardStatsWidget, ProfileQuickMetricsWidget, WeekCalendar, RouteMap, AdminScreen |
 
 ---
 

@@ -164,6 +164,7 @@ alwaysApply: true
 - **WeekCalendar** импортирует: WorkoutCard, WeekCalendarIcons
 - **Week** импортирует: Day
 - **Day** импортирует: calendarHelpers, Icons
+- **App** импортирует: LogoLoading (loading state)
 - **ResultModal** импортирует: Modal, Icons, workoutFormUtils
 - **AddTrainingModal** импортирует: Modal, Icons, workoutFormUtils
 - **WorkoutDetailsModal** импортирует: Modal, workoutFormUtils, HeartRateChart, PaceChart, WorkoutShareCard

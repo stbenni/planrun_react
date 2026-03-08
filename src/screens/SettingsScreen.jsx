@@ -14,7 +14,7 @@ import { isNativeCapacitor } from '../services/TokenStorageService';
 import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon } from '../components/common/Icons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon } from '../components/common/Icons';
 import './SettingsScreen.css';
 
 function getSystemTheme() {
@@ -41,7 +41,7 @@ const SettingsScreen = ({ onLogout }) => {
   const isTabActive = useIsTabActive('/settings');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { api, updateUser } = useAuthStore();
+  const { api, updateUser, user: currentUser } = useAuthStore();
   const tabFromUrl = searchParams.get('tab');
   const initialTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'profile';
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -59,6 +59,15 @@ const SettingsScreen = ({ onLogout }) => {
   const [pinDisabling, setPinDisabling] = useState(false);
   const [showPinSetupModal, setShowPinSetupModal] = useState(false);
   const [pinSetupTokens, setPinSetupTokens] = useState(null);
+  // Мои тренеры
+  const [myCoaches, setMyCoaches] = useState([]);
+  const [myCoachesLoading, setMyCoachesLoading] = useState(false);
+  const [removingCoachId, setRemovingCoachId] = useState(null);
+  // Стоимость услуг (для тренеров)
+  const [coachPricing, setCoachPricing] = useState([]);
+  const [coachPricingLoading, setCoachPricingLoading] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
+
   const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false });
   const [huaweiSyncing, setHuaweiSyncing] = useState(false);
   const [stravaSyncing, setStravaSyncing] = useState(false);
@@ -141,6 +150,23 @@ const SettingsScreen = ({ onLogout }) => {
     push_workout_minute: 0,
   });
 
+  // Общая функция синхронизации Strava (используется в OAuth callback, кнопке "Синхр." и connect handler)
+  const runStravaSync = async (apiClient) => {
+    setMessage({ type: 'success', text: 'Strava успешно подключен. Синхронизация...' });
+    setStravaSyncing(true);
+    try {
+      const res = await apiClient.syncWorkouts('strava');
+      const imported = res?.data?.imported ?? res?.imported ?? 0;
+      setMessage({ type: 'success', text: `Strava подключен. Синхронизировано: ${imported} тренировок` });
+      useWorkoutRefreshStore.getState().triggerRefresh();
+      setTimeout(() => setMessage({ type: '', text: '' }), 4000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Strava подключен, но ошибка синхронизации: ' + (err?.message || '') });
+    } finally {
+      setStravaSyncing(false);
+    }
+  };
+
   // Синхронизация вкладки с URL (при переходе по ссылке с ?tab=)
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab');
@@ -158,9 +184,20 @@ const SettingsScreen = ({ onLogout }) => {
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } else if (connected === 'strava') {
       setIntegrationsStatus(prev => ({ ...prev, strava: true }));
+      setSearchParams({ tab: 'integrations' });
+      // Fallback: если OAuth callback открылся в этой вкладке (попап был заблокирован)
+      let currentApi = api || useAuthStore.getState().api;
+      if (!currentApi) {
+        setTimeout(async () => {
+          currentApi = useAuthStore.getState().api;
+          if (currentApi) runStravaSync(currentApi);
+        }, 1000);
+      } else {
+        runStravaSync(currentApi);
+      }
     } else if (connected === 'polar') {
       setIntegrationsStatus(prev => ({ ...prev, polar: true }));
-      setMessage({ type: 'success', text: 'Strava успешно подключен' });
+      setMessage({ type: 'success', text: 'Polar успешно подключен' });
       setSearchParams({ tab: 'integrations' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } else if (errorParam) {
@@ -838,6 +875,74 @@ const SettingsScreen = ({ onLogout }) => {
       return { ...prev, ...updates };
     });
   };
+
+  // Загрузка моих тренеров
+  const loadMyCoaches = async () => {
+    if (!api) return;
+    setMyCoachesLoading(true);
+    try {
+      const res = await api.getMyCoaches();
+      const data = res?.data ?? res;
+      setMyCoaches(Array.isArray(data?.coaches) ? data.coaches : []);
+    } catch {} finally { setMyCoachesLoading(false); }
+  };
+
+  const handleRemoveCoach = async (coachId) => {
+    if (!api || !window.confirm('Отвязать тренера?')) return;
+    setRemovingCoachId(coachId);
+    try {
+      await api.removeCoach({ coachId });
+      setMyCoaches(prev => prev.filter(c => c.id !== coachId));
+    } catch (e) {
+      setMessage({ type: 'error', text: e.message || 'Ошибка' });
+    } finally { setRemovingCoachId(null); }
+  };
+
+  // Загрузка стоимости для тренеров
+  const loadCoachPricing = async () => {
+    if (!api) return;
+    setCoachPricingLoading(true);
+    try {
+      const res = await api.getCoachPricing();
+      const data = res?.data ?? res;
+      setCoachPricing(Array.isArray(data?.pricing) ? data.pricing : []);
+    } catch {} finally { setCoachPricingLoading(false); }
+  };
+
+  const handleAddPricingItem = () => {
+    setCoachPricing(prev => [...prev, { id: `new_${Date.now()}`, type: 'individual', label: '', price: '', currency: 'RUB', period: 'month' }]);
+  };
+
+  const handlePricingChange = (idx, field, value) => {
+    setCoachPricing(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p));
+  };
+
+  const handleRemovePricingItem = (idx) => {
+    setCoachPricing(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSavePricing = async () => {
+    if (!api) return;
+    setSavingPricing(true);
+    try {
+      await api.updateCoachPricing(coachPricing.map(p => ({
+        type: p.type, label: p.label, price: p.price || null, currency: p.currency, period: p.period,
+      })));
+      setMessage({ type: 'success', text: 'Стоимость сохранена' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } catch (e) {
+      setMessage({ type: 'error', text: e.message || 'Ошибка сохранения' });
+    } finally { setSavingPricing(false); }
+  };
+
+  // Загрузка тренеров/цен при переходе на вкладку social
+  useEffect(() => {
+    if (activeTab === 'social' && api) {
+      loadMyCoaches();
+      const role = currentUser?.role;
+      if (role === 'coach' || role === 'admin') loadCoachPricing();
+    }
+  }, [activeTab, api]);
 
   const daysOfWeek = [
     { value: 'mon', label: 'Пн' },
@@ -1917,6 +2022,110 @@ const SettingsScreen = ({ onLogout }) => {
                 </div>
               )}
             </div>
+
+            {/* Мои тренеры */}
+            <div className="settings-section">
+              <h2><GraduationCapIcon size={22} className="section-icon" aria-hidden /> Мои тренеры</h2>
+              {myCoachesLoading ? (
+                <p className="settings-loading-text">Загрузка...</p>
+              ) : myCoaches.length === 0 ? (
+                <p className="form-hint">У вас пока нет тренеров</p>
+              ) : (
+                <div className="settings-coaches-list">
+                  {myCoaches.map((coach) => (
+                    <div key={coach.id} className="settings-coach-item">
+                      <div className="settings-coach-info">
+                        <strong>{coach.username}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={removingCoachId === coach.id}
+                        onClick={() => handleRemoveCoach(coach.id)}
+                      >
+                        {removingCoachId === coach.id ? '...' : 'Отвязать'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Стоимость услуг (для тренеров) */}
+            {(currentUser?.role === 'coach' || currentUser?.role === 'admin') && (
+              <div className="settings-section">
+                <h2>Стоимость услуг</h2>
+                <p className="form-hint">Укажите ваши тарифы для учеников</p>
+                {coachPricingLoading ? (
+                  <p className="settings-loading-text">Загрузка...</p>
+                ) : (
+                  <>
+                    {coachPricing.map((item, idx) => (
+                      <div key={item.id || idx} className="settings-pricing-item">
+                        <div className="settings-pricing-row">
+                          <select
+                            value={item.type}
+                            onChange={(e) => handlePricingChange(idx, 'type', e.target.value)}
+                          >
+                            <option value="individual">Индивидуально</option>
+                            <option value="group">Группа</option>
+                            <option value="consultation">Консультация</option>
+                            <option value="custom">Другое</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Название"
+                            value={item.label}
+                            onChange={(e) => handlePricingChange(idx, 'label', e.target.value)}
+                          />
+                        </div>
+                        <div className="settings-pricing-row">
+                          <input
+                            type="number"
+                            placeholder="Цена"
+                            value={item.price || ''}
+                            onChange={(e) => handlePricingChange(idx, 'price', e.target.value)}
+                            style={{ width: '120px' }}
+                          />
+                          <select
+                            value={item.period}
+                            onChange={(e) => handlePricingChange(idx, 'period', e.target.value)}
+                          >
+                            <option value="month">В месяц</option>
+                            <option value="week">В неделю</option>
+                            <option value="one_time">Разово</option>
+                            <option value="custom">Другое</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="btn-icon-remove"
+                            onClick={() => handleRemovePricingItem(idx)}
+                            title="Удалить"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="settings-pricing-actions">
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddPricingItem}>
+                        + Добавить тариф
+                      </button>
+                      {coachPricing.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          disabled={savingPricing}
+                          onClick={handleSavePricing}
+                        >
+                          {savingPricing ? 'Сохранение...' : 'Сохранить'}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -2095,10 +2304,32 @@ const SettingsScreen = ({ onLogout }) => {
                     const currentApi = api || useAuthStore.getState().api;
                     if (!currentApi) return;
                     try {
-                      const res = await currentApi.getIntegrationOAuthUrl('strava');
+                      const native = isNativeCapacitor();
+                      const res = await currentApi.getIntegrationOAuthUrl('strava', native ? { from_app: '1' } : {});
                       const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (url) window.location.href = url;
-                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                      if (!url) { setMessage({ type: 'error', text: 'Провайдер не настроен' }); return; }
+                      if (native) {
+                        // Android: In-App Browser → OAuth → deep link planrun:// вернёт в приложение
+                        // Callback обработается через App.jsx → appUrlOpen → redirect на /settings?connected=...
+                        // → существующий useEffect OAuth callback в этом компоненте запустит runStravaSync
+                        const { Browser } = await import('@capacitor/browser');
+                        await Browser.open({ url });
+                      } else {
+                        // Web: новая вкладка + поллинг статуса подключения
+                        window.open(url, '_blank');
+                        const pollStatus = setInterval(async () => {
+                          try {
+                            const statusRes = await currentApi.getIntegrationsStatus();
+                            const isConnected = statusRes?.data?.integrations?.strava ?? statusRes?.integrations?.strava ?? false;
+                            if (isConnected) {
+                              clearInterval(pollStatus);
+                              setIntegrationsStatus(prev => ({ ...prev, strava: true }));
+                              runStravaSync(currentApi);
+                            }
+                          } catch {}
+                        }, 3000);
+                        setTimeout(() => clearInterval(pollStatus), 300000);
+                      }
                     } catch (e) {
                       setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
                     }

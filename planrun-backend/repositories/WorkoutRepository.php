@@ -12,11 +12,13 @@ class WorkoutRepository extends BaseRepository {
      */
     public function getAllResults($userId) {
         // Оптимизированный запрос: используем индекс по user_id и training_date
-        $sql = "SELECT training_date, week_number, day_name, result_time, distance_km as result_distance, 
-                pace as result_pace, notes, created_at as completed_at 
-                FROM workout_log 
-                WHERE user_id = ? AND (result_time IS NOT NULL OR notes IS NOT NULL) 
-                ORDER BY training_date DESC
+        $sql = "SELECT wl.training_date, wl.week_number, wl.day_name, wl.result_time, wl.distance_km as result_distance, 
+                wl.pace as result_pace, wl.notes, wl.created_at as completed_at,
+                LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) as activity_type
+                FROM workout_log wl
+                LEFT JOIN activity_types at ON wl.activity_type_id = at.id
+                WHERE wl.user_id = ? AND wl.is_completed = 1 
+                ORDER BY wl.training_date DESC
                 LIMIT 1000";
         return $this->fetchAll($sql, [$userId], 'i');
     }

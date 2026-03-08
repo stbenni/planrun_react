@@ -89,12 +89,13 @@ class WeekController extends BaseController {
         if (!$this->requireAuth() || !$this->requireEdit()) {
             return;
         }
-        
+
         $this->checkCsrfToken();
-        
+
         try {
             $data = $this->getJsonBody();
-            $result = $this->weekService->addTrainingDayByDate($data, $this->currentUserId);
+            $result = $this->weekService->addTrainingDayByDate($data, $this->calendarUserId);
+            $this->notifyAthleteIfCoach('add', $data['date'] ?? null);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -118,11 +119,12 @@ class WeekController extends BaseController {
                 $this->returnError('day_id обязателен', 400);
                 return;
             }
-            $result = $this->weekService->updateTrainingDayById((int) $dayId, $this->currentUserId, [
+            $result = $this->weekService->updateTrainingDayById((int) $dayId, $this->calendarUserId, [
                 'type' => $data['type'] ?? null,
                 'description' => $data['description'] ?? null,
                 'is_key_workout' => isset($data['is_key_workout']) ? (int) (bool) $data['is_key_workout'] : null,
             ]);
+            $this->notifyAthleteIfCoach('update');
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -146,7 +148,60 @@ class WeekController extends BaseController {
                 $this->returnError('day_id обязателен', 400);
                 return;
             }
-            $result = $this->weekService->deleteTrainingDayById((int) $dayId, $this->currentUserId);
+            $result = $this->weekService->deleteTrainingDayById((int) $dayId, $this->calendarUserId);
+            $this->notifyAthleteIfCoach('delete');
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Скопировать тренировки с одной даты на другую.
+     * POST /api_v2.php?action=copy_day
+     * Body: { "source_date": "Y-m-d", "target_date": "Y-m-d" }
+     */
+    public function copyDay() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+        $this->checkCsrfToken();
+        try {
+            $data = $this->getJsonBody();
+            $sourceDate = $data['source_date'] ?? null;
+            $targetDate = $data['target_date'] ?? null;
+            if (!$sourceDate || !$targetDate) {
+                $this->returnError('source_date и target_date обязательны', 400);
+                return;
+            }
+            $result = $this->weekService->copyDay($sourceDate, $targetDate, $this->calendarUserId);
+            $this->notifyAthleteIfCoach('copy', $targetDate);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Скопировать неделю тренировок.
+     * POST /api_v2.php?action=copy_week
+     * Body: { "source_week_id": 123, "target_start_date": "Y-m-d" (понедельник) }
+     */
+    public function copyWeek() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+        $this->checkCsrfToken();
+        try {
+            $data = $this->getJsonBody();
+            $sourceWeekId = $data['source_week_id'] ?? null;
+            $targetStartDate = $data['target_start_date'] ?? null;
+            if (!$sourceWeekId || !$targetStartDate) {
+                $this->returnError('source_week_id и target_start_date обязательны', 400);
+                return;
+            }
+            $result = $this->weekService->copyWeek((int) $sourceWeekId, $targetStartDate, $this->calendarUserId);
+            $this->notifyAthleteIfCoach('copy', $targetStartDate);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);

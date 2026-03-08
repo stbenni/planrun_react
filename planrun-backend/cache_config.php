@@ -164,7 +164,7 @@ class FileCache extends CacheInterface {
             return null;
         }
         
-        $data = unserialize(file_get_contents($file));
+        $data = unserialize(file_get_contents($file), ['allowed_classes' => false]);
         
         // Проверяем TTL
         if ($data['expires'] < time()) {
@@ -280,7 +280,7 @@ class Cache {
         if ($cache instanceof FileCache) {
             $files = glob(__DIR__ . '/cache/**/*.cache');
             foreach ($files as $file) {
-                $content = unserialize(file_get_contents($file));
+                $content = unserialize(file_get_contents($file), ['allowed_classes' => false]);
                 if (isset($content['key']) && fnmatch($pattern, $content['key'])) {
                     @unlink($file);
                 }

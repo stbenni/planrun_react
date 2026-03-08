@@ -1,11 +1,17 @@
 /**
- * График скорости по времени (км/ч).
- * Понятнее темпа: выше = быстрее, ниже = медленнее.
+ * График темпа по времени (мин/км).
+ * Выше = быстрее (меньше мин/км), ниже = медленнее.
  */
 
 import React, { useMemo, useState, useRef } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { ZapIcon } from '../common/Icons';
+
+const formatPaceFromSeconds = (seconds) => {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
 
 const PaceChart = ({ timeline }) => {
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -17,7 +23,7 @@ const PaceChart = ({ timeline }) => {
       return null;
     }
 
-    // Темп (мин/км) → скорость (км/ч): speed = 60 / pace
+    // Темп (мин/км) — храним в секундах для расчётов
     const dataPoints = timeline
       .map((point, index) => {
         if (!point.pace) return null;
@@ -26,13 +32,12 @@ const PaceChart = ({ timeline }) => {
         const mins = parseInt(paceParts[0], 10);
         const secs = parseInt(paceParts[1], 10);
         if (isNaN(mins) || isNaN(secs)) return null;
-        const paceInMinutes = mins + secs / 60;
-        if (paceInMinutes <= 0) return null;
-        const speedKmh = 60 / paceInMinutes;
+        const paceSeconds = mins * 60 + secs;
+        if (paceSeconds <= 0) return null;
         return {
           index,
           timestamp: point.timestamp,
-          speed: Math.min(speedKmh, 25),
+          paceSeconds,
           paceString: point.pace
         };
       })
@@ -46,20 +51,20 @@ const PaceChart = ({ timeline }) => {
     if (dataPoints.length > 1) sampledIndices.add(dataPoints.length - 1);
     const sampledData = dataPoints.filter((_, i) => sampledIndices.has(i));
 
-    const minSpeed = Math.min(...sampledData.map(d => d.speed));
-    const maxSpeed = Math.max(...sampledData.map(d => d.speed));
-    const speedRange = maxSpeed - minSpeed || 0.5;
+    const minPace = Math.min(...sampledData.map(d => d.paceSeconds));
+    const maxPace = Math.max(...sampledData.map(d => d.paceSeconds));
+    const paceRange = maxPace - minPace || 30;
     const paddingPercent = 0.05;
-    const adjustedMinSpeed = Math.max(0, minSpeed - speedRange * paddingPercent);
-    const adjustedMaxSpeed = maxSpeed + speedRange * paddingPercent;
-    const adjustedRange = adjustedMaxSpeed - adjustedMinSpeed;
+    const adjustedMinPace = Math.max(60, minPace - paceRange * paddingPercent);
+    const adjustedMaxPace = maxPace + paceRange * paddingPercent;
+    const adjustedRange = adjustedMaxPace - adjustedMinPace;
 
     return {
       data: sampledData,
-      minSpeed,
-      maxSpeed,
-      adjustedMinSpeed,
-      adjustedMaxSpeed,
+      minPace,
+      maxPace,
+      adjustedMinPace,
+      adjustedMaxPace,
       adjustedRange,
       startTime: new Date(dataPoints[0].timestamp),
       endTime: new Date(dataPoints[dataPoints.length - 1].timestamp)
@@ -86,9 +91,9 @@ const PaceChart = ({ timeline }) => {
     return margin.left + ((time - start) / range) * chartWidth;
   };
 
-  // Ось Y: скорость (км/ч). Выше на графике = быстрее
-  const speedScale = (speed) => {
-    return margin.top + ((chartData.adjustedMaxSpeed - speed) / chartData.adjustedRange) * chartHeight;
+  // Ось Y: темп (сек/км). Выше на графике = быстрее (меньше мин/км)
+  const paceScale = (paceSeconds) => {
+    return margin.top + ((paceSeconds - chartData.adjustedMinPace) / chartData.adjustedRange) * chartHeight;
   };
 
   // Обратная функция для получения значения по X координате
@@ -139,7 +144,7 @@ const PaceChart = ({ timeline }) => {
     const scaleX = rect.width / viewBoxWidth;
     
     const x = timeScale(point.timestamp) * scaleX;
-    const y = speedScale(point.speed) * (rect.height / viewBoxHeight);
+    const y = paceScale(point.paceSeconds) * (rect.height / viewBoxHeight);
     
     const time = new Date(point.timestamp);
     const hours = String(time.getHours()).padStart(2, '0');
@@ -149,7 +154,7 @@ const PaceChart = ({ timeline }) => {
     setTooltip({
       x: rect.left + x,
       y: rect.top + y,
-      value: point.speed.toFixed(1),
+      value: formatPaceFromSeconds(point.paceSeconds),
       time: `${hours}:${minutes}:${seconds}`,
       point: point
     });
@@ -162,22 +167,22 @@ const PaceChart = ({ timeline }) => {
   // Формируем путь для графика (линия продлевается до правого края, чтобы не было пустого отступа)
   const chartRight = margin.left + chartWidth;
   const lastPoint = chartData.data[chartData.data.length - 1];
-  const lastY = lastPoint ? speedScale(lastPoint.speed) : margin.top + chartHeight / 2;
+  const lastY = lastPoint ? paceScale(lastPoint.paceSeconds) : margin.top + chartHeight / 2;
   const pathData = chartData.data
     .map((point, index) => {
       const x = timeScale(point.timestamp);
-      const y = speedScale(point.speed);
+      const y = paceScale(point.paceSeconds);
       return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
     })
     .join(' ') + (lastPoint ? ` L ${chartRight} ${lastY}` : '');
 
-  // Метки оси Y — скорость (км/ч)
+  // Метки оси Y — темп (мин/км)
   const yAxisLabels = [];
   const yAxisSteps = 5;
   for (let i = 0; i <= yAxisSteps; i++) {
-    const speedValue = chartData.adjustedMinSpeed + (chartData.adjustedRange / yAxisSteps) * i;
-    const y = speedScale(speedValue);
-    yAxisLabels.push({ value: speedValue.toFixed(1), y });
+    const paceValue = chartData.adjustedMinPace + (chartData.adjustedRange / yAxisSteps) * i;
+    const y = paceScale(paceValue);
+    yAxisLabels.push({ value: formatPaceFromSeconds(paceValue), y });
   }
 
   // Формируем метки для оси X (время) - умное распределение
@@ -223,11 +228,11 @@ const PaceChart = ({ timeline }) => {
     }
   });
 
-  const avgSpeed = chartData.data.reduce((sum, d) => sum + d.speed, 0) / chartData.data.length;
+  const avgPaceSeconds = chartData.data.reduce((sum, d) => sum + d.paceSeconds, 0) / chartData.data.length;
 
   return (
     <div className="workout-chart-container">
-      <div className="workout-chart-title"><ZapIcon size={20} className="workout-chart-title-icon" aria-hidden /> Скорость по времени</div>
+      <div className="workout-chart-title"><ZapIcon size={20} className="workout-chart-title-icon" aria-hidden /> Темп по времени</div>
       <div className="workout-chart-wrapper">
         <svg 
           ref={svgRef}
@@ -348,7 +353,7 @@ const PaceChart = ({ timeline }) => {
               <circle
                 className="workout-chart-marker"
                 cx={timeScale(tooltip.point.timestamp)}
-                cy={speedScale(tooltip.point.speed)}
+                cy={paceScale(tooltip.point.paceSeconds)}
                 r="4"
                 fill="var(--primary-500)"
                 strokeWidth="2"
@@ -368,14 +373,14 @@ const PaceChart = ({ timeline }) => {
             }}
           >
             <div className="tooltip-time">{tooltip.time}</div>
-            <div className="tooltip-value">{tooltip.value} км/ч</div>
+            <div className="tooltip-value">{tooltip.value} /км</div>
           </div>
         )}
       </div>
       <div className="workout-chart-legend">
-        <span>Мин: {chartData.minSpeed.toFixed(1)} км/ч</span>
-        <span>Макс: {chartData.maxSpeed.toFixed(1)} км/ч</span>
-        <span>Средняя: {avgSpeed.toFixed(1)} км/ч</span>
+        <span>Мин: {formatPaceFromSeconds(chartData.minPace)} /км</span>
+        <span>Макс: {formatPaceFromSeconds(chartData.maxPace)} /км</span>
+        <span>Средний: {formatPaceFromSeconds(avgPaceSeconds)} /км</span>
       </div>
     </div>
   );

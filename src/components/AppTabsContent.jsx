@@ -12,15 +12,20 @@ import StatsScreen from '../screens/StatsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import TrainersScreen from '../screens/TrainersScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import AthletesOverviewScreen from '../screens/AthletesOverviewScreen';
 import useAuthStore from '../stores/useAuthStore';
 
 const AdminScreen = lazy(() => import('../screens/AdminScreen'));
+const ApplyCoachForm = lazy(() => import('./Trainers/ApplyCoachForm'));
 
 const AppTabsContent = ({ onLogout }) => {
   const location = useLocation();
   const { user } = useAuthStore();
   const pathname = location.pathname;
-  const isAdmin = user?.role === 'admin';
+  const role = user?.role || 'user';
+  const isAdmin = role === 'admin';
+  const isCoach = role === 'coach';
+  const isApplyCoach = pathname === '/trainers/apply';
 
   const isActive = (path) => {
     if (path === '/') return pathname === '/' || pathname === '/dashboard';
@@ -30,7 +35,7 @@ const AppTabsContent = ({ onLogout }) => {
   return (
     <div className="app-tabs-content">
       <div className={`app-tab-pane ${isActive('/') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/')}>
-        <DashboardScreen />
+        {isCoach ? <AthletesOverviewScreen /> : <DashboardScreen />}
       </div>
       <div className={`app-tab-pane ${isActive('/calendar') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/calendar')}>
         <CalendarScreen />
@@ -42,7 +47,13 @@ const AppTabsContent = ({ onLogout }) => {
         <ChatScreen />
       </div>
       <div className={`app-tab-pane ${isActive('/trainers') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/trainers')}>
-        <TrainersScreen />
+        {isApplyCoach ? (
+          <Suspense fallback={<SkeletonScreen type="default" />}>
+            <ApplyCoachForm />
+          </Suspense>
+        ) : (
+          <TrainersScreen />
+        )}
       </div>
       <div className={`app-tab-pane ${isActive('/settings') ? 'app-tab-pane--active' : ''}`} aria-hidden={!isActive('/settings')}>
         <SettingsScreen onLogout={onLogout} />

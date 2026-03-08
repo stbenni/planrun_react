@@ -3,8 +3,8 @@
  * Графики, метрики, прогресс, достижения
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePreloadStore from '../stores/usePreloadStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
@@ -29,15 +29,36 @@ import './StatsScreen.css';
 
 const StatsScreen = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isTabActive = useIsTabActive('/stats');
   const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
   const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
   const { api, user } = useAuthStore();
+  const role = user?.role || 'user';
+  const isCoach = role === 'coach' || role === 'admin';
   const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
   const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
+
+  // Coach: athlete selector via ?athlete=slug
+  const athleteSlug = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('athlete') || null;
+  }, [location.search]);
+
+  const viewContext = useMemo(() => {
+    return athleteSlug ? { slug: athleteSlug } : null;
+  }, [athleteSlug]);
+
+  const [coachAthletes, setCoachAthletes] = useState([]);
+  useEffect(() => {
+    if (!isCoach || !api) return;
+    api.getCoachAthletes().then(res => {
+      setCoachAthletes(res?.data?.athletes || res?.athletes || []);
+    }).catch(() => {});
+  }, [isCoach, api]);
 
   useEffect(() => {
     const isStats = location.pathname === '/stats' || location.pathname.startsWith('/stats');
@@ -55,10 +76,10 @@ const StatsScreen = () => {
       if (!silent) setLoading(true);
       
       const [summaryRes, listRes, resultsRes, planRes] = await Promise.allSettled([
-        api.getAllWorkoutsSummary(),
-        api.getAllWorkoutsList(null, 500),
-        api.getAllResults(),
-        api.getPlan(),
+        api.getAllWorkoutsSummary(viewContext),
+        api.getAllWorkoutsList(viewContext, 500),
+        api.getAllResults(viewContext),
+        api.getPlan(null, viewContext),
       ]);
 
       let workoutsData = { workouts: {} };
@@ -91,7 +112,7 @@ const StatsScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, viewContext]);
 
   const stats = React.useMemo(() => {
     if (!rawData) return null;
@@ -118,6 +139,16 @@ const StatsScreen = () => {
       setLoading(false);
     }
   }, [api, isTabActive, preloadTriggered, loadRawData]);
+
+  // Reload when athlete selection changes
+  const prevAthleteRef = useRef(athleteSlug);
+  useEffect(() => {
+    if (prevAthleteRef.current !== athleteSlug && api) {
+      prevAthleteRef.current = athleteSlug;
+      setRawData(null);
+      loadRawData();
+    }
+  }, [athleteSlug, api, loadRawData]);
 
   useEffect(() => {
     if (workoutRefreshVersion <= 0 || !api) return;
@@ -194,6 +225,29 @@ const StatsScreen = () => {
 
   return (
     <div className="stats-screen">
+      {isCoach && coachAthletes.length > 0 && (
+        <div className="coach-athlete-selector">
+          <select
+            className="coach-athlete-selector__select"
+            value={athleteSlug || ''}
+            onChange={e => {
+              const slug = e.target.value;
+              navigate(slug ? `/stats?athlete=${slug}` : '/stats', { replace: true });
+            }}
+          >
+            <option value="">Моя статистика</option>
+            {coachAthletes.map(a => (
+              <option key={a.id} value={a.username_slug}>{a.username}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {athleteSlug && (
+        <div className="coach-mode-banner">
+          <span className="coach-mode-banner__label">Режим тренера</span>
+          <span className="coach-mode-banner__name">{coachAthletes.find(a => a.username_slug === athleteSlug)?.username || athleteSlug}</span>
+        </div>
+      )}
       <div className="stats-tabs">
         <button 
           className={`stats-tab ${activeTab === 'overview' ? 'active' : ''}`}

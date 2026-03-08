@@ -19,12 +19,26 @@ import DashboardStatsWidget from '../components/Dashboard/DashboardStatsWidget';
 import ProfileQuickMetricsWidget from '../components/Dashboard/ProfileQuickMetricsWidget';
 import DayModal from '../components/Calendar/DayModal';
 import { RecentWorkoutsList, WorkoutDetailsModal } from '../components/Stats';
+import LogoLoading from '../components/common/LogoLoading';
 import { processStatsData } from '../components/Stats/StatsUtils';
+import { getPlanDayForDate, getDayCompletionStatus, planTypeToCategory, workoutTypeToCategory } from '../utils/calendarHelpers';
 import { TargetIcon, SettingsIcon, GraduationCapIcon, MessageCircleIcon, BotIcon } from '../components/common/Icons';
 import '../components/Dashboard/Dashboard.css';
 import '../components/common/PageTransition.css';
 import './StatsScreen.css';
 import './UserProfileScreen.css';
+
+const SPEC_LABELS = {
+  marathon: 'Марафон',
+  half_marathon: 'Полумарафон',
+  '5k_10k': '5К / 10К',
+  ultra: 'Ультра',
+  trail: 'Трейл',
+  beginner: 'Новичкам',
+  injury_recovery: 'Восстановление',
+  nutrition: 'Питание',
+  mental: 'Ментальная подготовка',
+};
 
 const GOAL_TYPE_LABELS = {
   health: 'Здоровье',
@@ -79,8 +93,14 @@ const UserProfileScreen = () => {
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [requestingCoach, setRequestingCoach] = useState(false);
+  const [coachRequested, setCoachRequested] = useState(false);
+  const [coachRequestError, setCoachRequestError] = useState('');
 
   useEffect(() => {
+    let intervalId = null;
+    let cancelled = false;
+
     const loadUserProfile = async () => {
       if (!username) {
         setLoading(false);
@@ -95,20 +115,23 @@ const UserProfileScreen = () => {
       if (!currentApi) {
         let attempts = 0;
         const maxAttempts = 50;
-        
-        const checkInterval = setInterval(() => {
+
+        intervalId = setInterval(() => {
+          if (cancelled) { clearInterval(intervalId); return; }
           attempts++;
           const storeApi = useAuthStore.getState().api;
           if (storeApi) {
-            clearInterval(checkInterval);
+            clearInterval(intervalId);
             loadUserProfile();
           } else if (attempts >= maxAttempts) {
-            clearInterval(checkInterval);
-            setError('API не инициализирован. Попробуйте обновить страницу.');
-            setLoading(false);
+            clearInterval(intervalId);
+            if (!cancelled) {
+              setError('API не инициализирован. Попробуйте обновить страницу.');
+              setLoading(false);
+            }
           }
         }, 100);
-        
+
         return;
       }
 
@@ -136,6 +159,10 @@ const UserProfileScreen = () => {
     };
 
     loadUserProfile();
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [api, username, token]);
 
   const viewContext = React.useMemo(() => {
@@ -190,51 +217,108 @@ const UserProfileScreen = () => {
       setProfileStats(processed);
       setProfilePlan(plan);
 
-      const progressMap = {};
+      const resultsData = {};
       (allResults?.results || []).forEach((r) => {
-        if (r.training_date) progressMap[r.training_date] = true;
+        if (r?.training_date) {
+          if (!resultsData[r.training_date]) resultsData[r.training_date] = [];
+          resultsData[r.training_date].push(r);
+        }
       });
-      Object.entries(workoutsData?.workouts || {}).forEach(([date, d]) => {
-        if (d && (d.distance || d.duration || d.duration_seconds)) progressMap[date] = true;
+      const workoutsListByDate = {};
+      (workoutsList || []).forEach((w) => {
+        const d = w.date ?? w.start_time?.split?.('T')?.[0];
+        if (d) {
+          if (!workoutsListByDate[d]) workoutsListByDate[d] = [];
+          workoutsListByDate[d].push(w);
+        }
+      });
+      const summaryWorkouts = workoutsData?.workouts || {};
+      const allDates = new Set([...Object.keys(resultsData), ...Object.keys(workoutsListByDate), ...Object.keys(summaryWorkouts)]);
+      const progressMap = {};
+      allDates.forEach((dateStr) => {
+        const planDay = plan ? getPlanDayForDate(dateStr, plan) : null;
+        const status = getDayCompletionStatus(dateStr, planDay, summaryWorkouts, resultsData, workoutsListByDate);
+        if (status.status === 'completed') progressMap[dateStr] = true;
       });
       setProgressDataMap(progressMap);
 
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
-      const weeksData = plan?.weeks_data;
+      const weeksData = plan?.weeks_data ?? plan?.weeks ?? plan?.phases?.[0]?.weeks ?? [];
+      const addDays = (dateStr, days) => {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const d2 = new Date(Date.UTC(y, m - 1, d + days));
+        return d2.toISOString().split('T')[0];
+      };
+      const getMondayOfWeek = (date) => {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d);
+        monday.setDate(diff);
+        return monday.toISOString().split('T')[0];
+      };
+      const getDayItems = (dayData) => {
+        if (!dayData) return [];
+        const arr = Array.isArray(dayData) ? dayData : [dayData];
+        return arr.filter((d) => d && d.type !== 'rest' && d.type !== 'free');
+      };
       let wp = { completed: 0, total: 0 };
-      if (weeksData && Array.isArray(weeksData)) {
-        const addDays = (dateStr, days) => {
-          const [y, m, d] = dateStr.split('-').map(Number);
-          const d2 = new Date(Date.UTC(y, m - 1, d + days));
-          return d2.toISOString().split('T')[0];
-        };
-        const getDayItems = (dayData) => {
-          if (!dayData) return [];
-          const arr = Array.isArray(dayData) ? dayData : [dayData];
-          return arr.filter((d) => d && d.type !== 'rest' && d.type !== 'free');
-        };
+      let weekStartStr = null;
+      let endDateStr = null;
+      let currentWeek = null;
+      if (Array.isArray(weeksData) && weeksData.length > 0) {
         for (const week of weeksData) {
-          if (!week.start_date || !week.days) continue;
-          const endDateStr = addDays(week.start_date, 6);
-          if (todayStr >= week.start_date && todayStr <= endDateStr) {
-            const weekStart = new Date(week.start_date + 'T00:00:00');
-            const weekEnd = new Date(endDateStr + 'T23:59:59');
-            let completed = 0;
-            (allResults?.results || []).forEach((r) => {
-              if (r.training_date) {
-                const resultDate = new Date(r.training_date);
-                if (resultDate >= weekStart && resultDate <= weekEnd) completed++;
-              }
-            });
-            let total = 0;
-            Object.values(week.days || {}).forEach((dayData) => {
-              total += getDayItems(dayData).length;
-            });
-            wp = { completed, total };
+          const start = week?.start_date ?? week?.startDate;
+          if (!start || !week?.days) continue;
+          const end = addDays(start, 6);
+          if (todayStr >= start && todayStr <= end) {
+            weekStartStr = start;
+            endDateStr = end;
+            currentWeek = week;
             break;
           }
         }
+      }
+      if (!weekStartStr) {
+        weekStartStr = getMondayOfWeek(today);
+        endDateStr = addDays(weekStartStr, 6);
+      }
+      if (weekStartStr && endDateStr && currentWeek) {
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const plannedDays = [];
+        for (let i = 0; i < 7; i++) {
+          const dateStr = addDays(weekStartStr, i);
+          const raw = currentWeek.days?.[dayKeys[i]];
+          const items = getDayItems(raw);
+          items.forEach((item) => {
+            const cat = planTypeToCategory(item?.type);
+            if (cat) plannedDays.push({ date: dateStr, plannedCategory: cat });
+          });
+        }
+        const hasWorkout = (dateStr, category) => {
+          // workoutsList — отдельные тренировки (Strava + workout_log), точная проверка по типу
+          const listOnDate = (workoutsList || []).filter((w) => (w.date ?? w.start_time?.split?.('T')?.[0]) === dateStr);
+          for (const w of listOnDate) {
+            const cat = workoutTypeToCategory(w.activity_type ?? w.activity_type_name ?? 'running');
+            if (cat === category) return true;
+          }
+          // allResults (workout_log) — ручные записи
+          const r = (allResults?.results || []).find((x) => x?.training_date === dateStr);
+          if (r) {
+            const cat = workoutTypeToCategory(r.activity_type ?? r.activity_type_name ?? 'running');
+            if (cat === category) return true;
+          }
+          // workoutsData — агрегат по дате (fallback, может быть неточен при нескольких типах в день)
+          const w = workoutsData?.workouts?.[dateStr];
+          if (w && (w.count > 0 || w.distance || w.duration || w.duration_seconds)) {
+            const cat = workoutTypeToCategory(w.activity_type ?? 'running');
+            if (cat === category) return true;
+          }
+          return false;
+        };
+        const completed = plannedDays.filter((p) => hasWorkout(p.date, p.plannedCategory)).length;
+        wp = { completed, total: plannedDays.length };
       }
       setWeekProgress(wp);
     } catch (err) {
@@ -296,6 +380,20 @@ const UserProfileScreen = () => {
     setDayModal({ isOpen: false, date: null, week: null, day: null });
   }, []);
 
+  const handleRequestCoach = useCallback(async () => {
+    if (!api || !profileUser?.id || requestingCoach) return;
+    setRequestingCoach(true);
+    setCoachRequestError('');
+    try {
+      await api.requestCoach(profileUser.id);
+      setCoachRequested(true);
+    } catch (e) {
+      setCoachRequestError(e.message || 'Ошибка отправки запроса');
+    } finally {
+      setRequestingCoach(false);
+    }
+  }, [api, profileUser?.id, requestingCoach]);
+
   const ProfileHeader = () =>
     currentUser ? (
       <>
@@ -316,7 +414,7 @@ const UserProfileScreen = () => {
         <ProfileHeader />
         <div className="page-transition-content">
           <div className="dashboard">
-            <div className="profile-loading">Загрузка профиля...</div>
+            <div className="profile-loading"><LogoLoading size="sm" /></div>
           </div>
         </div>
         {currentUser && <BottomNav />}
@@ -348,7 +446,7 @@ const UserProfileScreen = () => {
         <ProfileHeader />
         <div className="page-transition-content">
           <div className="dashboard">
-            <div className="profile-loading">Загрузка...</div>
+            <div className="profile-loading"><LogoLoading size="sm" /></div>
           </div>
         </div>
         {currentUser && <BottomNav />}
@@ -437,6 +535,11 @@ const UserProfileScreen = () => {
                 Вы тренер этого спортсмена
               </div>
             )}
+            {access.is_coach && profileUser.username_slug && (
+              <button className="btn btn-primary btn--sm" onClick={() => navigate(`/calendar?athlete=${profileUser.username_slug}`)}>
+                Открыть календарь
+              </button>
+            )}
           </div>
         </div>
 
@@ -481,6 +584,82 @@ const UserProfileScreen = () => {
         </div>
       </div>
 
+      {/* Блок тренера */}
+      {(profileUser.role === 'coach' || profileUser.role === 'admin') && profileUser.coach_bio && (
+        <div className="dashboard-section">
+          <div className="dashboard-module-card coach-profile-block">
+            <h2 className="coach-profile-title">
+              <GraduationCapIcon size={20} aria-hidden />
+              Тренер
+            </h2>
+            <p className="coach-profile-bio">{profileUser.coach_bio}</p>
+            {profileUser.coach_philosophy && (
+              <p className="coach-profile-philosophy">{profileUser.coach_philosophy}</p>
+            )}
+            {(() => {
+              let specs = [];
+              try { specs = JSON.parse(profileUser.coach_specialization || '[]'); } catch {}
+              return specs.length > 0 ? (
+                <div className="coach-profile-specs">
+                  {specs.map((s) => (
+                    <span key={s} className="coach-spec-tag">{SPEC_LABELS[s] || s}</span>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+            {profileUser.coach_experience_years && (
+              <p className="coach-profile-detail">Опыт: {profileUser.coach_experience_years} лет</p>
+            )}
+            {profileUser.pricing && profileUser.pricing.length > 0 && !profileUser.coach_prices_on_request ? (
+              <div className="coach-profile-pricing">
+                <h3 className="coach-profile-pricing-title">Стоимость услуг</h3>
+                {profileUser.pricing.map((p) => (
+                  <div key={p.id} className="coach-profile-price-item">
+                    <span className="coach-profile-price-label">{p.label}</span>
+                    <span className="coach-profile-price-value">
+                      {p.price ? `${Number(p.price).toLocaleString('ru')} ${(p.currency === 'RUB' || !p.currency) ? 'руб.' : p.currency}` : 'Бесплатно'}
+                      {p.period === 'month' ? '/мес' : p.period === 'week' ? '/нед' : p.period === 'one_time' ? '' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : profileUser.coach_prices_on_request ? (
+              <p className="coach-profile-detail">Стоимость: по запросу</p>
+            ) : null}
+            {currentUser && !isOwner && profileUser.coach_accepts && (
+              <div className="coach-profile-request">
+                {coachRequested ? (
+                  <p className="coach-profile-requested">Запрос отправлен</p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleRequestCoach}
+                      disabled={requestingCoach}
+                    >
+                      {requestingCoach ? 'Отправка...' : 'Запросить тренера'}
+                    </button>
+                    {coachRequestError && <p className="coach-profile-error">{coachRequestError}</p>}
+                  </>
+                )}
+              </div>
+            )}
+            {!currentUser && profileUser.coach_accepts && (
+              <div className="coach-profile-request">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setRegisterModalOpen(true)}
+                >
+                  Запросить тренера
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {canView ? (
         <>
           {showCalendar && (
@@ -488,7 +667,7 @@ const UserProfileScreen = () => {
               <h2 className="section-title">Календарь</h2>
               <div className="dashboard-module-card">
                 {statsLoading && !profilePlan ? (
-                  <div className="profile-widget-loading">Загрузка...</div>
+                  <div className="profile-widget-loading"><LogoLoading size="sm" /></div>
                 ) : (
                   <DashboardWeekStrip
                     plan={profilePlan}
@@ -526,7 +705,7 @@ const UserProfileScreen = () => {
               <h2 className="section-title">Последние тренировки</h2>
               <div className="dashboard-module-card">
                 {statsLoading && !profileStats ? (
-                  <div className="profile-widget-loading">Загрузка...</div>
+                  <div className="profile-widget-loading"><LogoLoading size="sm" /></div>
                 ) : (
                   <RecentWorkoutsList
                     workouts={profileStats?.workouts || []}

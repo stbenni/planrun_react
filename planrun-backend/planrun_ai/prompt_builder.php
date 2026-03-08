@@ -693,6 +693,15 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
         }
     }
 
+    // ── Контрольные тренировки (перед разгрузочными, не в первые 2-3 нед и не в подводке) ──
+    $controlWeeks = [];
+    foreach ($recoveryWeeks as $rw) {
+        $controlW = $rw - 1;
+        if ($controlW >= 3 && $controlW <= $trainWeeks - 1) {
+            $controlWeeks[] = $controlW;
+        }
+    }
+
     // ── Прогрессия длительной ──
     $warnings = [];
 
@@ -862,6 +871,7 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
         'peak_volume_km' => $peakVolume,
         'phases' => $phases,
         'recovery_weeks' => $recoveryWeeks,
+        'control_weeks' => $controlWeeks,
         'long_run' => [
             'start_km' => (int) $longStart,
             'peak_km' => (int) $longPeak,
@@ -875,6 +885,196 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
         'sessions' => $sessions,
         'warnings' => $warnings,
     ];
+}
+
+/**
+ * Расчёт упрощённого макроцикла для целей health/weight_loss.
+ *
+ * Фазы: адаптация → развитие → поддержание.
+ * Нет peak/taper (не нужна подводка к забегу).
+ * НЕ вызывается для start_running/couch_to_5k (у них фиксированная структура).
+ */
+function computeHealthMacrocycle(array $userData, string $goalType): ?array {
+    $totalWeeks = getSuggestedPlanWeeks($userData, $goalType);
+    if (!$totalWeeks || $totalWeeks < 4) return null;
+
+    $weeklyKm = !empty($userData['weekly_base_km']) ? (float) $userData['weekly_base_km'] : 0;
+    $sessions = (int) ($userData['sessions_per_week'] ?? 3);
+    $expLevel = $userData['experience_level'] ?? 'novice';
+    $isNovice = in_array($expLevel, ['novice', 'beginner']);
+
+    // ── Расчёт длительностей фаз ──
+    $adaptW = $isNovice ? min(3, max(2, (int) round($totalWeeks * 0.20))) : min(2, max(1, (int) round($totalWeeks * 0.15)));
+    $maintainW = min(3, max(2, (int) round($totalWeeks * 0.20)));
+    $developW = max(2, $totalWeeks - $adaptW - $maintainW);
+
+    // ── Recovery weeks ──
+    $recoveryWeeks = [];
+    $cycle = $isNovice ? 3 : 4;
+    for ($w = $cycle; $w < $totalWeeks; $w += $cycle) {
+        $recoveryWeeks[] = $w;
+    }
+
+    // ── Прогрессия длительной ──
+    if ($weeklyKm >= 15) {
+        $longStart = max(5, round($weeklyKm * 0.45));
+    } elseif ($weeklyKm > 0) {
+        $longStart = max(3, round($weeklyKm * 0.50));
+    } else {
+        $longStart = 3;
+    }
+
+    // Потолок длительной зависит от цели
+    if ($goalType === 'weight_loss') {
+        $longPeak = $isNovice ? min(8, $longStart + $totalWeeks) : min(15, (int) round($longStart * 2.0));
+    } else {
+        $longPeak = $isNovice ? min(10, $longStart + $totalWeeks) : min(12, (int) round($longStart * 1.8));
+    }
+    $longPeak = max($longPeak, $longStart + 2);
+
+    // Прогрессия по неделям
+    $trainWeeks = $totalWeeks;
+    $trainingWeeks = 0;
+    for ($w = 1; $w <= $trainWeeks; $w++) {
+        if (!in_array($w, $recoveryWeeks)) {
+            $trainingWeeks++;
+        }
+    }
+    $increment = $trainingWeeks > 0 ? ($longPeak - $longStart) / $trainingWeeks : 0;
+    $increment = min(2.0, $increment);
+
+    $longRunByWeek = [];
+    $trainIdx = 0;
+    $developStart = $adaptW + 1;
+    for ($w = 1; $w <= $totalWeeks; $w++) {
+        if ($w <= $adaptW) {
+            // Адаптация: фиксированная стартовая длительная
+            $km = $longStart;
+            if (in_array($w, $recoveryWeeks)) {
+                $km = $longStart * 0.80;
+            }
+        } elseif ($w <= $totalWeeks - $maintainW) {
+            // Развитие: прогрессия
+            if (in_array($w, $recoveryWeeks)) {
+                $km = ($longStart + $trainIdx * $increment) * 0.80;
+            } else {
+                $km = $longStart + $trainIdx * $increment;
+                $km = min($km, $longPeak);
+                $trainIdx++;
+            }
+        } else {
+            // Поддержание: стабильный объём на уровне ~90% пикового
+            $km = $longPeak * 0.90;
+            if (in_array($w, $recoveryWeeks)) {
+                $km = $longPeak * 0.70;
+            }
+        }
+        $longRunByWeek[$w] = round($km);
+    }
+
+    // ── Объёмы ──
+    $startVolume = $weeklyKm > 0 ? round($weeklyKm) : round($longStart * $sessions * 0.9);
+    $peakVolume = round($startVolume * ($isNovice ? 1.30 : 1.45));
+    $peakVolume = max($peakVolume, (int) round($longPeak * 1.4));
+
+    // ── Фазы ──
+    $phases = [];
+    $weekCursor = 1;
+
+    $phases[] = [
+        'name' => 'adaptation',
+        'label' => 'Адаптация',
+        'weeks_from' => $weekCursor,
+        'weeks_to' => $weekCursor + $adaptW - 1,
+        'max_key_workouts' => 0,
+        'description' => "Привыкание к нагрузке. Только лёгкий бег + 1 длительная. Без интенсивности. Прирост объёма до 10%/нед.",
+    ];
+    $weekCursor += $adaptW;
+
+    $phases[] = [
+        'name' => 'development',
+        'label' => 'Развитие',
+        'weeks_from' => $weekCursor,
+        'weeks_to' => $weekCursor + $developW - 1,
+        'max_key_workouts' => $goalType === 'weight_loss' ? 1 : ($isNovice ? 0 : 1),
+        'description' => $goalType === 'weight_loss'
+            ? "Рост объёма. Длительная растёт. 1 фартлек/нед для метаболизма (с 3-й недели). Прирост до 10%/нед."
+            : "Рост объёма. Длительная растёт. " . ($isNovice ? "Без интенсивности." : "Можно добавить 1 фартлек/нед.") . " Прирост до 10%/нед.",
+    ];
+    $weekCursor += $developW;
+
+    $phases[] = [
+        'name' => 'maintenance',
+        'label' => 'Поддержание',
+        'weeks_from' => $weekCursor,
+        'weeks_to' => $totalWeeks,
+        'max_key_workouts' => $isNovice ? 0 : 1,
+        'description' => "Стабильный объём (~90% пикового). Длительная стабильна. Цель — закрепить привычку и форму.",
+    ];
+
+    return [
+        'total_weeks' => $totalWeeks,
+        'distance' => null,
+        'start_volume_km' => $startVolume,
+        'peak_volume_km' => $peakVolume,
+        'phases' => $phases,
+        'recovery_weeks' => $recoveryWeeks,
+        'control_weeks' => [],
+        'long_run' => [
+            'start_km' => (int) $longStart,
+            'peak_km' => (int) $longPeak,
+            'peak_week' => $totalWeeks - $maintainW,
+            'by_week' => $longRunByWeek,
+        ],
+        'spec' => null,
+        'is_novice' => $isNovice,
+        'has_base' => $weeklyKm >= 15,
+        'weekly_base_km' => $weeklyKm,
+        'sessions' => $sessions,
+        'warnings' => [],
+    ];
+}
+
+/**
+ * Форматирует результат computeHealthMacrocycle() в текст для промпта.
+ */
+function formatHealthMacrocyclePrompt(array $mc, string $goalType): string {
+    $out = '';
+    $tw = $mc['total_weeks'];
+    $goalLabel = $goalType === 'weight_loss' ? 'снижение веса' : 'здоровье';
+
+    $out .= "МАКРОЦИКЛ ({$tw} недель, цель: {$goalLabel}):\n";
+
+    foreach ($mc['phases'] as $phase) {
+        $out .= "- Нед. {$phase['weeks_from']}-{$phase['weeks_to']}: {$phase['label']}. {$phase['description']}\n";
+    }
+    $out .= "\n";
+
+    // Прогрессия длительной
+    $longParts = [];
+    foreach ($mc['long_run']['by_week'] as $w => $km) {
+        $longParts[] = "нед{$w}: {$km}";
+    }
+    $out .= "ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ: " . implode(' → ', $longParts) . " (км)\n\n";
+
+    // Объёмы
+    $out .= "ОБЪЁМЫ: стартовый ~{$mc['start_volume_km']} км/нед → пиковый ~{$mc['peak_volume_km']} км/нед.\n";
+    $out .= "Правило: прирост не более 10%/нед. Весь бег — в лёгком темпе (разговорный).\n\n";
+
+    // Разгрузочные
+    if (!empty($mc['recovery_weeks'])) {
+        $rwStr = implode(', ', $mc['recovery_weeks']);
+        $out .= "Разгрузочные недели: {$rwStr} (объём -20-30%, убрать интенсивность).\n\n";
+    }
+
+    if ($goalType === 'weight_loss') {
+        $out .= "АКЦЕНТ ДЛЯ СНИЖЕНИЯ ВЕСА:\n";
+        $out .= "- Приоритет — длительность (время > дистанция). Бег в аэробной зоне сжигает жир.\n";
+        $out .= "- 1 фартлек/нед для ускорения метаболизма (короткие ускорения 30-60 сек через 2-3 мин).\n";
+        $out .= "- ОФП для сохранения мышечной массы.\n\n";
+    }
+
+    return $out;
 }
 
 /**
@@ -892,7 +1092,7 @@ function formatMacrocyclePrompt(array $mc): string {
         foreach ($mc['warnings'] as $warn) {
             $out .= "- {$warn}\n";
         }
-        $out .= "При генерации плана ОБЯЗАТЕЛЬНО добавь в week_focus первой недели предупреждение о нереалистичности цели.\n";
+        $out .= "При генерации плана учитывай эти предупреждения и генерируй максимально безопасный план.\n";
         $out .= "Генерируй план максимально безопасный — лучше не достичь цели, чем получить травму.\n\n";
     }
 
@@ -959,7 +1159,12 @@ function formatMacrocyclePrompt(array $mc): string {
     // Контрольные забеги
     $out .= "КОНТРОЛЬНЫЕ ЗАБЕГИ (type: \"control\"):\n";
     $out .= "Тест-забег на дистанцию короче целевой для замера прогресса. is_key_workout: true. pace: null.\n";
-    $out .= "Ставить каждые 3-4 недели (перед разгрузочной). Не в первые 2-3 недели и не в последние 2.\n";
+    if (!empty($mc['control_weeks'])) {
+        $cwList = implode(', ', $mc['control_weeks']);
+        $out .= "Ставить ИМЕННО в эти недели: {$cwList}.\n";
+    } else {
+        $out .= "Ставить каждые 3-4 недели (перед разгрузочной). Не в первые 2-3 недели и не в последние 2.\n";
+    }
     $out .= "Дистанция контрольной: {$spec['control_dist']}.\n\n";
 
     // Новичок-модификации
@@ -1308,6 +1513,13 @@ function buildTrainingPrinciplesBlock($userData, $goalType) {
             if ($isNovice) {
                 $block .= "\nДля начинающих: НЕ указывай темп в мин/км — только по ощущениям. Писать «в комфортном темпе» или «темп разговорный».\n";
             }
+            // Макроцикл для regular_running и custom (не для фиксированных программ)
+            if (!in_array($program, ['start_running', 'couch_to_5k'])) {
+                $mc = computeHealthMacrocycle($userData, $goalType);
+                if ($mc) {
+                    $block .= "\n" . formatHealthMacrocyclePrompt($mc, $goalType);
+                }
+            }
             break;
 
         case 'race':
@@ -1343,6 +1555,10 @@ function buildTrainingPrinciplesBlock($userData, $goalType) {
             $block .= "- Безопасная скорость: не более 0.5-1 кг/нед. Питание — вне плана, но тренировки оптимизированы для дефицита калорий.\n";
             if ($isNovice) {
                 $block .= "- Начинающий: старт с бег/ходьба, акцент на регулярность и длительность (время), а не скорость.\n";
+            }
+            $mc = computeHealthMacrocycle($userData, $goalType);
+            if ($mc) {
+                $block .= "\n" . formatHealthMacrocyclePrompt($mc, $goalType);
             }
             break;
 
@@ -1383,10 +1599,16 @@ function buildKeyWorkoutsBlock($userData) {
     $sessions = (int)($userData['sessions_per_week'] ?? 3);
     if ($sessions <= 3) {
         $block .= "- При {$sessions} тренировках в неделю: 1-2 ключевые (длительная + 1 интенсивная в интенсивном периоде).\n";
-    } elseif ($sessions <= 5) {
-        $block .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные).\n";
+        $block .= "  Пример: Вт easy, Чт tempo/interval, Сб long. Остальные дни — rest.\n";
+    } elseif ($sessions == 4) {
+        $block .= "- При 4 тренировках в неделю: 2 ключевые (длительная + 1 интенсивная), 2 лёгких.\n";
+        $block .= "  Пример: Вт easy, Ср tempo, Пт easy, Сб long. Ключевые: Ср + Сб.\n";
+    } elseif ($sessions == 5) {
+        $block .= "- При 5 тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные), 2-3 лёгких.\n";
+        $block .= "  Пример: Пн easy, Вт interval, Чт easy, Пт tempo, Сб long. Ключевые: Вт + Пт + Сб.\n";
     } else {
         $block .= "- При {$sessions} тренировках в неделю: 2-3 ключевые (длительная + 1-2 интенсивные), остальное — лёгкий бег.\n";
+        $block .= "  Пример: Пн easy, Вт interval, Ср easy, Чт tempo, Пт easy, Сб long. Вс rest.\n";
     }
     $block .= "- Между двумя ключевыми — минимум 1 день лёгкого бега или отдыха. НИКОГДА две ключевые подряд.\n";
     $block .= "- В разгрузочную неделю — 0-1 ключевая (только сокращённая длительная), убрать интенсивность.\n";
@@ -1401,14 +1623,15 @@ function buildKeyWorkoutsBlock($userData) {
 function buildMandatoryRulesBlock($userData) {
     $block = "\n═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n\n";
     $block .= "1. Расписание по дням:\n";
+    $ruDayLabels = ['mon'=>'Пн','tue'=>'Вт','wed'=>'Ср','thu'=>'Чт','fri'=>'Пт','sat'=>'Сб','sun'=>'Вс'];
     if (!empty($userData['preferred_days']) && is_array($userData['preferred_days'])) {
-        $daysList = implode(', ', $userData['preferred_days']);
+        $daysList = implode(', ', array_map(fn($d) => $ruDayLabels[$d] ?? $d, $userData['preferred_days']));
         $block .= "   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: {$daysList}. В остальные дни — отдых (rest)" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП в указанные дни" : "") . ".\n";
     } else {
         $block .= "   — Количество беговых дней в неделю: " . ($userData['sessions_per_week'] ?? 3) . ". Остальные дни — rest" . (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days']) ? " или ОФП по предпочтениям" : "") . ".\n";
     }
     if (!empty($userData['preferred_ofp_days']) && is_array($userData['preferred_ofp_days'])) {
-        $ofpList = implode(', ', $userData['preferred_ofp_days']);
+        $ofpList = implode(', ', array_map(fn($d) => $ruDayLabels[$d] ?? $d, $userData['preferred_ofp_days']));
         $block .= "   — ОФП (type: other) ставить ТОЛЬКО в эти дни: {$ofpList}.\n";
     } else {
         $block .= "   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n";
@@ -1572,8 +1795,8 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     // ── Текущее состояние (КЛЮЧЕВОЙ блок для пересчёта) ──
     $prompt .= "\n" . buildRecalcContextBlock($recalcContext, $origStartDate);
 
-    // ── Принципы тренировок (типы, структура) ──
-    $prompt .= buildTrainingPrinciplesBlock($modifiedUser, $goalType);
+    // ── Принципы тренировок (для пересчёта — с оригинальным макроциклом) ──
+    $prompt .= buildRecalcTrainingPrinciplesBlock($userData, $goalType, $recalcContext);
     $prompt .= buildKeyWorkoutsBlock($modifiedUser);
     $prompt .= buildMandatoryRulesBlock($modifiedUser);
 
@@ -1587,10 +1810,21 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     $prompt .= "Дата начала первой генерируемой недели: {$newStartDate}.\n\n";
     $prompt .= "Учитывай ТЕКУЩЕЕ СОСТОЯНИЕ из блока выше: реальные объёмы, темпы, самочувствие.\n\n";
     $prompt .= "ПРИНЦИПЫ ПЕРЕСЧЁТА:\n";
-    $prompt .= "1. Первые 1-2 недели — плавный возврат к нагрузке:\n";
-    $prompt .= "   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n";
-    $prompt .= "   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n";
-    $prompt .= "   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n";
+
+    $detrainingFactor = $recalcContext['detraining_factor'] ?? null;
+    if ($detrainingFactor !== null && $detrainingFactor >= 0.95) {
+        $prompt .= "1. Пауза минимальна — ПРОДОЛЖАЙ с текущего объёма и структуры.\n";
+        $prompt .= "   - Первая неделя — обычная (не разгрузочная), соответствует текущей фазе макроцикла.\n";
+        $prompt .= "   - Начальный объём = средний реальный объём за последние 4 недели.\n";
+    } elseif ($detrainingFactor !== null && $detrainingFactor >= 0.85) {
+        $prompt .= "1. Лёгкое снижение формы — первая неделя на 10-15% ниже последнего реального объёма.\n";
+        $prompt .= "   - Можно сразу включить ключевые (облегчённые). Со 2-й недели — обычная структура.\n";
+    } else {
+        $prompt .= "1. Первые 1-2 недели — плавный возврат к нагрузке:\n";
+        $prompt .= "   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n";
+        $prompt .= "   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n";
+        $prompt .= "   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n";
+    }
     $prompt .= "2. Далее — стандартная прогрессия (до +10%/нед), возвращение к обычной структуре.\n";
     $prompt .= "3. Если до забега мало времени — сжать фазы, но НЕ форсировать нагрузку.\n";
     $prompt .= "4. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n";
@@ -1600,6 +1834,165 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     $prompt .= buildFormatResponseBlock();
 
     return $prompt;
+}
+
+/**
+ * Блок принципов тренировок для ПЕРЕСЧЁТА.
+ *
+ * В отличие от buildTrainingPrinciplesBlock(), использует оригинальный макроцикл
+ * (от реального training_start_date), чтобы AI продолжал с текущей фазы,
+ * а не строил макроцикл с нуля.
+ */
+function buildRecalcTrainingPrinciplesBlock($userData, $goalType, array $recalcContext) {
+    $phase = $recalcContext['current_phase'] ?? null;
+
+    // Для не-соревновательных целей или если фаза не определена — стандартный блок
+    if (!$phase || !in_array($goalType, ['race', 'time_improvement'])) {
+        return buildTrainingPrinciplesBlock($userData, $goalType);
+    }
+
+    $block = "\n═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА (ПЕРЕСЧЁТ) ═══\n\n";
+
+    $goalLabel = $goalType === 'race' ? 'подготовка к забегу' : 'улучшение результата';
+    $block .= "Цель: {$goalLabel}.\n\n";
+
+    $block .= "ВАЖНО: Это ПЕРЕСЧЁТ. Макроцикл уже начат. НЕ СТРОЙ периодизацию с нуля!\n";
+    $block .= "Текущая фаза: {$phase['phase_label']}.\n";
+    if ($phase['weeks_left_in_phase'] > 0) {
+        $block .= "Осталось в текущей фазе: {$phase['weeks_left_in_phase']} нед.\n";
+    }
+    if ($phase['next_phase_label']) {
+        $block .= "Следующая фаза: {$phase['next_phase_label']}.\n";
+    }
+    $block .= "\n";
+
+    // Оставшиеся фазы с описаниями
+    if (!empty($phase['remaining_phases'])) {
+        $block .= "СТРУКТУРА ОСТАВШИХСЯ ФАЗ (нумерация 1..N для генерации):\n";
+        $weeksToGenerate = $recalcContext['weeks_to_generate'] ?? null;
+        $weeksIntoPhase = $phase['weeks_into_phase'] ?? 0;
+        $weekOffset = 0;
+        foreach ($phase['remaining_phases'] as $i => $rp) {
+            $phaseDuration = $rp['weeks_to'] - $rp['weeks_from'] + 1;
+            // Первая фаза: вычитаем уже пройденные недели
+            if ($i === 0 && $weeksIntoPhase > 0) {
+                $phaseDuration -= $weeksIntoPhase;
+            }
+            $newFrom = $weekOffset + 1;
+            $newTo = $weekOffset + $phaseDuration;
+            if ($weeksToGenerate && $newTo > $weeksToGenerate) {
+                $newTo = $weeksToGenerate;
+                $phaseDuration = $newTo - $newFrom + 1;
+            }
+            if ($phaseDuration > 0) {
+                $block .= "- {$rp['label']} (нед. {$newFrom}-{$newTo}): {$rp['description']} Ключевых: до {$rp['max_key_workouts']}/нед.\n";
+            }
+            $weekOffset += $phaseDuration;
+            if ($weeksToGenerate && $weekOffset >= $weeksToGenerate) break;
+        }
+        $block .= "\n";
+    }
+
+    // Прогрессия длительной (пересчитанная на новую нумерацию)
+    if (!empty($phase['long_run_progression'])) {
+        $block .= "ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ ПО НЕДЕЛЯМ (следуй этим числам!):\n";
+        $longParts = [];
+        $newWeek = 1;
+        $dist = $userData['race_distance'] ?? '';
+        $weeksToGenerate = $recalcContext['weeks_to_generate'] ?? 999;
+        foreach ($phase['long_run_progression'] as $origWeek => $km) {
+            if ($newWeek > $weeksToGenerate) break;
+            if ($newWeek == $weeksToGenerate && in_array($dist, ['marathon', '42.2k', 'half', '21.1k', '5k', '10k'])) {
+                $longParts[] = "нед{$newWeek}: забег";
+            } else {
+                $longParts[] = "нед{$newWeek}: {$km}";
+            }
+            $newWeek++;
+        }
+        $block .= implode(' → ', $longParts) . " (км)\n\n";
+    }
+
+    // Объёмы
+    if (!empty($phase['peak_volume_km'])) {
+        $startVol = $recalcContext['avg_weekly_km_4w'] ?? $phase['start_volume_km'] ?? '?';
+        $block .= "ОБЪЁМЫ: текущий реальный ~{$startVol} км/нед → пиковый ~{$phase['peak_volume_km']} км/нед.\n";
+    }
+    $block .= "Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n";
+    $bestActualLong = $recalcContext['best_actual_long_km'] ?? 0;
+    if ($bestActualLong > 0) {
+        $block .= "Лучшая ФАКТИЧЕСКАЯ длительная: {$bestActualLong} км — продолжай прогрессию от этого значения.\n";
+    }
+    $block .= "\n";
+
+    // Разгрузочные недели
+    if (!empty($phase['recovery_weeks'])) {
+        $keptWeeks = $recalcContext['kept_weeks'] ?? 0;
+        $newRecovery = [];
+        foreach ($phase['recovery_weeks'] as $rw) {
+            $newW = $rw - $keptWeeks;
+            if ($newW >= 1) {
+                $newRecovery[] = $newW;
+            }
+        }
+        if (!empty($newRecovery)) {
+            $rw = implode(', ', $newRecovery);
+            $block .= "Разгрузочные недели (по новой нумерации): {$rw} (объём -20%, убрать интенсивность).\n";
+        }
+    }
+
+    // Контрольные тренировки (пересчитанная нумерация)
+    if (!empty($phase['control_weeks'] ?? null)) {
+        $keptWeeks = $recalcContext['kept_weeks'] ?? 0;
+        $newControl = [];
+        foreach ($phase['control_weeks'] as $cw) {
+            $newW = $cw - $keptWeeks;
+            if ($newW >= 1) {
+                $newControl[] = $newW;
+            }
+        }
+        if (!empty($newControl)) {
+            $spec = getDistanceSpec($userData['race_distance'] ?? '');
+            $controlDist = $spec['control_dist'] ?? '3-5 км';
+            $cwList = implode(', ', $newControl);
+            $block .= "Контрольные забеги (по новой нумерации): нед. {$cwList}. Дистанция: {$controlDist}. type: control, pace: null.\n";
+        }
+    }
+
+    // Тренировки по дистанции (из spec)
+    $zones = calculatePaceZones($userData);
+    if ($zones) {
+        $block .= "\nИспользуй рассчитанные зоны: interval_pace=\"" . formatPace($zones['interval']) . "\", темповый pace=\"" . formatPace($zones['tempo']) . "\".\n\n";
+    }
+
+    $spec = getDistanceSpec($userData['race_distance'] ?? '');
+    if ($spec) {
+        $distLabels = ['5k' => '5 КМ', '10k' => '10 КМ', 'half' => 'ПОЛУМАРАФОНА', '21.1k' => 'ПОЛУМАРАФОНА', 'marathon' => 'МАРАФОНА', '42.2k' => 'МАРАФОНА'];
+        $distLabel = $distLabels[$userData['race_distance'] ?? ''] ?? 'ЗАБЕГА';
+        $block .= "ТРЕНИРОВКИ ДЛЯ {$distLabel}:\n";
+        $block .= "- Интервалы: {$spec['intervals']}.\n";
+        $block .= "- Темповый: {$spec['tempo']}.\n";
+        $block .= "- Длительная: {$spec['long_desc']}.\n";
+        $block .= "- Фартлек: {$spec['fartlek']}.\n";
+        if (!empty($spec['marathon_pace'])) {
+            $block .= "- Марафонский темп: {$spec['marathon_pace']}.\n";
+        }
+        $block .= "\n";
+    }
+
+    $block .= "КАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n";
+    $block .= "distance_km для интервалов/фартлека считает код — не заполняй.\n\n";
+
+    $block .= "РАЗГРУЗОЧНАЯ НЕДЕЛЯ (каждые 3-4 недели):\n";
+    $block .= "- Объём снижен на 20-30% от предыдущей недели.\n";
+    $block .= "- Все тренировки — лёгкий бег. Убрать интервалы и темповые. Длительную сократить на 30%.\n";
+    $block .= "- Если есть ОФП — оставить, но облегчить (меньше подходов).\n\n";
+
+    $block .= "ОБЩИЕ ПРАВИЛА:\n";
+    $block .= "- Прирост недельного км: не более 10%.\n";
+    $block .= "- 80% объёма — лёгкий бег, до 20% — ключевые тренировки (принцип 80/20).\n";
+    $block .= "- Длительная — в конце недели (суббота/воскресенье), если пользователь выбрал эти дни.\n";
+
+    return $block;
 }
 
 /**
@@ -1688,6 +2081,49 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
             $lines[] = "  - " . implode(', ', $parts);
             $shown++;
         }
+    }
+
+    // --- Структура сохранённых недель (агрегированная) ---
+    $keptSummary = $ctx['kept_weeks_summary'] ?? [];
+    if (!empty($keptSummary)) {
+        $lines[] = "\n═══ ПРОЙДЕННЫЕ НЕДЕЛИ (НЕ генерируй заново!) ═══\n";
+        $lines[] = "Прошлые {$keptWeeks} недель сохранены.";
+
+        // Агрегируем по группам ~4 нед для компактности
+        $chunkSize = max(3, (int) ceil(count($keptSummary) / 5));
+        $chunks = array_chunk($keptSummary, $chunkSize);
+        foreach ($chunks as $chunk) {
+            $firstW = $chunk[0]['week'];
+            $lastW = end($chunk)['week'];
+            $vols = array_column($chunk, 'volume');
+            $vols = array_filter($vols, fn($v) => $v > 0);
+            $volMin = !empty($vols) ? round(min($vols), 0) : '?';
+            $volMax = !empty($vols) ? round(max($vols), 0) : '?';
+            // Собираем уникальные типы тренировок
+            $allTypes = [];
+            foreach ($chunk as $ws) {
+                foreach (explode(',', $ws['types'] ?? '') as $t) {
+                    $t = trim($t);
+                    if ($t !== '' && $t !== 'rest') $allTypes[$t] = true;
+                }
+            }
+            $typesStr = !empty($allTypes) ? implode(', ', array_keys($allTypes)) : 'rest';
+            $lines[] = "  Нед. {$firstW}-{$lastW}: объём {$volMin}→{$volMax} км/нед, типы: {$typesStr}";
+        }
+
+        $maxLong = $ctx['max_planned_long_km'] ?? 0;
+        $maxVol = $ctx['max_planned_volume_km'] ?? 0;
+        $bestActual = $ctx['best_actual_long_km'] ?? 0;
+        if ($maxLong > 0) $lines[] = "Макс. запланированная длительная: {$maxLong} км";
+        if ($bestActual > 0) $lines[] = "Лучшая ФАКТИЧЕСКАЯ длительная: {$bestActual} км (продолжай прогрессию от этого числа)";
+        if ($maxVol > 0) $lines[] = "Макс. недельный объём: {$maxVol} км";
+    }
+
+    // --- Текущая фаза макроцикла (краткое резюме, детали — в блоке принципов) ---
+    $phase = $ctx['current_phase'] ?? null;
+    if ($phase) {
+        $lines[] = "\nТЕКУЩАЯ ФАЗА МАКРОЦИКЛА: {$phase['phase_label']} (осталось {$phase['weeks_left_in_phase']} нед.)";
+        $lines[] = "ВАЖНО: ПРОДОЛЖАЙ С ТЕКУЩЕЙ ФАЗЫ, не начинай макроцикл с нуля! Детали фаз — в блоке ПРИНЦИПЫ ниже.";
     }
 
     $userReason = $ctx['user_reason'] ?? null;

@@ -192,10 +192,18 @@ class ChatService extends BaseService {
         $messages = $this->buildChatMessages($userId, $context, $history, $content);
 
         $toolsUsed = [];
-        $messages = $this->resolveToolCalls($messages, $userId, $toolsUsed);
+        $swapHandled = $this->tryHandleSwapConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        $replaceRaceHandled = false;
+        if (!$swapHandled) {
+            $replaceRaceHandled = $this->tryHandleReplaceWithRaceConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        }
+        if (!$swapHandled && !$replaceRaceHandled) {
+            $messages = $this->resolveToolCalls($messages, $userId, $toolsUsed);
+        }
 
         $planUpdatedSent = false;
-        if (in_array('update_training_day', $toolsUsed, true)) {
+        if (in_array('update_training_day', $toolsUsed, true) || in_array('swap_training_days', $toolsUsed, true)
+            || in_array('delete_training_day', $toolsUsed, true) || in_array('move_training_day', $toolsUsed, true)) {
             echo json_encode(['plan_updated' => true]) . "\n";
             flush();
             $planUpdatedSent = true;
@@ -318,6 +326,216 @@ class ChatService extends BaseService {
                 $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'chat');
             }
         }
+    }
+
+    /**
+     * Обработка подтверждения «да» при предложении поменять тренировки.
+     * LLM часто не вызывает tool при коротком «да» — выполняем swap программно.
+     *
+     * @return bool true если обработали и нужно пропустить resolveToolCalls
+     */
+    private function tryHandleSwapConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
+        $trimmed = trim($content);
+        if (mb_strlen($trimmed) > 30) {
+            return false;
+        }
+        if (!preg_match('/^(да|ок|давай|подходит|сделай|согласен|хорошо|yes|ok|ага|угу|окей|оке|правильно)(,?\s*.*)?$/ui', $trimmed)) {
+            return false;
+        }
+
+        $lastAssistant = '';
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['sender_type'] ?? '') === 'ai') {
+                $lastAssistant = trim($history[$i]['content'] ?? '');
+                break;
+            }
+        }
+        if ($lastAssistant === '') {
+            return false;
+        }
+        if (!preg_match('/(поменять|заменить|поменял|заменил|swap|местами)/ui', $lastAssistant)) {
+            return false;
+        }
+
+        $tzName = getUserTimezone($userId);
+        try {
+            $tz = new DateTimeZone($tzName);
+        } catch (Exception $e) {
+            $tz = new DateTimeZone('Europe/Moscow');
+        }
+        $now = new DateTime('now', $tz);
+        $today = $now->format('Y-m-d');
+        $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
+
+        $output = $this->executeTool('swap_training_days', json_encode(['date1' => $today, 'date2' => $tomorrow]), $userId);
+        $result = json_decode($output, true);
+        if (!isset($result['success']) || !$result['success']) {
+            return false;
+        }
+
+        $toolsUsed[] = 'swap_training_days';
+        $tcId = 'swap-' . uniqid();
+        $messages[] = [
+            'role' => 'assistant',
+            'content' => '',
+            'tool_calls' => [
+                [
+                    'id' => $tcId,
+                    'type' => 'function',
+                    'function' => [
+                        'name' => 'swap_training_days',
+                        'arguments' => json_encode(['date1' => $today, 'date2' => $tomorrow])
+                    ]
+                ]
+            ]
+        ];
+        $messages[] = [
+            'role' => 'tool',
+            'tool_call_id' => $tcId,
+            'content' => $output
+        ];
+        return true;
+    }
+
+    /**
+     * Обработка подтверждения при предложении заменить на забег (полумарафон/марафон) + тактика.
+     * LLM часто не вызывает update_training_day при «да, правильно» — выполняем программно.
+     */
+    private function tryHandleReplaceWithRaceConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
+        if (!$this->isConfirmationMessage($content)) {
+            return false;
+        }
+        $lastAssistant = '';
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['sender_type'] ?? '') === 'ai') {
+                $lastAssistant = trim($history[$i]['content'] ?? '');
+                break;
+            }
+        }
+        if ($lastAssistant === '') {
+            return false;
+        }
+        $proposal = $this->parseReplaceWithRaceProposal($lastAssistant, $userId);
+        if ($proposal === null) {
+            return false;
+        }
+
+        $tzName = getUserTimezone($userId);
+        try {
+            $tz = new DateTimeZone($tzName);
+        } catch (Exception $e) {
+            $tz = new DateTimeZone('Europe/Moscow');
+        }
+        $now = new DateTime('now', $tz);
+        $today = $now->format('Y-m-d');
+        $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
+
+        $todayWorkout = $proposal['today'] ?? null;
+        $tomorrowWorkout = $proposal['tomorrow'] ?? null;
+        if (!$todayWorkout || !$tomorrowWorkout) {
+            return false;
+        }
+
+        $out1 = $this->executeTool('update_training_day', json_encode([
+            'date' => $today,
+            'type' => $todayWorkout['type'],
+            'description' => $todayWorkout['description']
+        ]), $userId);
+        $res1 = json_decode($out1, true);
+        if (isset($res1['error'])) {
+            Logger::warning('ReplaceWithRace: update today failed', ['error' => $res1['error'] ?? $res1]);
+            return false;
+        }
+
+        $out2 = $this->executeTool('update_training_day', json_encode([
+            'date' => $tomorrow,
+            'type' => $tomorrowWorkout['type'],
+            'description' => $tomorrowWorkout['description']
+        ]), $userId);
+        $res2 = json_decode($out2, true);
+        if (isset($res2['error'])) {
+            Logger::warning('ReplaceWithRace: update tomorrow failed', ['error' => $res2['error'] ?? $res2]);
+        }
+
+        $toolsUsed[] = 'update_training_day';
+        $toolsUsed[] = 'update_training_day';
+        $tcId1 = 'upd-' . uniqid();
+        $tcId2 = 'upd-' . uniqid();
+        $messages[] = [
+            'role' => 'assistant',
+            'content' => '',
+            'tool_calls' => [
+                [
+                    'id' => $tcId1,
+                    'type' => 'function',
+                    'function' => [
+                        'name' => 'update_training_day',
+                        'arguments' => json_encode(['date' => $today, 'type' => $todayWorkout['type'], 'description' => $todayWorkout['description']])
+                    ]
+                ],
+                [
+                    'id' => $tcId2,
+                    'type' => 'function',
+                    'function' => [
+                        'name' => 'update_training_day',
+                        'arguments' => json_encode(['date' => $tomorrow, 'type' => $tomorrowWorkout['type'], 'description' => $tomorrowWorkout['description']])
+                    ]
+                ]
+            ]
+        ];
+        $messages[] = ['role' => 'tool', 'tool_call_id' => $tcId1, 'content' => $out1];
+        $messages[] = ['role' => 'tool', 'tool_call_id' => $tcId2, 'content' => $out2];
+        return true;
+    }
+
+    /**
+     * Парсит предложение замены на забег из последнего сообщения AI.
+     * @return array|null ['today' => ['type'=>, 'description'=>], 'tomorrow' => ...] или null
+     */
+    private function parseReplaceWithRaceProposal(string $text, int $userId): ?array {
+        if (!preg_match('/(полумарафон|марафон|21\.1|42\.2|21\s*км|42\s*км)/ui', $text)) {
+            return null;
+        }
+        if (!preg_match('/(сегодня|завтра|подтверди|обновлю|замен)/ui', $text)) {
+            return null;
+        }
+
+        $result = ['today' => null, 'tomorrow' => null];
+
+        // Полумарафон — 21.1 км за 2 часа | 21.1 км за 2:00:00
+        if (preg_match('/(?:полумарафон|марафон)[^0-9]*(?:—|\-)?\s*(\d+(?:\.\d+)?)\s*км\s*(?:за\s+)?(\d+)(?::(\d+))?(?::(\d+))?\s*(?:час|ч|мин|м)?/ui', $text, $m)
+            || preg_match('/(\d+(?:\.\d+)?)\s*км\s*(?:за\s+)?(\d+)(?::(\d+))?(?::(\d+))?\s*(?:час|ч|мин|м)/ui', $text, $m)) {
+            $km = (float)($m[1] ?? 21.1);
+            $h = (int)($m[2] ?? 2);
+            $min = isset($m[3]) && $m[3] !== '' ? (int)$m[3] : 0;
+            $sec = isset($m[4]) && $m[4] !== '' ? (int)$m[4] : 0;
+            $totalSec = $h * 3600 + $min * 60 + $sec;
+            $timeStr = sprintf('%d:%02d:%02d', (int)floor($totalSec / 3600), (int)floor(($totalSec % 3600) / 60), $totalSec % 60);
+            $result['today'] = [
+                'type' => $km < 30 ? 'race' : 'marathon',
+                'description' => ($km < 30 ? 'Полумарафон' : 'Марафон') . ": {$km} км за {$timeStr}"
+            ];
+        }
+
+        // Лёгкий бег — 8 км в темпе 5:30/км | Лёгкий бег 8 км
+        if (preg_match('/(?:л[её]гкий|легкий)\s*бег[^0-9]*(?:—|\-)?\s*(\d+(?:\.\d+)?)\s*км(?:\s+в\s+темпе\s+(\d+):(\d+))?/ui', $text, $m)
+            || preg_match('/(?:л[её]гкий|легкий)\s*бег[^—\-]*[—\-]\s*(\d+(?:\.\d+)?)\s*км/ui', $text, $m)) {
+            $km = (float)($m[1] ?? 8);
+            $paceMin = isset($m[2]) && $m[2] !== '' ? (int)$m[2] : 5;
+            $paceSec = isset($m[3]) && $m[3] !== '' ? (int)$m[3] : 30;
+            $paceStr = sprintf('%d:%02d', $paceMin, $paceSec);
+            $durationMin = (int)round($km * ($paceMin + $paceSec / 60));
+            $durationStr = sprintf('0:%02d:00', $durationMin);
+            $result['tomorrow'] = [
+                'type' => 'easy',
+                'description' => "Легкий бег: {$km} км или {$durationStr}, темп {$paceStr}"
+            ];
+        }
+
+        if ($result['today'] && $result['tomorrow']) {
+            return $result;
+        }
+        return null;
     }
 
     /**
@@ -499,7 +717,7 @@ class ChatService extends BaseService {
 - Адаптивный: подстраивай тон. Перед забегом — собранность и поддержка. После тяжёлой тренировки — забота о восстановлении. При пропуске — без укоров, мягко помоги вернуться.
 
 ЯЗЫК:
-- Отвечай ТОЛЬКО на русском. Никаких английских слов (recuperation → восстановление, pace → темп, long run → длительный бег, cooldown → заминка).
+- Отвечай ТОЛЬКО на русском. Никаких английских слов (recuperation → восстановление, pace → темп, long run → длительный бег, cooldown → заминка). Никогда не пиши «today» — только «сегодня», «сегодняшнюю», «сегодняшний».
 - Даты — в русском формате: «18 февраля», «среда, 18 февраля».
 - Не выводи внутренние рассуждения, мета-комментарии, англоязычный reasoning.
 
@@ -522,12 +740,21 @@ class ChatService extends BaseService {
 3. get_day_details(date) — полные детали дня: план + упражнения + фактический результат.
 4. get_date(phrase) — преобразование «завтра», «в среду» в дату Y-m-d.
 5. update_training_day(date, type, description) — изменить запланированную тренировку. ОБЯЗАТЕЛЬНО спроси подтверждение перед изменением.
-6. recalculate_plan() — пересчитать весь план с учётом истории, пропусков и текущей формы. Запускает фоновый процесс (3-5 мин). ОБЯЗАТЕЛЬНО спроси подтверждение.
-7. generate_next_plan() — создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился или просит новый цикл. ОБЯЗАТЕЛЬНО спроси подтверждение.
+6. swap_training_days(date1, date2) — ПОМЕНЯТЬ МЕСТАМИ тренировки на двух датах. Используй когда пользователь просит «поменять местами», «сделать сегодня лонг, завтра лёгкую». Сначала get_day_details для обеих дат, уточни, получи подтверждение — затем swap_training_days.
+7. delete_training_day(date) — УДАЛИТЬ запланированную тренировку. Используй при «отменить», «убери», «удали тренировку на завтра». ОБЯЗАТЕЛЬНО спроси подтверждение.
+8. move_training_day(source_date, target_date) — ПЕРЕНЕСТИ тренировку с одной даты на другую. Используй при «перенеси с среды на пятницу», «переставь на завтра». ОБЯЗАТЕЛЬНО спроси подтверждение.
+9. recalculate_plan() — пересчитать весь план с учётом истории, пропусков и текущей формы. Запускает фоновый процесс (3-5 мин). ОБЯЗАТЕЛЬНО спроси подтверждение.
+10. generate_next_plan() — создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился или просит новый цикл. ОБЯЗАТЕЛЬНО спроси подтверждение.
 
 СТРАТЕГИЯ:
 - Вопрос о конкретной тренировке → get_day_details.
 - Вопрос о периоде/прогрессе → get_workouts.
+- «Бежать сегодня?» / «Стоит ли бежать?» → get_day_details(сегодня) + контекст (последняя тренировка, пауза, самочувствие из сводки). Дай рекомендацию: бежать/отдыхать/заменить на лёгкую, с кратким обоснованием.
+- «Дай обратную связь» / «Почему вчера было тяжело?» / «Как прошла тренировка?» → get_workouts + get_day_details за последние дни. Проанализируй темп, пульс, ощущения, сравни с планом. Дай конкретный разбор и рекомендации.
+- «Поменять местами» → get_day_details для обеих дат → уточни → подтверждение → swap_training_days.
+- «Отменить» / «убери» / «удали тренировку» → get_day_details → уточни дату → подтверждение → delete_training_day.
+- «Перенеси» / «переставь тренировку» → get_day_details для обеих дат → подтверждение → move_training_day.
+- «Поменяй на полумарафон/марафон за X часов, дай тактику» → get_day_details(сегодня, завтра) → предложи замену (сегодня: race с дистанцией и временем; завтра: easy для восстановления) → подтверждение → update_training_day для каждой даты. Затем дай тактику: разминка, темп по отрезкам, питание, заминка.
 - Жалоба на самочувствие → get_day_details (ближайшая запланированная) → предложи замену.
 - Длительная пауза (>7 дней) / выполнение <50% → предложи recalculate_plan.
 - План закончился / «хочу новый план» → предложи generate_next_plan.
@@ -539,6 +766,15 @@ class ChatService extends BaseService {
 PROMPT;
         $systemContent .= "\n\n";
 
+        if ($this->hasReplaceWithRaceIntent($currentQuestion, $history)) {
+            $systemContent .= "ЗАМЕНА НА ЗАБЕГ + ТАКТИКА: Пользователь просит заменить сегодняшнюю тренировку на полумарафон/марафон с целью по времени и дать тактику. Действуй так:\n";
+            $systemContent .= "1. Вызови get_day_details для сегодня и завтра (get_date(\"сегодня\"), get_date(\"завтра\")).\n";
+            $systemContent .= "2. Предложи замену: сегодня — race (полумарафон 21.1 км или марафон 42.2 км) с целевым временем; завтра — easy для восстановления (6–8 км). Спроси подтверждение.\n";
+            $systemContent .= "3. При подтверждении («да», «правильно», «ок») — ОБЯЗАТЕЛЬНО вызови update_training_day ДВАЖДЫ: для сегодня (type=race, description с дистанцией и временем) и для завтра (type=easy).\n";
+            $systemContent .= "4. После обновления плана дай тактику: разминка 1.5–2 км, темп по отрезкам (целевой темп = дистанция/время), питание (гель на 12–14 км для полумарафона), заминка.\n";
+            $systemContent .= "Формат description для race: «Полумарафон: 21.1 км за 2:00:00» или «Марафон: 42.2 км за 4:00:00». Темп в мин/км = время_сек / 60 / км.\n";
+            $systemContent .= "\n";
+        }
         if ($this->hasAddTrainingIntent($currentQuestion, $history)) {
             $systemContent .= "ДОБАВЛЕНИЕ ТРЕНИРОВКИ: Пользователь просит добавить тренировку. Уточни тип и детали, если не указано. Для даты используй get_date. При подтверждении («да», «супер», «ок», «достаточно») — ОБЯЗАТЕЛЬНО выведи блок ACTION с деталями из своего предыдущего сообщения. Без блока тренировка НЕ попадёт в календарь.\n";
             $systemContent .= "Формат ответа при подтверждении: краткий текст + на новой строке блок. description в кавычках; несколько упражнений ОФП/СБУ — с новой строки в description. Примеры:\n";
@@ -611,6 +847,46 @@ PROMPT;
             return true;
         }
         return false;
+    }
+
+    /**
+     * Есть ли намерение заменить тренировку на забег (полумарафон/марафон) с целью и дать тактику.
+     */
+    private function hasReplaceWithRaceIntent(string $currentQuestion, array $history): bool {
+        $texts = [$currentQuestion];
+        $n = 0;
+        for ($i = count($history) - 1; $i >= 0 && $n < 3; $i--) {
+            if (($history[$i]['sender_type'] ?? '') === 'user') {
+                $texts[] = $history[$i]['content'] ?? '';
+                $n++;
+            }
+        }
+        $s = mb_strtolower(implode(' ', $texts));
+        $racePhrases = ['полумарафон', 'марафон', 'половинку', '21.1', '42.2', '21 км', '42 км'];
+        $replacePhrases = ['поменяй', 'замени', 'поставь', 'сделай', 'пробежать', 'предоставь'];
+        $tacticPhrases = ['тактику', 'тактика', 'план'];
+        $hasRace = false;
+        foreach ($racePhrases as $p) {
+            if (mb_strpos($s, $p) !== false) {
+                $hasRace = true;
+                break;
+            }
+        }
+        $hasReplace = false;
+        foreach ($replacePhrases as $p) {
+            if (mb_strpos($s, $p) !== false) {
+                $hasReplace = true;
+                break;
+            }
+        }
+        $hasTactic = false;
+        foreach ($tacticPhrases as $p) {
+            if (mb_strpos($s, $p) !== false) {
+                $hasTactic = true;
+                break;
+            }
+        }
+        return $hasRace && ($hasReplace || $hasTactic);
     }
 
     /**
@@ -788,9 +1064,10 @@ PROMPT;
     private function isConfirmationMessage(string $text): bool {
         $s = mb_strtolower(trim($text));
         $short = preg_replace('/[\s\p{P}]+/u', '', $s);
-        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'го', 'погнали', 'достаточно', 'этогодостаточно'])
-            || preg_match('/^(да|давай|ок|супер|отлично|хорошо)[\s\p{P}]*$/ui', $s)
-            || preg_match('/^(этого\s+)?достаточно\??$/ui', $s);
+        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'го', 'погнали', 'достаточно', 'этогодостаточно', 'правильно'])
+            || preg_match('/^(да|давай|ок|супер|отлично|хорошо|правильно)[\s\p{P}]*$/ui', $s)
+            || preg_match('/^(этого\s+)?достаточно\??$/ui', $s)
+            || preg_match('/^(да,?\s+)?правильно\??$/ui', $s);
     }
 
     /**
@@ -1006,6 +1283,65 @@ PROMPT;
             [
                 'type' => 'function',
                 'function' => [
+                    'name' => 'swap_training_days',
+                    'description' => 'Поменять местами тренировки на двух датах. Используй когда пользователь просит «поменять местами», «сделать сегодня лонг, завтра лёгкую» и т.п. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом. Вызывай get_day_details для обеих дат, чтобы получить актуальные описания.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'date1' => [
+                                'type' => 'string',
+                                'description' => 'Первая дата Y-m-d (например сегодня)'
+                            ],
+                            'date2' => [
+                                'type' => 'string',
+                                'description' => 'Вторая дата Y-m-d (например завтра)'
+                            ]
+                        ],
+                        'required' => ['date1', 'date2']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'delete_training_day',
+                    'description' => 'Удалить запланированную тренировку на дату. Используй когда пользователь просит «отменить», «убери», «удали тренировку» на конкретную дату. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'date' => [
+                                'type' => 'string',
+                                'description' => 'Дата тренировки Y-m-d для удаления'
+                            ]
+                        ],
+                        'required' => ['date']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'move_training_day',
+                    'description' => 'Перенести тренировку с одной даты на другую. Используй когда пользователь просит «перенеси с среды на пятницу», «переставь на завтра» и т.п. Копирует тренировку на целевую дату и удаляет с исходной. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'source_date' => [
+                                'type' => 'string',
+                                'description' => 'Исходная дата Y-m-d (откуда переносим)'
+                            ],
+                            'target_date' => [
+                                'type' => 'string',
+                                'description' => 'Целевая дата Y-m-d (куда переносим)'
+                            ]
+                        ],
+                        'required' => ['source_date', 'target_date']
+                    ]
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
                     'name' => 'recalculate_plan',
                     'description' => 'Пересчитать весь план тренировок с учётом истории выполненных тренировок, пропусков и текущей формы. Вызывай когда видишь длительную паузу (>5 дней без тренировок), серьёзное отклонение от плана (выполнено <50%), или пользователь просит пересчитать. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
                     'parameters' => [
@@ -1071,6 +1407,15 @@ PROMPT;
         }
         if ($name === 'update_training_day') {
             return $this->executeUpdateTrainingDay($args, $userId);
+        }
+        if ($name === 'swap_training_days') {
+            return $this->executeSwapTrainingDays($args, $userId);
+        }
+        if ($name === 'delete_training_day') {
+            return $this->executeDeleteTrainingDay($args, $userId);
+        }
+        if ($name === 'move_training_day') {
+            return $this->executeMoveTrainingDay($args, $userId);
         }
         if ($name === 'recalculate_plan') {
             return $this->executeRecalculatePlan($args, $userId);
@@ -1328,6 +1673,182 @@ PROMPT;
                 'message' => 'Не удалось обновить: ' . $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Tool: delete_training_day — удалить запланированную тренировку на дату.
+     */
+    private function executeDeleteTrainingDay(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $date = $args['date'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
+        }
+
+        $dayId = $this->findDayIdByDate($userId, $date);
+        if (!$dayId) {
+            return json_encode([
+                'error' => 'no_plan_for_date',
+                'message' => "На дату {$date} нет запланированной тренировки"
+            ]);
+        }
+
+        try {
+            require_once __DIR__ . '/WeekService.php';
+            $weekService = new WeekService($this->db);
+            $weekService->deleteTrainingDayById($dayId, $userId);
+
+            $dt = DateTime::createFromFormat('Y-m-d', $date);
+            $dateFormatted = $dt ? $dt->format('d.m.Y') : $date;
+
+            return json_encode([
+                'success' => true,
+                'message' => "Тренировка на {$dateFormatted} удалена"
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'delete_failed',
+                'message' => 'Не удалось удалить: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Tool: move_training_day — перенести тренировку с одной даты на другую (copy + delete).
+     */
+    private function executeMoveTrainingDay(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $sourceDate = $args['source_date'] ?? '';
+        $targetDate = $args['target_date'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate)) {
+            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
+        }
+        if ($sourceDate === $targetDate) {
+            return json_encode(['error' => 'same_dates', 'message' => 'Исходная и целевая даты совпадают']);
+        }
+
+        $sourceDayId = $this->findDayIdByDate($userId, $sourceDate);
+        if (!$sourceDayId) {
+            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$sourceDate} нет запланированной тренировки"]);
+        }
+
+        try {
+            require_once __DIR__ . '/WeekService.php';
+            $weekService = new WeekService($this->db);
+
+            $targetDayId = $this->findDayIdByDate($userId, $targetDate);
+            if ($targetDayId) {
+                $weekService->deleteTrainingDayById($targetDayId, $userId);
+            }
+
+            $weekService->copyDay($sourceDate, $targetDate, $userId);
+            $weekService->deleteTrainingDayById($sourceDayId, $userId);
+
+            $d1 = DateTime::createFromFormat('Y-m-d', $sourceDate);
+            $d2 = DateTime::createFromFormat('Y-m-d', $targetDate);
+            $fmt1 = $d1 ? $d1->format('d.m.Y') : $sourceDate;
+            $fmt2 = $d2 ? $d2->format('d.m.Y') : $targetDate;
+
+            return json_encode([
+                'success' => true,
+                'message' => "Тренировка перенесена с {$fmt1} на {$fmt2}"
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'move_failed',
+                'message' => 'Не удалось перенести: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Tool: swap_training_days — поменять местами тренировки на двух датах.
+     * Меняет type и description. Упражнения (ОФП, СБУ) остаются при своих днях.
+     */
+    private function executeSwapTrainingDays(array $args, ?int $userId): string {
+        if (!$userId) {
+            return json_encode(['error' => 'user_required']);
+        }
+        $date1 = $args['date1'] ?? '';
+        $date2 = $args['date2'] ?? '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date1) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date2)) {
+            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
+        }
+        if ($date1 === $date2) {
+            return json_encode(['error' => 'same_dates', 'message' => 'Даты должны отличаться']);
+        }
+
+        $day1 = $this->getDayPlanDataByDate($userId, $date1);
+        $day2 = $this->getDayPlanDataByDate($userId, $date2);
+
+        if (!$day1) {
+            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$date1} нет запланированной тренировки"]);
+        }
+        if (!$day2) {
+            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$date2} нет запланированной тренировки"]);
+        }
+
+        try {
+            require_once __DIR__ . '/WeekService.php';
+            $weekService = new WeekService($this->db);
+
+            $weekService->updateTrainingDayById($day1['id'], $userId, [
+                'type' => $day2['type'],
+                'description' => $day2['description'] ?? '',
+            ]);
+            $weekService->updateTrainingDayById($day2['id'], $userId, [
+                'type' => $day1['type'],
+                'description' => $day1['description'] ?? '',
+            ]);
+
+            $typeRu = [
+                'easy' => 'Лёгкий бег', 'long' => 'Длительный бег', 'tempo' => 'Темповый бег',
+                'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
+                'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег', 'free' => 'Свободная'
+            ];
+            $d1 = DateTime::createFromFormat('Y-m-d', $date1);
+            $d2 = DateTime::createFromFormat('Y-m-d', $date2);
+            $fmt1 = $d1 ? $d1->format('d.m.Y') : $date1;
+            $fmt2 = $d2 ? $d2->format('d.m.Y') : $date2;
+            $t1 = $typeRu[$day1['type']] ?? $day1['type'];
+            $t2 = $typeRu[$day2['type']] ?? $day2['type'];
+
+            return json_encode([
+                'success' => true,
+                'message' => "Тренировки поменяны местами: {$fmt1} — {$t2}, {$fmt2} — {$t1}"
+            ]);
+        } catch (Exception $e) {
+            return json_encode([
+                'error' => 'swap_failed',
+                'message' => 'Не удалось поменять местами: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Получить type, description, id дня по дате.
+     */
+    private function getDayPlanDataByDate(int $userId, string $date): ?array {
+        $stmt = $this->db->prepare(
+            "SELECT d.id, d.type, d.description FROM training_plan_days d 
+             JOIN training_plan_weeks w ON d.week_id = w.id 
+             WHERE w.user_id = ? AND d.date = ? 
+             ORDER BY d.id DESC LIMIT 1"
+        );
+        if (!$stmt) return null;
+        $stmt->bind_param('is', $userId, $date);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? [
+            'id' => (int) $row['id'],
+            'type' => $row['type'] ?? 'rest',
+            'description' => $row['description'] ?? '',
+        ] : null;
     }
 
     /**

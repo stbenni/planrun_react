@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from './DashboardMetricIcons';
+import LogoLoading from '../common/LogoLoading';
 import './Dashboard.css';
 
 const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
@@ -68,7 +69,7 @@ const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
         onClick={onNavigate ? () => onNavigate('stats') : undefined}
         onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate('stats'); } } : undefined}
       >
-        <div className="dashboard-stats-widget-loading">Загрузка...</div>
+        <div className="dashboard-stats-widget-loading"><LogoLoading size="sm" /></div>
       </div>
     );
   }

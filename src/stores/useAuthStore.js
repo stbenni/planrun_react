@@ -89,17 +89,14 @@ const useAuthStore = create(
               BiometricService.isBiometricEnabled()
             ]);
 
-            // Синхронизируем токены из бэкапа в localStorage (если localStorage очищен)
-            const hasLocal = typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token');
-            if (!hasLocal) {
-              try {
-                const stored = await TokenStorageService.getTokens();
-                if (stored?.accessToken && stored?.refreshToken && typeof localStorage !== 'undefined') {
-                  localStorage.setItem('auth_token', stored.accessToken);
-                  localStorage.setItem('refresh_token', stored.refreshToken);
-                }
-              } catch (_) {}
-            }
+            // Синхронизируем токены из Preferences в localStorage (для ApiClient)
+            try {
+              const stored = await TokenStorageService.getTokens();
+              if (stored?.accessToken && stored?.refreshToken && typeof localStorage !== 'undefined') {
+                localStorage.setItem('auth_token', stored.accessToken);
+                localStorage.setItem('refresh_token', stored.refreshToken);
+              }
+            } catch (_) {}
 
             if (pinEnabled || biometricEnabled) {
               set({ isLocked: true, _lockEnabled: true, loading: false });
@@ -107,13 +104,7 @@ const useAuthStore = create(
               clearTimeout(safetyTimeout);
               return;
             }
-
-            // Нет PIN/биометрии и нет токенов — показываем логин
-            if (!hasLocal && !localStorage?.getItem('auth_token')) {
-              set({ loading: false });
-              clearTimeout(safetyTimeout);
-              return;
-            }
+            // Нет раннего return — всегда пробуем getCurrentUser (может сработать recovery)
           }
 
           // Проверяем авторизацию через PHP сессию (cookies) или JWT
@@ -171,9 +162,12 @@ const useAuthStore = create(
         const onBackground = () => set({ lastActiveAt: Date.now() });
         const onForeground = () => {
           checkAndLockSync();
-          const { isAuthenticated, isLocked, api } = get();
+          const { isAuthenticated, isLocked, api, _lockEnabled } = get();
           if (!api) return;
-          if (!isLocked && isAuthenticated) {
+          // Проактивный refresh токенов — и когда разблокировано, и когда заблокировано.
+          // При locked: обновляем токены в storage до разблокировки, чтобы биометрия/PIN
+          // не получали устаревшие токены после долгого фона.
+          if (isAuthenticated || _lockEnabled) {
             api.getCurrentUser().catch(() => {});
           }
         };
@@ -330,7 +324,10 @@ const useAuthStore = create(
       // clearStoredCredentials: false — сессия истекла (оставляем биометрию и PIN для входа)
       logout: async (clearStoredCredentials = true) => {
         const { api } = get();
-        
+        // Сразу обновляем UI — иначе при зависании api.logout (сеть, push) экран не обновится
+        set({ user: null, isAuthenticated: false, isLocked: false });
+        (await import('./usePlanStore')).default.getState().clearPlan();
+
         try {
           if (clearStoredCredentials && isNativeCapacitor()) {
             const { unregisterPushNotifications } = await import('../services/PushService');
@@ -339,7 +336,6 @@ const useAuthStore = create(
           if (api) {
             await api.logout();
           }
-          
           if (clearStoredCredentials) {
             await BiometricService.clearTokens();
             await PinAuthService.clearPin();
@@ -347,21 +343,16 @@ const useAuthStore = create(
               await CredentialBackupService.clearCredentials();
             }
           }
-          
-          set({ 
-            user: null, 
-            isAuthenticated: false,
-            isLocked: false
-          });
-          (await import('./usePlanStore')).default.getState().clearPlan();
         } catch (error) {
           console.error('Logout error:', error);
-          set({ 
-            user: null, 
-            isAuthenticated: false,
-            isLocked: false
-          });
-          (await import('./usePlanStore')).default.getState().clearPlan();
+          // UI уже обновлён, повторно очищаем токены на случай частичного сбоя
+          if (clearStoredCredentials) {
+            BiometricService.clearTokens().catch(() => {});
+            PinAuthService.clearPin().catch(() => {});
+            if (isNativeCapacitor()) {
+              CredentialBackupService.clearCredentials().catch(() => {});
+            }
+          }
         }
       },
 

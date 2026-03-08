@@ -181,6 +181,51 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
 
     $weeksToGenerate = min($weeksToGenerate, 30);
 
+    // --- Собираем структуру сохранённых недель ---
+    $keptWeeksSummary = [];
+    $maxPlannedLongKm = 0;
+    $maxPlannedVolumeKm = 0;
+
+    $stmt = $db->prepare("
+        SELECT tpw.week_number, tpw.start_date, tpw.total_volume,
+               GROUP_CONCAT(tpd.type ORDER BY tpd.day_of_week) AS day_types
+        FROM training_plan_weeks tpw
+        LEFT JOIN training_plan_days tpd ON tpd.week_id = tpw.id
+        WHERE tpw.user_id = ? AND tpw.start_date < ?
+        GROUP BY tpw.id
+        ORDER BY tpw.week_number
+    ");
+    $stmt->bind_param('is', $userId, $cutoffDate);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($r = $res->fetch_assoc()) {
+        $vol = (float) ($r['total_volume'] ?? 0);
+        if ($vol > $maxPlannedVolumeKm) $maxPlannedVolumeKm = $vol;
+        $keptWeeksSummary[] = [
+            'week' => (int) $r['week_number'],
+            'volume' => $vol,
+            'types' => $r['day_types'] ?? '',
+        ];
+    }
+    $stmt->close();
+
+    // Макс длительная из плана (запланированная)
+    $stmt = $db->prepare("
+        SELECT MAX(tde.distance_m) / 1000 AS max_long_km
+        FROM training_day_exercises tde
+        JOIN training_plan_days tpd ON tde.plan_day_id = tpd.id
+        JOIN training_plan_weeks tpw ON tpd.week_id = tpw.id
+        WHERE tpw.user_id = ? AND tpw.start_date < ? AND tpd.type = 'long' AND tde.category = 'run'
+    ");
+    $stmt->bind_param('is', $userId, $cutoffDate);
+    $stmt->execute();
+    $longRow = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $maxPlannedLongKm = round((float) ($longRow['max_long_km'] ?? 0), 1);
+
+    // Определяем текущую фазу по оригинальному макроциклу
+    $currentPhaseInfo = detectCurrentPhase($user, $goalType, $keptWeeks);
+
     // --- Собираем контекст тренировок ---
     require_once __DIR__ . '/../services/ChatContextBuilder.php';
     $ctxBuilder = new ChatContextBuilder($db);
@@ -204,7 +249,7 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     foreach ($history4w as $w) {
         $dist = (float) ($w['distance_km'] ?? 0);
         if ($dist > 0) {
-            $weekKey = date('W', strtotime($w['date']));
+            $weekKey = date('Y-W', strtotime($w['date']));
             $weekKms[$weekKey] = ($weekKms[$weekKey] ?? 0) + $dist;
         }
         if (!empty($w['pace']) && $w['pace'] !== '0:00') {
@@ -246,6 +291,19 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
         ? calculateDetrainingFactor($daysSinceLastWorkout)
         : null;
 
+    // Лучшая фактически выполненная длительная (полная история плана)
+    $bestActualLongKm = 0;
+    $historyFrom = $user['training_start_date'] ?? $fourWeeksAgo;
+    $historyAll = $ctxBuilder->getWorkoutsHistory($userId, $historyFrom, $today, 500);
+    foreach ($historyAll as $w) {
+        $type = $w['plan_type'] ?? '';
+        $dist = (float) ($w['distance_km'] ?? 0);
+        if ($type === 'long' && $dist > $bestActualLongKm) {
+            $bestActualLongKm = $dist;
+        }
+    }
+    $bestActualLongKm = round($bestActualLongKm, 1);
+
     $origStart = $user['training_start_date'] ?? null;
     $currentWeekNumber = null;
     if ($origStart) {
@@ -276,6 +334,11 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
         'recent_workouts' => $recentWorkouts,
         'new_start_date' => $cutoffDate,
         'user_reason' => $userReason,
+        'kept_weeks_summary' => $keptWeeksSummary,
+        'max_planned_long_km' => $maxPlannedLongKm,
+        'max_planned_volume_km' => round($maxPlannedVolumeKm, 1),
+        'best_actual_long_km' => $bestActualLongKm,
+        'current_phase' => $currentPhaseInfo,
     ];
 
     $prompt = buildRecalculationPrompt($user, $goalType, $recalcContext);
@@ -475,7 +538,7 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
     foreach ($recent4w as $w) {
         $dist = (float) ($w['distance_km'] ?? 0);
         if ($dist > 0) {
-            $wk = date('W', strtotime($w['date']));
+            $wk = date('Y-W', strtotime($w['date']));
             $recent4wKms[$wk] = ($recent4wKms[$wk] ?? 0) + $dist;
         }
         if (!empty($w['pace']) && $w['pace'] !== '0:00') {
@@ -572,8 +635,94 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
 }
 
 /**
+ * Определяет текущую фазу макроцикла по количеству прошедших недель.
+ *
+ * Вызывает computeMacrocycle() с оригинальными данными пользователя,
+ * затем сопоставляет $keptWeeks с фазами.
+ *
+ * @param array  $userData   Данные пользователя (с оригинальным training_start_date)
+ * @param string $goalType   Тип цели
+ * @param int    $keptWeeks  Сколько недель сохранено (уже пройдено)
+ * @return array|null  ['phase'=>..., 'phase_label'=>..., 'weeks_into_phase'=>..., 'weeks_left_in_phase'=>..., 'next_phase'=>..., 'remaining_phases'=>[...], 'long_run_progression'=>[...]]
+ */
+function detectCurrentPhase(array $userData, string $goalType, int $keptWeeks): ?array {
+    $mc = computeMacrocycle($userData, $goalType);
+    if (!$mc) {
+        return null;
+    }
+
+    // Текущая неделя = keptWeeks + 1 (первая неделя, которую будем генерировать)
+    $currentWeek = $keptWeeks + 1;
+
+    $currentPhase = null;
+    $nextPhase = null;
+    $remainingPhases = [];
+    $foundCurrent = false;
+
+    foreach ($mc['phases'] as $i => $phase) {
+        if (!$foundCurrent && $currentWeek >= $phase['weeks_from'] && $currentWeek <= $phase['weeks_to']) {
+            $currentPhase = $phase;
+            $foundCurrent = true;
+            // Следующая фаза
+            if (isset($mc['phases'][$i + 1])) {
+                $nextPhase = $mc['phases'][$i + 1];
+            }
+            // Оставшиеся фазы (включая остаток текущей)
+            for ($j = $i; $j < count($mc['phases']); $j++) {
+                $remainingPhases[] = $mc['phases'][$j];
+            }
+        }
+    }
+
+    // Если keptWeeks >= totalWeeks (все фазы пройдены)
+    if (!$currentPhase) {
+        $lastPhase = end($mc['phases']);
+        return [
+            'phase' => $lastPhase['name'],
+            'phase_label' => $lastPhase['label'],
+            'weeks_into_phase' => $currentWeek - $lastPhase['weeks_from'],
+            'weeks_left_in_phase' => 0,
+            'next_phase' => null,
+            'next_phase_label' => null,
+            'remaining_phases' => [],
+            'long_run_progression' => [],
+            'recovery_weeks' => [],
+        ];
+    }
+
+    // Прогрессия длительной для оставшихся недель
+    $longRunProgression = [];
+    for ($w = $currentWeek; $w <= $mc['total_weeks']; $w++) {
+        if (isset($mc['long_run']['by_week'][$w])) {
+            $longRunProgression[$w] = $mc['long_run']['by_week'][$w];
+        }
+    }
+
+    // Разгрузочные недели среди оставшихся
+    $remainingRecovery = array_filter($mc['recovery_weeks'], fn($w) => $w >= $currentWeek);
+
+    // Контрольные недели среди оставшихся
+    $remainingControl = array_filter($mc['control_weeks'] ?? [], fn($w) => $w >= $currentWeek);
+
+    return [
+        'phase' => $currentPhase['name'],
+        'phase_label' => $currentPhase['label'],
+        'weeks_into_phase' => $currentWeek - $currentPhase['weeks_from'],
+        'weeks_left_in_phase' => $currentPhase['weeks_to'] - $currentWeek + 1,
+        'next_phase' => $nextPhase ? $nextPhase['name'] : null,
+        'next_phase_label' => $nextPhase ? $nextPhase['label'] : null,
+        'remaining_phases' => $remainingPhases,
+        'long_run_progression' => $longRunProgression,
+        'recovery_weeks' => array_values($remainingRecovery),
+        'control_weeks' => array_values($remainingControl),
+        'peak_volume_km' => $mc['peak_volume_km'],
+        'start_volume_km' => $mc['start_volume_km'],
+    ];
+}
+
+/**
  * Парсинг ответа от PlanRun AI API
- * 
+ *
  * @param string $response JSON ответ от PlanRun AI API
  * @return array Распарсенный план
  */

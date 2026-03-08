@@ -101,13 +101,14 @@ function saveTrainingPlan($db, $userId, $planData, $startDate) {
                 foreach ($day['exercises'] as $ex) {
                     if ($ex['category'] === 'run') {
                         $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, notes)
-                             VALUES (?, ?, 'run', ?, ?, ?, ?)"
+                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, pace, notes)
+                             VALUES (?, ?, 'run', ?, ?, ?, ?, ?)"
                         );
                         $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
                         $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $stmt->bind_param('iisiis',
-                            $userId, $dayId, $ex['name'], $distM, $durSec, $ex['notes']
+                        $paceVal = $ex['pace'] ?? null;
+                        $stmt->bind_param('iisiiss',
+                            $userId, $dayId, $ex['name'], $distM, $durSec, $paceVal, $ex['notes']
                         );
                         $stmt->execute();
                         if ($stmt->error) {
@@ -287,13 +288,14 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
                 foreach ($day['exercises'] as $ex) {
                     if ($ex['category'] === 'run') {
                         $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, notes)
-                             VALUES (?, ?, 'run', ?, ?, ?, ?)"
+                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, pace, notes)
+                             VALUES (?, ?, 'run', ?, ?, ?, ?, ?)"
                         );
                         $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
                         $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $stmt->bind_param('iisiis',
-                            $userId, $dayId, $ex['name'], $distM, $durSec, $ex['notes']
+                        $paceVal = $ex['pace'] ?? null;
+                        $stmt->bind_param('iisiiss',
+                            $userId, $dayId, $ex['name'], $distM, $durSec, $paceVal, $ex['notes']
                         );
                         $stmt->execute();
                         if ($stmt->error) {

@@ -60,7 +60,7 @@ try {
         $planData = generatePlanViaPlanRunAI($userId);
     }
     
-    if (!$planData || !isset($planData['weeks'])) {
+    if (!$planData || !isset($planData['weeks']) || empty($planData['weeks'])) {
         throw new Exception("План не содержит данных о неделях");
     }
     
@@ -109,11 +109,7 @@ try {
     error_log("generate_plan_async.php: План успешно сохранен и активирован ({$mode}) для пользователя {$userId}");
 
     // Рецензия плана от AI в чат пользователя
-    $reviewStartDate = $startDate ?? (
-        isset($cutoffDate)
-            ? (new DateTime($cutoffDate))->modify('monday next week')->format('Y-m-d')
-            : date('Y-m-d')
-    );
+    $reviewStartDate = $startDate ?? ($cutoffDate ?? date('Y-m-d'));
     try {
         require_once __DIR__ . '/plan_review_generator.php';
         require_once __DIR__ . '/../services/ChatService.php';

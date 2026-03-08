@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPinIcon, MountainIcon, PaceIcon } from '../common/Icons';
+import LogoLoading from '../common/LogoLoading';
 import './RouteMap.css';
 
 const RouteMap = ({ workout, gpxData, coordinates }) => {
@@ -84,8 +85,7 @@ const RouteMap = ({ workout, gpxData, coordinates }) => {
       >
         {!mapLoaded && (
           <div className="map-loading">
-            <div className="spinner"></div>
-            <span>Загрузка карты...</span>
+            <LogoLoading size="sm" />
           </div>
         )}
       </div>

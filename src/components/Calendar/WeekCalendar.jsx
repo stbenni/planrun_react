@@ -7,9 +7,11 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import useAuthStore from '../../stores/useAuthStore';
 import WorkoutCard from './WorkoutCard';
 import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
 import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon } from '../common/Icons';
+import LogoLoading from '../common/LogoLoading';
 import { getPlanDayForDate, getDayCompletionStatus } from '../../utils/calendarHelpers';
 import './WeekCalendar.css';
 import './DayModal.modern.css';
@@ -132,6 +134,19 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
   const [dayDetails, setDayDetails] = useState({});
   const [loadingDays, setLoadingDays] = useState(false);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [showCopyWeek, setShowCopyWeek] = useState(false);
+  const [copyWeekTarget, setCopyWeekTarget] = useState('');
+  const [copyingWeek, setCopyingWeek] = useState(false);
+  const { user: currentUser } = useAuthStore();
+
+  // Week notes
+  const [weekNotes, setWeekNotes] = useState([]);
+  const [showWeekNotes, setShowWeekNotes] = useState(false);
+  const [newWeekNoteText, setNewWeekNoteText] = useState('');
+  const [savingWeekNote, setSavingWeekNote] = useState(false);
+  const [editingWeekNoteId, setEditingWeekNoteId] = useState(null);
+  const [editingWeekNoteText, setEditingWeekNoteText] = useState('');
+
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
   const containerRef = useRef(null);
@@ -220,6 +235,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
         }));
       }
     } catch (error) {
+      if (error?.code === 'TIMEOUT' || error?.message?.includes('aborted')) return;
       console.error(`Error loading day ${date}:`, error);
     } finally {
       setLoadingDays(false);
@@ -259,6 +275,27 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
     setSelectedDate(nextStart);
   };
 
+  const handleCopyWeek = async () => {
+    if (!copyWeekTarget || !currentWeek?.id || !api?.copyWeek) return;
+    // Ensure target is Monday
+    const targetDate = new Date(copyWeekTarget + 'T12:00:00');
+    const dayOfWeek = targetDate.getDay(); // 0=Sun
+    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    targetDate.setDate(targetDate.getDate() + diff);
+    const targetMonday = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+
+    setCopyingWeek(true);
+    try {
+      await api.copyWeek(currentWeek.id, targetMonday, viewContext || undefined);
+      setShowCopyWeek(false);
+      setCopyWeekTarget('');
+      onTrainingAdded?.();
+    } catch (e) {
+      alert(e.message || 'Ошибка копирования недели');
+    }
+    setCopyingWeek(false);
+  };
+
   const goToCurrentWeek = () => {
     const mondayStr = getMondayOfToday();
     const t = new Date();
@@ -266,6 +303,48 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
     const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
     setCurrentWeek(getWeekForStartDate(plan, mondayStr));
     setSelectedDate(todayStr);
+  };
+
+  // Week notes
+  const loadWeekNotes = useCallback(async () => {
+    if (!currentWeek?.start_date || !api?.getWeekNotes) return;
+    try {
+      const res = await api.getWeekNotes(currentWeek.start_date, viewContext || undefined);
+      setWeekNotes(res?.data?.notes ?? res?.notes ?? []);
+    } catch { /* silent */ }
+  }, [currentWeek?.start_date, api, viewContext]);
+
+  useEffect(() => { loadWeekNotes(); }, [loadWeekNotes]);
+
+  const handleSaveWeekNote = async () => {
+    if (!newWeekNoteText.trim() || savingWeekNote || !currentWeek?.start_date) return;
+    setSavingWeekNote(true);
+    try {
+      await api.saveWeekNote(currentWeek.start_date, newWeekNoteText.trim(), null, viewContext || undefined);
+      setNewWeekNoteText('');
+      await loadWeekNotes();
+    } catch (e) { alert(e.message || 'Ошибка сохранения заметки'); }
+    setSavingWeekNote(false);
+  };
+
+  const handleUpdateWeekNote = async (noteId) => {
+    if (!editingWeekNoteText.trim() || savingWeekNote) return;
+    setSavingWeekNote(true);
+    try {
+      await api.saveWeekNote(currentWeek.start_date, editingWeekNoteText.trim(), noteId, viewContext || undefined);
+      setEditingWeekNoteId(null);
+      setEditingWeekNoteText('');
+      await loadWeekNotes();
+    } catch (e) { alert(e.message || 'Ошибка обновления заметки'); }
+    setSavingWeekNote(false);
+  };
+
+  const handleDeleteWeekNote = async (noteId) => {
+    if (!window.confirm('Удалить заметку?')) return;
+    try {
+      await api.deleteWeekNote(noteId, viewContext || undefined);
+      await loadWeekNotes();
+    } catch (e) { alert(e.message || 'Ошибка удаления'); }
   };
 
   // Swipe жесты для мобильных устройств
@@ -328,7 +407,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
   if (!currentWeek) {
     return (
       <div className="week-calendar-empty">
-        <p>Загрузка календаря...</p>
+        <LogoLoading size="sm" />
       </div>
     );
   }
@@ -359,6 +438,78 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
             aria-label="Следующая неделя"
           />
         </div>
+        {canEdit && currentWeek?.id && (
+          <div className="week-copy-controls">
+            {!showCopyWeek ? (
+              <button type="button" className="btn btn-ghost btn--sm week-copy-btn" onClick={() => setShowCopyWeek(true)}>
+                Скопировать неделю
+              </button>
+            ) : (
+              <div className="week-copy-input">
+                <input
+                  type="date"
+                  className="week-copy-date"
+                  value={copyWeekTarget}
+                  onChange={e => setCopyWeekTarget(e.target.value)}
+                />
+                <button type="button" className="btn btn-primary btn--sm" onClick={handleCopyWeek} disabled={!copyWeekTarget || copyingWeek}>
+                  {copyingWeek ? '...' : 'OK'}
+                </button>
+                <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setShowCopyWeek(false); setCopyWeekTarget(''); }}>
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Week notes */}
+      <div className="week-notes-section">
+        <button
+          type="button"
+          className="week-notes-toggle"
+          onClick={() => setShowWeekNotes(v => !v)}
+        >
+          <span>Заметки к неделе{weekNotes.length > 0 ? ` (${weekNotes.length})` : ''}</span>
+          <span className={`week-notes-arrow ${showWeekNotes ? 'week-notes-arrow--open' : ''}`}>&#9662;</span>
+        </button>
+        {showWeekNotes && (
+          <div className="week-notes-list">
+            {weekNotes.length === 0 && <div className="week-notes-empty">Нет заметок</div>}
+            {weekNotes.map(note => (
+              <div key={note.id} className="week-note">
+                <div className="week-note-header">
+                  <span className="week-note-author">{note.author_username}</span>
+                  <span className="week-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                  {currentUser && note.author_id == currentUser.id && (
+                    <span className="week-note-actions">
+                      <button type="button" className="week-note-btn" onClick={() => { setEditingWeekNoteId(note.id); setEditingWeekNoteText(note.content); }} title="Редактировать">&#9998;</button>
+                      <button type="button" className="week-note-btn week-note-btn--del" onClick={() => handleDeleteWeekNote(note.id)} title="Удалить">&times;</button>
+                    </span>
+                  )}
+                </div>
+                {editingWeekNoteId === note.id ? (
+                  <div className="week-note-edit">
+                    <textarea className="week-note-textarea" value={editingWeekNoteText} onChange={e => setEditingWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
+                    <div className="week-note-edit-btns">
+                      <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateWeekNote(note.id)} disabled={savingWeekNote}>Сохранить</button>
+                      <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingWeekNoteId(null); setEditingWeekNoteText(''); }}>Отмена</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="week-note-content">{note.content}</div>
+                )}
+              </div>
+            ))}
+            <div className="week-note-add">
+              <textarea className="week-note-textarea" placeholder="Добавить заметку к неделе..." value={newWeekNoteText} onChange={e => setNewWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
+              <button type="button" className="btn btn-primary btn--sm" onClick={handleSaveWeekNote} disabled={!newWeekNoteText.trim() || savingWeekNote}>
+                {savingWeekNote ? 'Сохранение...' : 'Отправить'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="week-days-grid">
@@ -377,8 +528,8 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
               </span>
               <span className="week-day-date-sep">/</span>
               <span className="week-day-label">{day.dayLabel}</span>
-              {day.dayActivities.some(a => a.is_key_workout) && (
-                <span className="week-day-key-dot" title="Ключевая тренировка" />
+              {day.dayActivities.some(a => a.type === 'control') && (
+                <span className="week-day-key-dot" title="Контрольная тренировка" />
               )}
             </div>
 

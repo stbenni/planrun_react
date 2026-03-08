@@ -163,6 +163,7 @@ const ChatScreen = () => {
   const [chatAdminSending, setChatAdminSending] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const scrollAreaRef = useRef(null);
   const tabRef = useRef(selectedChat);
   tabRef.current = selectedChat;
   const isMountedRef = useRef(true);
@@ -181,7 +182,16 @@ const ChatScreen = () => {
   }, []);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollAreaRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        } else {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        }
+      });
+    });
   };
 
   const loadMessages = useCallback(async () => {
@@ -361,8 +371,16 @@ const ChatScreen = () => {
 
   useEffect(() => {
     if (scrollToMessageId && messages.length > 0 && selectedChat === TAB_ADMIN) {
-      const el = document.querySelector(`[data-message-id="${scrollToMessageId}"]`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const msgEl = document.querySelector(`[data-message-id="${scrollToMessageId}"]`);
+      const scrollEl = scrollAreaRef.current;
+      if (msgEl && scrollEl) {
+        const rect = msgEl.getBoundingClientRect();
+        const scrollRect = scrollEl.getBoundingClientRect();
+        const targetTop = scrollEl.scrollTop + (rect.top - scrollRect.top) - scrollEl.clientHeight / 2 + rect.height / 2;
+        scrollEl.scrollTop = Math.max(0, targetTop);
+      } else {
+        msgEl?.scrollIntoView({ behavior: 'auto', block: 'center' });
+      }
     } else if (messages.length !== prevMessagesLenRef.current) {
       scrollToBottom();
     }
@@ -788,28 +806,29 @@ const ChatScreen = () => {
   const mainContent = isAdminMode ? (
     selectedChatUser ? (
       <>
-        <div className="chat-main-header">
-          <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку">
-            ←
-          </button>
-          <div className="chat-main-header-info">
-            <span className="chat-main-header-icon" aria-hidden="true"><UsersIcon size={20} /></span>
-            <div>
-              <h3 className="chat-main-header-title">Чат с {selectedChatUser.username}</h3>
-              <p className="chat-main-header-subtitle">Ответ от администрации</p>
+        <div ref={scrollAreaRef} className="chat-main-scroll-area">
+          <div className="chat-main-header">
+            <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку">
+              ←
+            </button>
+            <div className="chat-main-header-info">
+              <span className="chat-main-header-icon" aria-hidden="true"><UsersIcon size={20} /></span>
+              <div>
+                <h3 className="chat-main-header-title">Чат с {selectedChatUser.username}</h3>
+                <p className="chat-main-header-subtitle">Ответ от администрации</p>
+              </div>
             </div>
+            <button
+              type="button"
+              className="chat-refresh-btn"
+              onClick={() => loadChatAdminMessages(selectedChatUser.id)}
+              disabled={chatAdminLoading}
+              title="Обновить"
+            >
+              {chatAdminLoading ? '…' : '↻'}
+            </button>
           </div>
-          <button
-            type="button"
-            className="chat-refresh-btn"
-            onClick={() => loadChatAdminMessages(selectedChatUser.id)}
-            disabled={chatAdminLoading}
-            title="Обновить"
-          >
-            {chatAdminLoading ? '…' : '↻'}
-          </button>
-        </div>
-        <div className="chat-messages">
+          <div className="chat-messages">
           {chatAdminLoading ? (
             <div className="chat-loading">
               <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
@@ -845,6 +864,7 @@ const ChatScreen = () => {
               <div ref={messagesEndRef} />
             </>
           )}
+          </div>
         </div>
         {error && (
           <div className="chat-error" role="alert">
@@ -886,30 +906,29 @@ const ChatScreen = () => {
         </div>
       )}
       {!contactUserLoading && (
-      <div className="chat-main-header">
-        <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
-        <div className="chat-main-header-info">
-          <span className="chat-main-header-avatar" aria-hidden="true">
-            {contactUserForDialog?.avatar_path ? (
-              <img src={getAvatarSrc(contactUserForDialog.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-header-avatar-img" />
-            ) : (
-              <span className="chat-header-avatar-initials">{contactUserForDialog?.username ? contactUserForDialog.username.slice(0, 2).toUpperCase() : '?'}</span>
-            )}
-          </span>
-          <div>
-            <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
-            <p className="chat-main-header-subtitle">Личное сообщение</p>
+      <div ref={scrollAreaRef} className="chat-main-scroll-area">
+        <div className="chat-main-header">
+          <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
+          <div className="chat-main-header-info">
+            <span className="chat-main-header-avatar" aria-hidden="true">
+              {contactUserForDialog?.avatar_path ? (
+                <img src={getAvatarSrc(contactUserForDialog.avatar_path, api?.baseUrl || '/api')} alt="" className="chat-header-avatar-img" />
+              ) : (
+                <span className="chat-header-avatar-initials">{contactUserForDialog?.username ? contactUserForDialog.username.slice(0, 2).toUpperCase() : '?'}</span>
+              )}
+            </span>
+            <div>
+              <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
+              <p className="chat-main-header-subtitle">Личное сообщение</p>
+            </div>
           </div>
+          {userDialogMessages.length > 0 && (
+            <button type="button" className="chat-clear-btn" onClick={handleClearDirectDialog} disabled={sending || userDialogLoading} title="Очистить диалог">
+              Очистить
+            </button>
+          )}
         </div>
-        {userDialogMessages.length > 0 && (
-          <button type="button" className="chat-clear-btn" onClick={handleClearDirectDialog} disabled={sending || userDialogLoading} title="Очистить диалог">
-            Очистить
-          </button>
-        )}
-      </div>
-      )}
-      {!contactUserLoading && (
-      <div className="chat-messages">
+        <div className="chat-messages">
         {userDialogLoading ? (
           <div className="chat-loading">
             <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
@@ -963,6 +982,7 @@ const ChatScreen = () => {
             <div ref={messagesEndRef} />
           </>
         )}
+        </div>
       </div>
       )}
       {error && (
@@ -990,27 +1010,28 @@ const ChatScreen = () => {
     </>
   ) : selectedChat ? (
     <>
-      <div className="chat-main-header">
-        <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
-        <div className="chat-main-header-info">
-          <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.Icon && <currentChat.Icon size={20} />}</span>
-          <div>
-            <h3 className="chat-main-header-title">{currentChat?.label}</h3>
-            <p className="chat-main-header-subtitle">{currentChat?.description}</p>
+      <div ref={scrollAreaRef} className="chat-main-scroll-area">
+        <div className="chat-main-header">
+          <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
+          <div className="chat-main-header-info">
+            <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.Icon && <currentChat.Icon size={20} />}</span>
+            <div>
+              <h3 className="chat-main-header-title">{currentChat?.label}</h3>
+              <p className="chat-main-header-subtitle">{currentChat?.description}</p>
+            </div>
           </div>
+          {isAiChat && (
+            <button type="button" className="chat-clear-btn" onClick={handleClearAiChat} disabled={sending} title="Очистить чат">
+              Очистить
+            </button>
+          )}
+          {isAdminChat && (
+            <button type="button" className="chat-refresh-btn" onClick={loadMessages} disabled={loading} title="Обновить">
+              {loading ? '…' : '↻'}
+            </button>
+          )}
         </div>
-        {isAiChat && (
-          <button type="button" className="chat-clear-btn" onClick={handleClearAiChat} disabled={sending} title="Очистить чат">
-            Очистить
-          </button>
-        )}
-        {isAdminChat && (
-          <button type="button" className="chat-refresh-btn" onClick={loadMessages} disabled={loading} title="Обновить">
-            {loading ? '…' : '↻'}
-          </button>
-        )}
-      </div>
-      <div className="chat-messages">
+        <div className="chat-messages">
         {loading ? (
           <div className="chat-loading">
             <div className="skeleton-line" style={{ width: '70%', height: 14 }}></div>
@@ -1096,6 +1117,7 @@ const ChatScreen = () => {
             <div ref={messagesEndRef} />
           </>
         )}
+        </div>
       </div>
       {error && (
         <div className="chat-error" role="alert">

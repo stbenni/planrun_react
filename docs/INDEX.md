@@ -16,6 +16,9 @@
 | [06-ON-CREATE-UPDATE-DOCS.md](06-ON-CREATE-UPDATE-DOCS.md) | При создании нового — что обновлять в документации |
 | [HUAWEI_HEALTH_INTEGRATION.md](HUAWEI_HEALTH_INTEGRATION.md) | Интеграция Huawei Health Kit |
 
+**Будущие доработки:**
+| [PLANS-FUTURE.md](PLANS-FUTURE.md) | Сводный план: AI-чат, тренеры, Android auth, VDOT, ключевые тренировки |
+
 **Правила Cursor (alwaysApply):**
 - `.cursor/rules/architecture-flow.mdc` — граф вызовов, цепочки данных
 - `.cursor/rules/impact-matrix.mdc` — матрица влияния: при изменении X проверить Y (100% покрытие)

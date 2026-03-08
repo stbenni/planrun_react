@@ -1,11 +1,11 @@
 /**
  * Хранение токенов и device_id.
  * Web: localStorage.
- * Native: токены — SecureStorage (Keychain/Keystore); device_id — Preferences (SharedPreferences).
- * device_id в Preferences, т.к. SecureStorage на Android может зависать 3+ сек при первом обращении к KeyStore.
+ * Native: Preferences — ОСНОВНОЙ источник (надёжен на Android). SecureStorage — опционально в фоне.
+ * device_id в Preferences.
  *
- * Резервное хранение (backup): при потере KeyStore после обновления Android токены в SecureStorage
- * становятся нечитаемыми. Preferences-бэкап позволяет восстановить доступ без повторного входа.
+ * На Android SecureStorage (KeyStore) ненадёжен: таймауты, сброс после обновления ОС.
+ * Preferences (SharedPreferences) переживает kill приложения и обновления.
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -83,40 +83,39 @@ class TokenStorageService {
       };
     }
 
+    // Native: Preferences ПЕРВЫМ — надёжен, не зависит от KeyStore
+    const fromPrefs = await this._getTokensFromPreferencesBackup();
+    if (fromPrefs) return fromPrefs;
+
+    // SecureStorage — опционально (для обратной совместимости)
     const storage = await this._getSecureStorage();
-    if (!storage) {
-      if (typeof localStorage !== 'undefined') {
-        return {
-          accessToken: localStorage.getItem(KEYS.AUTH_TOKEN),
-          refreshToken: localStorage.getItem(KEYS.REFRESH_TOKEN)
-        };
-      }
-      return { accessToken: null, refreshToken: null };
-    }
-
-    try {
-      const [av, rv] = await withTimeout(Promise.all([
-        storage.get(KEYS.AUTH_TOKEN),
-        storage.get(KEYS.REFRESH_TOKEN)
-      ]));
-      const accessToken = (typeof av === 'string' ? av : null) || null;
-      const refreshToken = (typeof rv === 'string' ? rv : null) || null;
-      if (accessToken && refreshToken) {
-        return { accessToken, refreshToken };
-      }
-    } catch (e) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[TokenStorage] SecureStorage read failed (KeyStore lost?):', e?.message);
-      }
+    if (storage) {
       try {
-        await withTimeout(Promise.all([
-          storage.remove(KEYS.AUTH_TOKEN),
-          storage.remove(KEYS.REFRESH_TOKEN)
+        const [av, rv] = await withTimeout(Promise.all([
+          storage.get(KEYS.AUTH_TOKEN),
+          storage.get(KEYS.REFRESH_TOKEN)
         ]));
-      } catch (_) {}
+        const accessToken = (typeof av === 'string' ? av : null) || null;
+        const refreshToken = (typeof rv === 'string' ? rv : null) || null;
+        if (accessToken && refreshToken) {
+          return { accessToken, refreshToken };
+        }
+      } catch (e) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[TokenStorage] SecureStorage read failed:', e?.message);
+        }
+      }
     }
 
-    // Fallback: Preferences-бэкап (переживает потерю KeyStore при обновлении)
+    if (typeof localStorage !== 'undefined') {
+      const at = localStorage.getItem(KEYS.AUTH_TOKEN);
+      const rt = localStorage.getItem(KEYS.REFRESH_TOKEN);
+      if (at && rt) return { accessToken: at, refreshToken: rt };
+    }
+    return { accessToken: null, refreshToken: null };
+  }
+
+  async _getTokensFromPreferencesBackup() {
     try {
       const { value } = await Preferences.get({ key: KEYS.BACKUP_TOKENS });
       if (value && typeof value === 'string') {
@@ -128,10 +127,8 @@ class TokenStorageService {
           return { accessToken: at, refreshToken: rt };
         }
       }
-    } catch (_) {
-      // игнорируем
-    }
-    return { accessToken: null, refreshToken: null };
+    } catch (_) {}
+    return null;
   }
 
   async _tryRestoreToSecureStorage(accessToken, refreshToken) {
@@ -154,7 +151,7 @@ class TokenStorageService {
       return true;
     }
 
-    // Preferences — быстрый и надёжный бэкап, сохраняем ПЕРВЫМ
+    // Preferences — быстрый и надёжный бэкап, сохраняем ПЕРВЫМ (обязательно await)
     try {
       await Preferences.set({
         key: KEYS.BACKUP_TOKENS,
@@ -162,20 +159,19 @@ class TokenStorageService {
       });
     } catch (_) {}
 
-    // SecureStorage — может зависнуть при инициализации KeyStore на Android
-    try {
-      const storage = await this._getSecureStorage();
+    // SecureStorage — может зависнуть при инициализации KeyStore на Android. Пишем в фоне.
+    this._getSecureStorage().then((storage) => {
       if (storage) {
-        await withTimeout(Promise.all([
+        return withTimeout(Promise.all([
           storage.set(KEYS.AUTH_TOKEN, String(accessToken)),
           storage.set(KEYS.REFRESH_TOKEN, String(refreshToken))
         ]));
       }
-    } catch (e) {
+    }).catch((e) => {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[TokenStorage] SecureStorage save failed:', e?.message);
       }
-    }
+    });
     return true;
   }
 
@@ -186,25 +182,22 @@ class TokenStorageService {
       return true;
     }
 
-    const storage = await this._getSecureStorage();
-    if (!storage) {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(KEYS.AUTH_TOKEN);
-        localStorage.removeItem(KEYS.REFRESH_TOKEN);
-        return true;
-      }
-      return false;
-    }
-
-    try {
-      await withTimeout(Promise.all([
-        storage.remove(KEYS.AUTH_TOKEN),
-        storage.remove(KEYS.REFRESH_TOKEN)
-      ]));
-    } catch (_) {}
     try {
       await Preferences.remove({ key: KEYS.BACKUP_TOKENS });
     } catch (_) {}
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(KEYS.AUTH_TOKEN);
+      localStorage.removeItem(KEYS.REFRESH_TOKEN);
+    }
+    const storage = await this._getSecureStorage();
+    if (storage) {
+      try {
+        await withTimeout(Promise.all([
+          storage.remove(KEYS.AUTH_TOKEN),
+          storage.remove(KEYS.REFRESH_TOKEN)
+        ]));
+      } catch (_) {}
+    }
     return true;
   }
 

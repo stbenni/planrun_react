@@ -54,7 +54,11 @@ function findTrainingDay($workoutDate, $userId = null) {
 function linkWorkoutToCalendar($db, $workoutId, $workout, $userId = null) {
     // Если user_id не передан, пытаемся получить из сессии
     if ($userId === null) {
-        $userId = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 1;
+        $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+    }
+    if (!$userId) {
+        error_log("linkWorkoutToCalendar: user_id не определён, пропускаем привязку");
+        return false;
     }
     // Извлекаем дату из start_time
     $workoutDate = date('Y-m-d', strtotime($workout['start_time']));

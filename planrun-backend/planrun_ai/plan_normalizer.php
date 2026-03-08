@@ -341,6 +341,16 @@ function normalizeTrainingDay(array $day, string $computedDate, int $dayOfWeek):
             $pace = null;
         }
 
+        // --- Санити-чеки ---
+        if ($distanceKm !== null) {
+            if ($distanceKm < 0.5) $distanceKm = null;
+            if ($distanceKm > 60) $distanceKm = 60;
+        }
+        $paceSec = parsePaceToSeconds($pace);
+        if ($paceSec !== null && ($paceSec < 150 || $paceSec > 600)) {
+            $pace = null; // 2:30-10:00 допустимый диапазон
+        }
+
         $isKeyWorkout = resolveIsKeyWorkout($day, $type);
         $exercises = [];
 
@@ -414,6 +424,16 @@ function normalizeTrainingDay(array $day, string $computedDate, int $dayOfWeek):
             $durationMin = null;
             $pace = null;
         }
+    }
+
+    // --- Санити-чеки (legacy format) ---
+    if ($distanceKm !== null) {
+        if ($distanceKm < 0.5) $distanceKm = null;
+        if ($distanceKm > 60) $distanceKm = 60;
+    }
+    $paceSec = parsePaceToSeconds($pace);
+    if ($paceSec !== null && ($paceSec < 150 || $paceSec > 600)) {
+        $pace = null;
     }
 
     $isKeyWorkout = resolveIsKeyWorkout($day, $type);
@@ -491,7 +511,7 @@ function normalizeTrainingPlan(array $rawPlan, string $startDate, int $weekNumbe
         $weekNumber = ($weekIndex + 1) + $weekNumberOffset;
 
         $weekStartDate = clone $startDateTime;
-        $weekStartDate->modify('+' . (($weekNumber - 1) * 7) . ' days');
+        $weekStartDate->modify('+' . ($weekIndex * 7) . ' days');
         $dow = (int) $weekStartDate->format('N');
         if ($dow > 1) {
             $weekStartDate->modify('-' . ($dow - 1) . ' days');

@@ -257,7 +257,7 @@ const WorkoutCard = ({
               <div className="workout-card-plan-day-head">
                 <span className="workout-card-plan-day-type">
                   {TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}
-                  {planDay.is_key_workout && <span className="workout-card-key-badge">Ключевая</span>}
+                  {planDay.type === 'control' && <span className="workout-card-key-badge">Контрольная</span>}
                 </span>
                 {canEdit && (
                   <div className="workout-card-plan-day-actions">

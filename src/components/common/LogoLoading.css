@@ -1,0 +1,51 @@
+/* Логотип с shimmer-анимацией (как в SkeletonScreen) */
+.logo-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.logo-loading-text {
+  font-size: 28px;
+  font-style: italic;
+  font-family: inherit;
+  letter-spacing: -0.5px;
+  background: linear-gradient(
+    90deg,
+    var(--primary-500) 0%,
+    var(--primary-500) 35%,
+    var(--primary-400) 50%,
+    var(--primary-500) 65%,
+    var(--primary-500) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: logo-shimmer 1.5s ease-in-out infinite;
+}
+
+.logo-loading--sm .logo-loading-text {
+  font-size: 18px;
+}
+
+.logo-loading-text .logo-plan {
+  font-weight: 300;
+}
+
+.logo-loading-text .logo-run {
+  font-weight: 800;
+}
+
+@keyframes logo-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-loading-text {
+    animation: none;
+    background: none;
+    color: var(--primary-500);
+  }
+}

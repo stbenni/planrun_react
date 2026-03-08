@@ -136,7 +136,8 @@ class BiometricService {
 
   /**
    * Получить сохраненные токены.
-   * Native: TokenStorageService (SecureStorage), при отсутствии — localStorage (fallback).
+   * Native: TokenStorageService (Preferences + SecureStorage) ПЕРВЫМ — localStorage на Android
+   * может очищаться при убийстве приложения. Fallback на localStorage.
    */
   async getTokens() {
     try {
@@ -150,13 +151,14 @@ class BiometricService {
         return { accessToken: null, refreshToken: null };
       }
 
+      // На native: TokenStorageService первым (переживает очистку localStorage при kill)
+      const stored = await TokenStorageService.getTokens();
+      if (stored?.accessToken && stored?.refreshToken) return stored;
       if (typeof localStorage !== 'undefined') {
         const at = localStorage.getItem('auth_token');
         const rt = localStorage.getItem('refresh_token');
         if (at && rt) return { accessToken: at, refreshToken: rt };
       }
-      const stored = await TokenStorageService.getTokens();
-      if (stored?.accessToken && stored?.refreshToken) return stored;
       return { accessToken: null, refreshToken: null };
     } catch (error) {
       console.error('Failed to get tokens:', error);

@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import useAuthStore from './useAuthStore';
+import useWorkoutRefreshStore from './useWorkoutRefreshStore';
 
 const usePlanStore = create((set, get) => ({
   // Состояние
@@ -118,11 +119,12 @@ const usePlanStore = create((set, get) => ({
       }
       
       await get().loadPlan();
-      
+
       set({ loading: false, planStatus: { has_plan: true } });
+      useWorkoutRefreshStore.getState().triggerRefresh();
       return true;
     } catch (error) {
-      set({ 
+      set({
         error: error.message || 'Ошибка регенерации плана',
         loading: false,
         planStatus: get().planStatus?.generating ? { has_plan: false } : get().planStatus
@@ -157,6 +159,7 @@ const usePlanStore = create((set, get) => ({
         if (status?.has_plan) {
           await get().loadPlan();
           set({ recalculating: false, planStatus: { has_plan: true } });
+          useWorkoutRefreshStore.getState().triggerRefresh();
           return true;
         }
         if (status?.error) {
@@ -205,6 +208,7 @@ const usePlanStore = create((set, get) => ({
         if (status?.has_plan) {
           await get().loadPlan();
           set({ generatingNext: false, planStatus: { has_plan: true } });
+          useWorkoutRefreshStore.getState().triggerRefresh();
           return true;
         }
         if (status?.error) {

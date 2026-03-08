@@ -10,7 +10,7 @@ class JwtService extends BaseService {
     
     private $secretKey;
     private $algorithm = 'HS256';
-    private $expirationTime = 3600; // 1 час
+    private $expirationTime;
     private $refreshExpirationTime;
     private $refreshSlidingSeconds;
     
@@ -18,6 +18,9 @@ class JwtService extends BaseService {
         parent::__construct($db);
         // Получаем секретный ключ из .env или используем дефолтный
         $this->secretKey = env('JWT_SECRET_KEY', 'your-secret-key-change-in-production-' . md5(__DIR__));
+        // Access token: по умолчанию 1 год (365 дней)
+        $accessDays = (int) env('JWT_ACCESS_EXPIRATION_DAYS', 365);
+        $this->expirationTime = $accessDays * 86400;
         // Базовый срок жизни refresh при создании (логин): по умолчанию 10 лет
         $initialDays = (int) env('JWT_REFRESH_INITIAL_DAYS', 3650);
         $this->refreshExpirationTime = $initialDays * 86400;
@@ -102,6 +105,11 @@ class JwtService extends BaseService {
             'username' => $username,
             'type' => 'access'
         ], $this->expirationTime);
+    }
+
+    /** Срок жизни access token в секундах (для expires_in в ответе) */
+    public function getAccessTokenExpiration() {
+        return $this->expirationTime;
     }
     
     private const MAX_REFRESH_TOKENS_PER_USER = 5;
@@ -263,6 +271,9 @@ class JwtService extends BaseService {
         $accessToken = $this->createAccessToken($userId, $user['username']);
         // Sliding expiration: новый refresh получает продление на sliding_days при каждом использовании
         $newRefreshToken = $this->createRefreshToken($userId, $deviceIdToUse, $this->refreshSlidingSeconds);
+
+        // Отзываем старый refresh token (rotation) — украденный старый токен больше не сработает
+        $this->revokeRefreshToken($refreshToken);
 
         return [
             'access_token' => $accessToken,

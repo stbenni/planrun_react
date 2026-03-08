@@ -117,6 +117,7 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
         }
         
         $weeks_data[] = [
+            'id' => (int) $weekId,
             'number' => $weekNumber,
             'start_date' => $week['start_date'],
             'total_volume' => $finalVolume,

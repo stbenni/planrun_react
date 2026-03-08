@@ -89,6 +89,10 @@ weights/
 # AI directory (not part of PlanRun project)
 ai/
 
+# Claude/Cursor worktrees and external clones
+.claude/
+your-digital-showcase/
+
 # Secrets (Firebase, Google Cloud)
 planrun-backend/config/firebase-credentials.json
 android/app/google-services.json

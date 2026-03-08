@@ -434,7 +434,7 @@ const MonthlyCalendar = ({
                   {day.planDay && day.planDay.type !== 'rest' && day.planDay.type !== 'free' && (
                     <div className="workout-type">
                       {getWorkoutTypeName(day.planDay.type)}
-                      {day.planDay.is_key_workout && <span className="key-workout-dot" title="Ключевая тренировка" />}
+                      {day.planDay.type === 'control' && <span className="key-workout-dot" title="Контрольная тренировка" />}
                     </div>
                   )}
                   

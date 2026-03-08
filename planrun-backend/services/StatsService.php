@@ -72,17 +72,13 @@ class StatsService extends BaseService {
         try {
             require_once __DIR__ . '/../calendar_access.php';
             
-            // Используем репозиторий
-            $rows = $this->repository->getWorkoutsSummary($userId);
+            // Объединяем workouts (Strava, импорт) и workout_log (ручные записи)
+            $rowsWorkouts = $this->repository->getWorkoutsSummary($userId);
+            $rowsLog = $this->repository->getWorkoutLogSummary($userId);
             
             $summary = [];
-            foreach ($rows as $row) {
-                $workoutUrl = null;
-                if ($row['first_workout_id']) {
-                    $workoutUrl = getWorkoutDetailsUrl($row['first_workout_id'], $userId);
-                }
-                
-                $summary[$row['workout_date']] = [
+            $mergeRow = function ($row, $workoutUrl) {
+                return [
                     'count' => (int)$row['workout_count'],
                     'distance' => $row['total_distance'] ? round((float)$row['total_distance'], 2) : null,
                     'duration' => $row['total_duration'] ? (int)$row['total_duration'] : null,
@@ -92,6 +88,37 @@ class StatsService extends BaseService {
                     'workout_url' => $workoutUrl,
                     'activity_type' => $row['activity_type'] ?? 'running'
                 ];
+            };
+            
+            foreach ($rowsWorkouts as $row) {
+                $workoutUrl = null;
+                if ($row['first_workout_id']) {
+                    $workoutUrl = getWorkoutDetailsUrl($row['first_workout_id'], $userId);
+                }
+                $summary[$row['workout_date']] = $mergeRow($row, $workoutUrl);
+            }
+            
+            foreach ($rowsLog as $row) {
+                $date = $row['workout_date'];
+                $entry = $mergeRow($row, null);
+                if (isset($summary[$date])) {
+                    $existing = $summary[$date];
+                    $dist = round((float)($existing['distance'] ?? 0) + (float)($entry['distance'] ?? 0), 2);
+                    $dur = (int)($existing['duration'] ?? 0) + (int)($entry['duration'] ?? 0);
+                    $durSec = (int)($existing['duration_seconds'] ?? 0) + (int)($entry['duration_seconds'] ?? 0);
+                    $summary[$date] = [
+                        'count' => $existing['count'] + $entry['count'],
+                        'distance' => $dist > 0 ? $dist : null,
+                        'duration' => $dur > 0 ? $dur : null,
+                        'duration_seconds' => $durSec > 0 ? $durSec : null,
+                        'pace' => $existing['pace'] ?: $entry['pace'],
+                        'hr' => $existing['hr'] ?: $entry['hr'],
+                        'workout_url' => $existing['workout_url'] ?: $entry['workout_url'],
+                        'activity_type' => $existing['activity_type'] ?? $entry['activity_type']
+                    ];
+                } else {
+                    $summary[$date] = $entry;
+                }
             }
             
             return $summary;
@@ -189,6 +216,150 @@ class StatsService extends BaseService {
         return array_slice($list, 0, $limit);
     }
     
+    /**
+     * Найти VDOT по реальным тренировкам (когда нет контрольных/забегов или last_race устарел).
+     * Использует взвешенное среднее по топ-результатам с учётом давности (recency decay).
+     * Окно: 6 недель. Дистанция: 2–25 км (надёжный диапазон для VDOT).
+     * При targetDistKm учитывается близость дистанции: результаты ближе к цели (напр. полумарафон
+     * при цели марафон) получают больший вес, т.к. темп 5к всегда быстрее полумарафона.
+     *
+     * @param int $userId ID пользователя
+     * @param int $weeksWindow Окно в неделях (по умолчанию 6)
+     * @param float|null $targetDistKm Целевая дистанция забега (5, 10, 21.1, 42.2) — для взвешивания по релевантности
+     * @return array|null { distance_km, time_sec, vdot, vdot_source_detail } или null
+     */
+    public function getBestResultForVdot(int $userId, int $weeksWindow = 6, ?float $targetDistKm = null): ?array {
+        require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+
+        $cutoff = date('Y-m-d', strtotime("-{$weeksWindow} weeks"));
+        $candidates = [];
+
+        $parsePaceToSec = function (?string $pace): ?int {
+            if (!$pace || trim($pace) === '') return null;
+            $parts = explode(':', trim($pace));
+            if (count($parts) === 2) {
+                return (int)$parts[0] * 60 + (int)($parts[1] ?? 0);
+            }
+            return null;
+        };
+
+        // workout_log: только бег (исключаем walking, hiking и др.)
+        $logStmt = $this->db->prepare("
+            SELECT wl.distance_km, wl.result_time, wl.training_date
+            FROM workout_log wl
+            INNER JOIN activity_types at ON wl.activity_type_id = at.id
+            WHERE wl.user_id = ? AND wl.is_completed = 1
+              AND wl.training_date >= ?
+              AND wl.distance_km >= 2 AND wl.distance_km <= 25 AND wl.distance_km IS NOT NULL
+              AND wl.result_time IS NOT NULL AND TRIM(wl.result_time) != ''
+              AND LOWER(TRIM(at.name)) = 'running'
+        ");
+        $logStmt->bind_param("is", $userId, $cutoff);
+        $logStmt->execute();
+        $logResult = $logStmt->get_result();
+        while ($row = $logResult->fetch_assoc()) {
+            $dist = (float)$row['distance_km'];
+            $timeStr = $row['result_time'];
+            $parts = explode(':', $timeStr);
+            $timeSec = count($parts) === 3
+                ? (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2]
+                : (count($parts) === 2 ? (int)$parts[0] * 60 + (int)$parts[1] : 0);
+            if ($dist <= 0 || $timeSec <= 0) continue;
+            $v = estimateVDOT($dist, $timeSec);
+            if ($v >= 20 && $v <= 85) {
+                $weeksAgo = (time() - strtotime($row['training_date'])) / (7 * 86400);
+                $candidates[] = [
+                    'distance_km' => $dist,
+                    'time_sec' => $timeSec,
+                    'vdot' => $v,
+                    'weeks_ago' => $weeksAgo,
+                ];
+            }
+        }
+        $logStmt->close();
+
+        // workouts: только бег (исключаем walking, hiking и др.)
+        $autoStmt = $this->db->prepare("
+            SELECT distance_km, duration_seconds, duration_minutes, avg_pace, start_time
+            FROM workouts
+            WHERE user_id = ? AND DATE(start_time) >= ?
+              AND distance_km >= 2 AND distance_km <= 25 AND distance_km IS NOT NULL
+              AND LOWER(TRIM(COALESCE(activity_type, ''))) = 'running'
+        ");
+        $autoStmt->bind_param("is", $userId, $cutoff);
+        $autoStmt->execute();
+        $autoResult = $autoStmt->get_result();
+        while ($row = $autoResult->fetch_assoc()) {
+            $dist = (float)$row['distance_km'];
+            $timeSec = null;
+            if (!empty($row['duration_seconds']) && (int)$row['duration_seconds'] > 0) {
+                $timeSec = (int)$row['duration_seconds'];
+            } elseif (!empty($row['duration_minutes']) && (int)$row['duration_minutes'] > 0) {
+                $timeSec = (int)$row['duration_minutes'] * 60;
+            } elseif (!empty($row['avg_pace'])) {
+                $paceSec = $parsePaceToSec($row['avg_pace']);
+                if ($paceSec !== null && $paceSec > 0) {
+                    $timeSec = (int)round($dist * $paceSec);
+                }
+            }
+            if ($timeSec === null || $timeSec <= 0) continue;
+            $v = estimateVDOT($dist, $timeSec);
+            if ($v >= 20 && $v <= 85) {
+                $date = date('Y-m-d', strtotime($row['start_time']));
+                $weeksAgo = (time() - strtotime($date)) / (7 * 86400);
+                $candidates[] = [
+                    'distance_km' => $dist,
+                    'time_sec' => $timeSec,
+                    'vdot' => $v,
+                    'weeks_ago' => $weeksAgo,
+                ];
+            }
+        }
+        $autoStmt->close();
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        // Сортируем по VDOT (лучшие сверху), берём топ-10
+        usort($candidates, fn($a, $b) => $b['vdot'] <=> $a['vdot']);
+        $top = array_slice($candidates, 0, 10);
+
+        // Recency weight: 0.85^weeks_ago — недавние важнее
+        // Distance relevance: при целевой дистанции — результаты ближе к ней важнее (темп 5к быстрее полумарафона)
+        $weightedSum = 0;
+        $weightTotal = 0;
+        $bestSingle = $top[0];
+
+        foreach ($top as $c) {
+            $w = pow(0.85, $c['weeks_ago']);
+            if ($targetDistKm > 0 && $targetDistKm <= 100) {
+                $ratio = $c['distance_km'] / $targetDistKm;
+                $distRelevance = 1.0 / (1.0 + abs(log($ratio, 2)));
+                $w *= $distRelevance;
+            }
+            $weightedSum += $c['vdot'] * $w;
+            $weightTotal += $w;
+        }
+
+        $avgVdot = $weightTotal > 0 ? $weightedSum / $weightTotal : $bestSingle['vdot'];
+
+        // Если взвешенное среднее сильно ниже лучшего — возможен выброс; используем среднее топ-3
+        if (count($top) >= 3 && ($bestSingle['vdot'] - $avgVdot) > 3) {
+            $medianVdot = $top[1]['vdot']; // второй по величине как компромисс
+            $avgVdot = ($avgVdot + $medianVdot) / 2;
+        }
+
+        $avgVdot = max(20, min(85, round($avgVdot, 1)));
+
+        return [
+            'distance_km' => $bestSingle['distance_km'],
+            'time_sec' => $bestSingle['time_sec'],
+            'vdot' => $avgVdot,
+            'vdot_source_detail' => count($top) . ' тренировок за ' . $weeksWindow . ' нед.',
+        ];
+    }
+
     /**
      * Подготовить недельный анализ
      * 

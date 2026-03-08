@@ -6,6 +6,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import useAuthStore from '../../stores/useAuthStore';
 import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon } from '../common/Icons';
 import '../../assets/css/calendar_v2.css';
 import './DayModal.modern.css';
@@ -15,6 +17,7 @@ import '../../screens/StatsScreen.css';
 import AddTrainingModal from './AddTrainingModal';
 import WorkoutCard from './WorkoutCard';
 import WorkoutDetailsModal from '../Stats/WorkoutDetailsModal';
+import LogoLoading from '../common/LogoLoading';
 
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
@@ -44,8 +47,67 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
   const [addTrainingModalOpen, setAddTrainingModalOpen] = useState(false);
   const [workoutDetailsOpen, setWorkoutDetailsOpen] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
+  const [copyDateTarget, setCopyDateTarget] = useState('');
+  const [showCopyInput, setShowCopyInput] = useState(false);
+  const [copying, setCopying] = useState(false);
   const modalBodyRef = useRef(null);
+  const navigate = useNavigate();
   const didAutoOpenDetailsRef = useRef(false);
+  const { user: currentUser } = useAuthStore();
+
+  // Notes state
+  const [dayNotes, setDayNotes] = useState([]);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+
+  const loadNotes = async () => {
+    if (!date || !api?.getDayNotes) return;
+    try {
+      const res = await api.getDayNotes(date, viewContext || undefined);
+      const notes = res?.data?.notes ?? res?.notes ?? [];
+      setDayNotes(notes);
+    } catch { /* silent */ }
+  };
+
+  const handleSaveNote = async () => {
+    if (!newNoteText.trim() || savingNote) return;
+    setSavingNote(true);
+    try {
+      await api.saveDayNote(date, newNoteText.trim(), null, viewContext || undefined);
+      setNewNoteText('');
+      await loadNotes();
+    } catch (e) {
+      alert(e.message || 'Ошибка сохранения заметки');
+    }
+    setSavingNote(false);
+  };
+
+  const handleUpdateNote = async (noteId) => {
+    if (!editingNoteText.trim() || savingNote) return;
+    setSavingNote(true);
+    try {
+      await api.saveDayNote(date, editingNoteText.trim(), noteId, viewContext || undefined);
+      setEditingNoteId(null);
+      setEditingNoteText('');
+      await loadNotes();
+    } catch (e) {
+      alert(e.message || 'Ошибка обновления заметки');
+    }
+    setSavingNote(false);
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!window.confirm('Удалить заметку?')) return;
+    try {
+      await api.deleteDayNote(noteId, viewContext || undefined);
+      await loadNotes();
+    } catch (e) {
+      alert(e.message || 'Ошибка удаления');
+    }
+  };
 
   const loadDayData = async () => {
     try {
@@ -85,7 +147,7 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
     if (!dayId || !api?.deleteTrainingDay) return;
     if (!window.confirm('Удалить эту тренировку из плана?')) return;
     try {
-      await api.deleteTrainingDay(dayId);
+      await api.deleteTrainingDay(dayId, viewContext || undefined);
       await loadDayData();
       onTrainingAdded?.();
     } catch (err) {
@@ -102,10 +164,14 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
   useEffect(() => {
     if (isOpen && date) {
       loadDayData();
+      loadNotes();
     } else {
       setDayData(null);
       setLoading(true);
       setError(null);
+      setDayNotes([]);
+      setShowNotes(false);
+      setNewNoteText('');
       if (!isOpen) didAutoOpenDetailsRef.current = false;
     }
   }, [isOpen, date, weekNumber, dayKey, refreshKey]);
@@ -133,6 +199,20 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
     onTrainingAdded?.();
   };
 
+  const handleCopyDay = async () => {
+    if (!copyDateTarget || !date || !api?.copyDay) return;
+    setCopying(true);
+    try {
+      await api.copyDay(date, copyDateTarget, viewContext || undefined);
+      setShowCopyInput(false);
+      setCopyDateTarget('');
+      onTrainingAdded?.();
+    } catch (e) {
+      alert(e.message || 'Ошибка копирования');
+    }
+    setCopying(false);
+  };
+
   const handleDeleteWorkoutInline = async (e, workoutId, isManual) => {
     e.stopPropagation();
     if (!workoutId || !api?.deleteWorkout) return;
@@ -141,7 +221,7 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
       : 'Удалить эту тренировку?\n\nВнимание: будут удалены все данные, включая трек.';
     if (!window.confirm(msg)) return;
     try {
-      await api.deleteWorkout(workoutId, !!isManual);
+      await api.deleteWorkout(workoutId, !!isManual, viewContext || undefined);
       await handleWorkoutDeleted();
     } catch (err) {
       console.error('Delete workout error:', err);
@@ -227,8 +307,7 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
         <div className="modal-body modal-modern-body" id="dayModalBody" ref={modalBodyRef}>
           {loading ? (
             <div className="loading loading-modern">
-              <div className="spinner-modern"></div>
-              <div>Загрузка...</div>
+              <LogoLoading size="sm" />
             </div>
           ) : error ? (
             <div className="no-workouts-msg no-workouts-modern">
@@ -344,6 +423,73 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
               <div>Нет данных для этого дня</div>
             </div>
           )}
+          {/* Заметки к дню */}
+          {!loading && !error && date && (
+            <div className="day-modal-notes-section">
+              <button
+                type="button"
+                className="day-modal-notes-toggle"
+                onClick={() => setShowNotes(v => !v)}
+              >
+                <span>Заметки{dayNotes.length > 0 ? ` (${dayNotes.length})` : ''}</span>
+                <span className={`day-modal-notes-arrow ${showNotes ? 'day-modal-notes-arrow--open' : ''}`}>&#9662;</span>
+              </button>
+              {showNotes && (
+                <div className="day-modal-notes-list">
+                  {dayNotes.length === 0 && <div className="day-modal-notes-empty">Нет заметок</div>}
+                  {dayNotes.map(note => (
+                    <div key={note.id} className="day-modal-note">
+                      <div className="day-modal-note-header">
+                        <span className="day-modal-note-author">{note.author_username}</span>
+                        <span className="day-modal-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                        {currentUser && note.author_id == currentUser.id && (
+                          <span className="day-modal-note-actions">
+                            <button type="button" className="day-modal-note-btn" onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.content); }} title="Редактировать">&#9998;</button>
+                            <button type="button" className="day-modal-note-btn day-modal-note-btn--del" onClick={() => handleDeleteNote(note.id)} title="Удалить">&times;</button>
+                          </span>
+                        )}
+                      </div>
+                      {editingNoteId === note.id ? (
+                        <div className="day-modal-note-edit">
+                          <textarea
+                            className="day-modal-note-textarea"
+                            value={editingNoteText}
+                            onChange={e => setEditingNoteText(e.target.value)}
+                            rows={2}
+                            maxLength={2000}
+                          />
+                          <div className="day-modal-note-edit-btns">
+                            <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateNote(note.id)} disabled={savingNote}>Сохранить</button>
+                            <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingNoteId(null); setEditingNoteText(''); }}>Отмена</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="day-modal-note-content">{note.content}</div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="day-modal-note-add">
+                    <textarea
+                      className="day-modal-note-textarea"
+                      placeholder="Добавить заметку..."
+                      value={newNoteText}
+                      onChange={e => setNewNoteText(e.target.value)}
+                      rows={2}
+                      maxLength={2000}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary btn--sm"
+                      onClick={handleSaveNote}
+                      disabled={!newNoteText.trim() || savingNote}
+                    >
+                      {savingNote ? 'Сохранение...' : 'Отправить'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {canEdit && !loading && !error && date && (
             <div className="day-modal-add-training day-modal-actions-row">
               <button
@@ -366,6 +512,42 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
                   Отметить выполненной
                 </button>
               )}
+            </div>
+          )}
+          {canEdit && !loading && !error && date && (dayData?.planDays?.length > 0 || dayData?.dayExercises?.length > 0) && (
+            <div className="day-modal-copy-row">
+              {!showCopyInput ? (
+                <button type="button" className="btn btn-ghost btn--sm" onClick={() => setShowCopyInput(true)}>
+                  Скопировать на дату
+                </button>
+              ) : (
+                <div className="day-modal-copy-input">
+                  <input
+                    type="date"
+                    className="day-modal-copy-date"
+                    value={copyDateTarget}
+                    onChange={e => setCopyDateTarget(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                  <button type="button" className="btn btn-primary btn--sm" onClick={handleCopyDay} disabled={!copyDateTarget || copying}>
+                    {copying ? 'Копирование...' : 'Скопировать'}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setShowCopyInput(false); setCopyDateTarget(''); }}>
+                    Отмена
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {viewContext?.slug && !loading && !error && (
+            <div className="day-modal-copy-row">
+              <button
+                type="button"
+                className="btn btn-ghost btn--sm"
+                onClick={() => { onClose(); navigate(`/chat?contact=${encodeURIComponent(viewContext.slug)}`); }}
+              >
+                Написать атлету
+              </button>
             </div>
           )}
         </div>

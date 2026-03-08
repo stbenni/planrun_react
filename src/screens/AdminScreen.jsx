@@ -6,10 +6,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import LogoLoading from '../components/common/LogoLoading';
 import './AdminScreen.css';
 
 const TAB_USERS = 'users';
 const TAB_SETTINGS = 'settings';
+const TAB_COACH_APPS = 'coach_apps';
 const ROLES = [{ value: 'user', label: 'Пользователь' }, { value: 'coach', label: 'Тренер' }, { value: 'admin', label: 'Администратор' }];
 
 const GOAL_TYPE_LABELS = {
@@ -59,6 +61,10 @@ export default function AdminScreen() {
     contact_email: '',
   });
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Заявки тренеров
+  const [coachApps, setCoachApps] = useState([]);
+  const [coachAppsLoading, setCoachAppsLoading] = useState(false);
 
   const isAdmin = user?.role === 'admin';
 
@@ -113,6 +119,37 @@ export default function AdminScreen() {
     }
   }, [api]);
 
+  const loadCoachApps = useCallback(async () => {
+    if (!api) return;
+    setCoachAppsLoading(true);
+    try {
+      const res = await api.getCoachApplications({ status: 'pending' });
+      const data = res?.data ?? res;
+      setCoachApps(Array.isArray(data?.applications) ? data.applications : []);
+    } catch (e) {
+      setError(e.message || 'Ошибка загрузки заявок');
+    } finally {
+      setCoachAppsLoading(false);
+    }
+  }, [api]);
+
+  const handleApproveCoach = async (appId) => {
+    if (!api) return;
+    try {
+      await api.approveCoachApplication(appId);
+      await loadCoachApps();
+    } catch (e) { setError(e.message); }
+  };
+
+  const handleRejectCoach = async (appId) => {
+    if (!api) return;
+    if (!window.confirm('Отклонить заявку?')) return;
+    try {
+      await api.rejectCoachApplication(appId);
+      await loadCoachApps();
+    } catch (e) { setError(e.message); }
+  };
+
   useEffect(() => {
     if (!isAdmin) {
       navigate('/', { replace: true });
@@ -125,6 +162,7 @@ export default function AdminScreen() {
     if (!isAdmin || !api) return;
     if (tab === TAB_USERS) loadUsers();
     if (tab === TAB_SETTINGS) loadSettings();
+    if (tab === TAB_COACH_APPS) loadCoachApps();
   }, [isAdmin, api, tab, loadUsers, loadSettings]);
 
   useEffect(() => {
@@ -237,6 +275,16 @@ export default function AdminScreen() {
         >
           Настройки сайта
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === TAB_COACH_APPS}
+          className={`admin-tab ${tab === TAB_COACH_APPS ? 'active' : ''}`}
+          onClick={() => setTab(TAB_COACH_APPS)}
+        >
+          Заявки тренеров
+          {coachApps.length > 0 && <span className="admin-badge">{coachApps.length}</span>}
+        </button>
       </nav>
 
       {error && (
@@ -265,7 +313,7 @@ export default function AdminScreen() {
             />
           </div>
           {loading ? (
-            <p className="admin-loading">Загрузка...</p>
+            <div className="admin-loading"><LogoLoading size="sm" /></div>
           ) : (
             <>
               <div className="admin-table-wrap">
@@ -410,6 +458,63 @@ export default function AdminScreen() {
             {savingSettings ? 'Сохранение…' : 'Сохранить настройки'}
           </button>
         </form>
+        </section>
+      )}
+
+      {tab === TAB_COACH_APPS && (
+        <section className="admin-section" aria-label="Заявки тренеров">
+          {coachAppsLoading ? (
+            <div className="admin-loading"><LogoLoading size="sm" /></div>
+          ) : coachApps.length === 0 ? (
+            <p className="admin-empty">Нет заявок на рассмотрении</p>
+          ) : (
+            <div className="admin-coach-apps-list">
+              {coachApps.map((app) => {
+                const specs = (() => { try { return JSON.parse(app.coach_specialization || '[]'); } catch { return []; } })();
+                return (
+                  <div key={app.id} className="admin-coach-app-card">
+                    <div className="admin-coach-app-header">
+                      <strong>{app.username || `User #${app.user_id}`}</strong>
+                      <span className="admin-coach-app-date">
+                        {app.created_at ? new Date(app.created_at).toLocaleDateString('ru') : ''}
+                      </span>
+                    </div>
+                    {app.coach_bio && <p className="admin-coach-app-bio">{app.coach_bio}</p>}
+                    {specs.length > 0 && (
+                      <div className="admin-coach-app-specs">
+                        {specs.map((s) => <span key={s} className="coach-spec-tag">{s}</span>)}
+                      </div>
+                    )}
+                    {app.coach_experience_years && (
+                      <p className="admin-coach-app-detail">Опыт: {app.coach_experience_years} лет</p>
+                    )}
+                    {app.coach_philosophy && (
+                      <p className="admin-coach-app-detail">Подход: {app.coach_philosophy}</p>
+                    )}
+                    {app.coach_certifications && (
+                      <p className="admin-coach-app-detail">Сертификаты: {app.coach_certifications}</p>
+                    )}
+                    <div className="admin-coach-app-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleApproveCoach(app.id)}
+                      >
+                        Одобрить
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        onClick={() => handleRejectCoach(app.id)}
+                      >
+                        Отклонить
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

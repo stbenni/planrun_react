@@ -25,15 +25,18 @@ import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
 import { processStatsData } from '../Stats/StatsUtils';
+import { getPlanDayForDate, getDayCompletionStatus, planTypeToCategory, workoutTypeToCategory } from '../../utils/calendarHelpers';
 import SkeletonScreen from '../common/SkeletonScreen';
 import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon } from '../common/Icons';
+import RacePredictionWidget from './RacePredictionWidget';
 import './Dashboard.css';
 
-const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'calendar', 'stats'];
+const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'race_prediction', 'calendar', 'stats'];
 const DASHBOARD_MODULE_LABELS = {
   today_workout: 'Сегодняшняя тренировка',
   quick_metrics: 'Быстрые метрики',
   next_workout: 'Следующая тренировка',
+  race_prediction: 'Прогноз на забег',
   calendar: 'Календарь',
   stats: 'Статистика',
 };
@@ -460,11 +463,12 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         plan = storePlan;
       }
 
-      const [planStatusRes, planRes, allResults, workoutsSummaryRes] = await Promise.all([
+      const [planStatusRes, planRes, allResults, workoutsSummaryRes, workoutsListRes] = await Promise.all([
         planStatus != null ? Promise.resolve(planStatus) : api.checkPlanStatus().catch((e) => { console.error('Error checking plan status:', e); return null; }),
         plan != null ? Promise.resolve(plan) : api.getPlan().catch((e) => { console.error('Error loading plan:', e); return null; }),
         api.getAllResults().catch(() => ({ results: [] })),
         api.getAllWorkoutsSummary().catch(() => ({})),
+        api.getAllWorkoutsList(null, 500).catch(() => ({ workouts: [] })),
       ]);
 
       planStatus = planStatus ?? planStatusRes;
@@ -490,6 +494,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         setPlan(null);
         setHasAnyPlannedWorkout(false);
         setPlanError(null);
+        setProgressDataMap({});
         const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
         const workoutsData = { workouts: summaryObj };
         const processed = processStatsData(workoutsData, allResults, null, 'last7days');
@@ -526,15 +531,35 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       }
       setHasAnyPlannedWorkout(anyWorkout);
 
-      // Загружаем прогресс для определения статусов (workout_log + workouts/Strava)
-      const progressDataMap = {};
-      if (allResults && allResults.results && Array.isArray(allResults.results)) {
-        allResults.results.forEach(result => {
-          if (result.training_date) progressDataMap[result.training_date] = true;
-        });
-      }
+      // Прогресс с учётом соответствия типа тренировки плану (getDayCompletionStatus)
       const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
-      Object.keys(summaryObj || {}).forEach(date => { progressDataMap[date] = true; });
+      const workoutsList = workoutsListRes?.data?.workouts ?? workoutsListRes?.workouts ?? [];
+      const resultsData = {};
+      (allResults?.results || []).forEach((r) => {
+        if (r?.training_date) {
+          if (!resultsData[r.training_date]) resultsData[r.training_date] = [];
+          resultsData[r.training_date].push(r);
+        }
+      });
+      const workoutsListByDate = {};
+      workoutsList.forEach((w) => {
+        const d = w.date ?? w.start_time?.split?.('T')?.[0];
+        if (d) {
+          if (!workoutsListByDate[d]) workoutsListByDate[d] = [];
+          workoutsListByDate[d].push(w);
+        }
+      });
+      const allDates = new Set([
+        ...Object.keys(resultsData),
+        ...Object.keys(workoutsListByDate),
+        ...Object.keys(summaryObj || {})
+      ]);
+      const progressDataMap = {};
+      allDates.forEach((dateStr) => {
+        const planDay = getPlanDayForDate(dateStr, plan);
+        const status = getDayCompletionStatus(dateStr, planDay, summaryObj, resultsData, workoutsListByDate);
+        if (status.status === 'completed') progressDataMap[dateStr] = true;
+      });
       setProgressDataMap(progressDataMap);
 
       // Сегодня в таймзоне пользователя: профиль (Europe/Moscow) → браузер (Intl) → по умолчанию Europe/Moscow
@@ -548,6 +573,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       let foundNextPlanDays = null;
       let weekStart = null;
       let weekEnd = null;
+      let currentWeek = null;
       const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
       for (const week of weeksData) {
@@ -555,6 +581,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         const endDateStr = addDaysToDateStr(week.start_date, 6);
         const inThisWeek = todayStr >= week.start_date && todayStr <= endDateStr;
         if (inThisWeek) {
+          currentWeek = week;
           const startDate = new Date(week.start_date + 'T12:00:00');
           const todayDate = new Date(todayStr + 'T12:00:00');
           weekStart = new Date(week.start_date + 'T00:00:00');
@@ -593,35 +620,43 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       setTodayWorkout(foundTodayWorkout ? { ...foundTodayWorkout, planDays: foundTodayPlanDays } : null);
       setNextWorkout(foundNextWorkout ? { ...foundNextWorkout, planDays: foundNextPlanDays } : null);
 
-      // Загружаем прогресс недели (используем уже загруженные allResults)
-      if (weekStart && weekEnd) {
-        let completed = 0;
-        let total = 0;
-
-        if (allResults && allResults.results && Array.isArray(allResults.results)) {
-          for (const result of allResults.results) {
-            if (result.training_date) {
-              const resultDate = new Date(result.training_date);
-              if (resultDate >= weekStart && resultDate <= weekEnd) {
-                completed++;
-              }
-            }
-          }
+      // Прогресс недели: для каждой запланированной тренировки проверяем, есть ли выполненная с подходящим типом
+      if (weekStart && weekEnd && currentWeek) {
+        const weekStartStr = currentWeek.start_date;
+        const endDateStr = addDaysToDateStr(weekStartStr, 6);
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const plannedDays = [];
+        for (let i = 0; i < 7; i++) {
+          const dateStr = addDaysToDateStr(weekStartStr, i);
+          const raw = currentWeek.days?.[dayKeys[i]];
+          const items = getDayItems(raw);
+          items.forEach((item) => {
+            const cat = planTypeToCategory(item?.type);
+            if (cat) plannedDays.push({ date: dateStr, plannedCategory: cat });
+          });
         }
-
-        // Подсчитываем общее количество тренировок в текущей неделе (дни — массив элементов)
-        for (const week of weeksData) {
-          if (!week.days) continue;
-          const endDateStr = addDaysToDateStr(week.start_date, 6);
-          if (todayStr >= week.start_date && todayStr <= endDateStr) {
-            for (const dayData of Object.values(week.days)) {
-              total += getDayItems(dayData).length;
-            }
-            break;
+        const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
+        const workoutsList = workoutsListRes?.data?.workouts ?? workoutsListRes?.workouts ?? [];
+        const hasWorkout = (dateStr, category) => {
+          const listOnDate = workoutsList.filter((w) => (w.date ?? w.start_time?.split?.('T')?.[0]) === dateStr);
+          for (const w of listOnDate) {
+            const cat = workoutTypeToCategory(w.activity_type ?? w.activity_type_name ?? 'running');
+            if (cat === category) return true;
           }
-        }
-
-        setWeekProgress({ completed, total });
+          const r = (allResults?.results || []).find((x) => x?.training_date === dateStr);
+          if (r) {
+            const cat = workoutTypeToCategory(r.activity_type ?? r.activity_type_name ?? 'running');
+            if (cat === category) return true;
+          }
+          const w = summaryObj?.[dateStr];
+          if (w && (w.count > 0 || w.distance || w.duration || w.duration_seconds)) {
+            const cat = workoutTypeToCategory(w.activity_type ?? 'running');
+            if (cat === category) return true;
+          }
+          return false;
+        };
+        const completed = plannedDays.filter((p) => hasWorkout(p.date, p.plannedCategory)).length;
+        setWeekProgress({ completed, total: plannedDays.length });
       }
 
       // Загружаем метрики из getAllWorkoutsSummary (workouts + workout_log — Strava, ручные записи)
@@ -740,6 +775,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         setRefreshing(true);
         try {
           await loadDashboardData();
+          useWorkoutRefreshStore.getState().triggerRefresh();
         } finally {
           setRefreshing(false);
           setPullDistance(0);
@@ -1181,6 +1217,16 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                   progressDataMap={progressDataMap}
                   onNavigate={onNavigate}
                 />
+                </div>
+              </div>
+            );
+          }
+          if (moduleId === 'race_prediction') {
+            return (
+              <div key="race_prediction" className={sectionClass}>
+                <h2 className="section-title">Прогноз на забег</h2>
+                <div className="dashboard-module-card">
+                  <RacePredictionWidget api={api} compact={row.type === 'double'} />
                 </div>
               </div>
             );

@@ -32,11 +32,8 @@ register_shutdown_function(function () use (&$apiWrapperJsonError) {
 require_once __DIR__ . '/cors.php';
 require_once __DIR__ . '/session_init.php';
 
-// Настройки сессии для cross-origin
+// Настройки сессии (cookie: session_init.php — HTTPS/HTTP условно)
 if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.cookie_samesite', 'None');
-    ini_set('session.cookie_secure', '1');
-    ini_set('session.cookie_httponly', '1');
     try {
         session_start();
     } catch (Throwable $e) {

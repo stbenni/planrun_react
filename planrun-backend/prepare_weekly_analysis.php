@@ -680,8 +680,8 @@ function prepareFullPlanAnalysis($userId) {
     return $analysis;
 }
 
-// Если запускается из командной строки
-if (php_sapi_name() === 'cli') {
+// Если запускается из командной строки как основной скрипт (не при include)
+if (php_sapi_name() === 'cli' && (isset($_SERVER['SCRIPT_FILENAME']) && basename($_SERVER['SCRIPT_FILENAME']) === 'prepare_weekly_analysis.php')) {
     $userId = isset($argv[1]) ? (int)$argv[1] : null;
     $weekNumber = isset($argv[2]) ? (int)$argv[2] : null;
     

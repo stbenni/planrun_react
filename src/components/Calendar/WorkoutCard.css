@@ -544,16 +544,25 @@
   align-items: center;
   gap: 12px;
   padding: 16px 0;
+  min-height: 48px;
 }
 
 .rest-icon {
   font-size: 32px;
 }
 
-.rest-text {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--gray-700);
+/* Как заголовки других тренировок (workout-title) */
+.workout-rest .rest-text {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: var(--font-stats);
+  color: var(--gray-900) !important;
+  line-height: 1.3;
+  letter-spacing: -0.3px;
+}
+
+[data-theme="dark"] .workout-rest .rest-text {
+  color: var(--text-primary) !important;
 }
 
 .workout-card-content {

@@ -908,6 +908,12 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+@media (min-width: 1024px) {
+  .stats-recent-workouts {
+    padding: 24px;
+  }
+}
+
 [data-theme="dark"] .stats-recent-workouts {
   background: var(--card-bg);
   color: var(--text-primary);

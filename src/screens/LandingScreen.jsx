@@ -101,6 +101,14 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
                   📱 Скачать приложение Android
                 </a>
               </div>
+              <div className="landing-coach-cta">
+                <button
+                  className="btn-landing btn-landing-outline"
+                  onClick={() => navigate('/trainers/apply')}
+                >
+                  Стать тренером на planRUN
+                </button>
+              </div>
             </div>
             
             <div className="hero-image">

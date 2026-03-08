@@ -49,7 +49,7 @@ class AuthService extends BaseService {
 
                 $response['access_token'] = $accessToken;
                 $response['refresh_token'] = $refreshToken;
-                $response['expires_in'] = 3600;
+                $response['expires_in'] = $this->jwtService->getAccessTokenExpiration();
             }
 
             return $response;

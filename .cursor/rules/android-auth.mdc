@@ -44,3 +44,5 @@ alwaysApply: false
 - При успешном refresh на Capacitor всегда синхронизировать токены в BiometricService.
 - При logout очищать и BiometricService, и PinAuthService.
 - На Android не показывать биометрический диалог при старте приложения (часто зависает) — токены подхватываются в `getToken()` без диалога.
+- **localStorage на Android** может очищаться при убийстве приложения (swipe из recent). Читать TokenStorageService (Preferences + SecureStorage) первым, localStorage — fallback. ApiClient.getToken, getRefreshToken, BiometricService.getTokens — все на native используют этот порядок.
+- **Проактивный refresh при foreground**: при возврате в приложение (даже когда locked) вызывать `api.getCurrentUser()` — обновляет токены в storage до разблокировки, чтобы биометрия/PIN не получали устаревшие токены.

@@ -3,7 +3,7 @@
  * при навигации меняется только контент (Outlet).
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import TopHeader from './common/TopHeader';
 import BottomNav from './common/BottomNav';
@@ -19,6 +19,13 @@ const AppLayout = ({ onLogout }) => {
   const isAdmin = user?.role === 'admin';
   const needsOnboarding = !!(user && !user.onboarding_completed);
   const showBottomNav = true;
+  const isChatPage = location.pathname.startsWith('/chat');
+
+  useEffect(() => {
+    if (!isChatPage) return;
+    document.body.classList.add('chat-page-active');
+    return () => document.body.classList.remove('chat-page-active');
+  }, [isChatPage]);
 
   return (
     <>

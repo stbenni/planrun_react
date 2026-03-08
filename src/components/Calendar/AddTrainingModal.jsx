@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Modal from '../common/Modal';
+import LogoLoading from '../common/LogoLoading';
 import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
 import {
   parseTime, formatTime, parsePace, formatPace,
@@ -40,7 +41,7 @@ const TYPE_TO_CATEGORY = {
   other: 'ofp', sbu: 'sbu', rest: 'running', free: 'running',
 };
 
-const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, editResultData }) => {
+const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, editResultData, viewContext = null }) => {
   const isEdit = !!(initialData && initialData.id);
   const isEditResult = !!(editResultData && editResultData.date);
   const effectiveDate = isEditResult
@@ -601,7 +602,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
           result_pace: runPace || null,
           notes: description.trim() || null,
         };
-        await api.saveResult(payload);
+        await api.saveResult(payload, viewContext || undefined);
         onSuccess?.();
         onClose();
         setLoading(false);
@@ -619,7 +620,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
           type,
           description: description.trim() || undefined,
           is_key_workout: isKeyWorkout,
-        });
+        }, viewContext || undefined);
       } else {
         await api.addTrainingDayByDate({
           date: effectiveDate,
@@ -627,7 +628,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
           description: description.trim() || undefined,
           is_key_workout: isKeyWorkout,
           csrf_token: csrfToken,
-        });
+        }, viewContext || undefined);
       }
       onSuccess?.();
       onClose();
@@ -905,7 +906,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
             <div className="add-training-library">
               <p className="add-training-block-title">Упражнения из библиотеки</p>
               {libraryLoading ? (
-                <p className="add-training-loading">Загрузка…</p>
+                <div className="add-training-loading"><LogoLoading size="sm" /></div>
               ) : libraryExercises.length === 0 ? (
                 <p className="add-training-empty-lib">Нет упражнений в этой категории. Заполните описание вручную.</p>
               ) : (

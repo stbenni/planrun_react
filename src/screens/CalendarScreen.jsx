@@ -2,8 +2,8 @@
  * Экран календаря тренировок (веб-версия)
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePlanStore from '../stores/usePlanStore';
 import usePreloadStore from '../stores/usePreloadStore';
@@ -22,13 +22,65 @@ import '../assets/css/short-desc.css';
 import './CalendarScreen.css';
 import './StatsScreen.css';
 
-const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = true, isOwner = true, canView = true, hideHeader = false, viewMode: externalViewMode = null }) => {
+const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext = null, canEdit: externalCanEdit = true, isOwner: externalIsOwner = true, canView: externalCanView = true, hideHeader = false, viewMode: externalViewMode = null }) => {
   const isTabActive = useIsTabActive('/calendar');
   const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
   const location = useLocation();
+  const navigate = useNavigate();
   const { api, user } = useAuthStore();
+  const role = user?.role || 'user';
+  const isCoach = role === 'coach' || role === 'admin';
+
+  // Список атлетов для селектора тренера
+  const [coachAthletes, setCoachAthletes] = useState([]);
+  useEffect(() => {
+    if (!isCoach || !api) return;
+    api.getCoachAthletes().then(res => {
+      setCoachAthletes(res?.data?.athletes || res?.athletes || []);
+    }).catch(() => {});
+  }, [isCoach, api]);
+
+  // Режим тренера: ?athlete=slug
+  const athleteSlug = React.useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('athlete') || null;
+  }, [location.search]);
+
+  const [athleteData, setAthleteData] = React.useState(null);
+  const [athleteLoading, setAthleteLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!athleteSlug || !api) { setAthleteData(null); return; }
+    let cancelled = false;
+    setAthleteLoading(true);
+    (async () => {
+      try {
+        const res = await api.getUserBySlug(athleteSlug);
+        const data = res?.data ?? res;
+        if (!cancelled && data?.user) {
+          setAthleteData({
+            user: data.user,
+            access: data.access || {},
+          });
+        }
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setAthleteLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [athleteSlug, api]);
+
+  // Определяем viewContext/canEdit/isOwner/canView из атлета или из пропсов
+  const viewContext = useMemo(() => {
+    return athleteSlug && athleteData
+      ? { slug: athleteData.user.username_slug || athleteSlug }
+      : externalViewContext;
+  }, [athleteSlug, athleteData, externalViewContext]);
+  const canEdit = athleteSlug ? (athleteData?.access?.can_edit ?? false) : externalCanEdit;
+  const isOwner = athleteSlug ? false : externalIsOwner;
+  const canView = athleteSlug ? (athleteData?.access?.can_view ?? false) : externalCanView;
+
   // Используем targetUserId если передан, иначе текущего пользователя
-  const calendarUserId = targetUserId || user?.id;
+  const calendarUserId = targetUserId || (athleteData?.user?.id) || user?.id;
   const [plan, setPlan] = useState(null);
   const openedFromStateRef = useRef(false);
   const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам (сводка)
@@ -125,10 +177,10 @@ const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = tru
 
   const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
   useEffect(() => {
-    if (workoutRefreshVersion <= 0 || !api || isTabActive) return;
+    if (workoutRefreshVersion <= 0 || !api) return;
     const t = setTimeout(() => loadPlan({ silent: true }), 250);
     return () => clearTimeout(t);
-  }, [workoutRefreshVersion, api, isTabActive]);
+  }, [workoutRefreshVersion, api]);
 
   const hasLoadedRef = useRef(false);
   useEffect(() => {
@@ -253,6 +305,8 @@ const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = tru
         setResultsData({});
       }
     } catch (error) {
+      // Игнорируем ошибки от отменённых запросов (переход на другую страницу, быстрое переключение)
+      if (error?.code === 'TIMEOUT' || error?.message?.includes('aborted')) return;
       console.error('Error loading plan:', error);
       if (!silent) setPlan(null);
     } finally {
@@ -322,10 +376,22 @@ const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = tru
     });
   };
 
-  if (loading && !plan) {
+  if ((loading && !plan) || athleteLoading) {
     return (
       <div className="calendar-container">
         <SkeletonScreen type="calendar" />
+      </div>
+    );
+  }
+
+  // Если запрошен атлет, но доступа нет
+  if (athleteSlug && athleteData && !canView) {
+    return (
+      <div className="calendar-container">
+        <div className="empty-container">
+          <p className="empty-text">Нет доступа к календарю</p>
+          <p className="empty-subtext">Вы не являетесь тренером этого спортсмена</p>
+        </div>
       </div>
     );
   }
@@ -351,6 +417,29 @@ const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = tru
   return (
     <div className="container calendar-screen">
       <div className="content">
+        {isCoach && coachAthletes.length > 0 && (
+          <div className="coach-athlete-selector">
+            <select
+              className="coach-athlete-selector__select"
+              value={athleteSlug || ''}
+              onChange={e => {
+                const slug = e.target.value;
+                navigate(slug ? `/calendar?athlete=${slug}` : '/calendar', { replace: true });
+              }}
+            >
+              <option value="">Мой календарь</option>
+              {coachAthletes.map(a => (
+                <option key={a.id} value={a.username_slug}>{a.username}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {athleteSlug && athleteData?.user && (
+          <div className="coach-mode-banner">
+            <span className="coach-mode-banner__label">Режим тренера</span>
+            <span className="coach-mode-banner__name">{athleteData.user.username}</span>
+          </div>
+        )}
         {isPlanCompleted && canEdit && isOwner && !isGenerating && (
           <div className="plan-completed-banner">
             <div className="plan-completed-banner__icon">
@@ -614,6 +703,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext = null, canEdit = tru
         api={api}
         initialData={addTrainingModal.planDay ? { ...addTrainingModal.planDay, date: addTrainingModal.date } : null}
         editResultData={addTrainingModal.editResultData}
+        viewContext={viewContext}
         onSuccess={() => {
           loadPlan({ silent: true });
           useWorkoutRefreshStore.getState().triggerRefresh();

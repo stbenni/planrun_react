@@ -1,0 +1,651 @@
+/**
+ * AthletesOverviewScreen — главный экран тренера
+ * Стили согласованы с TrainersScreen, DashboardScreen
+ */
+
+/* ========== ЭКРАН ========== */
+
+.athletes-overview {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: var(--page-padding);
+  padding-top: var(--page-top-desktop);
+  padding-bottom: var(--page-padding-bottom);
+  background: var(--gray-50);
+  min-height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .athletes-overview {
+  background: var(--bg-primary);
+}
+
+/* ========== ЗАГОЛОВОК ========== */
+
+.athletes-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+  gap: var(--space-4);
+}
+
+.athletes-overview-title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.athletes-overview-requests-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.athletes-overview-badge {
+  background: var(--accent-500);
+  color: white;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* ========== LOADING / EMPTY ========== */
+
+.athletes-overview-loading {
+  text-align: center;
+  padding: var(--space-16) var(--space-6);
+  color: var(--text-secondary);
+}
+
+.athletes-overview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-16) var(--space-6);
+}
+
+.athletes-overview-empty-icon {
+  color: var(--gray-400);
+  margin-bottom: var(--space-4);
+}
+
+.athletes-overview-empty h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.athletes-overview-empty p {
+  margin: 0 0 var(--space-6);
+  color: var(--text-secondary);
+}
+
+.athletes-overview-empty .btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.athletes-overview-all-ok {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* ========== СЕКЦИИ ========== */
+
+.athletes-attention {
+  margin-bottom: var(--space-8);
+}
+
+.athletes-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+  gap: var(--space-4);
+}
+
+.athletes-section-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.athletes-section-header .athletes-section-title {
+  margin-bottom: 0;
+}
+
+.athletes-section-title--attention {
+  color: var(--error-500, #ef4444);
+}
+
+.athletes-attention-count,
+.athletes-count {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--gray-100);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .athletes-attention-count,
+[data-theme="dark"] .athletes-count {
+  background: var(--bg-secondary);
+}
+
+.athletes-section-title--attention .athletes-attention-count {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-500, #ef4444);
+}
+
+[data-theme="dark"] .athletes-section-title--attention .athletes-attention-count {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ========== СОРТИРОВКА ========== */
+
+.athletes-sort-select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+[data-theme="dark"] .athletes-sort-select {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+/* ========== СПИСОК ========== */
+
+.athletes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ========== КАРТОЧКА АТЛЕТА ========== */
+
+.ao-card {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  align-items: flex-start;
+}
+
+.ao-card--attention {
+  border-left: 3px solid var(--error-500, #ef4444);
+}
+
+.ao-card-avatar {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  position: relative;
+  display: block;
+}
+
+.ao-card-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--card-border);
+}
+
+.ao-card-avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--primary-500);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  border-radius: var(--radius-lg);
+}
+
+.ao-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ao-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.ao-card-name {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.ao-card-name:hover {
+  color: var(--primary-600);
+}
+
+.ao-card-activity {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.ao-card-activity--stale {
+  color: var(--error-500, #ef4444);
+  font-weight: var(--font-medium);
+}
+
+.ao-card-new-badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--success-500, #22c55e);
+  color: white;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ========== ЦЕЛЬ / ДАТА ЗАБЕГА ========== */
+
+.ao-card-goal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ao-card-goal-type {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--gray-100);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+[data-theme="dark"] .ao-card-goal-type {
+  background: var(--bg-secondary);
+}
+
+.ao-card-goal-date {
+  font-size: var(--text-xs);
+  color: var(--primary-600);
+  font-weight: var(--font-medium);
+}
+
+/* ========== COMPLIANCE ========== */
+
+.ao-card-compliance {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.ao-card-compliance-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--gray-100);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+[data-theme="dark"] .ao-card-compliance-bar {
+  background: var(--bg-secondary);
+}
+
+.ao-card-compliance-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.ao-card-compliance-text {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+/* ========== ГРУППЫ НА КАРТОЧКЕ ========== */
+
+.ao-card-groups {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.ao-card-group-tag {
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid;
+}
+
+/* ========== ФИЛЬТР ПО ГРУППАМ ========== */
+
+.ao-groups-bar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+  align-items: center;
+}
+
+.ao-group-chip {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ao-group-chip:hover {
+  border-color: var(--primary-400);
+}
+
+.ao-group-chip--active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: white;
+}
+
+.ao-group-chip--manage {
+  border-style: dashed;
+  color: var(--text-tertiary);
+}
+
+.ao-group-chip-count {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* ========== МОДАЛКА ГРУПП ========== */
+
+.ao-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+
+.ao-modal {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.ao-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.ao-modal-header h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ao-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.ao-modal-body {
+  padding: var(--space-5) var(--space-6);
+  overflow-y: auto;
+}
+
+.ao-modal-subtitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.ao-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--card-border);
+}
+
+/* Список групп */
+
+.ao-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.ao-group-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+}
+
+[data-theme="dark"] .ao-group-item {
+  background: var(--bg-secondary);
+}
+
+.ao-group-item-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.ao-group-item-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.ao-group-item-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.ao-group-item-delete {
+  color: var(--text-tertiary);
+}
+
+.ao-group-item-delete:hover {
+  color: var(--error-500, #ef4444);
+}
+
+/* Создание группы */
+
+.ao-group-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ao-group-input {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  box-sizing: border-box;
+}
+
+.ao-group-colors {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.ao-color-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s;
+}
+
+.ao-color-btn:hover {
+  transform: scale(1.15);
+}
+
+.ao-color-btn--active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--card-bg);
+}
+
+/* Список участников */
+
+.ao-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.ao-member-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.ao-member-item:hover {
+  background: var(--gray-50);
+}
+
+[data-theme="dark"] .ao-member-item:hover {
+  background: var(--bg-secondary);
+}
+
+.ao-member-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-500);
+}
+
+/* ========== ДЕЙСТВИЯ ========== */
+
+.ao-card-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ao-card-actions .btn {
+  font-size: var(--text-xs);
+}
+
+/* ========== МОБИЛЬНЫЕ СТИЛИ ========== */
+
+@media (max-width: 1023px) {
+  .athletes-overview {
+    padding: var(--page-padding-mobile);
+    padding-bottom: var(--mobile-content-padding-bottom);
+  }
+
+  .athletes-overview-title {
+    font-size: var(--text-xl);
+  }
+
+  .athletes-overview-header {
+    margin-bottom: var(--space-4);
+  }
+
+  .athletes-section-title {
+    font-size: var(--text-base);
+  }
+
+  .ao-card {
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .ao-card-avatar {
+    width: 48px;
+    height: 48px;
+  }
+
+  .ao-card-top {
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .ao-card-actions .btn {
+    font-size: 11px;
+    padding: var(--space-1) var(--space-2);
+  }
+}

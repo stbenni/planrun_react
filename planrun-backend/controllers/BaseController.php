@@ -204,4 +204,37 @@ class BaseController {
         $rawInput = file_get_contents('php://input');
         return json_decode($rawInput, true);
     }
+
+    /**
+     * Если текущий пользователь — тренер, редактирующий чужой календарь,
+     * отправить уведомление атлету.
+     */
+    protected function notifyAthleteIfCoach($action = 'update', $date = null) {
+        if ($this->currentUserId && $this->calendarUserId
+            && $this->currentUserId !== $this->calendarUserId) {
+            try {
+                require_once __DIR__ . '/../services/PlanNotificationService.php';
+                $svc = new PlanNotificationService($this->db);
+                $svc->notifyCoachPlanUpdated($this->calendarUserId, $this->currentUserId, $action, $date);
+            } catch (\Exception $e) {
+                // Не ломаем основной запрос из-за ошибки нотификации
+            }
+        }
+    }
+
+    /**
+     * Уведомить тренеров атлета о внесённом результате.
+     */
+    protected function notifyCoachesResultLogged($date = null) {
+        if ($this->currentUserId && $this->calendarUserId
+            && $this->currentUserId === $this->calendarUserId) {
+            try {
+                require_once __DIR__ . '/../services/PlanNotificationService.php';
+                $svc = new PlanNotificationService($this->db);
+                $svc->notifyAthleteResultLogged($this->currentUserId, $date);
+            } catch (\Exception $e) {
+                // Не ломаем основной запрос
+            }
+        }
+    }
 }

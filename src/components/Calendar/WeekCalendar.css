@@ -1159,11 +1159,11 @@
     line-height: 1.1;
   }
 
-  /* Скрываем текст и иконки, показываем точку */
-  .workout-type-text,
-  .workout-type-icon,
-  .rest-text,
-  .week-day-empty {
+  /* Скрываем текст и иконки в ячейках дней (не в карточке), показываем точку */
+  .week-day-cell .workout-type-text,
+  .week-day-cell .workout-type-icon,
+  .week-day-cell .rest-text,
+  .week-day-cell .week-day-empty {
     display: none;
   }
   
@@ -1218,4 +1218,166 @@
     width: 100%;
     min-width: unset;
   }
+}
+
+/* Копирование недели */
+.week-copy-controls {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.week-copy-btn {
+  font-size: var(--text-xs, 12px);
+  opacity: 0.7;
+}
+
+.week-copy-btn:hover {
+  opacity: 1;
+}
+
+.week-copy-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.week-copy-date {
+  padding: 6px 10px;
+  border: 1px solid var(--card-border, #e5e7eb);
+  border-radius: var(--radius-md, 8px);
+  background: var(--card-bg, white);
+  color: var(--text-primary, #1a1a1a);
+  font-size: var(--text-sm, 14px);
+}
+
+[data-theme="dark"] .week-copy-date {
+  background: var(--bg-secondary);
+  border-color: var(--gray-600);
+  color-scheme: dark;
+}
+
+/* --- Week notes --- */
+.week-notes-section {
+  padding: 0 12px;
+}
+
+.week-notes-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  color: var(--text-muted, #9ca3af);
+}
+.week-notes-toggle:hover { color: var(--text-primary); }
+
+.week-notes-arrow {
+  transition: transform 0.2s;
+  font-size: 11px;
+}
+.week-notes-arrow--open { transform: rotate(180deg); }
+
+.week-notes-list {
+  padding: 4px 0 10px;
+}
+
+.week-notes-empty {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-muted, #9ca3af);
+  padding: 6px 0;
+}
+
+.week-note {
+  background: var(--bg-secondary, #f3f4f6);
+  border-radius: var(--radius-md, 8px);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.week-note-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: var(--text-xs, 12px);
+}
+
+.week-note-author {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.week-note-date {
+  color: var(--text-muted);
+}
+
+.week-note-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.week-note-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+.week-note-btn:hover { color: var(--text-primary); background: var(--card-border); }
+.week-note-btn--del:hover { color: var(--color-error, #ef4444); }
+
+.week-note-content {
+  font-size: var(--text-sm, 14px);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.week-note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.week-note-edit-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.week-note-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--card-border, #e5e7eb);
+  border-radius: var(--radius-md, 8px);
+  background: var(--card-bg, white);
+  color: var(--text-primary);
+  font-size: var(--text-sm, 14px);
+  font-family: inherit;
+  resize: vertical;
+  min-height: 44px;
+}
+
+[data-theme="dark"] .week-note-textarea {
+  background: var(--bg-tertiary, var(--gray-800));
+  border-color: var(--gray-600);
+}
+
+.week-note-add {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.week-note-add .btn {
+  align-self: flex-end;
 }

@@ -35,7 +35,7 @@ alwaysApply: false
 
 ## 3. Tools (function calling)
 
-7 инструментов, определены в `ChatService::getChatTools()`:
+10 инструментов, определены в `ChatService::getChatTools()`:
 
 | Tool | Тип | Описание |
 |------|-----|----------|
@@ -44,13 +44,16 @@ alwaysApply: false
 | `get_workouts(date_from, date_to)` | read | История тренировок за период (лимит 100) |
 | `get_day_details(date)` | read | Полные детали дня: план + упражнения + результат |
 | `update_training_day(date, type, description)` | **write** | Изменить запланированную тренировку |
+| `swap_training_days(date1, date2)` | **write** | Поменять местами тренировки на двух датах (type + description) |
+| `delete_training_day(date)` | **write** | Удалить запланированную тренировку |
+| `move_training_day(source_date, target_date)` | **write** | Перенести тренировку с одной даты на другую (copy + delete) |
 | `recalculate_plan(reason?)` | **write** | Пересчёт плана (async 3-5 мин) |
 | `generate_next_plan(goals?)` | **write** | Новый план после завершения предыдущего (async 3-5 мин) |
 
 - Tools работают **только** при `CHAT_USE_PLANRUN_AI=0` и `CHAT_TOOLS_ENABLED=1`.
 - В streaming: tools резолвятся **до** стриминга текста (в `resolveToolCalls`).
 - NDJSON-флаги:
-  - `plan_updated` — при `update_training_day` или успешном `add_training_day` (ACTION) → фронт вызывает `loadPlan()`.
+  - `plan_updated` — при `update_training_day`, `swap_training_days`, `delete_training_day`, `move_training_day` или успешном `add_training_day` (ACTION) → фронт вызывает `loadPlan()`.
   - `plan_recalculating` — при `recalculate_plan` → фронт показывает уведомление «Пересчёт плана запущен...».
   - `plan_generating_next` — при `generate_next_plan` → фронт показывает «Новый план генерируется...».
 
@@ -78,6 +81,11 @@ alwaysApply: false
 - **Поведение:** при жалобах → эмпатия + предложение замены; при пропусках → без укоров; при прогрессе → похвала.
 - **Добавление тренировки:** блок `<!-- ACTION add_training_day ... -->` (парсится в `parseAndExecuteActions`).
 - **Изменение тренировки:** tool `update_training_day` (обязательно подтверждение пользователя).
+- **Поменять местами:** tool `swap_training_days(date1, date2)` — атомарная замена двух дней (обязательно подтверждение).
+- **Удалить тренировку:** tool `delete_training_day(date)` — «отменить», «убери», «удали» (обязательно подтверждение).
+- **Перенести тренировку:** tool `move_training_day(source_date, target_date)` — «перенеси с среды на пятницу» (обязательно подтверждение).
+- **Бежать сегодня?** — без tool: get_day_details + контекст, рекомендация в ответе.
+- **Обратная связь по тренировке** — без tool: get_workouts + get_day_details, разбор в ответе.
 
 ## 6. Reasoning-фильтрация
 

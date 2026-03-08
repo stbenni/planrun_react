@@ -12,7 +12,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($action === 'get_avatar' && $method === 'GET') {
     $file = isset($_GET['file']) ? basename($_GET['file']) : '';
     if ($file !== '' && preg_match('/^avatar_\d+_\d+\.(jpe?g|png|gif|webp)$/i', $file)) {
-        $path = __DIR__ . '/uploads/avatars/' . $file;
+        $projectRoot = dirname(__DIR__);
+        $path = $projectRoot . '/uploads/avatars/' . $file;
         if (is_file($path) && is_readable($path)) {
             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
             $mimes = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
@@ -92,6 +93,8 @@ require_once __DIR__ . '/controllers/AdminController.php';
 require_once __DIR__ . '/controllers/ChatController.php';
 require_once __DIR__ . '/controllers/IntegrationsController.php';
 require_once __DIR__ . '/controllers/PushController.php';
+require_once __DIR__ . '/controllers/CoachController.php';
+require_once __DIR__ . '/controllers/NoteController.php';
 
 try {
     $db = getDBConnection();
@@ -149,7 +152,7 @@ try {
             ErrorHandler::returnJsonError('Параметр slug обязателен', 400);
         }
 
-        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, target_marathon_date, target_marathon_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts FROM users WHERE username_slug = ?");
+        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, target_marathon_date, target_marathon_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts, role, coach_bio, coach_specialization, coach_accepts, coach_prices_on_request, coach_experience_years, coach_philosophy FROM users WHERE username_slug = ?");
         $stmt->bind_param("s", $slug);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
@@ -191,13 +194,41 @@ try {
             }
         }
 
+        $userRole = $row['role'] ?? 'user';
         $user = [
             'id' => $targetUserId,
             'username' => $row['username'],
             'username_slug' => $row['username_slug'],
             'avatar_path' => $row['avatar_path'],
             'privacy_level' => $privacyLevel,
+            'role' => $userRole,
         ];
+
+        // Coach-поля для тренеров
+        if (in_array($userRole, ['coach', 'admin'])) {
+            $user['coach_bio'] = $row['coach_bio'];
+            $user['coach_specialization'] = json_decode($row['coach_specialization'] ?? '[]', true) ?: [];
+            $user['coach_accepts'] = (bool)($row['coach_accepts'] ?? 0);
+            $user['coach_prices_on_request'] = (bool)($row['coach_prices_on_request'] ?? 0);
+            $user['coach_experience_years'] = $row['coach_experience_years'] ? (int)$row['coach_experience_years'] : null;
+            $user['coach_philosophy'] = $row['coach_philosophy'];
+
+            // Pricing
+            $tableCheck2 = $db->query("SHOW TABLES LIKE 'coach_pricing'");
+            if ($tableCheck2 && $tableCheck2->num_rows > 0) {
+                $pStmt = $db->prepare("SELECT type, label, price, currency, period FROM coach_pricing WHERE coach_id = ? ORDER BY sort_order");
+                $pStmt->bind_param("i", $targetUserId);
+                $pStmt->execute();
+                $pRes = $pStmt->get_result();
+                $pricing = [];
+                while ($pRow = $pRes->fetch_assoc()) {
+                    $pRow['price'] = $pRow['price'] !== null ? (float)$pRow['price'] : null;
+                    $pricing[] = $pRow;
+                }
+                $pStmt->close();
+                $user['pricing'] = $pricing;
+            }
+        }
         if ($isOwner || $canView) {
             if ($isOwner || (int)($row['privacy_show_email'] ?? 1) === 1) {
                 $user['email'] = $row['email'];
@@ -424,7 +455,15 @@ try {
             $controller = new StatsController($db);
             $controller->prepareWeeklyAnalysis();
             break;
-            
+
+        case 'race_prediction':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new StatsController($db);
+            $controller->racePrediction();
+            break;
+
         // ExerciseController
         case 'add_day_exercise':
             if ($method !== 'POST') {
@@ -511,7 +550,23 @@ try {
             $controller = new WeekController($db);
             $controller->deleteTrainingDay();
             break;
-            
+
+        case 'copy_day':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->copyDay();
+            break;
+
+        case 'copy_week':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new WeekController($db);
+            $controller->copyWeek();
+            break;
+
         // AdaptationController
         case 'run_weekly_adaptation':
             $controller = new AdaptationController($db);
@@ -898,6 +953,227 @@ try {
             }
             $controller = new ChatController($db);
             $controller->addAIMessage();
+            break;
+
+        // CoachController
+        case 'list_coaches':
+            $controller = new CoachController($db);
+            $controller->listCoaches();
+            break;
+
+        case 'request_coach':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->requestCoach();
+            break;
+
+        case 'coach_requests':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->getCoachRequests();
+            break;
+
+        case 'accept_coach_request':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->acceptCoachRequest();
+            break;
+
+        case 'reject_coach_request':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->rejectCoachRequest();
+            break;
+
+        case 'get_my_coaches':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->getMyCoaches();
+            break;
+
+        case 'remove_coach':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->removeCoach();
+            break;
+
+        case 'apply_coach':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->applyCoach();
+            break;
+
+        case 'coach_athletes':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->getCoachAthletes();
+            break;
+
+        case 'get_coach_pricing':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->getCoachPricing();
+            break;
+
+        case 'update_coach_pricing':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new CoachController($db);
+            $controller->updateCoachPricing();
+            break;
+
+        // CoachController — группы атлетов
+        case 'get_coach_groups':
+            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->getCoachGroups();
+            break;
+
+        case 'save_coach_group':
+            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->saveCoachGroup();
+            break;
+
+        case 'delete_coach_group':
+            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->deleteCoachGroup();
+            break;
+
+        case 'get_group_members':
+            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->getGroupMembers();
+            break;
+
+        case 'update_group_members':
+            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->updateGroupMembers();
+            break;
+
+        case 'get_athlete_groups':
+            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
+            $controller = new CoachController($db);
+            $controller->getAthleteGroups();
+            break;
+
+        // AdminController — заявки тренеров
+        case 'admin_coach_applications':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->getCoachApplications();
+            break;
+
+        case 'admin_approve_coach':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->approveCoachApplication();
+            break;
+
+        case 'admin_reject_coach':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new AdminController($db);
+            $controller->rejectCoachApplication();
+            break;
+
+        // NoteController — заметки к дням и неделям
+        case 'get_day_notes':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->getDayNotes();
+            break;
+
+        case 'save_day_note':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->saveDayNote();
+            break;
+
+        case 'delete_day_note':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->deleteDayNote();
+            break;
+
+        case 'get_week_notes':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->getWeekNotes();
+            break;
+
+        case 'save_week_note':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->saveWeekNote();
+            break;
+
+        case 'delete_week_note':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->deleteWeekNote();
+            break;
+
+        case 'get_note_counts':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->getNoteCounts();
+            break;
+
+        case 'get_plan_notifications':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->getPlanNotifications();
+            break;
+
+        case 'mark_plan_notification_read':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new NoteController($db);
+            $controller->markPlanNotificationRead();
             break;
 
         default:

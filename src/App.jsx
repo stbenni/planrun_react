@@ -6,11 +6,13 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
+import { isNativeCapacitor } from './services/TokenStorageService';
 import LandingScreen from './screens/LandingScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import AppLayout from './components/AppLayout';
 import LockScreen from './components/common/LockScreen';
 import SkeletonScreen from './components/common/SkeletonScreen';
+import LogoLoading from './components/common/LogoLoading';
 import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import './App.css';
 
@@ -55,13 +57,36 @@ function App() {
     }
   }, [isAuthenticated, loading]);
 
-  // Push-уведомления (только Capacitor, после авторизации)
+  // Push-уведомления — только в Android/iOS приложении (Capacitor), не на вебе
   useEffect(() => {
     if (!isAuthenticated || !api || loading) return;
+    if (!isNativeCapacitor()) return;
     import('./services/PushService').then(({ registerPushNotifications }) => {
       registerPushNotifications(api).catch(() => {});
     });
   }, [isAuthenticated, api, loading]);
+
+  // Deep link: OAuth callback из In-App Browser (planrun://oauth-callback?connected=strava)
+  useEffect(() => {
+    if (!isNativeCapacitor()) return;
+    let listenerHandle;
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      CapApp.addListener('appUrlOpen', (event) => {
+        const url = event.url || '';
+        if (!url.startsWith('planrun://oauth-callback')) return;
+        try {
+          const params = new URL(url.replace('planrun://', 'https://dummy/')).searchParams;
+          const connected = params.get('connected');
+          const error = params.get('error');
+          if (connected || error) {
+            // Навигируем на Settings — существующий useEffect в SettingsScreen обработает
+            window.location.href = `/settings?tab=integrations${connected ? '&connected=' + encodeURIComponent(connected) : ''}${error ? '&error=' + encodeURIComponent(error) : ''}`;
+          }
+        } catch {}
+      }).then(h => { listenerHandle = h; });
+    }).catch(() => {});
+    return () => { listenerHandle?.remove?.(); };
+  }, []);
 
   const maintenanceMode = siteSettings?.maintenance_mode === '1';
   const registrationEnabled = siteSettings?.registration_enabled !== '0';
@@ -84,7 +109,7 @@ function App() {
     <Router>
       {loading || !api ? (
         <div className="loading-container">
-          <div className="spinner">Загрузка...</div>
+          <LogoLoading />
         </div>
       ) : isLocked ? (
         <LockScreen />
@@ -164,7 +189,7 @@ function App() {
           <Route path="calendar" element={null} />
           <Route path="stats" element={null} />
           <Route path="chat" element={null} />
-          <Route path="trainers" element={null} />
+          <Route path="trainers/*" element={null} />
           <Route path="settings" element={null} />
           <Route path="admin" element={isAdmin ? null : <Navigate to="/" replace />} />
         </Route>
@@ -174,7 +199,7 @@ function App() {
           element={
             <Suspense fallback={
               <div className="loading-container">
-                <div className="spinner">Загрузка...</div>
+                <LogoLoading />
               </div>
             }>
               <UserProfileScreen />

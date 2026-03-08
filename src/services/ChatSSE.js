@@ -8,7 +8,7 @@ const listeners = new Set();
 let eventSource = null;
 let unreadData = { total: 0, by_type: {} };
 let reconnectTimer = null;
-let reconnectDelay = 1000;
+let reconnectDelay = 3000; // 3 сек при первой ошибке, не 1 — чтобы не спамить при падении соединения
 const MAX_RECONNECT_DELAY = 30000;
 
 function getSSEUrl() {
@@ -57,7 +57,7 @@ function connect() {
   });
 
   es.onopen = () => {
-    reconnectDelay = 1000;
+    reconnectDelay = 3000;
   };
 
   es.onerror = () => {
@@ -74,7 +74,7 @@ function disconnect() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  reconnectDelay = 1000;
+  reconnectDelay = 3000;
   if (eventSource) {
     eventSource.close();
     eventSource = null;

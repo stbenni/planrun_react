@@ -37,15 +37,6 @@ if (!function_exists('login')) {
             return true;
         }
 
-        // Fallback для старой системы (обратная совместимость)
-        if ($loginOrEmail === 'st_benni' && $password === 'aApzbz8h2ben') {
-            $_SESSION['authenticated'] = true;
-            $_SESSION['user_id'] = 1; // Дефолтный пользователь
-            $_SESSION['username'] = $loginOrEmail;
-            $_SESSION['login_time'] = time();
-            return true;
-        }
-
         return false;
     }
 }

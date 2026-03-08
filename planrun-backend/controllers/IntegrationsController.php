@@ -31,9 +31,23 @@ class IntegrationsController extends BaseController {
             return;
         }
         $provider = $this->getProvider($providerId);
-        $state = $_SESSION['csrf_token'] ?? bin2hex(random_bytes(16));
-        $_SESSION['csrf_token'] = $state;
-        $_SESSION['integration_state'] = $state;
+        $fromApp = $this->getParam('from_app') === '1';
+
+        // Формируем подписанный state с user_id (для мобильного OAuth через In-App Browser)
+        $csrf = $_SESSION['csrf_token'] ?? bin2hex(random_bytes(16));
+        $_SESSION['csrf_token'] = $csrf;
+        $_SESSION['integration_state'] = $csrf;
+
+        $payload = base64_encode(json_encode([
+            'csrf' => $csrf,
+            'uid'  => $this->currentUserId,
+            'ts'   => time(),
+            'app'  => $fromApp ? 1 : 0,
+        ]));
+        $secret = env('JWT_SECRET_KEY', 'oauth-state-fallback-' . md5(__DIR__));
+        $hmac = hash_hmac('sha256', $payload, $secret);
+        $state = $payload . '.' . $hmac;
+
         $url = $provider->getOAuthUrl($state);
         if (!$url) {
             $this->returnError('Провайдер не настроен (отсутствуют client_id/redirect_uri)');

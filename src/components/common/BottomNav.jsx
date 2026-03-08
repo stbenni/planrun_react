@@ -3,21 +3,33 @@
  * Анимация как в Telegram: плавно перемещающаяся «таблетка» под активной вкладкой.
  */
 
-import React, { useRef, useLayoutEffect, useState } from 'react';
+import React, { useRef, useLayoutEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
+import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers, NavIconUsers, NavIconMail } from './BottomNavIcons';
+import useAuthStore from '../../stores/useAuthStore';
 import './BottomNav.css';
 
-const tabs = [
+const userTabs = [
   { id: 'home', path: '/', Icon: NavIconHome, label: 'Дэшборд' },
   { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
   { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
   { id: 'trainers', path: '/trainers', Icon: NavIconTrainers, label: 'Тренеры' }
 ];
 
+const coachTabs = [
+  { id: 'home', path: '/', Icon: NavIconUsers, label: 'Атлеты' },
+  { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
+  { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
+  { id: 'trainers', path: '/trainers', Icon: NavIconMail, label: 'Запросы' }
+];
+
 const BottomNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const role = user?.role || 'user';
+  const isCoach = role === 'coach';
+  const tabs = useMemo(() => isCoach ? coachTabs : userTabs, [isCoach]);
   const navRef = useRef(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0 });
 

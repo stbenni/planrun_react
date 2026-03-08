@@ -1,0 +1,340 @@
+/**
+ * RacePredictionWidget — стили в едином дизайне дашборда
+ * Токены из sports-colors.css
+ */
+
+.race-prediction-loading,
+.race-prediction-empty {
+  padding: var(--dashboard-card-padding);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.race-prediction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0;
+  min-width: 0;
+}
+
+/* Две колонки под шапкой: мобилка — столбиком, десктоп — рядом */
+.race-prediction__cols {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Десктоп: шапка и контент — две колонки (таблица | зоны) */
+@media (min-width: 1024px) {
+  .race-prediction--desktop-cols {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .race-prediction__header-row {
+    flex-direction: row;
+    gap: var(--space-6);
+    align-items: center;
+  }
+  .race-prediction__header-row .race-prediction__col {
+    flex: 1;
+  }
+  .race-prediction__header-row .race-prediction__col--table {
+    flex: 1.2;
+  }
+  .race-prediction__header-row .race-prediction__col--zones .race-prediction__goal {
+    justify-content: flex-end;
+  }
+  .race-prediction--desktop-cols .race-prediction__cols {
+    flex-direction: row;
+    gap: var(--space-6);
+    align-items: flex-start;
+  }
+  .race-prediction--desktop-cols .race-prediction__cols .race-prediction__col {
+    flex: 1;
+    min-width: 0;
+  }
+  .race-prediction--desktop-cols .race-prediction__cols .race-prediction__col--table {
+    flex: 1.2;
+  }
+  .race-prediction--desktop-cols .race-prediction__col--zones .race-prediction__paces {
+    margin-top: 0;
+  }
+}
+
+/* Шапка: колонки как в контенте — VDOT слева, цель справа */
+.race-prediction__header-row {
+  display: flex;
+  gap: var(--space-4);
+}
+.race-prediction__header-row .race-prediction__col {
+  min-width: 0;
+}
+
+/* VDOT Badge — как у метрик: крупное число primary, подпись secondary */
+.race-prediction__vdot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.race-prediction__vdot-value {
+  font-family: var(--font-stats);
+  font-size: var(--text-4xl);
+  font-weight: var(--font-bold);
+  font-style: italic;
+  color: var(--primary-500);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.race-prediction__vdot-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  display: flex;
+  line-height: 1.1;
+  flex-direction: column;
+}
+.race-prediction__vdot-source {
+  font-size: var(--text-xs);
+  font-weight: var(--font-normal);
+  color: var(--text-secondary);
+}
+
+/* Goal countdown — как metric-card: фон gray-50, бордер */
+.race-prediction__goal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+.race-prediction__goal-dist {
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.race-prediction__goal-days {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .race-prediction__goal {
+  background: var(--bg-tertiary);
+  border-color: var(--card-border);
+}
+[data-theme="dark"] .race-prediction__goal-dist {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .race-prediction__goal-days {
+  color: var(--text-secondary);
+}
+
+/* Predictions table — заголовок uppercase, secondary */
+.race-prediction__table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  width: 100%;
+}
+.race-prediction__table-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  padding: var(--space-2) 0;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--card-border);
+}
+.race-prediction__table-header:has(span:nth-child(4)) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+.race-prediction__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  padding: var(--space-3) 0;
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--gray-200);
+  align-items: center;
+}
+.race-prediction__row:has(.race-prediction__time--riegel) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+.race-prediction__row > span,
+.race-prediction__table-header > span {
+  min-width: 0;
+}
+.race-prediction__table-header > span:last-child {
+  text-align: right;
+}
+.race-prediction__row--target {
+  background: var(--primary-50);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  border-bottom-color: transparent;
+}
+.race-prediction__dist {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+.race-prediction__time {
+  font-family: var(--font-stats);
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  padding-left: 10px;
+}
+.race-prediction__time--riegel {
+  color: var(--text-secondary);
+  font-weight: var(--font-normal);
+}
+.race-prediction__pace {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  padding-right: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Compact: меньше отступы, меньше шрифт */
+.race-prediction__table--compact .race-prediction__table-header {
+  padding: var(--space-1) 0;
+  font-size: 10px;
+}
+.race-prediction__table--compact .race-prediction__row {
+  padding: var(--space-2) 0;
+  font-size: var(--text-xs);
+}
+
+[data-theme="dark"] .race-prediction__row {
+  border-bottom-color: var(--card-border);
+}
+[data-theme="dark"] .race-prediction__row--target {
+  background: rgba(255, 107, 61, 0.12);
+}
+[data-theme="dark"] .race-prediction__table-header {
+  border-bottom-color: var(--card-border);
+}
+
+/* Training paces — как легенда дашборда */
+.race-prediction__paces {
+  margin-top: var(--space-1);
+}
+.race-prediction__paces-title {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-2);
+}
+.race-prediction__paces-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.race-prediction__pace-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.race-prediction__pace-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.race-prediction__pace-label {
+  flex: 1;
+  color: var(--text-primary);
+}
+.race-prediction__pace-value {
+  font-family: var(--font-stats);
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Compact mode: две страницы, свайп/стрелка */
+.race-prediction--compact {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+}
+
+.race-prediction--compact .race-prediction__pages {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
+
+.race-prediction__page {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: 44px; /* место под кнопку навигации */
+  min-width: 0;
+}
+
+.race-prediction__page--active {
+  display: flex;
+}
+
+.race-prediction__page .race-prediction__paces {
+  margin-top: 0;
+}
+
+/* Кнопка переключения страниц — как dashboard-workout-expand-arrow */
+.race-prediction__nav {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: linear-gradient(to top, var(--card-bg) 70%, transparent);
+  border: none;
+  cursor: pointer;
+  color: var(--primary-500);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: color 0.2s, background 0.2s;
+  z-index: 1;
+}
+
+.race-prediction__nav:hover {
+  color: var(--primary-600);
+  background: linear-gradient(to top, var(--primary-100) 85%, transparent);
+}
+
+.race-prediction__nav-icon {
+  flex-shrink: 0;
+}
+
+.race-prediction__nav-hint {
+  opacity: 0.95;
+}
+
+[data-theme="dark"] .race-prediction__nav {
+  background: linear-gradient(to top, var(--card-bg) 70%, transparent);
+}
+
+[data-theme="dark"] .race-prediction__nav:hover {
+  background: linear-gradient(to top, rgba(255, 107, 61, 0.2) 85%, transparent);
+}

@@ -281,6 +281,160 @@ class AdminController extends BaseController {
     }
 
     /**
+     * GET admin_coach_applications — список заявок на роль тренера
+     */
+    public function getCoachApplications() {
+        if (!$this->requireAdmin()) return;
+        try {
+            $status = $this->getParam('status', 'pending');
+            $offset = max(0, (int)($this->getParam('offset', 0)));
+            $limit = min(50, max(1, (int)($this->getParam('limit', 20))));
+
+            $stmt = $this->db->prepare("
+                SELECT ca.*, u.username, u.username_slug, u.avatar_path, u.email
+                FROM coach_applications ca
+                JOIN users u ON ca.user_id = u.id
+                WHERE ca.status = ?
+                ORDER BY ca.created_at DESC
+                LIMIT ? OFFSET ?
+            ");
+            $stmt->bind_param("sii", $status, $limit, $offset);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            $applications = [];
+            while ($row = $result->fetch_assoc()) {
+                $row['id'] = (int)$row['id'];
+                $row['user_id'] = (int)$row['user_id'];
+                $row['coach_specialization'] = json_decode($row['coach_specialization'] ?? '[]', true) ?: [];
+                $row['coach_pricing_json'] = json_decode($row['coach_pricing_json'] ?? '[]', true) ?: [];
+                $row['coach_accepts_new'] = (bool)$row['coach_accepts_new'];
+                $row['coach_prices_on_request'] = (bool)$row['coach_prices_on_request'];
+                $row['coach_experience_years'] = $row['coach_experience_years'] ? (int)$row['coach_experience_years'] : null;
+                $applications[] = $row;
+            }
+            $stmt->close();
+
+            $stmt = $this->db->prepare("SELECT COUNT(*) as total FROM coach_applications WHERE status = ?");
+            $stmt->bind_param("s", $status);
+            $stmt->execute();
+            $total = $stmt->get_result()->fetch_assoc()['total'];
+            $stmt->close();
+
+            $this->returnSuccess(['applications' => $applications, 'total' => (int)$total]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST admin_approve_coach — одобрить заявку
+     */
+    public function approveCoachApplication() {
+        if (!$this->requireAdmin()) return;
+        try {
+            $input = $this->getJsonBody() ?: $_POST;
+            $appId = (int)($input['application_id'] ?? 0);
+
+            $stmt = $this->db->prepare("SELECT * FROM coach_applications WHERE id = ? AND status = 'pending'");
+            $stmt->bind_param("i", $appId);
+            $stmt->execute();
+            $app = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$app) {
+                $this->returnError('Заявка не найдена или уже обработана', 404);
+                return;
+            }
+
+            $userId = (int)$app['user_id'];
+
+            // Обновляем роль и coach-поля
+            $stmt = $this->db->prepare("
+                UPDATE users SET
+                    role = 'coach',
+                    coach_bio = ?,
+                    coach_specialization = ?,
+                    coach_accepts = ?,
+                    coach_prices_on_request = ?,
+                    coach_experience_years = ?,
+                    coach_philosophy = ?
+                WHERE id = ?
+            ");
+            $stmt->bind_param("ssiissi",
+                $app['coach_bio'],
+                $app['coach_specialization'],
+                $app['coach_accepts_new'],
+                $app['coach_prices_on_request'],
+                $app['coach_experience_years'],
+                $app['coach_philosophy'],
+                $userId
+            );
+            $stmt->execute();
+            $stmt->close();
+
+            // Копируем pricing
+            $pricingItems = json_decode($app['coach_pricing_json'] ?? '[]', true) ?: [];
+            if (!empty($pricingItems)) {
+                $stmt = $this->db->prepare("INSERT INTO coach_pricing (coach_id, type, label, price, currency, period, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                foreach ($pricingItems as $i => $item) {
+                    $type = $item['type'] ?? 'custom';
+                    $label = $item['label'] ?? '';
+                    $price = isset($item['price']) ? (float)$item['price'] : null;
+                    $currency = $item['currency'] ?? 'RUB';
+                    $period = $item['period'] ?? 'month';
+                    $sortOrder = $i;
+                    if ($label) {
+                        $stmt->bind_param("issdssi", $userId, $type, $label, $price, $currency, $period, $sortOrder);
+                        $stmt->execute();
+                    }
+                }
+                $stmt->close();
+            }
+
+            // Обновляем статус заявки
+            $stmt = $this->db->prepare("UPDATE coach_applications SET status = 'approved', reviewed_at = NOW(), reviewed_by = ? WHERE id = ?");
+            $stmt->bind_param("ii", $this->currentUserId, $appId);
+            $stmt->execute();
+            $stmt->close();
+
+            $this->returnSuccess(['approved' => true, 'user_id' => $userId]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST admin_reject_coach — отклонить заявку
+     */
+    public function rejectCoachApplication() {
+        if (!$this->requireAdmin()) return;
+        try {
+            $input = $this->getJsonBody() ?: $_POST;
+            $appId = (int)($input['application_id'] ?? 0);
+
+            $stmt = $this->db->prepare("SELECT id FROM coach_applications WHERE id = ? AND status = 'pending'");
+            $stmt->bind_param("i", $appId);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows === 0) {
+                $stmt->close();
+                $this->returnError('Заявка не найдена или уже обработана', 404);
+                return;
+            }
+            $stmt->close();
+
+            $stmt = $this->db->prepare("UPDATE coach_applications SET status = 'rejected', reviewed_at = NOW(), reviewed_by = ? WHERE id = ?");
+            $stmt->bind_param("ii", $this->currentUserId, $appId);
+            $stmt->execute();
+            $stmt->close();
+
+            $this->returnSuccess(['rejected' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Ключи настроек по умолчанию и их значения
      */
     protected function getDefaultSettingsMap() {

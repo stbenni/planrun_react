@@ -9,6 +9,7 @@ import html2canvas from 'html2canvas';
 import { HeartRateChart, PaceChart } from './index';
 import WorkoutShareCard from './WorkoutShareCard';
 import Modal from '../common/Modal';
+import LogoLoading from '../common/LogoLoading';
 import useAuthStore from '../../stores/useAuthStore';
 import {
   getActivityTypeLabel, getWorkoutDisplayType, getSourceLabel,
@@ -329,7 +330,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumb
           </div>
         )}
         {loading ? (
-          <div className="workout-details-loading">Загрузка...</div>
+          <div className="workout-details-loading"><LogoLoading size="sm" /></div>
         ) : dayData && displayedWorkouts && displayedWorkouts.length > 0 ? (
           <div className="workout-details-list">
             {displayedWorkouts.map((workout, index) => {

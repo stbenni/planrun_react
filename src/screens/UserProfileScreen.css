@@ -387,6 +387,120 @@
   color: var(--primary-200);
 }
 
+/* Блок тренера на профиле */
+.coach-profile-block {
+  padding: var(--space-5);
+}
+
+.coach-profile-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+
+.coach-profile-title svg {
+  color: var(--primary-500);
+}
+
+.coach-profile-bio {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin: 0 0 var(--space-3);
+}
+
+.coach-profile-philosophy {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 0 0 var(--space-3);
+  line-height: 1.5;
+}
+
+.coach-profile-specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.coach-profile-specs .coach-spec-tag {
+  font-size: var(--text-xs);
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--primary-50);
+  color: var(--primary-700);
+  font-weight: var(--font-medium);
+}
+
+[data-theme="dark"] .coach-profile-specs .coach-spec-tag {
+  background: rgba(255, 107, 61, 0.15);
+  color: var(--primary-400);
+}
+
+.coach-profile-detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-2);
+}
+
+.coach-profile-pricing {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--card-border);
+}
+
+.coach-profile-pricing-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.coach-profile-price-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+}
+
+.coach-profile-price-label {
+  color: var(--text-secondary);
+}
+
+.coach-profile-price-value {
+  color: var(--primary-600);
+  font-weight: var(--font-semibold);
+}
+
+[data-theme="dark"] .coach-profile-price-value {
+  color: var(--primary-400);
+}
+
+.coach-profile-request {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--card-border);
+}
+
+.coach-profile-requested {
+  color: var(--success-600, #16a34a);
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.coach-profile-error {
+  color: var(--danger-500);
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0 0;
+}
+
 /* Адаптивность */
 @media (max-width: 640px) {
   .profile-header {

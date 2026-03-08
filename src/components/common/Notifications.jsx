@@ -4,7 +4,7 @@
  * Real-time: подписка на ChatSSE — новые сообщения появляются сразу.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatSSE } from '../../services/ChatSSE';
 import { BotIcon, MessageCircleIcon, BellIcon } from './Icons';
@@ -18,6 +18,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
   const [upcomingWorkouts, setUpcomingWorkouts] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
   const [aiMessages, setAiMessages] = useState([]);
+  const [planNotifications, setPlanNotifications] = useState([]);
   const [dismissed, setDismissed] = useState(() => new Set());
   const [dismissedLoaded, setDismissedLoaded] = useState(false);
 
@@ -135,7 +136,22 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
       }
     };
 
-    await Promise.all([loadUpcomingWorkouts(), loadAdminMessages(), loadAiMessages()]);
+    const loadPlanNotifications = async () => {
+      try {
+        const res = await api.getPlanNotifications();
+        const list = res?.data?.notifications ?? res?.notifications ?? [];
+        setPlanNotifications(list.map(n => ({
+          ...n,
+          type: 'plan_notif',
+          id: `plan_notif_${n.id}`,
+          _id: n.id,
+        })));
+      } catch {
+        setPlanNotifications([]);
+      }
+    };
+
+    await Promise.all([loadUpcomingWorkouts(), loadAdminMessages(), loadAiMessages(), loadPlanNotifications()]);
   }, [api, isAdmin, user?.id]);
 
   useEffect(() => {
@@ -146,11 +162,18 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
     return () => clearInterval(interval);
   }, [api, refresh]);
 
-  // Real-time: при новом сообщении SSE сразу обновляем список
+  // Real-time: при новом сообщении SSE обновляем список (с debounce, чтобы не спамить API)
+  const SSE_REFRESH_DEBOUNCE_MS = 15000; // не чаще раза в 15 сек от SSE
+  const lastSseRefreshRef = useRef(0);
   useEffect(() => {
     if (!api) return;
     ChatSSE.connect();
-    const onUnread = () => refresh();
+    const onUnread = () => {
+      const now = Date.now();
+      if (now - lastSseRefreshRef.current < SSE_REFRESH_DEBOUNCE_MS) return;
+      lastSseRefreshRef.current = now;
+      refresh();
+    };
     ChatSSE.subscribe(onUnread);
     return () => ChatSSE.unsubscribe(onUnread);
   }, [api, refresh]);
@@ -162,7 +185,10 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
   const aiChatItems = aiMessages
     .filter((m) => !dismissed.has(m.id))
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  const allItems = [...chatItems, ...aiChatItems, ...workoutItems];
+  const planNotifItems = planNotifications
+    .filter((n) => !dismissed.has(n.id))
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  const allItems = [...planNotifItems, ...chatItems, ...aiChatItems, ...workoutItems];
 
   if (!dismissedLoaded || allItems.length === 0) {
     return null;
@@ -171,6 +197,53 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
   return (
     <div className="notifications-container">
       {allItems.map((item, index) => {
+        if (item.type === 'plan_notif') {
+          const timeStr = item.created_at
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: tz })
+            : '';
+          const meta = item.metadata || {};
+          const isCoachUpdate = (item.type === 'plan_notif' && meta.coach_id);
+          return (
+            <div key={item.id} className="notification-card notification-card--plan" style={{ animationDelay: `${index * 100}ms` }}>
+              <div className="notification-icon" aria-hidden><BellIcon size={24} /></div>
+              <div className="notification-content">
+                <div className="notification-title">{item.message}</div>
+                <div className="notification-date">{timeStr}</div>
+              </div>
+              <div className="notification-actions">
+                <button
+                  className="notification-btn"
+                  onClick={() => {
+                    api?.markPlanNotificationRead(item._id).catch(() => {});
+                    const dateParam = meta.date ? `?date=${meta.date}` : '';
+                    if (isCoachUpdate) {
+                      navigate(`/calendar${dateParam}`);
+                    } else if (meta.athlete_id) {
+                      // Coach viewing athlete's result
+                      const slug = meta.athlete_slug;
+                      navigate(slug ? `/calendar?athlete=${slug}${meta.date ? '&date=' + meta.date : ''}` : `/calendar${dateParam}`);
+                    } else {
+                      navigate(`/calendar${dateParam}`);
+                    }
+                  }}
+                >
+                  Открыть
+                </button>
+                <button
+                  className="notification-dismiss"
+                  onClick={() => {
+                    handleDismiss(item.id);
+                    api?.markPlanNotificationRead(item._id).catch(() => {});
+                  }}
+                  aria-label="Закрыть"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         if (item.type === 'chat_ai') {
           const timeStr = item.created_at
             ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz })
@@ -248,7 +321,10 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
         }
 
         const workout = item;
-        const isTomorrow = workout.dateObj.getTime() === new Date().setDate(new Date().getDate() + 1);
+        const tomorrowDate = new Date();
+        tomorrowDate.setHours(0, 0, 0, 0);
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const isTomorrow = workout.dateObj.getTime() === tomorrowDate.getTime();
         const dayLabel = isTomorrow ? 'Завтра' : workout.dateObj.toLocaleDateString('ru-RU', {
           weekday: 'long',
           day: 'numeric',

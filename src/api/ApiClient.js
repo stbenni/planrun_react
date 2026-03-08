@@ -82,11 +82,11 @@ class ApiClient {
           localStorage.setItem('auth_token', token);
           localStorage.setItem('refresh_token', refreshToken);
         }
-        // Не блокируем: localStorage уже записан, SecureStorage/Preferences сохраняются в фоне.
-        // TokenStorageService.saveTokens сначала пишет Preferences (быстро), потом SecureStorage (может зависнуть).
-        TokenStorageService.saveTokens(token, refreshToken).catch((e) => {
+        // Обязательно await Preferences — иначе при быстром перезапуске токены не успеют сохраниться.
+        // SecureStorage пишется в фоне внутри saveTokens.
+        await TokenStorageService.saveTokens(token, refreshToken).catch((e) => {
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('[ApiClient] SecureStorage save:', e?.message);
+            console.warn('[ApiClient] TokenStorage save:', e?.message);
           }
         });
       } else {
@@ -141,24 +141,29 @@ class ApiClient {
     let token = this.token;
     if (isNativeCapacitor()) {
       if (token) return token;
-      if (typeof localStorage !== 'undefined') {
-        const stored = localStorage.getItem('auth_token');
-        const refresh = localStorage.getItem('refresh_token');
-        if (stored && refresh) {
-          this.token = stored;
-          this.refreshToken = refresh;
-          return stored;
-        }
-      }
+      // На native: TokenStorageService первым (localStorage может очищаться при kill приложения)
       try {
         const stored = await TokenStorageService.getTokens();
         if (stored?.accessToken && stored?.refreshToken) {
           this.token = stored.accessToken;
           this.refreshToken = stored.refreshToken;
           token = stored.accessToken;
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('auth_token', stored.accessToken);
+            localStorage.setItem('refresh_token', stored.refreshToken);
+          }
         }
       } catch (e) {
         // игнорируем
+      }
+      if (!token && typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('auth_token');
+        const refresh = localStorage.getItem('refresh_token');
+        if (stored && refresh) {
+          this.token = stored;
+          this.refreshToken = refresh;
+          token = stored;
+        }
       }
     } else if (!token && typeof localStorage !== 'undefined') {
       token = localStorage.getItem('auth_token');
@@ -211,22 +216,26 @@ class ApiClient {
     }
 
     if (isNativeCapacitor()) {
+      try {
+        const stored = await TokenStorageService.getTokens();
+        if (stored?.accessToken && stored?.refreshToken) {
+          this.token = stored.accessToken;
+          this.refreshToken = stored.refreshToken;
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('auth_token', stored.accessToken);
+            localStorage.setItem('refresh_token', stored.refreshToken);
+          }
+          return stored.refreshToken;
+        }
+      } catch (e) {
+        // игнорируем
+      }
       if (typeof localStorage !== 'undefined') {
         const stored = localStorage.getItem('refresh_token');
         if (stored) {
           this.refreshToken = stored;
           return stored;
         }
-      }
-      try {
-        const stored = await TokenStorageService.getTokens();
-        if (stored?.accessToken && stored?.refreshToken) {
-          this.token = stored.accessToken;
-          this.refreshToken = stored.refreshToken;
-          return stored.refreshToken;
-        }
-      } catch (e) {
-        // игнорируем
       }
       return null;
     }
@@ -327,9 +336,13 @@ class ApiClient {
                 BiometricService.isBiometricEnabled()
               ]);
               if (biometricEnabled) {
-                BiometricService.saveTokens(access_token, refresh_token).catch(() => {});
+                await BiometricService.saveTokens(access_token, refresh_token).catch((e) => {
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn('[ApiClient] Biometric saveTokens:', e?.message);
+                  }
+                });
               }
-              // PinAuthService требует PIN для шифрования — обновляется при успешном unlock в useAuthStore
+              // PinAuthService требует PIN — обновляется при успешном pinLogin в useAuthStore
             } catch (e) {
               if (process.env.NODE_ENV !== 'production') {
                 console.warn('[ApiClient] Sync tokens after refresh:', e?.message);
@@ -373,11 +386,11 @@ class ApiClient {
   /**
    * Базовый метод для выполнения запросов к api.php
    */
-  async request(action, params = {}, method = 'GET') {
+  async request(action, params = {}, method = 'GET', extraUrlParams = {}) {
     const token = await this.getToken();
-    
-    // Формируем URL - action всегда в URL
-    const urlParams = new URLSearchParams({ action });
+
+    // Формируем URL - action всегда в URL, extraUrlParams тоже в URL (для view/slug в POST)
+    const urlParams = new URLSearchParams({ action, ...extraUrlParams });
     
     // Для check_plan_status ошибка может быть частью ответа (success: true с error)
     const allowErrorInResponse = action === 'check_plan_status';
@@ -651,6 +664,13 @@ class ApiClient {
 
       const data = await response.json();
       if (data.success && data.data) {
+        // Веб: сессия в cookies. Очищаем старые JWT из localStorage, чтобы не мешали.
+        if (!isNativeCapacitor() && typeof localStorage !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+          this.token = null;
+          this.refreshToken = null;
+        }
         const userData = await this.getCurrentUser();
         return { 
           success: true, 
@@ -1091,13 +1111,14 @@ class ApiClient {
    * Сохранить результат тренировки (отметить выполненной).
    * @param {Object} data — { date, week, day, activity_type_id?, result_distance?, result_time?, notes?, is_successful?, avg_heart_rate?, ... }
    */
-  async saveResult(data) {
+  async saveResult(data, viewContext = null) {
     const csrfRes = await this.request('get_csrf_token', {}, 'GET');
     const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
     const body = { ...data };
     if (csrfToken) body.csrf_token = csrfToken;
     if (body.activity_type_id == null) body.activity_type_id = 1;
-    return this.request('save_result', body, 'POST');
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('save_result', body, 'POST', urlParams);
   }
 
   async getResult(date, viewContext = null) {
@@ -1170,10 +1191,15 @@ class ApiClient {
     return this.request('get_all_workouts_list', params, 'GET');
   }
 
+  async getRacePrediction(viewContext = null) {
+    const params = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('race_prediction', params, 'GET');
+  }
+
   // ========== ИНТЕГРАЦИИ (Huawei, Garmin, Strava) ==========
 
-  async getIntegrationOAuthUrl(provider) {
-    return this.request('integration_oauth_url', { provider }, 'GET');
+  async getIntegrationOAuthUrl(provider, extra = {}) {
+    return this.request('integration_oauth_url', { provider, ...extra }, 'GET');
   }
 
   async syncWorkouts(provider) {
@@ -1251,8 +1277,9 @@ class ApiClient {
    * Добавить тренировку на дату (календарная модель).
    * @param {{ date: string, type: string, description?: string, is_key_workout?: boolean }} data
    */
-  async addTrainingDayByDate(data) {
-    return this.request('add_training_day_by_date', data, 'POST');
+  async addTrainingDayByDate(data, viewContext = null) {
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('add_training_day_by_date', data, 'POST', urlParams);
   }
 
   /**
@@ -1260,26 +1287,118 @@ class ApiClient {
    * @param {number} workoutId
    * @param {boolean} [isManual=false]
    */
-  async deleteWorkout(workoutId, isManual = false) {
+  async deleteWorkout(workoutId, isManual = false, viewContext = null) {
     const csrfRes = await this.request('get_csrf_token', {}, 'GET');
     const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
     if (!csrfToken) {
       throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
     }
-    return this.request('delete_workout', { workout_id: workoutId, is_manual: isManual, csrf_token: csrfToken }, 'POST');
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('delete_workout', { workout_id: workoutId, is_manual: isManual, csrf_token: csrfToken }, 'POST', urlParams);
   }
 
   /**
    * Удалить тренировку из плана по id дня.
    * @param {number} dayId - id записи в training_plan_days
    */
-  async deleteTrainingDay(dayId) {
+  async deleteTrainingDay(dayId, viewContext = null) {
     const csrfRes = await this.request('get_csrf_token', {}, 'GET');
     const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
     if (!csrfToken) {
       throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
     }
-    return this.request('delete_training_day', { day_id: dayId, csrf_token: csrfToken }, 'POST');
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('delete_training_day', { day_id: dayId, csrf_token: csrfToken }, 'POST', urlParams);
+  }
+
+  async copyDay(sourceDate, targetDate, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) {
+      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
+    }
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('copy_day', { source_date: sourceDate, target_date: targetDate, csrf_token: csrfToken }, 'POST', urlParams);
+  }
+
+  async copyWeek(sourceWeekId, targetStartDate, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) {
+      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
+    }
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('copy_week', { source_week_id: sourceWeekId, target_start_date: targetStartDate, csrf_token: csrfToken }, 'POST', urlParams);
+  }
+
+  // --- Notes (заметки к дню / неделе) ---
+
+  async getDayNotes(date, viewContext = null) {
+    const params = { date };
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
+    return this.request('get_day_notes', params, 'GET');
+  }
+
+  async saveDayNote(date, content, noteId = null, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    const body = { date, content, csrf_token: csrfToken };
+    if (noteId) body.note_id = noteId;
+    return this.request('save_day_note', body, 'POST', urlParams);
+  }
+
+  async deleteDayNote(noteId, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('delete_day_note', { note_id: noteId, csrf_token: csrfToken }, 'POST', urlParams);
+  }
+
+  async getWeekNotes(weekStart, viewContext = null) {
+    const params = { week_start: weekStart };
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
+    return this.request('get_week_notes', params, 'GET');
+  }
+
+  async saveWeekNote(weekStart, content, noteId = null, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    const body = { week_start: weekStart, content, csrf_token: csrfToken };
+    if (noteId) body.note_id = noteId;
+    return this.request('save_week_note', body, 'POST', urlParams);
+  }
+
+  async deleteWeekNote(noteId, viewContext = null) {
+    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
+    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
+    return this.request('delete_week_note', { note_id: noteId, csrf_token: csrfToken }, 'POST', urlParams);
+  }
+
+  async getNoteCounts(startDate, endDate, viewContext = null) {
+    const params = { start_date: startDate, end_date: endDate };
+    if (viewContext) Object.assign(params, this._viewParams(viewContext));
+    return this.request('get_note_counts', params, 'GET');
+  }
+
+  // --- Plan notifications ---
+
+  async getPlanNotifications() {
+    return this.request('get_plan_notifications', {}, 'GET');
+  }
+
+  async markPlanNotificationRead(notificationId) {
+    return this.request('mark_plan_notification_read', { notification_id: notificationId }, 'POST');
+  }
+
+  async markAllPlanNotificationsRead() {
+    return this.request('mark_plan_notification_read', { all: true }, 'POST');
   }
 
   /**
@@ -1287,19 +1406,20 @@ class ApiClient {
    * @param {number} dayId - id записи в training_plan_days
    * @param {object} data - { type, description?, is_key_workout? }
    */
-  async updateTrainingDay(dayId, data) {
+  async updateTrainingDay(dayId, data, viewContext = null) {
     const csrfRes = await this.request('get_csrf_token', {}, 'GET');
     const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
     if (!csrfToken) {
       throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
     }
+    const urlParams = viewContext ? this._viewParams(viewContext) : {};
     return this.request('update_training_day', {
       day_id: dayId,
       type: data.type,
       description: data.description,
       is_key_workout: data.is_key_workout != null ? (data.is_key_workout ? 1 : 0) : undefined,
       csrf_token: csrfToken,
-    }, 'POST');
+    }, 'POST', urlParams);
   }
 
   // ========== АДМИНКА ==========
@@ -1625,6 +1745,93 @@ class ApiClient {
    */
   async dismissNotification(notificationId) {
     return this.request('notifications_dismiss', { notification_id: String(notificationId || '') }, 'POST');
+  }
+
+  // ==================== Coach / Trainers ====================
+
+  async listCoaches(params = {}) {
+    return this.request('list_coaches', params, 'GET');
+  }
+
+  async requestCoach(coachId, message = '') {
+    return this.request('request_coach', { coach_id: coachId, message }, 'POST');
+  }
+
+  async getCoachRequests(params = {}) {
+    return this.request('coach_requests', params, 'GET');
+  }
+
+  async acceptCoachRequest(requestId) {
+    return this.request('accept_coach_request', { request_id: requestId }, 'POST');
+  }
+
+  async rejectCoachRequest(requestId) {
+    return this.request('reject_coach_request', { request_id: requestId }, 'POST');
+  }
+
+  async getMyCoaches() {
+    return this.request('get_my_coaches', {}, 'GET');
+  }
+
+  async removeCoach({ coachId, athleteId } = {}) {
+    const body = {};
+    if (coachId) body.coach_id = coachId;
+    if (athleteId) body.athlete_id = athleteId;
+    return this.request('remove_coach', body, 'POST');
+  }
+
+  async applyCoach(data) {
+    return this.request('apply_coach', data, 'POST');
+  }
+
+  async getCoachAthletes() {
+    return this.request('coach_athletes', {}, 'GET');
+  }
+
+  async getCoachPricing(coachId = null) {
+    const params = coachId ? { coach_id: coachId } : {};
+    return this.request('get_coach_pricing', params, 'GET');
+  }
+
+  async updateCoachPricing(pricing, pricesOnRequest = false) {
+    return this.request('update_coach_pricing', { pricing, prices_on_request: pricesOnRequest ? 1 : 0 }, 'POST');
+  }
+
+  // Группы атлетов
+  async getCoachGroups() {
+    return this.request('get_coach_groups', {}, 'GET');
+  }
+
+  async saveCoachGroup(data) {
+    return this.request('save_coach_group', data, 'POST');
+  }
+
+  async deleteCoachGroup(groupId) {
+    return this.request('delete_coach_group', { group_id: groupId }, 'POST');
+  }
+
+  async getGroupMembers(groupId) {
+    return this.request('get_group_members', { group_id: groupId }, 'GET');
+  }
+
+  async updateGroupMembers(groupId, userIds) {
+    return this.request('update_group_members', { group_id: groupId, user_ids: userIds }, 'POST');
+  }
+
+  async getAthleteGroups(userId) {
+    return this.request('get_athlete_groups', { user_id: userId }, 'GET');
+  }
+
+  async getCoachApplications(params = {}) {
+    return this.request('admin_coach_applications', params, 'GET');
+  }
+
+  async approveCoachApplication(applicationId) {
+    return this.request('admin_approve_coach', { application_id: applicationId }, 'POST');
+  }
+
+  async rejectCoachApplication(applicationId) {
+    return this.request('admin_reject_coach', { application_id: applicationId }, 'POST');
   }
 }
 
