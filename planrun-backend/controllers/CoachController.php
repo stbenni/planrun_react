@@ -393,6 +393,9 @@ class CoachController extends BaseController {
 
         $specialization = $input['coach_specialization'] ?? [];
         if (is_array($specialization)) {
+            if (count($specialization) === 0) {
+                $this->returnError('Выберите хотя бы одну специализацию', 400);
+            }
             $specialization = json_encode($specialization, JSON_UNESCAPED_UNICODE);
         }
 
@@ -422,7 +425,7 @@ class CoachController extends BaseController {
              coach_contacts_extra, coach_accepts_new, coach_prices_on_request, coach_pricing_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->bind_param("isssississiis",
+        $stmt->bind_param("isssissssiis",
             $this->currentUserId, $specialization, $bio, $philosophy, $experienceYears,
             $runnerAchievements, $athleteAchievements, $certifications,
             $contactsExtra, $acceptsNew, $pricesOnRequest, $pricingJson

@@ -4,39 +4,24 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import ApiClient from '../api/ApiClient';
+import { usePasswordResetRequest } from '../hooks/usePasswordResetRequest';
 import './LoginScreen.css';
 
 const ForgotPasswordScreen = () => {
   const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [sent, setSent] = useState(false);
-  const [sentToEmail, setSentToEmail] = useState('');
+  const {
+    loading,
+    error,
+    sent,
+    sentToEmail,
+    isCoolingDown,
+    secondsLeft,
+    requestReset,
+  } = usePasswordResetRequest();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = email.trim();
-    if (!trimmed) {
-      setError('Введите email или логин');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const api = new ApiClient();
-      const result = await api.requestResetPassword(trimmed);
-      if (result.sent) {
-        setSentToEmail(result.email || trimmed);
-        setSent(true);
-      } else {
-        setError(result.message || 'Не удалось отправить ссылку для сброса пароля.');
-      }
-    } catch (err) {
-      setError(err.message || 'Произошла ошибка. Попробуйте позже.');
-    } finally {
-      setLoading(false);
-    }
+    await requestReset(email);
   };
 
   return (
@@ -60,8 +45,8 @@ const ForgotPasswordScreen = () => {
               disabled={loading}
             />
             {error && <div className="login-error">{error}</div>}
-            <button type="submit" className="login-button" disabled={loading}>
-              {loading ? 'Отправка...' : 'Отправить ссылку'}
+            <button type="submit" className="login-button" disabled={loading || isCoolingDown}>
+              {loading ? 'Отправка...' : isCoolingDown ? `Подождите ${secondsLeft} сек` : 'Отправить ссылку'}
             </button>
           </form>
         ) : (

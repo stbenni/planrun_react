@@ -1,5 +1,5 @@
 [Unit]
-Description=PlanRun React (s-vladimirov) — dev-сервер
+Description=PlanRun React (planrun.ru) — dev-сервер
 After=network.target
 
 [Service]

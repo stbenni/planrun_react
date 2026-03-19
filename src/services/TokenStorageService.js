@@ -15,6 +15,7 @@ const KEYS = {
   AUTH_TOKEN: 'auth_token',
   REFRESH_TOKEN: 'refresh_token',
   DEVICE_ID: 'planrun_device_id',
+  PASSWORD_REAUTH_BYPASS: 'auth_password_reauth_bypass',
   /** Резервная копия токенов в Preferences (переживает потерю KeyStore при обновлении) */
   BACKUP_TOKENS: 'auth_tokens_backup'
 };
@@ -249,6 +250,49 @@ class TokenStorageService {
       await this.saveDeviceId(id);
     }
     return id;
+  }
+
+  async isPasswordReauthBypassEnabled() {
+    if (typeof localStorage !== 'undefined' && !isNativeCapacitor()) {
+      return localStorage.getItem(KEYS.PASSWORD_REAUTH_BYPASS) === 'true';
+    }
+
+    if (isNativeCapacitor()) {
+      try {
+        const { value } = await Preferences.get({ key: KEYS.PASSWORD_REAUTH_BYPASS });
+        return value === 'true';
+      } catch (_) {
+        return false;
+      }
+    }
+
+    return typeof localStorage !== 'undefined'
+      ? localStorage.getItem(KEYS.PASSWORD_REAUTH_BYPASS) === 'true'
+      : false;
+  }
+
+  async setPasswordReauthBypass(enabled) {
+    const value = enabled ? 'true' : 'false';
+
+    if (typeof localStorage !== 'undefined') {
+      if (enabled) localStorage.setItem(KEYS.PASSWORD_REAUTH_BYPASS, value);
+      else localStorage.removeItem(KEYS.PASSWORD_REAUTH_BYPASS);
+    }
+
+    if (isNativeCapacitor()) {
+      try {
+        if (enabled) {
+          await Preferences.set({ key: KEYS.PASSWORD_REAUTH_BYPASS, value });
+        } else {
+          await Preferences.remove({ key: KEYS.PASSWORD_REAUTH_BYPASS });
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }
 

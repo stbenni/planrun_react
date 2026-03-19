@@ -2,7 +2,7 @@
   max-width: var(--page-max-width);
   margin: 0 auto;
   padding: var(--page-padding);
-  background: var(--bg-primary);
+  background: transparent;
   min-height: 100vh;
   padding-bottom: var(--page-padding-bottom);
 }
@@ -14,7 +14,7 @@
 }
 
 [data-theme="dark"] .container {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 @media (min-width: 1024px) {
@@ -60,13 +60,15 @@
   flex-wrap: wrap;
   margin-bottom: var(--space-6);
   padding: var(--space-4) var(--space-5);
-  background: var(--bg-primary);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--gray-200);
+  background: var(--card-surface-bg);
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
+  border: 1px solid var(--card-surface-border);
   transition: box-shadow var(--transition-slow);
   width: 100%;
   box-sizing: border-box;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 .controls:hover {
@@ -74,11 +76,11 @@
 }
 
 [data-theme="dark"] .controls {
-  background: var(--bg-secondary) !important;
-  border-radius: var(--radius-2xl) !important;
+  background: var(--card-surface-bg) !important;
+  border-radius: var(--card-surface-radius) !important;
   padding: var(--space-4) var(--space-5) !important;
-  border: 1px solid var(--gray-300) !important;
-  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
 }
 
 [data-theme="dark"] .controls:hover {
@@ -143,6 +145,7 @@
 }
 @media (max-width: 1023px) {
   .container.calendar-screen {
+    padding-top: 0;
     padding-left: 0;
     padding-right: 0;
   }
@@ -161,7 +164,7 @@
 
 .calendar-container {
   min-height: 100vh;
-  background-color: var(--bg-primary);
+  background-color: transparent;
 }
 
 @media (min-width: 1024px) {
@@ -171,21 +174,24 @@
 }
 
 .calendar-header {
-  background: var(--card-bg);
+  background: var(--card-surface-bg);
   padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--card-surface-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-surface-shadow);
   position: sticky;
   top: 0;
   z-index: 100;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .calendar-header {
-  background: var(--bg-secondary) !important;
-  border-bottom-color: var(--gray-300) !important;
+  background: var(--card-surface-bg) !important;
+  border-bottom-color: var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
 }
 
 .calendar-header h1 {
@@ -264,9 +270,9 @@
 
 .view-toggle-btn {
   padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-xl);
-  border: 2px solid var(--gray-200);
-  background: var(--bg-primary);
+  border-radius: var(--card-surface-radius-compact);
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
   color: var(--text-secondary);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
@@ -276,15 +282,17 @@
   align-items: center;
   gap: var(--space-2);
   letter-spacing: 0.02em;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .view-toggle-btn:hover {
-  border-color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
   color: var(--primary-500);
-  background: var(--primary-50);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 7%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.15);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 .view-toggle-btn.active {
@@ -296,17 +304,17 @@
 }
 
 [data-theme="dark"] .view-toggle-btn {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
+  background: var(--card-surface-compact-bg) !important;
+  border-color: var(--card-surface-compact-border) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--card-surface-compact-shadow) !important;
 }
 
 [data-theme="dark"] .view-toggle-btn:hover {
-  background: var(--bg-tertiary) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%) !important;
   border-color: var(--primary-500) !important;
   color: var(--primary-500) !important;
-  box-shadow: 0 4px 12px rgba(255, 107, 61, 0.2) !important;
+  box-shadow: var(--card-surface-compact-shadow-hover) !important;
 }
 
 [data-theme="dark"] .view-toggle-btn.active {
@@ -362,20 +370,24 @@
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-xl);
-  border: 1.5px solid var(--gray-200);
-  background: var(--bg-primary);
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   cursor: pointer;
   transition: all var(--transition-base);
   white-space: nowrap;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .btn-recalculate:hover:not(:disabled) {
-  border-color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
   color: var(--primary-500);
-  background: var(--primary-50);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 7%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 .btn-recalculate:disabled {
@@ -402,25 +414,45 @@
 }
 
 [data-theme="dark"] .btn-recalculate {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
   color: var(--text-secondary);
 }
 
 [data-theme="dark"] .btn-recalculate:hover:not(:disabled) {
   border-color: var(--primary-500);
   color: var(--primary-500);
-  background: rgba(255, 107, 61, 0.1);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
 }
 
 /* Recalculate confirmation modal */
 .recalc-confirm-modal {
+  position: relative;
+  isolation: isolate;
   max-width: 420px;
   margin: 20vh auto;
   padding: var(--space-6);
-  background: var(--card-bg);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-2xl);
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.recalc-confirm-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.recalc-confirm-modal > * {
+  position: relative;
+  z-index: 1;
 }
 
 .recalc-confirm-modal h3 {
@@ -453,20 +485,24 @@
 .recalc-hint-chip {
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-full);
-  border: 1.5px solid var(--gray-200);
-  background: var(--bg-primary);
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
   color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .recalc-hint-chip:hover {
-  border-color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
   color: var(--primary-500);
-  background: var(--primary-50);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 7%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 .recalc-hint-chip.active {
@@ -476,8 +512,8 @@
 }
 
 [data-theme="dark"] .recalc-hint-chip {
-  background: var(--bg-secondary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
   color: var(--text-secondary);
 }
 
@@ -491,9 +527,9 @@
 .recalc-reason-input {
   width: 100%;
   padding: var(--space-3);
-  border: 1.5px solid var(--gray-200);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-lg);
-  background: var(--bg-primary);
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
   font-size: var(--text-sm);
   font-family: inherit;
@@ -502,6 +538,9 @@
   min-height: 80px;
   transition: border-color var(--transition-fast);
   box-sizing: border-box;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .recalc-reason-input:focus {
@@ -515,8 +554,8 @@
 }
 
 [data-theme="dark"] .recalc-reason-input {
-  background: var(--bg-secondary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
   color: var(--text-primary);
 }
 
@@ -538,17 +577,51 @@
 }
 
 @media (max-width: 1023px) {
+  .calendar-header-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .calendar-header-row .calendar-view-toggle {
+    justify-self: stretch;
+    order: 1;
+  }
+
+  .calendar-header-row .calendar-plan-actions {
+    order: -1;
+    align-self: flex-end;
+    flex-wrap: nowrap;
+    gap: var(--space-3);
+  }
+
   .btn-recalculate .btn-recalculate-text {
     display: none;
   }
 
-  .btn-recalculate {
-    padding: var(--space-2);
+  .calendar-clear-plan-btn .calendar-clear-plan-text {
+    display: none;
   }
 
-  .btn-next-plan {
+  .calendar-clear-plan-btn,
+  .btn-recalculate {
+    min-width: 48px;
+    min-height: 48px;
+    padding: var(--space-3);
+  }
+
+  .calendar-clear-plan-btn svg,
+  .btn-recalculate svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .calendar-plan-actions .btn-next-plan {
+    min-width: 48px;
+    min-height: 48px;
+    padding: var(--space-3);
     font-size: var(--text-xs);
-    padding: var(--space-2) var(--space-3);
   }
 
   .recalc-confirm-modal {
@@ -578,14 +651,38 @@
 }
 
 .plan-completed-banner {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
-  background: linear-gradient(135deg, var(--primary-50), var(--success-50, rgba(16, 185, 129, 0.05)));
-  border: 1px solid var(--primary-200, rgba(255, 107, 61, 0.2));
-  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--success-500) 12%, var(--card-surface-border));
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.plan-completed-banner::before,
+.plan-generating-banner::before,
+.coach-mode-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.plan-completed-banner > *,
+.plan-generating-banner > *,
+.coach-mode-banner > * {
+  position: relative;
+  z-index: 1;
 }
 
 .plan-completed-banner__icon {
@@ -613,43 +710,55 @@
 }
 
 [data-theme="dark"] .plan-completed-banner {
-  background: linear-gradient(135deg, rgba(255, 107, 61, 0.08), rgba(16, 185, 129, 0.06));
-  border-color: rgba(255, 107, 61, 0.15);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border-color: color-mix(in srgb, var(--success-500) 12%, var(--card-surface-border));
 }
 
 .plan-generating-banner {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
-  background: var(--primary-50);
-  border: 1px solid var(--primary-200, rgba(255, 107, 61, 0.2));
-  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
+  border-radius: var(--card-surface-radius);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .plan-generating-banner {
-  background: rgba(255, 107, 61, 0.08);
-  border-color: rgba(255, 107, 61, 0.15);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
 }
 
 /* Баннер режима тренера */
 .coach-mode-banner {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-4);
-  background: var(--primary-50);
-  border: 1px solid var(--primary-200, rgba(255, 107, 61, 0.3));
-  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .coach-mode-banner {
-  background: rgba(255, 107, 61, 0.1);
-  border-color: rgba(255, 107, 61, 0.2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
 }
 
 .coach-mode-banner__label {
@@ -682,17 +791,20 @@
 .coach-athlete-selector__select {
   width: 100%;
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   appearance: auto;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .coach-athlete-selector__select {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }

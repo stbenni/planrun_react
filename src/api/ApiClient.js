@@ -6,16 +6,122 @@
 import BiometricService from '../services/BiometricService';
 import PinAuthService from '../services/PinAuthService';
 import TokenStorageService, { isNativeCapacitor } from '../services/TokenStorageService';
-
-class ApiError extends Error {
-  constructor({ code, message, attempts_left }) {
-    super(message);
-    this.name = 'ApiError';
-    this.code = code;
-    this.message = message;
-    this.attempts_left = attempts_left;
-  }
-}
+import { ApiError, buildApiError, extractRetryAfter } from './apiError';
+import {
+  login as performLogin,
+  loginWithJwt as performLoginWithJwt,
+  logout as performLogout,
+  requestResetPassword as performRequestResetPassword,
+  confirmResetPassword as performConfirmResetPassword,
+  sendVerificationCode as performSendVerificationCode,
+  registerMinimal as performRegisterMinimal,
+  register as performRegister,
+  completeSpecialization as performCompleteSpecialization,
+  validateField as performValidateField,
+} from './authApi';
+import {
+  getPlan as performGetPlan,
+  savePlan as performSavePlan,
+  regeneratePlan as performRegeneratePlan,
+  recalculatePlan as performRecalculatePlan,
+  generateNextPlan as performGenerateNextPlan,
+  checkPlanStatus as performCheckPlanStatus,
+  clearPlan as performClearPlan,
+} from './planApi';
+import {
+  getUserBySlug as performGetUserBySlug,
+  getDay as performGetDay,
+  saveResult as performSaveResult,
+  getResult as performGetResult,
+  uploadWorkout as performUploadWorkout,
+  getAllResults as performGetAllResults,
+  resetWorkout as performResetWorkout,
+  deleteWeek as performDeleteWeek,
+  addWeek as performAddWeek,
+  addTrainingDayByDate as performAddTrainingDayByDate,
+  deleteWorkout as performDeleteWorkout,
+  deleteTrainingDay as performDeleteTrainingDay,
+  copyDay as performCopyDay,
+  copyWeek as performCopyWeek,
+  getDayNotes as performGetDayNotes,
+  saveDayNote as performSaveDayNote,
+  deleteDayNote as performDeleteDayNote,
+  getWeekNotes as performGetWeekNotes,
+  saveWeekNote as performSaveWeekNote,
+  deleteWeekNote as performDeleteWeekNote,
+  getNoteCounts as performGetNoteCounts,
+  getPlanNotifications as performGetPlanNotifications,
+  markPlanNotificationRead as performMarkPlanNotificationRead,
+  markAllPlanNotificationsRead as performMarkAllPlanNotificationsRead,
+  updateTrainingDay as performUpdateTrainingDay,
+} from './workoutApi';
+import {
+  getStats as performGetStats,
+  getAllWorkoutsSummary as performGetAllWorkoutsSummary,
+  getAllWorkoutsList as performGetAllWorkoutsList,
+  getRacePrediction as performGetRacePrediction,
+  getIntegrationOAuthUrl as performGetIntegrationOAuthUrl,
+  syncWorkouts as performSyncWorkouts,
+  getIntegrationsStatus as performGetIntegrationsStatus,
+  unlinkIntegration as performUnlinkIntegration,
+  getStravaTokenError as performGetStravaTokenError,
+  getWorkoutTimeline as performGetWorkoutTimeline,
+  runAdaptation as performRunAdaptation,
+} from './statsApi';
+import {
+  getAdminUsers as performGetAdminUsers,
+  getAdminUser as performGetAdminUser,
+  updateAdminUser as performUpdateAdminUser,
+  deleteUser as performDeleteUser,
+  getAdminSettings as performGetAdminSettings,
+  updateAdminSettings as performUpdateAdminSettings,
+  getSiteSettings as performGetSiteSettings,
+} from './adminApi';
+import {
+  chatGetMessages as performChatGetMessages,
+  chatSendMessage as performChatSendMessage,
+  chatSendMessageStream as performChatSendMessageStream,
+  chatSendMessageToAdmin as performChatSendMessageToAdmin,
+  chatGetDirectDialogs as performChatGetDirectDialogs,
+  chatGetDirectMessages as performChatGetDirectMessages,
+  chatSendMessageToUser as performChatSendMessageToUser,
+  chatClearDirectDialog as performChatClearDirectDialog,
+  chatMarkRead as performChatMarkRead,
+  chatClearAi as performChatClearAi,
+  chatMarkAllRead as performChatMarkAllRead,
+  chatAdminMarkAllRead as performChatAdminMarkAllRead,
+  chatAdminSendMessage as performChatAdminSendMessage,
+  getAdminChatUsers as performGetAdminChatUsers,
+  chatAdminGetMessages as performChatAdminGetMessages,
+  chatAdminMarkConversationRead as performChatAdminMarkConversationRead,
+  chatAddAIMessage as performChatAddAIMessage,
+  chatAdminGetUnreadNotifications as performChatAdminGetUnreadNotifications,
+  chatAdminBroadcast as performChatAdminBroadcast,
+  getNotificationsDismissed as performGetNotificationsDismissed,
+  dismissNotification as performDismissNotification,
+} from './chatApi';
+import {
+  listCoaches as performListCoaches,
+  requestCoach as performRequestCoach,
+  getCoachRequests as performGetCoachRequests,
+  acceptCoachRequest as performAcceptCoachRequest,
+  rejectCoachRequest as performRejectCoachRequest,
+  getMyCoaches as performGetMyCoaches,
+  removeCoach as performRemoveCoach,
+  applyCoach as performApplyCoach,
+  getCoachAthletes as performGetCoachAthletes,
+  getCoachPricing as performGetCoachPricing,
+  updateCoachPricing as performUpdateCoachPricing,
+  getCoachGroups as performGetCoachGroups,
+  saveCoachGroup as performSaveCoachGroup,
+  deleteCoachGroup as performDeleteCoachGroup,
+  getGroupMembers as performGetGroupMembers,
+  updateGroupMembers as performUpdateGroupMembers,
+  getAthleteGroups as performGetAthleteGroups,
+  getCoachApplications as performGetCoachApplications,
+  approveCoachApplication as performApproveCoachApplication,
+  rejectCoachApplication as performRejectCoachApplication,
+} from './coachApi';
 
 const PROACTIVE_REFRESH_MS = 60000; // обновлять за 60 сек до истечения
 const REQUEST_TIMEOUT_MS = 15000; // таймаут обычных запросов (чтобы не зависать при недоступном API)
@@ -47,7 +153,7 @@ class ApiClient {
       if (isNativeOrigin && envBase) {
         this.baseUrl = envBase.endsWith('/api') ? envBase : `${envBase.replace(/\/$/, '')}/api`;
       } else if (isNativeOrigin) {
-        this.baseUrl = 'https://s-vladimirov.ru/api';
+        this.baseUrl = 'https://planrun.ru/api';
         if (process.env.NODE_ENV !== 'production') {
           console.warn('[ApiClient] Native origin without VITE_API_BASE_URL — используем fallback. Для продакшена задайте VITE_API_BASE_URL при сборке.');
         }
@@ -519,6 +625,19 @@ class ApiClient {
         throw new ApiError({ code: 'FORBIDDEN', message: errorMessage });
       }
 
+      if (response.status === 429) {
+        let errorData = {};
+        try {
+          errorData = await response.json();
+        } catch (_) {}
+        throw buildApiError({
+          response,
+          data: errorData,
+          code: 'RATE_LIMITED',
+          message: 'Слишком много запросов. Попробуйте позже.'
+        });
+      }
+
       // Проверяем Content-Type перед парсингом
       const contentType = response.headers.get('content-type') || '';
       const isJson = contentType.includes('application/json');
@@ -601,7 +720,9 @@ class ApiClient {
       if (data.success === false) {
         throw new ApiError({
           code: 'API_ERROR',
-          message: data.error || data.message || 'Request failed'
+          message: data.error || data.message || 'Request failed',
+          retry_after: extractRetryAfter(response, data, data.error || data.message || 'Request failed'),
+          status: response.status
         });
       }
 
@@ -628,70 +749,7 @@ class ApiClient {
    * @param {boolean} useJwt - Использовать JWT токены (для мобильных приложений)
    */
   async login(username, password, useJwt = false) {
-    // Для веба используем api_v2.php (поддерживает и сессии, и JWT)
-    // Для мобильных приложений используем JWT
-    if (useJwt || (typeof window !== 'undefined' && window.Capacitor)) {
-      return this.loginWithJwt(username, password);
-    }
-
-    // Для веба используем api_wrapper.php который проксирует к api_v2.php
-    const urlParams = new URLSearchParams({ action: 'login' });
-    const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      let response;
-      try {
-        response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ username, password, use_jwt: false }),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new ApiError({
-          code: 'LOGIN_FAILED',
-          message: errorData.error || errorData.message || 'Неверный логин или пароль'
-        });
-      }
-
-      const data = await response.json();
-      if (data.success && data.data) {
-        // Веб: сессия в cookies. Очищаем старые JWT из localStorage, чтобы не мешали.
-        if (!isNativeCapacitor() && typeof localStorage !== 'undefined') {
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('refresh_token');
-          this.token = null;
-          this.refreshToken = null;
-        }
-        const userData = await this.getCurrentUser();
-        return { 
-          success: true, 
-          user: userData || {
-            id: data.data.user_id,
-            username: data.data.username,
-            authenticated: true
-          }
-        };
-      } else {
-        throw new ApiError({
-          code: 'LOGIN_FAILED',
-          message: data.error || data.message || 'Неверный логин или пароль'
-        });
-      }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError({ code: 'LOGIN_FAILED', message: error.message });
-    }
+    return performLogin(this, username, password, useJwt);
   }
 
   /**
@@ -700,111 +758,14 @@ class ApiClient {
    * @param {string} password - Пароль
    */
   async loginWithJwt(username, password) {
-    const urlParams = new URLSearchParams({ action: 'login' });
-    const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
-
-    let deviceId = null;
-    try {
-      deviceId = await Promise.race([
-        this.getOrCreateDeviceId(),
-        new Promise((r) => setTimeout(() => r(null), 3000))
-      ]);
-    } catch {
-      deviceId = null;
-    }
-    const body = { username, password, use_jwt: true };
-    if (deviceId) body.device_id = deviceId;
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      let response;
-      try {
-        response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new ApiError({
-          code: 'LOGIN_FAILED',
-          message: errorData.error || errorData.message || 'Неверный логин или пароль'
-        });
-      }
-
-      const data = await response.json();
-      if (data.success && data.data) {
-        const { access_token, refresh_token, user_id, username: usernameFromResponse } = data.data;
-        
-        // Сохраняем токены
-        await this.setToken(access_token, refresh_token);
-        
-        return {
-          success: true,
-          user: {
-            id: user_id,
-            user_id,
-            username: usernameFromResponse,
-            authenticated: true
-          },
-          access_token,
-          refresh_token
-        };
-      } else {
-        throw new ApiError({
-          code: 'LOGIN_FAILED',
-          message: data.error || data.message || 'Неверный логин или пароль'
-        });
-      }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError({ code: 'LOGIN_FAILED', message: error.message });
-    }
+    return performLoginWithJwt(this, username, password);
   }
 
   /**
    * Выход из системы
    */
   async logout() {
-    const LOGOUT_TIMEOUT_MS = 5000;
-    try {
-      const refreshToken = await this.getRefreshToken();
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), LOGOUT_TIMEOUT_MS);
-      try {
-        if (refreshToken) {
-          const urlParams = new URLSearchParams({ action: 'logout' });
-          const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
-          await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-            signal: controller.signal,
-          });
-        } else {
-          const logoutUrl = `${this.baseUrl}/api_wrapper.php?action=logout`;
-          await fetch(logoutUrl, {
-            method: 'POST',
-            credentials: 'include',
-            signal: controller.signal,
-          });
-        }
-      } catch (_) {
-        // Таймаут или сетевая ошибка — продолжаем очистку
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    } finally {
-      await this.setToken(null, null);
-    }
+    return performLogout(this);
   }
 
   /**
@@ -813,26 +774,7 @@ class ApiClient {
    * @returns {Promise<{success: boolean, sent: boolean}>}
    */
   async requestResetPassword(email) {
-    const url = `${this.baseUrl}/api_wrapper.php?action=request_password_reset`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email: (email || '').trim() }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new ApiError({
-        code: 'RESET_FAILED',
-        message: data.error || 'Не удалось запросить сброс пароля',
-      });
-    }
-    return {
-      success: data.success,
-      sent: data.data?.sent ?? false,
-      message: data.data?.message ?? null,
-      email: data.data?.email ?? null,
-    };
+    return performRequestResetPassword(this, email);
   }
 
   /**
@@ -841,124 +783,28 @@ class ApiClient {
    * @param {string} newPassword - Новый пароль
    */
   async confirmResetPassword(token, newPassword) {
-    const url = `${this.baseUrl}/api_wrapper.php?action=confirm_password_reset`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        token: (token || '').trim(),
-        new_password: (newPassword || '').trim(),
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new ApiError({
-        code: 'RESET_FAILED',
-        message: data.error || 'Не удалось сменить пароль',
-      });
-    }
-    return { success: data.success };
+    return performConfirmResetPassword(this, token, newPassword);
   }
 
   /**
    * Отправить код подтверждения на email (шаг перед регистрацией).
    */
   async sendVerificationCode(email) {
-    const url = `${this.baseUrl}/register_api.php`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ action: 'send_verification_code', email: (email || '').trim() }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!data.success) {
-      throw new ApiError({ code: 'VERIFICATION_SEND_FAILED', message: data.error || 'Не удалось отправить код' });
-    }
-    return { success: true, message: data.message };
+    return performSendVerificationCode(this, email);
   }
 
   /**
    * Минимальная регистрация (логин, email, пароль, код из письма). После успеха — автологин.
    */
   async registerMinimal({ username, email, password, verification_code }) {
-    const registerUrl = `${this.baseUrl}/register_api.php`;
-    const payload = { username, email, password, register_minimal: true, verification_code: (verification_code || '').trim() };
-    try {
-      const response = await fetch(registerUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        if (data.success) {
-          const user = await this.getCurrentUser();
-          return {
-            success: true,
-            user: user ?? data.user,
-            plan_message: data.plan_message ?? null,
-          };
-        }
-        throw new ApiError({
-          code: 'REGISTRATION_FAILED',
-          message: data.error || 'Ошибка регистрации',
-          attempts_left: data.attempts_left,
-        });
-      }
-      throw new ApiError({ message: `Registration failed: ${await response.text()}` });
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw new ApiError({ code: 'REGISTRATION_FAILED', message: error.message });
-    }
+    return performRegisterMinimal(this, { username, email, password, verification_code });
   }
 
   /**
    * Регистрация нового пользователя (полная форма)
    */
   async register(userData) {
-    const registerUrl = `${this.baseUrl}/register_api.php`;
-
-    try {
-      const response = await fetch(registerUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // ВАЖНО: для передачи cookies (PHP сессии)
-        body: JSON.stringify(userData),
-      });
-
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        if (data.success) {
-          // Сессия установлена через cookies, получаем данные пользователя
-          const user = await this.getCurrentUser();
-          return {
-            success: true,
-            user: user ?? data.user,
-            plan_message: data.plan_message ?? null,
-          };
-        } else {
-          throw new ApiError({ 
-            code: 'REGISTRATION_FAILED', 
-            message: data.error || 'Ошибка регистрации' 
-          });
-        }
-      } else {
-        const errorText = await response.text();
-        throw new ApiError({ message: `Registration failed: ${errorText}` });
-      }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError({ code: 'REGISTRATION_FAILED', message: error.message });
-    }
+    return performRegister(this, userData);
   }
 
   async assessGoal(formData) {
@@ -969,50 +815,14 @@ class ApiClient {
    * Завершение специализации (второй этап после минимальной регистрации)
    */
   async completeSpecialization(payload) {
-    const url = `${this.baseUrl}/complete_specialization_api.php`;
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        if (data.success) {
-          return {
-            success: true,
-            plan_message: data.plan_message ?? null,
-            onboarding_completed: data.onboarding_completed ?? 1,
-          };
-        }
-        throw new ApiError({ code: 'SPECIALIZATION_FAILED', message: data.error || 'Ошибка сохранения' });
-      }
-      throw new ApiError({ message: `Specialization failed: ${await response.text()}` });
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw new ApiError({ code: 'SPECIALIZATION_FAILED', message: error.message });
-    }
+    return performCompleteSpecialization(this, payload);
   }
 
   /**
    * Валидация поля регистрации
    */
   async validateField(field, value) {
-    const validateUrl = `${this.baseUrl}/register_api.php?action=validate_field&field=${encodeURIComponent(field)}&value=${encodeURIComponent(value)}`;
-
-    try {
-      const response = await fetch(validateUrl, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      return { valid: false, message: 'Ошибка валидации' };
-    }
+    return performValidateField(this, field, value);
   }
 
   /**
@@ -1084,27 +894,21 @@ class ApiClient {
   }
 
   async getUserBySlug(slug, token = null) {
-    const params = { slug: slug.startsWith('@') ? slug.slice(1) : slug };
-    if (token) params.token = token;
-    return this.request('get_user_by_slug', params, 'GET');
+    return performGetUserBySlug(this, slug, token);
   }
 
   async getPlan(userId = null, viewContext = null) {
-    const params = userId ? { user_id: userId } : {};
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('load', params, 'GET');
+    return performGetPlan(this, userId, viewContext);
   }
 
   async savePlan(planData) {
-    return this.request('save', { plan: JSON.stringify(planData) }, 'POST');
+    return performSavePlan(this, planData);
   }
 
   // ========== ТРЕНИРОВКИ ==========
 
   async getDay(date, viewContext = null) {
-    const params = { date };
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('get_day', params, 'GET');
+    return performGetDay(this, date, viewContext);
   }
 
   /**
@@ -1112,19 +916,11 @@ class ApiClient {
    * @param {Object} data — { date, week, day, activity_type_id?, result_distance?, result_time?, notes?, is_successful?, avg_heart_rate?, ... }
    */
   async saveResult(data, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    const body = { ...data };
-    if (csrfToken) body.csrf_token = csrfToken;
-    if (body.activity_type_id == null) body.activity_type_id = 1;
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('save_result', body, 'POST', urlParams);
+    return performSaveResult(this, data, viewContext);
   }
 
   async getResult(date, viewContext = null) {
-    const params = { date };
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('get_result', params, 'GET');
+    return performGetResult(this, date, viewContext);
   }
 
   /**
@@ -1133,51 +929,25 @@ class ApiClient {
    * @param {{ date?: string }} opts - date в формате Y-m-d
    */
   async uploadWorkout(file, opts = {}) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('date', opts.date || new Date().toISOString().slice(0, 10));
-    if (csrfToken) formData.append('csrf_token', csrfToken);
-    const token = await this.getToken();
-    const headers = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const url = `${this.baseUrl}/api_wrapper.php?action=upload_workout`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      credentials: typeof window !== 'undefined' && !window.Capacitor ? 'include' : 'omit',
-      body: formData,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new ApiError({ code: 'UPLOAD_FAILED', message: data.error || 'Ошибка загрузки' });
-    }
-    if (data.success === false) {
-      throw new ApiError({ code: 'UPLOAD_FAILED', message: data.error || 'Ошибка загрузки' });
-    }
-    return data.data || data;
+    return performUploadWorkout(this, file, opts);
   }
 
   async getAllResults(viewContext = null) {
-    const params = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('get_all_results', params, 'GET');
+    return performGetAllResults(this, viewContext);
   }
 
   async reset(date) {
-    return this.request('reset', { date }, 'POST');
+    return performResetWorkout(this, date);
   }
 
   // ========== СТАТИСТИКА ==========
 
   async getStats(viewContext = null) {
-    const params = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('stats', params, 'GET');
+    return performGetStats(this, viewContext);
   }
 
   async getAllWorkoutsSummary(viewContext = null) {
-    const params = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('get_all_workouts_summary', params, 'GET');
+    return performGetAllWorkoutsSummary(this, viewContext);
   }
 
   /**
@@ -1186,40 +956,33 @@ class ApiClient {
    * @param {number} limit — макс. записей (по умолчанию 500)
    */
   async getAllWorkoutsList(viewContext = null, limit = 500) {
-    const params = viewContext ? this._viewParams(viewContext) : {};
-    if (limit) params.limit = limit;
-    return this.request('get_all_workouts_list', params, 'GET');
+    return performGetAllWorkoutsList(this, viewContext, limit);
   }
 
   async getRacePrediction(viewContext = null) {
-    const params = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('race_prediction', params, 'GET');
+    return performGetRacePrediction(this, viewContext);
   }
 
   // ========== ИНТЕГРАЦИИ (Huawei, Garmin, Strava) ==========
 
   async getIntegrationOAuthUrl(provider, extra = {}) {
-    return this.request('integration_oauth_url', { provider, ...extra }, 'GET');
+    return performGetIntegrationOAuthUrl(this, provider, extra);
   }
 
   async syncWorkouts(provider) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    return this.request('sync_workouts', { provider, csrf_token: csrfToken }, 'POST');
+    return performSyncWorkouts(this, provider);
   }
 
   async getIntegrationsStatus() {
-    return this.request('integrations_status', {}, 'GET');
+    return performGetIntegrationsStatus(this);
   }
 
   async unlinkIntegration(provider) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    return this.request('unlink_integration', { provider, csrf_token: csrfToken }, 'POST');
+    return performUnlinkIntegration(this, provider);
   }
 
   async getStravaTokenError() {
-    return this.request('strava_token_error', {}, 'GET');
+    return performGetStravaTokenError(this);
   }
 
   /**
@@ -1228,49 +991,50 @@ class ApiClient {
    * @returns {Promise<Object>} Timeline данные
    */
   async getWorkoutTimeline(workoutId) {
-    return this.request('get_workout_timeline', { workout_id: workoutId }, 'GET');
+    return performGetWorkoutTimeline(this, workoutId);
   }
 
   // ========== АДАПТАЦИЯ ==========
 
   async runAdaptation() {
-    return this.request('run_weekly_adaptation', {}, 'GET');
+    return performRunAdaptation(this);
   }
 
   async regeneratePlan() {
-    return this.request('regenerate_plan_with_progress', {}, 'POST');
+    return performRegeneratePlan(this);
   }
 
   async recalculatePlan(reason = null) {
-    const params = {};
-    if (reason) params.reason = reason;
-    return this.request('recalculate_plan', params, 'POST');
+    return performRecalculatePlan(this, reason);
   }
 
   async generateNextPlan(goals = null) {
-    const params = {};
-    if (goals) params.goals = goals;
-    return this.request('generate_next_plan', params, 'POST');
+    return performGenerateNextPlan(this, goals);
   }
 
   /**
    * Проверка статуса плана (есть ли план, есть ли ошибка)
    */
   async checkPlanStatus(userId = null) {
-    const params = userId ? { user_id: userId } : {};
-    const response = await this.request('check_plan_status', params, 'GET');
-    // API может вернуть success: true с error в ответе, это нормально
-    return response;
+    return performCheckPlanStatus(this, userId);
+  }
+
+  /**
+   * Удалить план тренировок (сгенерированный ИИ).
+   * Результаты тренировок сохраняются.
+   */
+  async clearPlan() {
+    return performClearPlan(this);
   }
 
   // ========== УПРАВЛЕНИЕ НЕДЕЛЯМИ ==========
 
   async deleteWeek(weekNumber) {
-    return this.request('delete_week', { week: weekNumber }, 'POST');
+    return performDeleteWeek(this, weekNumber);
   }
 
   async addWeek(weekData) {
-    return this.request('add_week', weekData, 'POST');
+    return performAddWeek(this, weekData);
   }
 
   /**
@@ -1278,8 +1042,7 @@ class ApiClient {
    * @param {{ date: string, type: string, description?: string, is_key_workout?: boolean }} data
    */
   async addTrainingDayByDate(data, viewContext = null) {
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('add_training_day_by_date', data, 'POST', urlParams);
+    return performAddTrainingDayByDate(this, data, viewContext);
   }
 
   /**
@@ -1288,13 +1051,7 @@ class ApiClient {
    * @param {boolean} [isManual=false]
    */
   async deleteWorkout(workoutId, isManual = false, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) {
-      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
-    }
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('delete_workout', { workout_id: workoutId, is_manual: isManual, csrf_token: csrfToken }, 'POST', urlParams);
+    return performDeleteWorkout(this, workoutId, isManual, viewContext);
   }
 
   /**
@@ -1302,103 +1059,59 @@ class ApiClient {
    * @param {number} dayId - id записи в training_plan_days
    */
   async deleteTrainingDay(dayId, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) {
-      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
-    }
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('delete_training_day', { day_id: dayId, csrf_token: csrfToken }, 'POST', urlParams);
+    return performDeleteTrainingDay(this, dayId, viewContext);
   }
 
   async copyDay(sourceDate, targetDate, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) {
-      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
-    }
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('copy_day', { source_date: sourceDate, target_date: targetDate, csrf_token: csrfToken }, 'POST', urlParams);
+    return performCopyDay(this, sourceDate, targetDate, viewContext);
   }
 
   async copyWeek(sourceWeekId, targetStartDate, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) {
-      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
-    }
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('copy_week', { source_week_id: sourceWeekId, target_start_date: targetStartDate, csrf_token: csrfToken }, 'POST', urlParams);
+    return performCopyWeek(this, sourceWeekId, targetStartDate, viewContext);
   }
 
   // --- Notes (заметки к дню / неделе) ---
 
   async getDayNotes(date, viewContext = null) {
-    const params = { date };
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('get_day_notes', params, 'GET');
+    return performGetDayNotes(this, date, viewContext);
   }
 
   async saveDayNote(date, content, noteId = null, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    const body = { date, content, csrf_token: csrfToken };
-    if (noteId) body.note_id = noteId;
-    return this.request('save_day_note', body, 'POST', urlParams);
+    return performSaveDayNote(this, date, content, noteId, viewContext);
   }
 
   async deleteDayNote(noteId, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('delete_day_note', { note_id: noteId, csrf_token: csrfToken }, 'POST', urlParams);
+    return performDeleteDayNote(this, noteId, viewContext);
   }
 
   async getWeekNotes(weekStart, viewContext = null) {
-    const params = { week_start: weekStart };
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('get_week_notes', params, 'GET');
+    return performGetWeekNotes(this, weekStart, viewContext);
   }
 
   async saveWeekNote(weekStart, content, noteId = null, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    const body = { week_start: weekStart, content, csrf_token: csrfToken };
-    if (noteId) body.note_id = noteId;
-    return this.request('save_week_note', body, 'POST', urlParams);
+    return performSaveWeekNote(this, weekStart, content, noteId, viewContext);
   }
 
   async deleteWeekNote(noteId, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности.' });
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('delete_week_note', { note_id: noteId, csrf_token: csrfToken }, 'POST', urlParams);
+    return performDeleteWeekNote(this, noteId, viewContext);
   }
 
   async getNoteCounts(startDate, endDate, viewContext = null) {
-    const params = { start_date: startDate, end_date: endDate };
-    if (viewContext) Object.assign(params, this._viewParams(viewContext));
-    return this.request('get_note_counts', params, 'GET');
+    return performGetNoteCounts(this, startDate, endDate, viewContext);
   }
 
   // --- Plan notifications ---
 
   async getPlanNotifications() {
-    return this.request('get_plan_notifications', {}, 'GET');
+    return performGetPlanNotifications(this);
   }
 
   async markPlanNotificationRead(notificationId) {
-    return this.request('mark_plan_notification_read', { notification_id: notificationId }, 'POST');
+    return performMarkPlanNotificationRead(this, notificationId);
   }
 
   async markAllPlanNotificationsRead() {
-    return this.request('mark_plan_notification_read', { all: true }, 'POST');
+    return performMarkAllPlanNotificationsRead(this);
   }
 
   /**
@@ -1407,56 +1120,39 @@ class ApiClient {
    * @param {object} data - { type, description?, is_key_workout? }
    */
   async updateTrainingDay(dayId, data, viewContext = null) {
-    const csrfRes = await this.request('get_csrf_token', {}, 'GET');
-    const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
-    if (!csrfToken) {
-      throw new ApiError({ code: 'CSRF_MISSING', message: 'Не удалось получить токен безопасности. Обновите страницу.' });
-    }
-    const urlParams = viewContext ? this._viewParams(viewContext) : {};
-    return this.request('update_training_day', {
-      day_id: dayId,
-      type: data.type,
-      description: data.description,
-      is_key_workout: data.is_key_workout != null ? (data.is_key_workout ? 1 : 0) : undefined,
-      csrf_token: csrfToken,
-    }, 'POST', urlParams);
+    return performUpdateTrainingDay(this, dayId, data, viewContext);
   }
 
   // ========== АДМИНКА ==========
 
   /** Список пользователей (только для admin) */
   async getAdminUsers(params = {}) {
-    const searchParams = new URLSearchParams();
-    if (params.page != null) searchParams.set('page', params.page);
-    if (params.per_page != null) searchParams.set('per_page', params.per_page);
-    if (params.search != null && params.search !== '') searchParams.set('search', params.search);
-    const query = searchParams.toString();
-    return this.request('admin_list_users', query ? Object.fromEntries(searchParams) : {}, 'GET');
+    return performGetAdminUsers(this, params);
   }
 
   /** Один пользователь по ID */
   async getAdminUser(userId) {
-    return this.request('admin_get_user', { user_id: userId }, 'GET');
+    return performGetAdminUser(this, userId);
   }
 
   /** Обновить пользователя (роль, email). В body передать csrf_token. */
   async updateAdminUser(payload) {
-    return this.request('admin_update_user', payload, 'POST');
+    return performUpdateAdminUser(this, payload);
   }
 
   /** Удалить пользователя (только admin). В body передать user_id и csrf_token. */
   async deleteUser(payload) {
-    return this.request('delete_user', payload, 'POST');
+    return performDeleteUser(this, payload);
   }
 
   /** Настройки сайта */
   async getAdminSettings() {
-    return this.request('admin_get_settings', {}, 'GET');
+    return performGetAdminSettings(this);
   }
 
   /** Сохранить настройки сайта. В payload включить csrf_token и settings. */
   async updateAdminSettings(payload) {
-    return this.request('admin_update_settings', payload, 'POST');
+    return performUpdateAdminSettings(this, payload);
   }
 
   /**
@@ -1464,7 +1160,7 @@ class ApiClient {
    * Для проверки maintenance_mode, registration_enabled, site_name и т.д.
    */
   async getSiteSettings() {
-    return this.request('get_site_settings', {}, 'GET');
+    return performGetSiteSettings(this);
   }
 
   // ========== ЧАТ ==========
@@ -1476,7 +1172,7 @@ class ApiClient {
    * @param {number} offset
    */
   async chatGetMessages(type = 'ai', limit = 50, offset = 0) {
-    return this.request('chat_get_messages', { type, limit, offset }, 'GET');
+    return performChatGetMessages(this, type, limit, offset);
   }
 
   /**
@@ -1484,7 +1180,7 @@ class ApiClient {
    * @param {string} content
    */
   async chatSendMessage(content) {
-    return this.request('chat_send_message', { content: (content || '').trim() }, 'POST');
+    return performChatSendMessage(this, content);
   }
 
   /**
@@ -1494,103 +1190,7 @@ class ApiClient {
    * @param {object} opts - { onFirstChunk?: () => void, timeoutMs?: number, signal?: AbortSignal }
    */
   async chatSendMessageStream(content, onChunk, opts = {}) {
-    const { onFirstChunk, onPlanUpdated, onPlanRecalculating, onPlanGeneratingNext, timeoutMs = 180000, signal: externalSignal } = opts;
-    const urlParams = new URLSearchParams({ action: 'chat_send_message_stream' });
-    const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
-
-    const token = await this.getToken();
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const onExternalAbort = () => controller.abort();
-    if (externalSignal) {
-      if (externalSignal.aborted) {
-        clearTimeout(timeoutId);
-        throw new DOMException('Aborted', 'AbortError');
-      }
-      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify({ content: (content || '').trim() }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new ApiError({ code: 'CHAT_FAILED', message: err.error || 'Ошибка чата' });
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let firstChunkFired = false;
-    let fullContent = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const obj = JSON.parse(trimmed);
-            if (obj.error) {
-              throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
-            }
-            if (obj.chunk) {
-              fullContent += obj.chunk;
-              if (typeof onChunk === 'function') {
-                if (!firstChunkFired && typeof onFirstChunk === 'function') {
-                  firstChunkFired = true;
-                  onFirstChunk();
-                }
-                onChunk(obj.chunk);
-              }
-            }
-            if (obj.plan_updated && typeof onPlanUpdated === 'function') {
-              onPlanUpdated();
-            }
-            if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') {
-              onPlanRecalculating();
-            }
-            if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') {
-              onPlanGeneratingNext();
-            }
-          } catch (e) {
-            if (e instanceof ApiError) throw e;
-          }
-        }
-      }
-      if (buffer.trim()) {
-        const obj = JSON.parse(buffer.trim());
-        if (obj.error) throw new ApiError({ code: 'CHAT_FAILED', message: obj.error });
-        if (obj.chunk) {
-          fullContent += obj.chunk;
-          if (typeof onChunk === 'function') {
-            if (!firstChunkFired && typeof onFirstChunk === 'function') onFirstChunk();
-            onChunk(obj.chunk);
-          }
-        }
-        if (obj.plan_updated && typeof onPlanUpdated === 'function') onPlanUpdated();
-        if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') onPlanRecalculating();
-        if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') onPlanGeneratingNext();
-      }
-    } finally {
-      reader.releaseLock?.();
-    }
-    return fullContent;
+    return performChatSendMessageStream(this, content, onChunk, opts);
   }
 
   /**
@@ -1598,15 +1198,14 @@ class ApiClient {
    * @param {string} content
    */
   async chatSendMessageToAdmin(content) {
-    return this.request('chat_send_message_to_admin', { content: (content || '').trim() }, 'POST');
+    return performChatSendMessageToAdmin(this, content);
   }
 
   /**
    * Список диалогов: пользователи, которые писали мне через «Написать»
    */
   async chatGetDirectDialogs() {
-    const res = await this.request('chat_get_direct_dialogs', {}, 'GET');
-    return Array.isArray(res?.users) ? res.users : [];
+    return performChatGetDirectDialogs(this);
   }
 
   /**
@@ -1616,7 +1215,7 @@ class ApiClient {
    * @param {number} offset
    */
   async chatGetDirectMessages(targetUserId, limit = 50, offset = 0) {
-    return this.request('chat_get_direct_messages', { target_user_id: targetUserId, limit, offset }, 'GET');
+    return performChatGetDirectMessages(this, targetUserId, limit, offset);
   }
 
   /**
@@ -1625,7 +1224,7 @@ class ApiClient {
    * @param {string} content Текст сообщения
    */
   async chatSendMessageToUser(targetUserId, content) {
-    return this.request('chat_send_message_to_user', { target_user_id: targetUserId, content: (content || '').trim() }, 'POST');
+    return performChatSendMessageToUser(this, targetUserId, content);
   }
 
   /**
@@ -1633,7 +1232,7 @@ class ApiClient {
    * @param {number} targetUserId ID собеседника
    */
   async chatClearDirectDialog(targetUserId) {
-    return this.request('chat_clear_direct_dialog', { target_user_id: targetUserId }, 'POST');
+    return performChatClearDirectDialog(this, targetUserId);
   }
 
   /**
@@ -1641,28 +1240,28 @@ class ApiClient {
    * @param {number} conversationId
    */
   async chatMarkRead(conversationId) {
-    return this.request('chat_mark_read', { conversation_id: conversationId }, 'POST');
+    return performChatMarkRead(this, conversationId);
   }
 
   /**
    * Очистить чат с AI
    */
   async chatClearAi() {
-    return this.request('chat_clear_ai', {}, 'POST');
+    return performChatClearAi(this);
   }
 
   /**
    * Отметить все сообщения во всех чатах как прочитанные
    */
   async chatMarkAllRead() {
-    return this.request('chat_mark_all_read', {}, 'POST');
+    return performChatMarkAllRead(this);
   }
 
   /**
    * Админ: отметить все сообщения от пользователей как прочитанные
    */
   async chatAdminMarkAllRead() {
-    return this.request('chat_admin_mark_all_read', {}, 'POST');
+    return performChatAdminMarkAllRead(this);
   }
 
   /**
@@ -1671,15 +1270,14 @@ class ApiClient {
    * @param {string} content - текст сообщения
    */
   async chatAdminSendMessage(userId, content) {
-    return this.request('chat_admin_send_message', { user_id: userId, content: (content || '').trim() }, 'POST');
+    return performChatAdminSendMessage(this, userId, content);
   }
 
   /**
    * Админ: список пользователей, которые писали в admin-чат
    */
   async getAdminChatUsers() {
-    const res = await this.request('chat_admin_chat_users', {}, 'GET');
-    return Array.isArray(res?.users) ? res.users : [];
+    return performGetAdminChatUsers(this);
   }
 
   /**
@@ -1689,7 +1287,7 @@ class ApiClient {
    * @param {number} offset
    */
   async chatAdminGetMessages(userId, limit = 50, offset = 0) {
-    return this.request('chat_admin_get_messages', { user_id: userId, limit, offset }, 'GET');
+    return performChatAdminGetMessages(this, userId, limit, offset);
   }
 
   /**
@@ -1697,7 +1295,7 @@ class ApiClient {
    * @param {number} userId - ID пользователя
    */
   async chatAdminMarkConversationRead(userId) {
-    return this.request('chat_admin_mark_conversation_read', { user_id: userId }, 'POST');
+    return performChatAdminMarkConversationRead(this, userId);
   }
 
   /**
@@ -1706,7 +1304,7 @@ class ApiClient {
    * @param {string} content - текст сообщения
    */
   async chatAddAIMessage(userId, content) {
-    return this.request('chat_add_ai_message', { user_id: userId, content: (content || '').trim() }, 'POST');
+    return performChatAddAIMessage(this, userId, content);
   }
 
   /**
@@ -1714,8 +1312,7 @@ class ApiClient {
    * @param {number} limit
    */
   async chatAdminGetUnreadNotifications(limit = 10) {
-    const res = await this.request('chat_admin_unread_notifications', { limit }, 'GET');
-    return Array.isArray(res?.messages) ? res.messages : [];
+    return performChatAdminGetUnreadNotifications(this, limit);
   }
 
   /**
@@ -1724,19 +1321,14 @@ class ApiClient {
    * @param {number[]} [userIds] - опционально; если не указан — всем пользователям
    */
   async chatAdminBroadcast(content, userIds = null) {
-    const body = { content: (content || '').trim() };
-    if (Array.isArray(userIds) && userIds.length > 0) {
-      body.user_ids = userIds;
-    }
-    return this.request('chat_admin_broadcast', body, 'POST');
+    return performChatAdminBroadcast(this, content, userIds);
   }
 
   /**
    * Получить список закрытых уведомлений (синхронизация между устройствами)
    */
   async getNotificationsDismissed() {
-    const res = await this.request('notifications_dismissed', {}, 'GET');
-    return Array.isArray(res?.dismissed) ? res.dismissed : [];
+    return performGetNotificationsDismissed(this);
   }
 
   /**
@@ -1744,94 +1336,90 @@ class ApiClient {
    * @param {string} notificationId - например "chat_123", "workout_2025-02-07"
    */
   async dismissNotification(notificationId) {
-    return this.request('notifications_dismiss', { notification_id: String(notificationId || '') }, 'POST');
+    return performDismissNotification(this, notificationId);
   }
 
   // ==================== Coach / Trainers ====================
 
   async listCoaches(params = {}) {
-    return this.request('list_coaches', params, 'GET');
+    return performListCoaches(this, params);
   }
 
   async requestCoach(coachId, message = '') {
-    return this.request('request_coach', { coach_id: coachId, message }, 'POST');
+    return performRequestCoach(this, coachId, message);
   }
 
   async getCoachRequests(params = {}) {
-    return this.request('coach_requests', params, 'GET');
+    return performGetCoachRequests(this, params);
   }
 
   async acceptCoachRequest(requestId) {
-    return this.request('accept_coach_request', { request_id: requestId }, 'POST');
+    return performAcceptCoachRequest(this, requestId);
   }
 
   async rejectCoachRequest(requestId) {
-    return this.request('reject_coach_request', { request_id: requestId }, 'POST');
+    return performRejectCoachRequest(this, requestId);
   }
 
   async getMyCoaches() {
-    return this.request('get_my_coaches', {}, 'GET');
+    return performGetMyCoaches(this);
   }
 
   async removeCoach({ coachId, athleteId } = {}) {
-    const body = {};
-    if (coachId) body.coach_id = coachId;
-    if (athleteId) body.athlete_id = athleteId;
-    return this.request('remove_coach', body, 'POST');
+    return performRemoveCoach(this, { coachId, athleteId });
   }
 
   async applyCoach(data) {
-    return this.request('apply_coach', data, 'POST');
+    return performApplyCoach(this, data);
   }
 
   async getCoachAthletes() {
-    return this.request('coach_athletes', {}, 'GET');
+    return performGetCoachAthletes(this);
   }
 
   async getCoachPricing(coachId = null) {
-    const params = coachId ? { coach_id: coachId } : {};
-    return this.request('get_coach_pricing', params, 'GET');
+    return performGetCoachPricing(this, coachId);
   }
 
   async updateCoachPricing(pricing, pricesOnRequest = false) {
-    return this.request('update_coach_pricing', { pricing, prices_on_request: pricesOnRequest ? 1 : 0 }, 'POST');
+    return performUpdateCoachPricing(this, pricing, pricesOnRequest);
   }
 
   // Группы атлетов
   async getCoachGroups() {
-    return this.request('get_coach_groups', {}, 'GET');
+    return performGetCoachGroups(this);
   }
 
   async saveCoachGroup(data) {
-    return this.request('save_coach_group', data, 'POST');
+    return performSaveCoachGroup(this, data);
   }
 
   async deleteCoachGroup(groupId) {
-    return this.request('delete_coach_group', { group_id: groupId }, 'POST');
+    return performDeleteCoachGroup(this, groupId);
   }
 
   async getGroupMembers(groupId) {
-    return this.request('get_group_members', { group_id: groupId }, 'GET');
+    return performGetGroupMembers(this, groupId);
   }
 
   async updateGroupMembers(groupId, userIds) {
-    return this.request('update_group_members', { group_id: groupId, user_ids: userIds }, 'POST');
+    return performUpdateGroupMembers(this, groupId, userIds);
   }
 
   async getAthleteGroups(userId) {
-    return this.request('get_athlete_groups', { user_id: userId }, 'GET');
+    return performGetAthleteGroups(this, userId);
   }
 
   async getCoachApplications(params = {}) {
-    return this.request('admin_coach_applications', params, 'GET');
+    return performGetCoachApplications(this, params);
   }
 
   async approveCoachApplication(applicationId) {
-    return this.request('admin_approve_coach', { application_id: applicationId }, 'POST');
+    return performApproveCoachApplication(this, applicationId);
   }
 
   async rejectCoachApplication(applicationId) {
-    return this.request('admin_reject_coach', { application_id: applicationId }, 'POST');
+    return performRejectCoachApplication(this, applicationId);
   }
 }
 

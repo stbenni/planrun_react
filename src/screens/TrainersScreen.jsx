@@ -5,9 +5,10 @@
  * role=admin → табы «Каталог» + «Мои ученики»
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import { getAvatarSrc } from '../utils/avatarUrl';
 import { GraduationCapIcon, UsersIcon, MailIcon } from '../components/common/Icons';
 import './TrainersScreen.css';
@@ -23,6 +24,8 @@ export default function TrainersScreen() {
   const { user, api } = useAuthStore();
   const role = user?.role || 'user';
   const isCoach = role === 'coach' || role === 'admin';
+  const trainersTabsRef = useRef(null);
+  const trainersPanelsRef = useRef(null);
 
   const [tab, setTab] = useState(isCoach ? 'requests' : 'catalog');
   const [coaches, setCoaches] = useState([]);
@@ -30,6 +33,8 @@ export default function TrainersScreen() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [requestsCount, setRequestsCount] = useState(0);
+  const [trainersTabPillStyle, setTrainersTabPillStyle] = useState({ left: 0, width: 0 });
+  const visibleTabs = role === 'admin' ? ['catalog', 'athletes', 'requests'] : ['requests'];
 
   const loadCoaches = useCallback(async () => {
     if (!api) return;
@@ -72,6 +77,65 @@ export default function TrainersScreen() {
     }
   }, [role, loadCoaches, loadAthletes, loadRequests]);
 
+  const updateTrainersTabPill = useCallback(() => {
+    const tabs = trainersTabsRef.current;
+    if (!tabs) return;
+
+    const activeButton = tabs.querySelector('.trainers-tab--active');
+    if (!activeButton) {
+      setTrainersTabPillStyle({ left: 0, width: 0 });
+      return;
+    }
+
+    setTrainersTabPillStyle({
+      left: activeButton.offsetLeft,
+      width: activeButton.offsetWidth,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    updateTrainersTabPill();
+  }, [tab, updateTrainersTabPill]);
+
+  useLayoutEffect(() => {
+    if (!isCoach) return undefined;
+
+    let frameId = 0;
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateTrainersTabPill);
+    };
+
+    const tabs = trainersTabsRef.current;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && tabs
+      ? new ResizeObserver(scheduleUpdate)
+      : null;
+
+    if (tabs && resizeObserver) {
+      resizeObserver.observe(tabs);
+      tabs.querySelectorAll('.trainers-tab').forEach((item) => resizeObserver.observe(item));
+    }
+
+    window.addEventListener('resize', scheduleUpdate);
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(scheduleUpdate).catch(() => {});
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', scheduleUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [isCoach, updateTrainersTabPill]);
+
+  useSwipeableTabs({
+    containerRef: trainersPanelsRef,
+    tabs: visibleTabs,
+    activeTab: tab,
+    onTabChange: setTab,
+    enabled: isCoach && visibleTabs.length > 1,
+  });
+
   const handleAccept = async (requestId) => {
     try {
       await api.acceptCoachRequest(requestId);
@@ -112,22 +176,31 @@ export default function TrainersScreen() {
       <h1 className="trainers-title">Тренеры</h1>
 
       {/* Табы */}
-      <div className="trainers-tabs">
+      <div
+        ref={trainersTabsRef}
+        className="trainers-tabs"
+        style={{
+          '--trainers-tabs-pill-left': `${trainersTabPillStyle.left}px`,
+          '--trainers-tabs-pill-width': `${trainersTabPillStyle.width}px`,
+        }}
+      >
+        <span className="trainers-tabs-pill" aria-hidden="true" />
         {role === 'admin' && (
-          <button className={`trainers-tab ${tab === 'catalog' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('catalog'); loadCoaches(); }}>
+          <button type="button" className={`trainers-tab ${tab === 'catalog' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('catalog'); loadCoaches(); }}>
             Каталог
           </button>
         )}
         {role === 'admin' && (
-          <button className={`trainers-tab ${tab === 'athletes' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('athletes'); loadAthletes(); }}>
+          <button type="button" className={`trainers-tab ${tab === 'athletes' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('athletes'); loadAthletes(); }}>
             Мои ученики
           </button>
         )}
-        <button className={`trainers-tab ${tab === 'requests' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('requests'); loadRequests(); }}>
+        <button type="button" className={`trainers-tab ${tab === 'requests' ? 'trainers-tab--active' : ''}`} onClick={() => { setTab('requests'); loadRequests(); }}>
           Запросы {requestsCount > 0 && <span className="trainers-badge">{requestsCount}</span>}
         </button>
       </div>
 
+      <div ref={trainersPanelsRef} className="trainers-tab-panels">
       {loading && <div className="trainers-loading">Загрузка...</div>}
 
       {/* Каталог тренеров (admin) */}
@@ -142,7 +215,7 @@ export default function TrainersScreen() {
           {coaches.map(c => (
             <Link key={c.id} to={`/${c.username_slug}`} className="coach-card card card--interactive">
               <div className="coach-card-avatar">
-                {c.avatar_path ? <img src={getAvatarSrc(c.avatar_path, api?.baseUrl || '/api')} alt="" /> : <div className="coach-card-avatar-placeholder">{(c.username || '?')[0]}</div>}
+                {c.avatar_path ? <img src={getAvatarSrc(c.avatar_path, api?.baseUrl || '/api', 'md')} alt="" /> : <div className="coach-card-avatar-placeholder">{(c.username || '?')[0]}</div>}
               </div>
               <div className="coach-card-info">
                 <div className="coach-card-name">{c.username}</div>
@@ -173,9 +246,9 @@ export default function TrainersScreen() {
             </div>
           )}
           {athletes.map(a => (
-            <div key={a.id} className="athlete-card card">
+            <div key={a.id} className="athlete-card card card--interactive">
               <div className="athlete-card-avatar">
-                {a.avatar_path ? <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api')} alt="" /> : <div className="coach-card-avatar-placeholder">{(a.username || '?')[0]}</div>}
+                {a.avatar_path ? <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" /> : <div className="coach-card-avatar-placeholder">{(a.username || '?')[0]}</div>}
               </div>
               <div className="athlete-card-info">
                 <Link to={`/${a.username_slug}`} className="athlete-card-name">{a.username}</Link>
@@ -197,9 +270,9 @@ export default function TrainersScreen() {
             </div>
           )}
           {requests.map(r => (
-            <div key={r.id} className="request-card card">
+            <div key={r.id} className="request-card card card--interactive">
               <div className="request-card-avatar">
-                {r.avatar_path ? <img src={getAvatarSrc(r.avatar_path, api?.baseUrl || '/api')} alt="" /> : <div className="coach-card-avatar-placeholder">{(r.username || '?')[0]}</div>}
+                {r.avatar_path ? <img src={getAvatarSrc(r.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" /> : <div className="coach-card-avatar-placeholder">{(r.username || '?')[0]}</div>}
               </div>
               <div className="request-card-info">
                 <Link to={`/${r.username_slug}`} className="request-card-name">{r.username}</Link>
@@ -214,6 +287,7 @@ export default function TrainersScreen() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

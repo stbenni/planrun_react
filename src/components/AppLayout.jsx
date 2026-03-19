@@ -8,6 +8,7 @@ import { useLocation } from 'react-router-dom';
 import TopHeader from './common/TopHeader';
 import BottomNav from './common/BottomNav';
 import Notifications from './common/Notifications';
+import PlanGeneratingBanner from './common/PlanGeneratingBanner';
 import SpecializationModal from './SpecializationModal';
 import PageTransition from './common/PageTransition';
 import AppTabsContent from './AppTabsContent';
@@ -31,6 +32,7 @@ const AppLayout = ({ onLogout }) => {
     <>
       <TopHeader />
       <Notifications api={api} isAdmin={isAdmin} user={user} />
+      <PlanGeneratingBanner />
       {needsOnboarding && (
         <SpecializationModal
           isOpen={showOnboardingModal}

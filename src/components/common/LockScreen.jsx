@@ -24,7 +24,7 @@ const LockScreen = () => {
   const hasTriggeredBiometric = useRef(false);
 
   const navigate = useNavigate();
-  const { pinLogin, biometricLogin, logout, checkBiometricAvailability, checkPinAvailability } = useAuthStore();
+  const { pinLogin, biometricLogin, beginPasswordReauth, checkBiometricAvailability, checkPinAvailability } = useAuthStore();
 
   useEffect(() => {
     if (!isNativeCapacitor()) return;
@@ -84,13 +84,13 @@ const LockScreen = () => {
     }
   };
 
-  const handleLoginByPassword = () => {
-    logout(true).catch(() => {});
+  const handleLoginByPassword = async () => {
+    await beginPasswordReauth().catch(() => {});
     if (isNativeCapacitor()) {
       window.location.href = '/landing?openLogin=1';
-    } else {
-      navigate('/landing', { state: { openLogin: true } });
+      return;
     }
+    navigate('/landing', { state: { openLogin: true } });
   };
 
   return (

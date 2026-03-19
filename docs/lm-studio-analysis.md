@@ -1,5 +1,8 @@
 # Полный анализ конфигурации LM Studio для PlanRun
 
+> Историческая заметка: этот документ описывает старую схему, где LM Studio держал и chat/model serving, и embeddings.
+> Актуальная production-схема после перехода на standalone inference server описана в [08-AI-SERVING-STACK.md](/var/www/planrun/docs/08-AI-SERVING-STACK.md).
+
 **Дата:** 2026-03-07
 
 ---
@@ -8,7 +11,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           vladimirov (PlanRun)                               │
+│                             planrun (PlanRun)                                │
 └─────────────────────────────────────────────────────────────────────────────┘
          │
          │ CHAT_USE_PLANRUN_AI=0 → напрямую
@@ -43,7 +46,7 @@
 
 ## 2. Конфигурация по компонентам
 
-### 2.1 vladimirov/planrun-backend (.env)
+### 2.1 planrun/planrun-backend (.env)
 
 | Переменная | Пример | Назначение |
 |------------|--------|------------|

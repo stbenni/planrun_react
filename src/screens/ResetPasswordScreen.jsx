@@ -4,7 +4,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import ApiClient from '../api/ApiClient';
+import getAuthClient from '../api/getAuthClient';
+import { getAuthErrorMessage, getAuthRetryAfter } from '../utils/authError';
+import { useRetryCooldown } from '../hooks/useRetryCooldown';
 import './LoginScreen.css';
 
 const ResetPasswordScreen = () => {
@@ -17,6 +19,7 @@ const ResetPasswordScreen = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const cooldown = useRetryCooldown();
 
   useEffect(() => {
     if (!token) {
@@ -35,15 +38,18 @@ const ResetPasswordScreen = () => {
       setError('Пароли не совпадают');
       return;
     }
+    if (cooldown.isCoolingDown) return;
     setLoading(true);
     setError('');
     try {
-      const api = new ApiClient();
+      const api = getAuthClient();
       await api.confirmResetPassword(token, password);
       setSuccess(true);
       setTimeout(() => navigate('/landing', { state: { openLogin: true } }), 2000);
     } catch (err) {
-      setError(err.message || 'Не удалось сменить пароль. Ссылка могла истечь.');
+      setError(getAuthErrorMessage(err, 'Не удалось сменить пароль. Ссылка могла истечь.'));
+      const retryAfter = getAuthRetryAfter(err);
+      if (retryAfter > 0) cooldown.startCooldown(retryAfter);
     } finally {
       setLoading(false);
     }
@@ -99,8 +105,8 @@ const ResetPasswordScreen = () => {
               disabled={loading}
             />
             {error && <div className="login-error">{error}</div>}
-            <button type="submit" className="login-button" disabled={loading}>
-              {loading ? 'Сохранение...' : 'Сменить пароль'}
+            <button type="submit" className="login-button" disabled={loading || cooldown.isCoolingDown}>
+              {loading ? 'Сохранение...' : cooldown.isCoolingDown ? `Подождите ${cooldown.secondsLeft} сек` : 'Сменить пароль'}
             </button>
           </form>
         )}

@@ -629,6 +629,12 @@ class WorkoutService extends BaseService {
         $updateStmt->close();
         require_once __DIR__ . '/../cache_config.php';
         Cache::delete("training_plan_{$userId}");
+
+        // Автообновление VDOT по свежим тренировкам
+        if ($imported > 0) {
+            $this->maybeUpdateVdotFromWorkouts($userId);
+        }
+
         return ['imported' => $imported, 'skipped' => $skipped];
     }
     
@@ -696,7 +702,12 @@ class WorkoutService extends BaseService {
             Cache::delete("training_plan_{$userId}");
             require_once __DIR__ . '/../config/Logger.php';
             Logger::debug("Training plan cache invalidated after saving progress", ['user_id' => $userId]);
-            
+
+            // Автообновление VDOT по свежим результатам
+            if ($completed && $resultDistance > 0 && ($resultTime || $resultPace)) {
+                $this->maybeUpdateVdotFromWorkouts($userId);
+            }
+
             return ['success' => true];
         } catch (Exception $e) {
             $this->throwException('Ошибка сохранения прогресса: ' . $e->getMessage(), 500, [
@@ -960,6 +971,107 @@ class WorkoutService extends BaseService {
                 'workout_id' => $workoutId,
                 'error' => $e->getMessage()
             ]);
+        }
+    }
+
+    /**
+     * Автообновление VDOT пользователя на основе свежих тренировок.
+     *
+     * Берёт лучший результат за последние 6 недель (StatsService::getBestResultForVdot),
+     * сравнивает с текущим last_race_* в профиле.
+     * Обновляет ТОЛЬКО если новый VDOT отличается от текущего на ≥ 0.5 пункта.
+     * Это гарантирует что зоны всегда актуальны без ручного вмешательства.
+     */
+    public function maybeUpdateVdotFromWorkouts(int $userId): void {
+        try {
+            require_once __DIR__ . '/StatsService.php';
+            require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+
+            $statsService = new StatsService($this->db);
+            $best = $statsService->getBestResultForVdot($userId);
+
+            if (!$best || !isset($best['vdot'])) {
+                return; // Нет подходящих тренировок
+            }
+
+            // Получаем текущий VDOT из профиля
+            $stmt = $this->db->prepare("
+                SELECT last_race_distance, last_race_distance_km, last_race_time, last_race_date
+                FROM users WHERE id = ?
+            ");
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $user = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$user) return;
+
+            // Рассчитываем текущий VDOT из профиля
+            $currentVdot = null;
+            if (!empty($user['last_race_distance']) && !empty($user['last_race_time'])) {
+                $distKm = [
+                    '5k' => 5, '10k' => 10, 'half' => 21.0975, '21.1k' => 21.0975,
+                    'marathon' => 42.195, '42.2k' => 42.195
+                ];
+                $km = $distKm[$user['last_race_distance']] ?? (!empty($user['last_race_distance_km']) ? (float)$user['last_race_distance_km'] : null);
+                if ($km) {
+                    $parts = explode(':', $user['last_race_time']);
+                    $sec = 0;
+                    if (count($parts) === 3) $sec = (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2];
+                    elseif (count($parts) === 2) $sec = (int)$parts[0] * 60 + (int)$parts[1];
+                    if ($sec > 0) $currentVdot = estimateVDOT($km, $sec);
+                }
+            }
+
+            // Обновляем только если разница значимая (≥ 0.5 VDOT)
+            $newVdot = $best['vdot'];
+            if ($currentVdot !== null && abs($newVdot - $currentVdot) < 0.5) {
+                return; // Разница незначительная, не обновляем
+            }
+
+            // Формат дистанции для БД
+            $distMap = [
+                5 => '5k', 10 => '10k', 21 => 'half', 42 => 'marathon',
+            ];
+            $bestDistKm = $best['distance_km'];
+            $lastRaceDist = 'other';
+            $lastRaceDistKm = $bestDistKm;
+            foreach ($distMap as $km => $label) {
+                if (abs($bestDistKm - $km) < 0.5) {
+                    $lastRaceDist = $label;
+                    $lastRaceDistKm = null;
+                    break;
+                }
+            }
+
+            // Формат времени — ВСЕГДА HH:MM:SS для совместимости с БД (TIME column)
+            $timeSec = $best['time_sec'];
+            $h = (int) floor($timeSec / 3600);
+            $m = (int) floor(($timeSec % 3600) / 60);
+            $s = (int) ($timeSec % 60);
+            $timeStr = sprintf('%02d:%02d:%02d', $h, $m, $s);
+
+            $dateStr = date('Y-m-d');
+
+            $updateStmt = $this->db->prepare("
+                UPDATE users
+                SET last_race_distance = ?, last_race_distance_km = ?, last_race_time = ?, last_race_date = ?
+                WHERE id = ?
+            ");
+            $updateStmt->bind_param("sdssi", $lastRaceDist, $lastRaceDistKm, $timeStr, $dateStr, $userId);
+            $updateStmt->execute();
+            $updateStmt->close();
+
+            require_once __DIR__ . '/../config/Logger.php';
+            Logger::info("VDOT auto-updated", [
+                'user_id' => $userId,
+                'old_vdot' => $currentVdot ? round($currentVdot, 1) : 'none',
+                'new_vdot' => round($newVdot, 1),
+                'source' => "{$bestDistKm} km in {$timeStr}",
+            ]);
+        } catch (Exception $e) {
+            // Не ломаем основной флоу — логируем и идём дальше
+            error_log("maybeUpdateVdotFromWorkouts error for user {$userId}: " . $e->getMessage());
         }
     }
 }

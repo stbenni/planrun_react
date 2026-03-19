@@ -42,13 +42,11 @@ $distKm = $best['distance_km'];
 $timeSec = $best['time_sec'];
 $vdot = $best['vdot'];
 
-// Формат времени: MM:SS или HH:MM:SS
+// Формат времени: ВСЕГДА HH:MM:SS для совместимости с БД
 $h = (int)floor($timeSec / 3600);
 $m = (int)floor(($timeSec % 3600) / 60);
 $s = (int)($timeSec % 60);
-$timeStr = $h > 0
-    ? sprintf('%d:%02d:%02d', $h, $m, $s)
-    : sprintf('%d:%02d', $m, $s);
+$timeStr = sprintf('%02d:%02d:%02d', $h, $m, $s);
 
 // last_race_distance по дистанции
 $distMap = [

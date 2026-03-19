@@ -11,7 +11,7 @@
   padding: var(--page-padding);
   padding-top: var(--page-top-desktop);
   padding-bottom: var(--page-padding-bottom);
-  background: var(--gray-50);
+  background: transparent;
   min-height: 100vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -19,7 +19,7 @@
 }
 
 [data-theme="dark"] .athletes-overview {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 /* ========== ЗАГОЛОВОК ========== */
@@ -160,17 +160,20 @@
 
 .athletes-sort-select {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-md);
-  background: var(--card-bg);
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
   font-size: var(--text-sm);
   cursor: pointer;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .athletes-sort-select {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 /* ========== СПИСОК ========== */
@@ -370,18 +373,23 @@
   font-weight: var(--font-medium);
   padding: 4px 12px;
   border-radius: var(--radius-full);
-  border: 1.5px solid var(--card-border);
-  background: var(--card-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .ao-group-chip:hover {
-  border-color: var(--primary-400);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow-hover);
+  transform: translateY(-1px);
 }
 
 .ao-group-chip--active {
@@ -414,14 +422,34 @@
 }
 
 .ao-modal {
-  background: var(--card-bg);
-  border-radius: var(--radius-xl);
+  position: relative;
+  isolation: isolate;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   width: 100%;
   max-width: 480px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.ao-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.ao-modal > * {
+  position: relative;
+  z-index: 1;
 }
 
 .ao-modal-header {
@@ -429,7 +457,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-5) var(--space-6);
-  border-bottom: 1px solid var(--card-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
 }
 
 .ao-modal-header h2 {
@@ -440,13 +468,43 @@
 }
 
 .ao-modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: var(--text-tertiary);
-  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 22px rgba(15, 23, 42, 0.08);
+  font-size: 24px;
+  color: var(--gray-500);
+  cursor: pointer;
   line-height: 1;
+  transition: color var(--transition-base), background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+.ao-modal-close:hover {
+  color: var(--primary-600);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 14px 28px rgba(15, 23, 42, 0.1), 0 10px 22px rgba(252, 76, 2, 0.10);
+  transform: translateY(-1px);
+}
+
+[data-theme="dark"] .ao-modal-close {
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .ao-modal-close:hover {
+  color: var(--primary-400);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 30px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 .ao-modal-body {
@@ -467,7 +525,7 @@
   gap: var(--space-3);
   margin-top: var(--space-4);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--card-border);
+  border-top: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
 }
 
 /* Список групп */
@@ -484,12 +542,17 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  background: var(--gray-50);
-  border-radius: var(--radius-md);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .ao-group-item {
-  background: var(--bg-secondary);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 .ao-group-item-dot {
@@ -530,12 +593,15 @@
 .ao-group-input {
   width: 100%;
   padding: var(--space-3);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-md);
-  background: var(--card-bg);
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
   font-size: var(--text-sm);
   box-sizing: border-box;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .ao-group-colors {
@@ -559,7 +625,7 @@
 
 .ao-color-btn--active {
   border-color: var(--text-primary);
-  box-shadow: 0 0 0 2px var(--card-bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-500) 12%, var(--app-background-base));
 }
 
 /* Список участников */
@@ -584,11 +650,11 @@
 }
 
 .ao-member-item:hover {
-  background: var(--gray-50);
+  background: var(--card-surface-compact-bg);
 }
 
 [data-theme="dark"] .ao-member-item:hover {
-  background: var(--bg-secondary);
+  background: var(--card-surface-compact-bg);
 }
 
 .ao-member-item input[type="checkbox"] {

@@ -344,8 +344,10 @@ class ChatContextBuilder {
                     tpd.type AS plan_type,
                     tpd.description AS plan_description,
                     tpd.is_key_workout,
+                    LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) COLLATE utf8mb4_unicode_ci AS activity_type,
                     'manual' AS source
                 FROM workout_log wl
+                LEFT JOIN activity_types at ON at.id = wl.activity_type_id
                 LEFT JOIN training_plan_days tpd 
                     ON tpd.id = (
                         SELECT id FROM training_plan_days
@@ -366,11 +368,21 @@ class ChatContextBuilder {
                     NULL AS notes,
                     NULL AS rating,
                     1 AS is_completed,
-                    w.activity_type COLLATE utf8mb4_unicode_ci AS plan_type,
-                    CONCAT(w.activity_type, ' ', COALESCE(w.distance_km, 0), ' км') COLLATE utf8mb4_unicode_ci AS plan_description,
-                    0 AS is_key_workout,
+                    COALESCE(tpd.type COLLATE utf8mb4_unicode_ci, w.activity_type COLLATE utf8mb4_unicode_ci) AS plan_type,
+                    COALESCE(
+                        tpd.description COLLATE utf8mb4_unicode_ci,
+                        CONCAT(w.activity_type, ' ', COALESCE(w.distance_km, 0), ' км') COLLATE utf8mb4_unicode_ci
+                    ) AS plan_description,
+                    COALESCE(tpd.is_key_workout, 0) AS is_key_workout,
+                    LOWER(COALESCE(NULLIF(TRIM(w.activity_type), ''), 'running')) COLLATE utf8mb4_unicode_ci AS activity_type,
                     COALESCE(w.source, 'import') COLLATE utf8mb4_unicode_ci AS source
                 FROM workouts w
+                LEFT JOIN training_plan_days tpd
+                    ON tpd.id = (
+                        SELECT id FROM training_plan_days
+                        WHERE user_id = w.user_id AND date = DATE(w.start_time)
+                        ORDER BY id DESC LIMIT 1
+                    )
                 WHERE w.user_id = ?
                     AND NOT EXISTS (
                         SELECT 1 FROM workout_log wl2
@@ -489,9 +501,114 @@ class ChatContextBuilder {
             }
         }
 
+        // ACWR (Acute:Chronic Workload Ratio)
+        $acwr = $this->calculateACWR($userId);
+        if ($acwr['acwr'] !== null) {
+            $acwrVal = $acwr['acwr'];
+            $zoneLabels = [
+                'low' => 'недогрузка',
+                'optimal' => 'оптимально',
+                'caution' => 'повышенный риск',
+                'danger' => 'ВЫСОКИЙ РИСК ТРАВМЫ',
+            ];
+            $zoneLabel = $zoneLabels[$acwr['zone']] ?? '';
+            $lines[] = "ACWR: {$acwrVal} ({$zoneLabel})";
+            if ($acwr['zone'] === 'danger') {
+                $lines[] = "⚠ ACWR > 1.5 — рекомендуй снижение нагрузки, проверь самочувствие, предложи разгрузочный день.";
+            } elseif ($acwr['zone'] === 'caution') {
+                $lines[] = "⚠ ACWR в зоне предупреждения (1.3–1.5) — не увеличивай нагрузку, мониторь восстановление.";
+            }
+        }
+
         $lines[] = "Для деталей тренировок — используй get_workouts или get_day_details.";
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * ACWR (Acute:Chronic Workload Ratio) — соотношение острой (7 дней) к хронической (28 дней) нагрузке.
+     * Используем sRPE (session RPE): duration_minutes × (6 - rating) / 5, где rating 1=тяжело, 5=легко.
+     * Если rating нет — используем дистанцию как proxy.
+     * Безопасная зона: 0.8–1.3. Опасно: >1.5.
+     *
+     * @return array{acwr: float|null, acute: float, chronic: float, zone: string}
+     */
+    public function calculateACWR(int $userId): array {
+        $tz = $this->getUserTz($userId);
+        $today = (new DateTime('now', $tz))->format('Y-m-d');
+        $sevenDaysAgo = (new DateTime('now', $tz))->modify('-7 days')->format('Y-m-d');
+        $twentyEightDaysAgo = (new DateTime('now', $tz))->modify('-28 days')->format('Y-m-d');
+
+        // Получаем все тренировки за 28 дней из обоих источников
+        $sql = "(SELECT training_date AS date, distance_km, duration_minutes, rating
+                 FROM workout_log
+                 WHERE user_id = ? AND is_completed = 1 AND training_date >= ? AND training_date <= ?)
+                UNION ALL
+                (SELECT DATE(start_time) AS date, distance_km, duration_minutes, NULL AS rating
+                 FROM workouts
+                 WHERE user_id = ? AND DATE(start_time) >= ? AND DATE(start_time) <= ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM workout_log wl
+                       WHERE wl.user_id = workouts.user_id AND wl.training_date = DATE(workouts.start_time) AND wl.is_completed = 1
+                   ))
+                ORDER BY date DESC";
+
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            return ['acwr' => null, 'acute' => 0, 'chronic' => 0, 'zone' => 'unknown'];
+        }
+
+        $stmt->bind_param('ississ', $userId, $twentyEightDaysAgo, $today, $userId, $twentyEightDaysAgo, $today);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $acuteLoad = 0;
+        $chronicLoad = 0;
+
+        while ($row = $result->fetch_assoc()) {
+            $date = $row['date'];
+            $dist = (float)($row['distance_km'] ?? 0);
+            $dur = (int)($row['duration_minutes'] ?? 0);
+            $rating = $row['rating'] !== null ? (int)$row['rating'] : null;
+
+            // sRPE: duration × intensity_factor
+            // rating 1 (очень тяжело) → factor 1.0, rating 5 (отлично) → factor 0.2
+            if ($dur > 0 && $rating !== null && $rating >= 1 && $rating <= 5) {
+                $intensityFactor = (6 - $rating) / 5; // 1→1.0, 2→0.8, 3→0.6, 4→0.4, 5→0.2
+                $load = $dur * $intensityFactor;
+            } elseif ($dist > 0) {
+                // Proxy: дистанция × 6 (среднее ~6 мин/км)
+                $load = $dist * 6;
+            } else {
+                continue;
+            }
+
+            $chronicLoad += $load;
+            if ($date >= $sevenDaysAgo) {
+                $acuteLoad += $load;
+            }
+        }
+        $stmt->close();
+
+        // Chronic = среднее за 4 недели (нормируем на 1 неделю)
+        $chronicWeekly = $chronicLoad / 4;
+        $acwr = $chronicWeekly > 0 ? round($acuteLoad / $chronicWeekly, 2) : null;
+
+        // Определяем зону
+        $zone = 'unknown';
+        if ($acwr !== null) {
+            if ($acwr < 0.8) $zone = 'low'; // Недотренированность
+            elseif ($acwr <= 1.3) $zone = 'optimal'; // Безопасная зона
+            elseif ($acwr <= 1.5) $zone = 'caution'; // Предупреждение
+            else $zone = 'danger'; // Высокий риск травмы
+        }
+
+        return [
+            'acwr' => $acwr,
+            'acute' => round($acuteLoad, 1),
+            'chronic' => round($chronicWeekly, 1),
+            'zone' => $zone,
+        ];
     }
 
     /**
@@ -876,8 +993,10 @@ class ChatContextBuilder {
                     tpd.type AS plan_type,
                     tpd.description AS plan_description,
                     tpd.is_key_workout,
+                    LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) COLLATE utf8mb4_unicode_ci AS activity_type,
                     'manual' AS source
                 FROM workout_log wl
+                LEFT JOIN activity_types at ON at.id = wl.activity_type_id
                 LEFT JOIN training_plan_days tpd 
                     ON tpd.id = (
                         SELECT id FROM training_plan_days
@@ -898,11 +1017,21 @@ class ChatContextBuilder {
                     w.avg_heart_rate,
                     NULL AS notes,
                     NULL AS rating,
-                    w.activity_type COLLATE utf8mb4_unicode_ci AS plan_type,
-                    CONCAT(w.activity_type, ' ', COALESCE(w.distance_km, 0), ' км') COLLATE utf8mb4_unicode_ci AS plan_description,
-                    0 AS is_key_workout,
+                    COALESCE(tpd.type COLLATE utf8mb4_unicode_ci, w.activity_type COLLATE utf8mb4_unicode_ci) AS plan_type,
+                    COALESCE(
+                        tpd.description COLLATE utf8mb4_unicode_ci,
+                        CONCAT(w.activity_type, ' ', COALESCE(w.distance_km, 0), ' км') COLLATE utf8mb4_unicode_ci
+                    ) AS plan_description,
+                    COALESCE(tpd.is_key_workout, 0) AS is_key_workout,
+                    LOWER(COALESCE(NULLIF(TRIM(w.activity_type), ''), 'running')) COLLATE utf8mb4_unicode_ci AS activity_type,
                     COALESCE(w.source, 'import') COLLATE utf8mb4_unicode_ci AS source
                 FROM workouts w
+                LEFT JOIN training_plan_days tpd
+                    ON tpd.id = (
+                        SELECT id FROM training_plan_days
+                        WHERE user_id = w.user_id AND date = DATE(w.start_time)
+                        ORDER BY id DESC LIMIT 1
+                    )
                 WHERE w.user_id = ?
                     AND DATE(w.start_time) >= ?
                     AND DATE(w.start_time) <= ?

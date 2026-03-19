@@ -3,12 +3,13 @@
  * Графики, метрики, прогресс, достижения
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePreloadStore from '../stores/usePreloadStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
+import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import { isNativeCapacitor } from '../services/TokenStorageService';
 import {
   ActivityHeatmap,
@@ -27,6 +28,8 @@ import { BarChartIcon, TrophyIcon, TargetIcon, FlameIcon, OtherIcon } from '../c
 import '../components/Dashboard/Dashboard.css';
 import './StatsScreen.css';
 
+const STATS_TABS = ['overview', 'progress', 'achievements'];
+
 const StatsScreen = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -41,6 +44,9 @@ const StatsScreen = () => {
   const [timeRange, setTimeRange] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
   const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
+  const statsTabsRef = useRef(null);
+  const statsPanelsRef = useRef(null);
+  const [statsTabPillStyle, setStatsTabPillStyle] = useState({ left: 0, width: 0 });
 
   // Coach: athlete selector via ?athlete=slug
   const athleteSlug = useMemo(() => {
@@ -125,6 +131,7 @@ const StatsScreen = () => {
     }
     return processAchievementsData(workoutsData, allResults);
   }, [rawData, activeTab, timeRange]);
+  const hasStatsTabs = !!api && !loading && !!stats;
 
   const hasLoadedRef = useRef(false);
   useEffect(() => {
@@ -193,6 +200,66 @@ const StatsScreen = () => {
     setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
   };
 
+  const updateStatsTabPill = useCallback(() => {
+    const tabs = statsTabsRef.current;
+    if (!tabs) return;
+
+    const activeButton = tabs.querySelector('.stats-tab.active');
+    if (!activeButton) {
+      setStatsTabPillStyle({ left: 0, width: 0 });
+      return;
+    }
+
+    setStatsTabPillStyle({
+      left: activeButton.offsetLeft,
+      width: activeButton.offsetWidth,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    updateStatsTabPill();
+  }, [activeTab, hasStatsTabs, updateStatsTabPill]);
+
+  useLayoutEffect(() => {
+    if (!hasStatsTabs) return undefined;
+
+    let frameId = 0;
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateStatsTabPill);
+    };
+
+    const tabs = statsTabsRef.current;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && tabs
+      ? new ResizeObserver(scheduleUpdate)
+      : null;
+
+    if (tabs && resizeObserver) {
+      resizeObserver.observe(tabs);
+      tabs.querySelectorAll('.stats-tab').forEach((item) => resizeObserver.observe(item));
+    }
+
+    window.addEventListener('resize', scheduleUpdate);
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(scheduleUpdate).catch(() => {});
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', scheduleUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [hasStatsTabs, updateStatsTabPill]);
+
+  useSwipeableTabs({
+    containerRef: statsPanelsRef,
+    tabs: STATS_TABS,
+    activeTab,
+    onTabChange: setActiveTab,
+    enabled: hasStatsTabs,
+    ignoreSelector: '.heatmap-months-container, [data-swipe-lock="true"], input, textarea, select, [contenteditable="true"]',
+  });
+
   if (!api) {
     return (
       <div className="stats-screen">
@@ -248,27 +315,39 @@ const StatsScreen = () => {
           <span className="coach-mode-banner__name">{coachAthletes.find(a => a.username_slug === athleteSlug)?.username || athleteSlug}</span>
         </div>
       )}
-      <div className="stats-tabs">
+      <div
+        ref={statsTabsRef}
+        className="stats-tabs"
+        style={{
+          '--stats-tabs-pill-left': `${statsTabPillStyle.left}px`,
+          '--stats-tabs-pill-width': `${statsTabPillStyle.width}px`,
+        }}
+      >
+        <span className="stats-tabs-pill" aria-hidden="true" />
         <button 
           className={`stats-tab ${activeTab === 'overview' ? 'active' : ''}`}
+          type="button"
           onClick={() => setActiveTab('overview')}
         >
           Обзор
         </button>
         <button 
           className={`stats-tab ${activeTab === 'progress' ? 'active' : ''}`}
+          type="button"
           onClick={() => setActiveTab('progress')}
         >
           Прогресс
         </button>
         <button 
           className={`stats-tab ${activeTab === 'achievements' ? 'active' : ''}`}
+          type="button"
           onClick={() => setActiveTab('achievements')}
         >
           Достижения
         </button>
       </div>
 
+      <div ref={statsPanelsRef} className="stats-tab-panels">
       {activeTab === 'overview' && (
         <div className="stats-content">
           {/* Выбор периода только для "Обзор" */}
@@ -431,6 +510,7 @@ const StatsScreen = () => {
           </div>
         </div>
       )}
+      </div>
       
       <WorkoutDetailsModal
         isOpen={workoutModal.isOpen}

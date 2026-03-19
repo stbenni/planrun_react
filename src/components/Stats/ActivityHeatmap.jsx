@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { CloseIcon } from '../common/Icons';
 
 const ActivityHeatmap = ({ data }) => {
   const [selectedDay, setSelectedDay] = useState(null);
@@ -280,7 +281,9 @@ const ActivityHeatmap = ({ data }) => {
         >
           <div className="tooltip-header">
             <span className="tooltip-date">{selectedDay.dateLabel}</span>
-            <button className="tooltip-close" onClick={handleCloseTooltip}>×</button>
+            <button type="button" className="tooltip-close" onClick={handleCloseTooltip} aria-label="Закрыть">
+              <CloseIcon className="modal-close-icon" />
+            </button>
           </div>
           <div className="tooltip-distance">
             {typeof selectedDay.distance === 'number' 

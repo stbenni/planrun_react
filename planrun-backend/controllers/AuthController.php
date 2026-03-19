@@ -5,6 +5,7 @@
 
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../services/AuthService.php';
+require_once __DIR__ . '/../config/RateLimiter.php';
 
 class AuthController extends BaseController {
     
@@ -67,6 +68,19 @@ class AuthController extends BaseController {
             if (!$username || $password === '' || $password === null) {
                 $bodyHint = ($data === null || $data === []) ? ' (body пустой)' : '';
                 $this->returnError('Имя пользователя и пароль обязательны' . $bodyHint, 400);
+                return;
+            }
+
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $normalizedUsername = function_exists('mb_strtolower')
+                ? mb_strtolower($username, 'UTF-8')
+                : strtolower($username);
+            $usernameKey = hash('sha256', $normalizedUsername);
+            try {
+                RateLimiter::check("login_ip_{$ip}", 10, 300);
+                RateLimiter::check("login_user_{$usernameKey}", 5, 300);
+            } catch (Exception $e) {
+                $this->returnError($e->getMessage(), 429);
                 return;
             }
 
@@ -133,12 +147,26 @@ class AuthController extends BaseController {
         }
         try {
             $data = $this->getJsonBody();
-            $email = $data['email'] ?? null;
-            if (!$email) {
+            $identifier = isset($data['email']) ? trim((string) $data['email']) : null;
+            if (!$identifier) {
                 $this->returnError('Введите email', 400);
                 return;
             }
-            $result = $this->authService->requestPasswordReset($email);
+
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $normalizedIdentifier = function_exists('mb_strtolower')
+                ? mb_strtolower($identifier, 'UTF-8')
+                : strtolower($identifier);
+            $identifierKey = hash('sha256', $normalizedIdentifier);
+            try {
+                RateLimiter::check("password_reset_ip_{$ip}", 5, 900);
+                RateLimiter::check("password_reset_identifier_{$identifierKey}", 3, 900);
+            } catch (Exception $e) {
+                $this->returnError($e->getMessage(), 429);
+                return;
+            }
+
+            $result = $this->authService->requestPasswordReset($identifier);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             if ($this->isPasswordResetTableMissing($e)) {
@@ -174,6 +202,17 @@ class AuthController extends BaseController {
                 $this->returnError('Токен и новый пароль обязательны', 400);
                 return;
             }
+
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $tokenKey = hash('sha256', (string) $token);
+            try {
+                RateLimiter::check("password_reset_confirm_ip_{$ip}", 10, 900);
+                RateLimiter::check("password_reset_confirm_token_{$tokenKey}", 10, 900);
+            } catch (Exception $e) {
+                $this->returnError($e->getMessage(), 429);
+                return;
+            }
+
             $result = $this->authService->confirmPasswordReset($token, $newPassword);
             $this->returnSuccess($result);
         } catch (Exception $e) {

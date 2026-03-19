@@ -30,7 +30,6 @@ paths:
               - check_auth
               - load
               - check_plan_status
-              - regenerate_plan
               - clear_plan_generation_message
               - get_day
               - get_result
@@ -53,7 +52,6 @@ paths:
               - chat_admin_unread_notifications
               - chat_admin_get_messages
               - run_weekly_adaptation
-              - request_password_reset
           description: Имя действия (см. полный список в описании)
       responses:
         '200':
@@ -94,6 +92,8 @@ paths:
               - reorder_day_exercises
               - regenerate_plan_with_progress
               - recalculate_plan
+              - generate_next_plan
+              - reactivate_plan
               - clear_plan_generation_message
               - update_profile
               - delete_user
@@ -102,6 +102,7 @@ paths:
               - update_privacy
               - notifications_dismiss
               - unlink_telegram
+              - request_password_reset
               - confirm_password_reset
               - admin_update_user
               - admin_update_settings
@@ -130,6 +131,160 @@ paths:
           description: Требуется авторизация
         '404':
           description: Действие не найдено
+
+  /register_api.php:
+    get:
+      summary: Валидация полей регистрации
+      description: Legacy endpoint регистрации. Сейчас используется для live-валидации `username` и `email`.
+      operationId: registerValidateField
+      tags: [registration]
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [validate_field]
+        - name: field
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [username, email]
+        - name: value
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Результат валидации
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  message:
+                    type: string
+
+    post:
+      summary: Регистрация и email verification
+      description: |
+        Используется для отправки email-кода, минимальной регистрации и полной регистрации.
+        Тип операции определяется телом запроса.
+      operationId: registerWorkflow
+      tags: [registration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [action, email]
+                  properties:
+                    action:
+                      type: string
+                      enum: [send_verification_code]
+                    email:
+                      type: string
+                      format: email
+                - type: object
+                  required: [register_minimal, username, email, password, verification_code]
+                  properties:
+                    register_minimal:
+                      type: boolean
+                      enum: [true]
+                    username:
+                      type: string
+                    email:
+                      type: string
+                      format: email
+                    password:
+                      type: string
+                    verification_code:
+                      type: string
+                - type: object
+                  required: [username, email, password]
+                  properties:
+                    username:
+                      type: string
+                    email:
+                      type: string
+                      format: email
+                    password:
+                      type: string
+                    verification_code:
+                      type: string
+                    goal_type:
+                      type: string
+                      enum: [health, race, weight_loss, time_improvement]
+                    race_date:
+                      type: string
+                      format: date
+                    race_distance:
+                      type: string
+                    training_mode:
+                      type: string
+                      enum: [ai, coach, both]
+            examples:
+              sendCode:
+                value:
+                  action: send_verification_code
+                  email: athlete@example.com
+              registerMinimal:
+                value:
+                  register_minimal: true
+                  username: runner
+                  email: runner@example.com
+                  password: strong-password
+                  verification_code: "123456"
+      responses:
+        '200':
+          description: Успех
+        '400':
+          description: Ошибка валидации
+        '429':
+          description: Сработал rate limit
+        '500':
+          description: Внутренняя ошибка
+
+  /complete_specialization_api.php:
+    post:
+      summary: Завершение onboarding и запуск генерации плана
+      description: |
+        Сохраняет специализацию/цели после минимальной регистрации и ставит AI-генерацию плана в очередь.
+      operationId: completeSpecialization
+      tags: [registration, plan]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal_type:
+                  type: string
+                  enum: [health, race, weight_loss, time_improvement]
+                race_date:
+                  type: string
+                  format: date
+                race_distance:
+                  type: string
+                training_mode:
+                  type: string
+                  enum: [ai, coach, both]
+      responses:
+        '200':
+          description: Специализация сохранена, генерация плана запущена
+        '400':
+          description: Ошибка валидации
+        '401':
+          description: Требуется авторизация
+        '500':
+          description: Внутренняя ошибка
 
 components:
   securitySchemes:

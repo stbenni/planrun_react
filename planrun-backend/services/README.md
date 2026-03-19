@@ -7,6 +7,8 @@
 ```
 services/
 ├── BaseService.php           # Базовый класс для всех сервисов
+├── PlanGenerationQueueService.php # Очередь задач генерации/пересчёта плана
+├── PlanGenerationProcessorService.php # Исполнение AI-задач генерации
 ├── TrainingPlanService.php   # Сервис для работы с планами тренировок
 └── README.md                 # Этот файл
 ```
@@ -78,6 +80,24 @@ $plan = $service->loadPlan($userId);
 - `deleteDayExercise($exerciseId, $userId)` - удалить упражнение
 - `reorderDayExercises($data, $userId)` - изменить порядок упражнений
 - `listExerciseLibrary($userId)` - получить библиотеку упражнений
+
+### EmailVerificationService
+- `sendVerificationCode($email)` - сохранить код подтверждения и отправить письмо
+- `verifyCode($email, $code)` - проверить код, срок действия и остаток попыток
+
+### RegistrationService
+- `validateField($field, $value)` - проверить доступность `username` и `email`
+- `registerMinimal($input)` - создать пользователя для минимальной регистрации и вернуть payload для автологина
+
+### PlanGenerationQueueService
+- `enqueue($userId, $jobType, $payload = [])` - поставить AI-задачу в очередь
+- `reserveNextJob()` - забрать следующую задачу worker-ом
+- `markCompleted($jobId, $result = [])` - завершить задачу
+- `markFailed($jobId, $errorMessage, $attempts, $maxAttempts)` - перевести задачу в retry/failed
+
+### PlanGenerationProcessorService
+- `process($userId, $jobType, $payload = [])` - выполнить генерацию, пересчёт или next plan
+- `persistFailure($userId, $message)` - сохранить ошибку генерации в план пользователя
 
 ### WeekService
 - `addWeek($data, $userId)` - добавить неделю

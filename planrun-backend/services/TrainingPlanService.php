@@ -9,16 +9,19 @@ require_once __DIR__ . '/../load_training_plan.php';
 require_once __DIR__ . '/../user_functions.php';
 require_once __DIR__ . '/../repositories/TrainingPlanRepository.php';
 require_once __DIR__ . '/../validators/TrainingPlanValidator.php';
+require_once __DIR__ . '/PlanGenerationQueueService.php';
 
 class TrainingPlanService extends BaseService {
     
     protected $repository;
     protected $validator;
+    protected $queueService;
     
     public function __construct($db) {
         parent::__construct($db);
         $this->repository = new TrainingPlanRepository($db);
         $this->validator = new TrainingPlanValidator();
+        $this->queueService = new PlanGenerationQueueService($db);
     }
     
     /**
@@ -68,12 +71,28 @@ class TrainingPlanService extends BaseService {
             
             // Используем репозиторий
             $planCheckRow = $this->repository->getPlanByUserId($userId);
+            $activeQueueJob = null;
+            $latestQueueJob = null;
+            $latestGeneration = null;
+            try {
+                if ($this->queueService->isQueueAvailable()) {
+                    $activeQueueJob = $this->queueService->findLatestActiveJobForUser((int) $userId);
+                    $latestQueueJob = $this->queueService->findLatestJobForUser((int) $userId);
+                    $latestGeneration = $this->extractGenerationDiagnostics($latestQueueJob);
+                }
+            } catch (Throwable $queueError) {
+                $this->logError('Не удалось загрузить статус очереди генерации плана', [
+                    'user_id' => $userId,
+                    'error' => $queueError->getMessage(),
+                ]);
+            }
             
             // Если есть ошибка генерации, возвращаем её
             if ($planCheckRow && !empty($planCheckRow['error_message'])) {
                 return [
                     'has_plan' => false,
                     'error' => $planCheckRow['error_message'],
+                    'latest_generation' => $latestGeneration,
                     'user_id' => $userId
                 ];
             }
@@ -88,6 +107,23 @@ class TrainingPlanService extends BaseService {
                     'has_plan' => false,
                     'generating' => true,
                     'has_old_plan' => $hasWeeksInDb,
+                    'job_id' => $activeQueueJob['id'] ?? null,
+                    'job_type' => $activeQueueJob['job_type'] ?? null,
+                    'queue_status' => $activeQueueJob['status'] ?? null,
+                    'latest_generation' => $latestGeneration,
+                    'user_id' => $userId
+                ];
+            }
+
+            if ($activeQueueJob) {
+                return [
+                    'has_plan' => false,
+                    'generating' => true,
+                    'has_old_plan' => false,
+                    'job_id' => (int) $activeQueueJob['id'],
+                    'job_type' => $activeQueueJob['job_type'] ?? null,
+                    'queue_status' => $activeQueueJob['status'] ?? null,
+                    'latest_generation' => $latestGeneration,
                     'user_id' => $userId
                 ];
             }
@@ -99,6 +135,7 @@ class TrainingPlanService extends BaseService {
 
             return [
                 'has_plan' => $hasPlan,
+                'latest_generation' => $latestGeneration,
                 'user_id' => $userId,
                 'debug' => [
                     'plan_data_exists' => !empty($planData),
@@ -122,8 +159,6 @@ class TrainingPlanService extends BaseService {
      * @throws Exception
      */
     public function regeneratePlan($userId) {
-        require_once __DIR__ . '/../planrun_ai/planrun_ai_config.php';
-        
         // Валидация
         if (!$this->validator->validateRegeneratePlan(['user_id' => $userId])) {
             $this->throwValidationException(
@@ -131,35 +166,10 @@ class TrainingPlanService extends BaseService {
                 $this->validator->getErrors()
             );
         }
-        
-        if (!isPlanRunAIAvailable()) {
-            $this->throwException('PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000', 503);
-        }
-        
+
         // Очищаем старую ошибку через репозиторий
         $this->repository->clearErrorMessage($userId);
-        
-        // Запускаем генерацию в фоне
-        $scriptPath = __DIR__ . '/../planrun_ai/generate_plan_async.php';
-        $logFile = '/tmp/plan_generation_' . $userId . '_' . time() . '.log';
-        
-        $phpPath = '/usr/bin/php';
-        if (!file_exists($phpPath)) {
-            $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-        }
-        
-        $command = "cd " . escapeshellarg(__DIR__ . '/..') . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-        
-        $output = [];
-        exec($command, $output, $returnVar);
-        $pid = !empty($output) ? trim($output[0]) : null;
-        
-        if (empty($pid)) {
-            $result = shell_exec($command);
-            if ($result) {
-                $pid = trim($result);
-            }
-        }
+        $queueResult = $this->queueService->enqueue((int) $userId, 'generate');
         
         // Устанавливаем сообщение в сессию
         if (session_status() === PHP_SESSION_NONE) {
@@ -169,12 +179,13 @@ class TrainingPlanService extends BaseService {
         
         $this->logInfo("Повторная генерация плана", [
             'user_id' => $userId,
-            'pid' => $pid ?: 'не определен'
+            'job_id' => $queueResult['job_id'] ?? null
         ]);
         
         return [
             'message' => 'Генерация плана запущена',
-            'pid' => $pid
+            'job_id' => $queueResult['job_id'] ?? null,
+            'queued' => true
         ];
     }
     
@@ -186,47 +197,18 @@ class TrainingPlanService extends BaseService {
      * @throws Exception
      */
     public function regeneratePlanWithProgress($userId) {
-        require_once __DIR__ . '/../planrun_ai/planrun_ai_config.php';
-        require_once __DIR__ . '/../planrun_ai/plan_generator.php';
-        
-        if (!isPlanRunAIAvailable()) {
-            $this->throwException('PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000', 503);
-        }
-        
         // Очищаем старую ошибку через репозиторий
         $this->repository->clearErrorMessage($userId);
-        
-        // Запускаем перегенерацию в фоне
-        $scriptPath = __DIR__ . '/../planrun_ai/generate_plan_async.php';
-        $logDir = __DIR__ . '/../logs';
-        $logFile = '/tmp/plan_regeneration_' . $userId . '_' . time() . '.log';
-        
-        if (is_dir($logDir) && is_writable($logDir)) {
-            $logFile = $logDir . '/plan_regeneration_' . $userId . '_' . time() . '.log';
-        } elseif (!is_dir($logDir)) {
-            @mkdir($logDir, 0777, true);
-            if (is_dir($logDir) && is_writable($logDir)) {
-                $logFile = $logDir . '/plan_regeneration_' . $userId . '_' . time() . '.log';
-            }
+        $deactivateStmt = $this->db->prepare(
+            "UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ? AND is_active = TRUE"
+        );
+        if ($deactivateStmt) {
+            $deactivateStmt->bind_param('i', $userId);
+            $deactivateStmt->execute();
+            $deactivateStmt->close();
         }
-        
-        $phpPath = '/usr/bin/php';
-        if (!file_exists($phpPath)) {
-            $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-        }
-        
-        $command = "cd " . escapeshellarg(__DIR__ . '/..') . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-        
-        $output = [];
-        exec($command, $output, $returnVar);
-        $pid = !empty($output) ? trim($output[0]) : null;
-        
-        if (empty($pid)) {
-            $result = shell_exec($command);
-            if ($result) {
-                $pid = trim($result);
-            }
-        }
+
+        $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate');
         
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -235,13 +217,41 @@ class TrainingPlanService extends BaseService {
         
         $this->logInfo("Перегенерация плана с прогрессом", [
             'user_id' => $userId,
-            'pid' => $pid ?: 'не определен'
+            'job_id' => $queueResult['job_id'] ?? null
         ]);
         
         return [
             'message' => 'Перегенерация плана запущена. Учитываются все ваши тренировки и прогресс.',
-            'pid' => $pid
+            'job_id' => $queueResult['job_id'] ?? null,
+            'queued' => true
         ];
+    }
+
+    private function extractGenerationDiagnostics(?array $job): ?array {
+        if (!$job) {
+            return null;
+        }
+
+        $diagnostics = [
+            'job_id' => isset($job['id']) ? (int) $job['id'] : null,
+            'job_type' => $job['job_type'] ?? null,
+            'status' => $job['status'] ?? null,
+            'finished_at' => $job['finished_at'] ?? null,
+            'started_at' => $job['started_at'] ?? null,
+        ];
+
+        if (!empty($job['result_json'])) {
+            $result = json_decode((string) $job['result_json'], true);
+            if (!empty($result['generation_metadata']) && is_array($result['generation_metadata'])) {
+                $diagnostics['generation_metadata'] = $result['generation_metadata'];
+            }
+        }
+
+        if (!empty($job['last_error'])) {
+            $diagnostics['last_error'] = $job['last_error'];
+        }
+
+        return $diagnostics;
     }
     
     /**
@@ -249,13 +259,6 @@ class TrainingPlanService extends BaseService {
      * Будущие тренировки пересчитываются, прошлые (workout_log) сохраняются.
      */
     public function recalculatePlan($userId, $reason = null) {
-        require_once __DIR__ . '/../planrun_ai/planrun_ai_config.php';
-        require_once __DIR__ . '/../planrun_ai/plan_generator.php';
-        
-        if (!isPlanRunAIAvailable()) {
-            $this->throwException('PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000', 503);
-        }
-        
         $this->repository->clearErrorMessage($userId);
         
         $deactivateStmt = $this->db->prepare(
@@ -267,43 +270,9 @@ class TrainingPlanService extends BaseService {
             $deactivateStmt->close();
         }
         
-        $reasonFile = null;
-        if ($reason !== null && $reason !== '') {
-            $reasonFile = sys_get_temp_dir() . '/recalc_reason_' . $userId . '_' . time() . '.txt';
-            file_put_contents($reasonFile, $reason);
-        }
-        
-        $scriptPath = __DIR__ . '/../planrun_ai/generate_plan_async.php';
-        $logDir = __DIR__ . '/../logs';
-        $logFile = '/tmp/plan_recalculate_' . $userId . '_' . time() . '.log';
-        
-        if (is_dir($logDir) && is_writable($logDir)) {
-            $logFile = $logDir . '/plan_recalculate_' . $userId . '_' . time() . '.log';
-        } elseif (!is_dir($logDir)) {
-            @mkdir($logDir, 0777, true);
-            if (is_dir($logDir) && is_writable($logDir)) {
-                $logFile = $logDir . '/plan_recalculate_' . $userId . '_' . time() . '.log';
-            }
-        }
-        
-        $phpPath = '/usr/bin/php';
-        if (!file_exists($phpPath)) {
-            $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-        }
-        
-        $reasonArg = $reasonFile ? " --reason-file=" . escapeshellarg($reasonFile) : "";
-        $command = "cd " . escapeshellarg(__DIR__ . '/..') . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " --recalculate" . $reasonArg . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-        
-        $output = [];
-        exec($command, $output, $returnVar);
-        $pid = !empty($output) ? trim($output[0]) : null;
-        
-        if (empty($pid)) {
-            $result = shell_exec($command);
-            if ($result) {
-                $pid = trim($result);
-            }
-        }
+        $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate', [
+            'reason' => $reason,
+        ]);
         
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -312,13 +281,14 @@ class TrainingPlanService extends BaseService {
         
         $this->logInfo("Пересчёт плана (recalculate)", [
             'user_id' => $userId,
-            'pid' => $pid ?: 'не определен',
+            'job_id' => $queueResult['job_id'] ?? null,
             'has_reason' => !empty($reason)
         ]);
         
         return [
             'message' => 'Пересчёт плана запущен. Учитываются ваши тренировки, пропуски и текущая форма.',
-            'pid' => $pid
+            'job_id' => $queueResult['job_id'] ?? null,
+            'queued' => true
         ];
     }
 
@@ -327,13 +297,6 @@ class TrainingPlanService extends BaseService {
      * Собирает полную историю тренировок и передаёт AI для правильной прогрессии.
      */
     public function generateNextPlan($userId, $goals = null) {
-        require_once __DIR__ . '/../planrun_ai/planrun_ai_config.php';
-        require_once __DIR__ . '/../planrun_ai/plan_generator.php';
-
-        if (!isPlanRunAIAvailable()) {
-            $this->throwException('PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000', 503);
-        }
-
         $this->repository->clearErrorMessage($userId);
 
         $deactivateStmt = $this->db->prepare(
@@ -345,43 +308,9 @@ class TrainingPlanService extends BaseService {
             $deactivateStmt->close();
         }
 
-        $goalsFile = null;
-        if ($goals !== null && $goals !== '') {
-            $goalsFile = sys_get_temp_dir() . '/next_plan_goals_' . $userId . '_' . time() . '.txt';
-            file_put_contents($goalsFile, $goals);
-        }
-
-        $scriptPath = __DIR__ . '/../planrun_ai/generate_plan_async.php';
-        $logDir = __DIR__ . '/../logs';
-        $logFile = '/tmp/plan_next_' . $userId . '_' . time() . '.log';
-
-        if (is_dir($logDir) && is_writable($logDir)) {
-            $logFile = $logDir . '/plan_next_' . $userId . '_' . time() . '.log';
-        } elseif (!is_dir($logDir)) {
-            @mkdir($logDir, 0777, true);
-            if (is_dir($logDir) && is_writable($logDir)) {
-                $logFile = $logDir . '/plan_next_' . $userId . '_' . time() . '.log';
-            }
-        }
-
-        $phpPath = '/usr/bin/php';
-        if (!file_exists($phpPath)) {
-            $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-        }
-
-        $goalsArg = $goalsFile ? " --goals-file=" . escapeshellarg($goalsFile) : "";
-        $command = "cd " . escapeshellarg(__DIR__ . '/..') . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " --next-plan" . $goalsArg . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-
-        $output = [];
-        exec($command, $output, $returnVar);
-        $pid = !empty($output) ? trim($output[0]) : null;
-
-        if (empty($pid)) {
-            $result = shell_exec($command);
-            if ($result) {
-                $pid = trim($result);
-            }
-        }
+        $queueResult = $this->queueService->enqueue((int) $userId, 'next_plan', [
+            'goals' => $goals,
+        ]);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -390,13 +319,14 @@ class TrainingPlanService extends BaseService {
 
         $this->logInfo("Генерация нового плана (next_plan)", [
             'user_id' => $userId,
-            'pid' => $pid ?: 'не определен',
+            'job_id' => $queueResult['job_id'] ?? null,
             'has_goals' => !empty($goals)
         ]);
 
         return [
             'message' => 'Генерация нового плана запущена. Учитываются все ваши достижения из предыдущего плана.',
-            'pid' => $pid
+            'job_id' => $queueResult['job_id'] ?? null,
+            'queued' => true
         ];
     }
 
@@ -414,6 +344,45 @@ class TrainingPlanService extends BaseService {
         }
         require_once __DIR__ . '/../cache_config.php';
         Cache::delete("training_plan_{$userId}");
+    }
+
+    /**
+     * Удалить план тренировок (сгенерированный ИИ).
+     * Удаляет weeks, days, exercises. Результаты тренировок (workout_log) сохраняются.
+     *
+     * @param int $userId ID пользователя
+     * @return void
+     */
+    public function clearPlan($userId) {
+        $this->repository->clearErrorMessage($userId);
+
+        $stmt = $this->db->prepare(
+            "DELETE FROM training_day_exercises WHERE user_id = ? AND plan_day_id IN (SELECT id FROM training_plan_days WHERE user_id = ?)"
+        );
+        if ($stmt) {
+            $stmt->bind_param('ii', $userId, $userId);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        $stmt = $this->db->prepare("DELETE FROM training_plan_days WHERE user_id = ?");
+        if ($stmt) {
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        $stmt = $this->db->prepare("DELETE FROM training_plan_weeks WHERE user_id = ?");
+        if ($stmt) {
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        require_once __DIR__ . '/../cache_config.php';
+        Cache::delete("training_plan_{$userId}");
+
+        $this->logInfo('План тренировок удалён', ['user_id' => $userId]);
     }
 
     /**

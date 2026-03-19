@@ -12,7 +12,7 @@
 body[data-theme="dark"],
 body:not([data-theme])[data-theme="dark"],
 [data-theme="dark"] body {
-  background: var(--bg-primary);
+  background-color: var(--app-background-base);
   color: var(--text-primary);
 }
 
@@ -57,7 +57,7 @@ body:not([data-theme])[data-theme="dark"],
 
 [data-theme="dark"] .dashboard,
 [data-theme="dark"] .stats-screen {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 /* .bottom-nav в тёмной теме использует Liquid Glass (--glass-bg) из sports-colors.css, не переопределяем */
@@ -100,27 +100,6 @@ body:not([data-theme])[data-theme="dark"],
 [data-theme="dark"] .btn-dashboard.btn-secondary {
   background: var(--bg-tertiary);
   color: var(--text-primary);
-}
-
-[data-theme="dark"] .stats-tab {
-  color: var(--text-secondary);
-}
-
-[data-theme="dark"] .stats-tab.active {
-  background: var(--primary-500);
-  color: white;
-}
-
-[data-theme="dark"] .time-range-btn {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-  color: var(--text-primary);
-}
-
-[data-theme="dark"] .time-range-btn.active {
-  background: var(--primary-500);
-  border-color: var(--primary-500);
-  color: white;
 }
 
 [data-theme="dark"] .chart-bar {

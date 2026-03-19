@@ -6,7 +6,7 @@
 
 ## Цель
 
-Поднять HTTP-прокси на VPS в EU/US, чтобы сервер `s-vladimirov.ru` мог делать запросы к Strava API через этот прокси.
+Поднять HTTP-прокси на VPS в EU/US, чтобы сервер `planrun.ru` мог делать запросы к Strava API через этот прокси.
 
 ---
 
@@ -14,7 +14,7 @@
 
 - VPS с Ubuntu 22.04 или Debian 12 (или новее)
 - Root или sudo
-- IP основного сервера (s-vladimirov.ru) — его нужно будет разрешить в прокси
+- IP основного сервера (`planrun.ru`) — его нужно будет разрешить в прокси
 
 ---
 
@@ -36,7 +36,7 @@ apt update && apt install -y tinyproxy
 Port 8888
 Listen 0.0.0.0
 
-# Разрешить доступ ТОЛЬКО с IP основного сервера (s-vladimirov.ru)
+# Разрешить доступ ТОЛЬКО с IP основного сервера (planrun.ru)
 Allow YOUR_MAIN_SERVER_IP
 
 LogLevel Critical
@@ -80,7 +80,7 @@ curl -x http://PROXY_SERVER_IP:8888 https://www.strava.com/api/v3/athlete -I
 
 ## Итоговые данные для .env
 
-На основном сервере (s-vladimirov.ru) в `.env`:
+На основном сервере (`planrun.ru`) в `.env`:
 
 ```
 STRAVA_PROXY=http://PROXY_SERVER_IP:8888

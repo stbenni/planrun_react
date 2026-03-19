@@ -142,7 +142,7 @@ class AuthService extends BaseService {
             return ['sent' => false, 'message' => 'У этого аккаунта не указан email. Обратитесь в поддержку для восстановления доступа.'];
         }
 
-        $this->ensurePasswordResetTable();
+        $this->assertPasswordResetTableAvailable();
 
         try {
             $stmt = $this->db->prepare('DELETE FROM password_reset_tokens WHERE user_id = ?');
@@ -260,7 +260,7 @@ class AuthService extends BaseService {
             $this->throwException('Пароль должен быть не менее 6 символов', 400);
         }
 
-        $this->ensurePasswordResetTable();
+        $this->assertPasswordResetTableAvailable();
 
         $stmt = $this->db->prepare('
             SELECT prt.user_id, prt.token 
@@ -294,21 +294,12 @@ class AuthService extends BaseService {
     }
 
     /**
-     * Создать таблицу password_reset_tokens при отсутствии (миграция при первом использовании).
+     * Проверить, что миграция password_reset_tokens применена.
      */
-    private function ensurePasswordResetTable() {
-        $sql = "CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id INT UNSIGNED NOT NULL,
-            token VARCHAR(64) NOT NULL,
-            expires_at DATETIME NOT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_token (token),
-            INDEX idx_user_id (user_id),
-            INDEX idx_expires_at (expires_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-        if (!$this->db->query($sql)) {
-            $this->logError('ensurePasswordResetTable failed', ['error' => $this->db->error]);
+    private function assertPasswordResetTableAvailable() {
+        $check = @$this->db->query("SHOW TABLES LIKE 'password_reset_tokens'");
+        if (!$check || $check->num_rows === 0) {
+            $this->logError('password_reset_tokens migration missing', ['error' => $this->db->error]);
             $this->throwException('Сервис сброса пароля временно недоступен. Обратитесь к администратору сайта.', 503);
         }
     }

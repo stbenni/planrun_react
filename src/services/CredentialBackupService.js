@@ -9,14 +9,20 @@
 import { Preferences } from '@capacitor/preferences';
 import { isNativeCapacitor } from './TokenStorageService';
 
-const PBKDF2_ITERATIONS = 1000;
+const CURRENT_PBKDF2_ITERATIONS = 120000;
+const LEGACY_PBKDF2_ITERATIONS = 1000;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const KEY_LENGTH = 256;
 const PREFIX = 'auth_cred_backup_';
 const KEY_SECURE = 'auth_cred_backup_secure';
+const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
 
 async function deriveKey(salt, pin) {
+  return deriveKeyWithIterations(salt, pin, CURRENT_PBKDF2_ITERATIONS);
+}
+
+async function deriveKeyWithIterations(salt, pin, iterations) {
   const encoder = new TextEncoder();
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
@@ -26,7 +32,7 @@ async function deriveKey(salt, pin) {
     ['deriveKey']
   );
   return window.crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: KEY_LENGTH },
     false,
@@ -46,22 +52,67 @@ function base64Decode(str) {
   return Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
 }
 
+function encodePayload(combined, iterations) {
+  return `v2:${iterations}:${base64Encode(combined)}`;
+}
+
+function decodePayload(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Данные не найдены');
+  }
+  if (value.startsWith('v2:')) {
+    const match = value.match(/^v2:(\d+):(.+)$/);
+    if (!match) throw new Error('Повреждённый формат данных');
+    return {
+      combined: base64Decode(match[2]),
+      iterations: Number(match[1]) || CURRENT_PBKDF2_ITERATIONS
+    };
+  }
+  return {
+    combined: base64Decode(value),
+    iterations: LEGACY_PBKDF2_ITERATIONS
+  };
+}
+
 class CredentialBackupService {
   async isAvailable() {
     return typeof window !== 'undefined' && isNativeCapacitor() && !!window.crypto?.subtle;
   }
 
   async hasCredentials() {
+    return this.hasCredentialsFor('any');
+  }
+
+  async hasCredentialsFor(mode = 'any') {
     try {
       if (!(await this.isAvailable())) return false;
-      const r = await Preferences.get({ key: `${PREFIX}enabled` });
-      if (r.value === 'true') return true;
-      const storage = await this._getSecureStorage();
-      if (storage) {
-        const v = await storage.get(KEY_SECURE);
-        return !!v;
+      const allowPin = mode === 'any' || mode === 'pin';
+      const allowBiometric = mode === 'any' || mode === 'biometric';
+
+      if (allowPin) {
+        const enabled = await Preferences.get({ key: `${PREFIX}enabled` });
+        const data = await Preferences.get({ key: `${PREFIX}data` });
+        if (enabled.value === 'true' && !!data.value) return true;
       }
+
+      if (allowBiometric && await this.isBiometricRecoveryEnabled()) {
+        const storage = await this._getSecureStorage();
+        if (storage) {
+          const v = await storage.get(KEY_SECURE);
+          if (v) return true;
+        }
+      }
+
       return false;
+    } catch {
+      return false;
+    }
+  }
+
+  async isBiometricRecoveryEnabled() {
+    try {
+      const enabled = await Preferences.get({ key: BIOMETRIC_ENABLED_KEY });
+      return enabled.value === 'true';
     } catch {
       return false;
     }
@@ -79,7 +130,8 @@ class CredentialBackupService {
   }
 
   /**
-   * Сохранить в SecureStorage (для восстановления по биометрии). Вызывается при каждом входе.
+   * Сохранить в SecureStorage для повторной авторизации после истечения токенов.
+   * Вызывается при каждом входе на native, а использоваться будет только в сценариях PIN/биометрии.
    */
   async saveCredentialsSecure(username, password) {
     if (!username || !password) return false;
@@ -102,6 +154,9 @@ class CredentialBackupService {
     try {
       if (!(await this.isAvailable())) return { success: false, error: 'Недоступно' };
       if (!api) return { success: false, error: 'API не инициализирован' };
+      if (!(await this.isBiometricRecoveryEnabled())) {
+        return { success: false, error: 'Биометрическое восстановление не включено' };
+      }
       const storage = await this._getSecureStorage();
       if (!storage) return { success: false, error: 'Хранилище недоступно' };
       const raw = await storage.get(KEY_SECURE);
@@ -150,7 +205,7 @@ class CredentialBackupService {
     combined.set(new Uint8Array(ciphertext), salt.length + iv.length);
 
     await Preferences.set({ key: `${PREFIX}enabled`, value: 'true' });
-    await Preferences.set({ key: `${PREFIX}data`, value: base64Encode(combined) });
+    await Preferences.set({ key: `${PREFIX}data`, value: encodePayload(combined, CURRENT_PBKDF2_ITERATIONS) });
     return true;
   }
 
@@ -172,12 +227,12 @@ class CredentialBackupService {
       const dataResult = await Preferences.get({ key: `${PREFIX}data` });
       const dataB64 = dataResult?.value;
       if (dataB64) {
-        const combined = base64Decode(dataB64);
+        const { combined, iterations } = decodePayload(dataB64);
         const salt = combined.slice(0, SALT_LENGTH);
         const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
         const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
         const p = String(pin).replace(/\D/g, '');
-        const key = await deriveKey(salt, p);
+        const key = await deriveKeyWithIterations(salt, p, iterations);
         const decrypted = await window.crypto.subtle.decrypt(
           { name: 'AES-GCM', iv, tagLength: 128 },
           key,

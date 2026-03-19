@@ -475,7 +475,7 @@ const UserProfileScreen = () => {
           <div className="profile-avatar">
             {profileUser.avatar_path ? (
               <img
-                src={getAvatarSrc(profileUser.avatar_path, api?.baseUrl || '/api')}
+                src={getAvatarSrc(profileUser.avatar_path, api?.baseUrl || '/api', 'md')}
                 alt={profileUser.username}
                 className="avatar-large avatar-square"
               />
@@ -566,7 +566,7 @@ const UserProfileScreen = () => {
                   <Link key={coach.id} to={`/${coach.username_slug}`} className="profile-coach-item">
                     {coach.avatar_path ? (
                       <img
-                        src={getAvatarSrc(coach.avatar_path, api?.baseUrl || '/api')}
+                        src={getAvatarSrc(coach.avatar_path, api?.baseUrl || '/api', 'sm')}
                         alt={coach.username}
                         className="profile-coach-avatar"
                       />

@@ -41,7 +41,7 @@ if (!$token) {
     exit(1);
 }
 
-$host = env('APP_URL', 'https://s-vladimirov.ru');
+$host = env('APP_URL', 'https://planrun.ru');
 $host = rtrim($host, '/');
 $api = $host . '/api';
 

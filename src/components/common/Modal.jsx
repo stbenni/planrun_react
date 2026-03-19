@@ -5,6 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { CloseIcon } from './Icons';
 import './Modal.css';
 
 const Modal = ({ isOpen, onClose, title, children, size = 'medium', hideHeader = false, centerBody = false, variant = 'default', headerActions = null, headerSubtitle = null }) => {
@@ -53,12 +54,16 @@ const Modal = ({ isOpen, onClose, title, children, size = 'medium', hideHeader =
             </div>
             <div className="app-modal-header-right">
               {headerActions}
-              <span className={`app-modal-close ${isModern ? 'app-modal-close--modern' : ''}`} onClick={onClose} aria-label="Закрыть">&times;</span>
+              <span className={`app-modal-close ${isModern ? 'app-modal-close--modern' : ''}`} onClick={onClose} aria-label="Закрыть">
+                <CloseIcon className="modal-close-icon" />
+              </span>
             </div>
           </div>
         )}
         {hideHeader && (
-          <span className="app-modal-close app-modal-close--float" onClick={onClose} aria-label="Закрыть">&times;</span>
+          <span className="app-modal-close app-modal-close--float" onClick={onClose} aria-label="Закрыть">
+            <CloseIcon className="modal-close-icon" />
+          </span>
         )}
         <div className={`app-modal-body ${isModern ? 'app-modal-body--modern' : ''} ${centerBody ? 'app-modal-body--center' : ''}`}>
           {children}

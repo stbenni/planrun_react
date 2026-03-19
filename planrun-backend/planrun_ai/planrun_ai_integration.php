@@ -6,6 +6,21 @@
 
 require_once __DIR__ . '/planrun_ai_config.php';
 
+function resolvePlanRunAIMaxTokens(array $userData): int {
+    $expectedWeeks = !empty($userData['plan_skeleton']['weeks']) && is_array($userData['plan_skeleton']['weeks'])
+        ? count($userData['plan_skeleton']['weeks'])
+        : 0;
+
+    if ($expectedWeeks >= 14) {
+        return 20000;
+    }
+    if ($expectedWeeks >= 10) {
+        return 16000;
+    }
+
+    return 12000;
+}
+
 /**
  * Генерация плана через PlanRun AI API
  *
@@ -40,17 +55,18 @@ function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3, $userId = null) {
             $goalType = $userData['goal_type'] ?? 'health';
             
             // Подготовка запроса
+            $maxTokens = resolvePlanRunAIMaxTokens(is_array($userData) ? $userData : []);
             $requestData = [
                 'user_data' => $userData,
                 'user_id' => $userId,
                 'goal_type' => $goalType,
                 'include_knowledge' => true, // Использовать RAG
                 'temperature' => 0.3,
-                'max_tokens' => 24000, // Увеличено до 24k для локальной LLM
+                'max_tokens' => $maxTokens,
                 'base_prompt' => $prompt // Передаем промпт как базовый
             ];
             
-            error_log("callPlanRunAIAPI: Отправка запроса к PlanRun AI API...");
+            error_log("callPlanRunAIAPI: Отправка запроса к PlanRun AI API... max_tokens={$maxTokens}");
             
             $ch = curl_init(PLANRUN_AI_API_URL);
             curl_setopt_array($ch, [

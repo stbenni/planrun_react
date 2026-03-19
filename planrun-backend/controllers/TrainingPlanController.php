@@ -144,6 +144,23 @@ class TrainingPlanController extends BaseController {
     }
 
     /**
+     * Удалить план тренировок (сгенерированный ИИ).
+     * POST /api_v2.php?action=clear_plan
+     */
+    public function clearPlan() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+
+        try {
+            $this->planService->clearPlan($this->currentUserId);
+            $this->returnSuccess(['cleared' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Очистить сообщение о генерации плана
      * GET /api_v2.php?action=clear_plan_generation_message
      */

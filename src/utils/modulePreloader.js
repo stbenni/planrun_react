@@ -3,24 +3,31 @@
  * Ускоряет навигацию между страницами
  */
 
-/**
- * Предзагружает все основные экраны приложения
- * Вызывается сразу при загрузке приложения для мгновенных переходов
- */
-export const preloadScreenModules = () => {
+function runWhenIdle(callback, timeout = 1200) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  // Предзагружаем все экраны в фоне сразу
-  Promise.all([
-    import('../screens/DashboardScreen'),
-    import('../screens/CalendarScreen'),
-    import('../screens/ChatScreen'),
-    import('../screens/SettingsScreen'),
-    import('../screens/StatsScreen')
-  ]).catch(err => {
-    console.warn('Module preload failed:', err);
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(callback, { timeout });
+    return;
+  }
+
+  setTimeout(callback, Math.min(timeout, 400));
+}
+
+/**
+ * Предзагружает только вторичные экраны, а не весь основной shell.
+ */
+export const preloadScreenModules = () => {
+  runWhenIdle(() => {
+    Promise.all([
+      import('../screens/CalendarScreen'),
+      import('../screens/StatsScreen'),
+      import('../screens/ChatScreen'),
+    ]).catch((err) => {
+      console.warn('Module preload failed:', err);
+    });
   });
 };
 
@@ -39,24 +46,24 @@ export const preloadScreenModulesDelayed = (delay = 300) => {
 };
 
 /**
- * Предзагружает модули немедленно при загрузке приложения
- * Создает ощущение что приложение уже готово, просто подгружаются данные
+ * Предзагружает модули для авторизованного пользователя в фоне без давления на initial load.
  */
-export const preloadAllModulesImmediate = () => {
-  if (typeof window === 'undefined') {
-    return;
-  }
+export const preloadAuthenticatedModules = (role = 'user') => {
+  runWhenIdle(() => {
+    const imports = [
+      import('../screens/CalendarScreen'),
+      import('../screens/StatsScreen'),
+    ];
 
-  // Загружаем сразу, без задержки
-  preloadScreenModules();
-  
-  // Также предзагружаем общие компоненты
-  Promise.all([
-    import('../components/common/BottomNav'),
-    import('../components/common/TopHeader'),
-    import('../components/common/PageTransition'),
-    import('../components/common/SkeletonScreen')
-  ]).catch(err => {
-    console.warn('Common components preload failed:', err);
-  });
+    if (role === 'coach') {
+      imports.push(import('../screens/TrainersScreen'));
+    } else {
+      imports.push(import('../screens/ChatScreen'));
+      imports.push(import('../screens/SettingsScreen'));
+    }
+
+    Promise.all(imports).catch((err) => {
+      console.warn('Authenticated module preload failed:', err);
+    });
+  }, 1800);
 };

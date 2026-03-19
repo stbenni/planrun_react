@@ -44,10 +44,12 @@ if (!function_exists('login')) {
 if (!function_exists('logout')) {
     function logout() {
         $_SESSION = array();
-        if (isset($_COOKIE[session_name()])) {
+        if (session_status() === PHP_SESSION_ACTIVE && isset($_COOKIE[session_name()])) {
             setcookie(session_name(), '', time() - 3600, '/');
         }
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
     }
 }
 

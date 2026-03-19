@@ -9,6 +9,40 @@ require_once __DIR__ . '/../cache_config.php';
 
 class RateLimiter {
     /**
+     * Определяет бакет лимита для конкретного API action.
+     *
+     * Важно не относить лёгкие read-endpoint'ы вроде get_plan_notifications
+     * к тяжёлым операциям plan_generation только из-за подстроки "plan".
+     *
+     * @param string $action
+     * @return string
+     */
+    public static function resolveApiActionBucket($action) {
+        $action = (string) $action;
+
+        $planGenerationActions = [
+            'regenerate_plan',
+            'regenerate_plan_with_progress',
+            'recalculate_plan',
+            'generate_next_plan',
+        ];
+
+        if (in_array($action, $planGenerationActions, true)) {
+            return 'plan_generation';
+        }
+
+        if ($action === 'run_weekly_adaptation') {
+            return 'adaptation';
+        }
+
+        if (strpos($action, 'chat_send') === 0) {
+            return 'chat';
+        }
+
+        return 'default';
+    }
+
+    /**
      * Проверка лимита запросов
      * 
      * @param string $key Уникальный ключ (например, "api_user_1")
@@ -122,7 +156,7 @@ class RateLimiter {
      */
     public static function checkApiLimit($userId, $action = 'default') {
         $limits = [
-            'default' => ['max' => 100, 'window' => 60],      // 100 запросов в минуту
+            'default' => ['max' => 1000, 'window' => 60],     // 1000 запросов в минуту
             'plan_generation' => ['max' => 5, 'window' => 3600],  // 5 запросов в час
             'chat' => ['max' => 20, 'window' => 60],          // 20 сообщений AI в минуту
             'adaptation' => ['max' => 3, 'window' => 3600],      // 3 запроса в час (было 1 в день)
@@ -136,4 +170,3 @@ class RateLimiter {
         return self::check($key, $limit['max'], $limit['window']);
     }
 }
-

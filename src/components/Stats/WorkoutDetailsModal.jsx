@@ -10,6 +10,7 @@ import { HeartRateChart, PaceChart } from './index';
 import WorkoutShareCard from './WorkoutShareCard';
 import Modal from '../common/Modal';
 import LogoLoading from '../common/LogoLoading';
+import { CloseIcon } from '../common/Icons';
 import useAuthStore from '../../stores/useAuthStore';
 import {
   getActivityTypeLabel, getWorkoutDisplayType, getSourceLabel,
@@ -244,7 +245,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, weekNumb
               onClick={closeSharePopup}
               aria-label="Закрыть"
             >
-              ×
+              <CloseIcon className="modal-close-icon" />
             </button>
             <div className="workout-share-popup-image-wrap">
               <img src={sharePopup.dataUrl} alt="Тренировка" className="workout-share-popup-image" />

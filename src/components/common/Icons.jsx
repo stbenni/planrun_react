@@ -48,6 +48,7 @@ import {
   Pointer,
   Medal,
   Flag,
+  X,
   XCircle,
   Settings,
   SkipForward,
@@ -232,6 +233,9 @@ export function MedalIcon(props) {
 }
 export function FlagIcon(props) {
   return <Flag {...iconProps} {...props} />;
+}
+export function CloseIcon({ size = 18, strokeWidth = 2.4, ...props }) {
+  return <X size={size} strokeWidth={strokeWidth} aria-hidden {...props} />;
 }
 export function XCircleIcon(props) {
   return <XCircle {...iconProps} {...props} />;

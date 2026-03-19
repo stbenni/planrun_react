@@ -3,30 +3,174 @@
  * Используйте .card для контейнеров; модификаторы .card--compact, .card--interactive
  */
 
+:root {
+  --card-surface-radius: var(--radius-2xl);
+  --card-surface-radius-compact: calc(var(--radius-xl) + 2px);
+  --card-surface-padding: var(--space-6);
+  --card-surface-padding-compact: var(--space-4);
+  --card-surface-bg:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2.4%, rgba(255, 255, 255, 0.52)) 0%,
+      color-mix(in srgb, var(--primary-500) 0.9%, rgba(244, 247, 251, 0.24)) 100%
+    );
+  --card-surface-border: color-mix(in srgb, var(--primary-500) 7.5%, rgba(226, 232, 240, 0.44));
+  --card-surface-shadow:
+    0 16px 34px rgba(15, 23, 42, 0.06),
+    0 8px 20px rgba(252, 76, 2, 0.05),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.025);
+  --card-surface-shadow-hover:
+    0 22px 42px rgba(15, 23, 42, 0.09),
+    0 12px 28px rgba(252, 76, 2, 0.08),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.04);
+  --card-surface-overlay:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.14), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(252, 76, 2, 0.07), transparent 32%);
+  --card-surface-backdrop: blur(calc(var(--surface-glass-blur) * 0.92)) saturate(1.16);
+  --card-surface-backdrop-webkit: blur(calc(var(--surface-glass-blur) * 0.92)) saturate(1.16);
+  --card-surface-compact-bg:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2%, rgba(255, 255, 255, 0.42)) 0%,
+      color-mix(in srgb, var(--primary-500) 0.85%, rgba(244, 247, 251, 0.2)) 100%
+    );
+  --card-surface-compact-border: color-mix(in srgb, var(--primary-500) 7%, rgba(226, 232, 240, 0.36));
+  --card-surface-compact-shadow:
+    var(--surface-glass-inset),
+    0 10px 22px rgba(15, 23, 42, 0.05),
+    0 6px 14px rgba(252, 76, 2, 0.05),
+    0 0 0 1px rgba(252, 76, 2, 0.025);
+  --card-surface-compact-shadow-hover:
+    0 16px 30px rgba(15, 23, 42, 0.08),
+    0 10px 22px rgba(252, 76, 2, 0.07),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.045);
+  --card-surface-compact-overlay:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.12), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(252, 76, 2, 0.05), transparent 30%);
+  --card-surface-compact-backdrop: blur(calc(var(--surface-glass-blur) * 0.76)) saturate(1.12);
+  --card-surface-compact-backdrop-webkit: blur(calc(var(--surface-glass-blur) * 0.76)) saturate(1.12);
+}
+
 .card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  padding: var(--card-surface-padding);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+  opacity: 0.96;
 }
 
 .card--compact {
-  padding: var(--space-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--card-surface-radius-compact);
+  padding: var(--card-surface-padding-compact);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+}
+
+.card--compact::before {
+  background: var(--card-surface-compact-overlay);
+}
+
+.card--nested {
+  border-radius: var(--card-surface-radius-compact);
+  padding: var(--card-surface-padding-compact);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+}
+
+.card--nested::before {
+  background: var(--card-surface-compact-overlay);
 }
 
 .card--interactive:hover {
-  border-color: var(--gray-300);
-  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--primary-500) 14%, var(--card-surface-border));
+  box-shadow: var(--card-surface-shadow-hover);
+  transform: translateY(-3px);
+}
+
+.card--compact.card--interactive:hover,
+.card--nested.card--interactive:hover {
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 [data-theme="dark"] .card {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+}
+
+[data-theme="dark"] .card::before {
+  background: var(--card-surface-overlay);
 }
 
 [data-theme="dark"] .card--interactive:hover {
-  border-color: var(--gray-500);
+  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
+  box-shadow: var(--card-surface-shadow-hover);
+}
+
+[data-theme="dark"] {
+  --card-surface-bg:
+    linear-gradient(
+      180deg,
+      rgba(18, 24, 33, 0.58) 0%,
+      rgba(10, 14, 20, 0.42) 100%
+    );
+  --card-surface-border: color-mix(in srgb, var(--primary-500) 7%, rgba(255, 255, 255, 0.14));
+  --card-surface-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.32),
+    0 2px 10px rgba(252, 76, 2, 0.06),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.03);
+  --card-surface-shadow-hover:
+    0 10px 30px rgba(0, 0, 0, 0.38),
+    0 4px 16px rgba(252, 76, 2, 0.08),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.06);
+  --card-surface-overlay:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.035), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(252, 76, 2, 0.05), transparent 30%);
+  --card-surface-compact-bg:
+    linear-gradient(
+      180deg,
+      rgba(16, 21, 29, 0.52) 0%,
+      rgba(10, 14, 20, 0.34) 100%
+    );
+  --card-surface-compact-border: color-mix(in srgb, var(--primary-500) 6%, rgba(255, 255, 255, 0.12));
+  --card-surface-compact-shadow:
+    var(--surface-glass-inset),
+    0 8px 20px rgba(0, 0, 0, 0.24),
+    0 4px 12px rgba(252, 76, 2, 0.06),
+    0 0 0 1px rgba(252, 76, 2, 0.03);
+  --card-surface-compact-shadow-hover:
+    0 12px 28px rgba(0, 0, 0, 0.3),
+    0 6px 16px rgba(252, 76, 2, 0.07),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.05);
+  --card-surface-compact-overlay:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.025), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(252, 76, 2, 0.04), transparent 30%);
 }

@@ -18,7 +18,7 @@ sudo ./deploy/fix-api-permissions.sh
 Открой в браузере или выполни:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" https://s-vladimirov.ru/api/health.php
+curl -s -o /dev/null -w "%{http_code}" https://planrun.ru/api/health.php
 ```
 
 - **200** — Nginx и PHP-FPM работают, путь к скриптам верный. Значит 502 даёт уже `api_wrapper.php` или его зависимости (см. шаг 2).
@@ -39,9 +39,9 @@ sudo journalctl -u php8.3-fpm -n 50 --no-pager
 Проверь права (PHP-FPM обычно под пользователем `www-data`):
 
 ```bash
-ls -la /var/www/vladimirov/api/
-ls -la /var/www/vladimirov/planrun-backend/.env
-sudo -u www-data cat /var/www/vladimirov/planrun-backend/.env >/dev/null && echo "OK: www-data читает .env" || echo "FAIL: www-data не может прочитать .env"
+ls -la /var/www/planrun/api/
+ls -la /var/www/planrun/planrun-backend/.env
+sudo -u www-data cat /var/www/planrun/planrun-backend/.env >/dev/null && echo "OK: www-data читает .env" || echo "FAIL: www-data не может прочитать .env"
 ```
 
 ## 3. Если и health.php отдаёт 502
@@ -49,14 +49,14 @@ sudo -u www-data cat /var/www/vladimirov/planrun-backend/.env >/dev/null && echo
 Проверь логи Nginx и сгенерированный конфиг:
 
 ```bash
-sudo tail -20 /var/log/nginx/vladimirov-error.log
-grep -A2 "SCRIPT_FILENAME" /etc/nginx/sites-available/vladimirov-le-ssl.conf
+sudo tail -20 /var/log/nginx/planrun-error.log
+grep -A2 "SCRIPT_FILENAME" /etc/nginx/sites-available/planrun
 ```
 
 Убедись, что путь к скрипту существует и совпадает с тем, что в конфиге:
 
 ```bash
-ls -la /var/www/vladimirov/api/api_wrapper.php
+ls -la /var/www/planrun/api/api_wrapper.php
 ```
 
 Проверь, что сокет PHP-FPM доступен и сервис запущен:
@@ -88,4 +88,4 @@ PHP_FPM_SOCK=127.0.0.1:9999 sudo ./deploy/apply-nginx.sh
 sudo grep -r open_basedir /etc/php/8.3/fpm/
 ```
 
-Если там только один каталог (например, только `dist`), добавь туда `/var/www/vladimirov` или отключи ограничение для этого пула.
+Если там только один каталог (например, только `dist`), добавь туда `/var/www/planrun` или отключи ограничение для этого пула.

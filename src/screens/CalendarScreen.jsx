@@ -75,14 +75,14 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       ? { slug: athleteData.user.username_slug || athleteSlug }
       : externalViewContext;
   }, [athleteSlug, athleteData, externalViewContext]);
-  const canEdit = athleteSlug ? (athleteData?.access?.can_edit ?? false) : externalCanEdit;
-  const isOwner = athleteSlug ? false : externalIsOwner;
-  const canView = athleteSlug ? (athleteData?.access?.can_view ?? false) : externalCanView;
+  const canEdit = athleteSlug ? (athleteData?.access?.can_edit ?? (athleteData?.user?.id === user?.id)) : externalCanEdit;
+  const isOwner = athleteSlug ? (athleteData?.access?.is_owner ?? (athleteData?.user?.id === user?.id)) : externalIsOwner;
+  const canView = athleteSlug ? (athleteData?.access?.can_view ?? (athleteData?.user?.id === user?.id)) : externalCanView;
 
   // Используем targetUserId если передан, иначе текущего пользователя
   const calendarUserId = targetUserId || (athleteData?.user?.id) || user?.id;
   const [plan, setPlan] = useState(null);
-  const openedFromStateRef = useRef(false);
+  const handledNavigationStateKeyRef = useRef(null);
   const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам (сводка)
   const [workoutsListByDate, setWorkoutsListByDate] = useState({}); // Отдельные тренировки по датам (для проверки типов)
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
@@ -94,14 +94,27 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [dayModalRefreshKey, setDayModalRefreshKey] = useState(0);
   const [workoutDetailsModal, setWorkoutDetailsModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null, selectedWorkoutId: null });
   const { recalculating, recalculatePlan, generatingNext, generateNextPlan } = usePlanStore();
+  const planFromStore = usePlanStore((s) => s.plan);
+  const planStatus = usePlanStore((s) => s.planStatus);
   const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
   const [recalcReason, setRecalcReason] = useState('');
   const [showNextPlanModal, setShowNextPlanModal] = useState(false);
   const [nextPlanGoals, setNextPlanGoals] = useState('');
-  const hasPlan = plan && Array.isArray(plan.weeks_data) && plan.weeks_data.length > 0;
+  const [showClearPlanConfirm, setShowClearPlanConfirm] = useState(false);
+  const [clearingPlan, setClearingPlan] = useState(false);
+  const getWeeksData = (p) => {
+    if (!p) return null;
+    if (Array.isArray(p.weeks_data) && p.weeks_data.length > 0) return p.weeks_data;
+    const phase = p.phases?.[0];
+    if (phase && Array.isArray(phase.weeks_data) && phase.weeks_data.length > 0) return phase.weeks_data;
+    return null;
+  };
+  const weeksData = getWeeksData(plan) || getWeeksData(planFromStore);
+  const hasPlan = !!weeksData || !!planStatus?.has_plan;
 
-  const isPlanCompleted = hasPlan && (() => {
-    const weeks = plan.weeks_data;
+  const isPlanCompleted = hasPlan && weeksData && (() => {
+    const weeks = weeksData;
+    if (!Array.isArray(weeks) || weeks.length === 0) return false;
     const lastWeek = weeks.reduce((latest, w) => {
       if (!w?.start_date) return latest;
       if (!latest) return w;
@@ -143,6 +156,22 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
     }
   }, [generateNextPlan, nextPlanGoals]);
 
+  const handleClearPlan = useCallback(async () => {
+    if (!api) return;
+    setShowClearPlanConfirm(false);
+    setClearingPlan(true);
+    try {
+      await api.clearPlan();
+      setPlan({ weeks_data: [] });
+      usePlanStore.getState().clearPlan();
+      useWorkoutRefreshStore.getState().triggerRefresh();
+    } catch (err) {
+      console.error('Error clearing plan:', err);
+    } finally {
+      setClearingPlan(false);
+    }
+  }, [api]);
+
   // Инициализируем viewMode: если передан externalViewMode, используем его, иначе 'week'
   // Если externalViewMode задан, он фиксирует режим (для публичных профилей)
   // Если не задан, пользователь может свободно переключаться
@@ -156,9 +185,9 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
     }
   }, [externalViewMode]);
 
-  const getCurrentWeekNumber = (plan) => {
-    const weeksData = plan?.weeks_data;
-    if (!plan || !Array.isArray(weeksData)) return null;
+  const getCurrentWeekNumber = (p) => {
+    const weeksData = getWeeksData(p);
+    if (!weeksData) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     for (const week of weeksData) {
@@ -207,15 +236,16 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   // Переход с дашборда с датой (карточка «Сегодня» / «Следующая») — открыть день в модалке
   useEffect(() => {
     const stateDate = location.state?.date;
-    if (!stateDate || !plan || openedFromStateRef.current) return;
-    openedFromStateRef.current = true;
+    if (!stateDate || !plan) return;
+    if (handledNavigationStateKeyRef.current === location.key) return;
+    handledNavigationStateKeyRef.current = location.key;
     setDayModal({
       isOpen: true,
       date: stateDate,
       week: location.state?.week ?? null,
       day: location.state?.day ?? null,
     });
-  }, [plan, location.state]);
+  }, [location.key, plan, location.state]);
 
   const loadPlan = async (options = {}) => {
     const silent = options.silent === true; // обновление без показа загрузки (после add/delete)
@@ -235,6 +265,9 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       // ApiClient возвращает data.data || data
       const plan = planData?.data || planData;
       setPlan(plan);
+      if (getWeeksData(plan)) {
+        usePlanStore.getState().setPlan(plan);
+      }
       
       // Загружаем все тренировки (из GPX/TCX файлов) - сначала, чтобы потом обновить progressData
       let workouts = {};
@@ -411,8 +444,10 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   }
 
   const isGenerating = recalculating || generatingNext;
-  // plan может быть с пустыми weeks_data — календарь покажет пустую сетку, тренировки навешиваются на даты
-  const planData = plan || { weeks_data: [] };
+  // plan может быть с weeks_data или phases[0].weeks_data — нормализуем для календаря
+  const planData = plan
+    ? { ...plan, weeks_data: getWeeksData(plan) || plan.weeks_data || [] }
+    : { weeks_data: [] };
 
   return (
     <div className="container calendar-screen">
@@ -480,9 +515,9 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
               </button>
             </div>
           )}
-          {hasPlan && canEdit && isOwner && (
+          {canEdit && isOwner && (
             <div className="calendar-plan-actions">
-              {isPlanCompleted ? (
+              {hasPlan && isPlanCompleted ? (
                 <button
                   className="btn btn-primary btn-next-plan"
                   onClick={handleOpenNextPlan}
@@ -523,6 +558,26 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
                   )}
                 </button>
               )}
+              <button
+                className="btn btn-secondary btn--sm calendar-clear-plan-btn"
+                onClick={() => setShowClearPlanConfirm(true)}
+                disabled={recalculating || generatingNext || clearingPlan}
+                title="Удалить план тренировок"
+              >
+                {clearingPlan ? (
+                  <span className="btn-spinner" />
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                    <span className="calendar-clear-plan-text">Очистить план</span>
+                  </>
+                )}
+              </button>
             </div>
           )}
         </div>
@@ -603,6 +658,18 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
             </div>
           </div>
         )}
+        {showClearPlanConfirm && (
+          <div className="modal" style={{ display: 'block' }} onClick={() => setShowClearPlanConfirm(false)}>
+            <div className="modal-content recalc-confirm-modal" onClick={e => e.stopPropagation()}>
+              <h3>Очистить план</h3>
+              <p>Удалить план тренировок, сгенерированный ИИ? Результаты выполненных тренировок сохранятся.</p>
+              <div className="recalc-confirm-actions">
+                <button className="btn btn-secondary" onClick={() => setShowClearPlanConfirm(false)}>Отмена</button>
+                <button className="btn btn-primary" onClick={handleClearPlan}>Очистить план</button>
+              </div>
+            </div>
+          </div>
+        )}
         {viewMode === 'week' ? (
           <WeekCalendar
             plan={planData}
@@ -628,6 +695,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
             }}
             currentWeekNumber={getCurrentWeekNumber(planData)}
             initialDate={location.state?.date}
+            initialDateKey={location.key}
           />
         ) : (
           <div className="week-calendar-container">

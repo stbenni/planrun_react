@@ -30,8 +30,8 @@ class ChatService extends BaseService {
         parent::__construct($db);
         $this->repository = new ChatRepository($db);
         $this->contextBuilder = new ChatContextBuilder($db);
-        $this->llmBaseUrl = rtrim(env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:1234/v1'), '/');
-        $this->llmModel = env('LMSTUDIO_CHAT_MODEL', 'openai/gpt-oss-20b');
+        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:8081/v1')), '/');
+        $this->llmModel = env('LLM_CHAT_MODEL', env('LMSTUDIO_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning'));
         $this->historyLimit = (int) env('CHAT_HISTORY_MESSAGES_LIMIT', self::DEFAULT_HISTORY_LIMIT);
         if ($this->historyLimit < 1) {
             $this->historyLimit = self::DEFAULT_HISTORY_LIMIT;
@@ -552,10 +552,14 @@ class ChatService extends BaseService {
         $tools = $this->getChatTools();
         $maxToolRounds = 5;
 
+        // Сокращённые messages для tool-resolution: оставляем system (укороченный),
+        // последние N сообщений истории и user-вопрос — без огромного контекста,
+        // который мешает модели вызывать tools.
+        $toolMessages = $this->buildToolResolutionMessages($messages);
+
         for ($round = 0; $round < $maxToolRounds; $round++) {
             try {
-                $useTools = ($round === 0) ? $tools : null;
-                $result = $this->callLlmDirect($messages, $useTools);
+                $result = $this->callLlmDirect($toolMessages, $tools);
             } catch (Throwable $e) {
                 Logger::warning('Tool resolution failed, streaming without tools', ['error' => $e->getMessage()]);
                 return $messages;
@@ -563,16 +567,58 @@ class ChatService extends BaseService {
 
             $msg = $result['message'] ?? null;
             $toolCalls = $msg['tool_calls'] ?? [];
+            $contentText = $msg['content'] ?? '';
+
+            Logger::debug('resolveToolCalls round', [
+                'round' => $round,
+                'has_tool_calls' => !empty($toolCalls),
+                'tool_calls_count' => count($toolCalls),
+                'content_preview' => mb_substr($contentText, 0, 200),
+                'tool_names' => array_map(fn($tc) => $tc['function']['name'] ?? '?', $toolCalls),
+            ]);
 
             if (empty($toolCalls)) {
+                // Если LLM выводит tool-вызов как текст (ARGS формат) — парсим
+                if (preg_match('/(\w+)\[ARGS\]\s*(\{[^}]+\})/i', $contentText, $textToolMatch)) {
+                    $textToolName = $textToolMatch[1];
+                    $textToolArgs = $textToolMatch[2];
+                    Logger::info('resolveToolCalls: parsed text-based tool call', [
+                        'name' => $textToolName, 'args' => $textToolArgs, 'round' => $round
+                    ]);
+                    $output = $this->executeTool($textToolName, $textToolArgs, $userId);
+                    $toolsUsed[] = $textToolName;
+                    $fakeId = 'text-' . uniqid();
+                    $toolCallMsg = [
+                        'role' => 'assistant',
+                        'content' => '',
+                        'tool_calls' => [[
+                            'id' => $fakeId,
+                            'type' => 'function',
+                            'function' => ['name' => $textToolName, 'arguments' => $textToolArgs]
+                        ]]
+                    ];
+                    $toolResultMsg = [
+                        'role' => 'tool',
+                        'tool_call_id' => $fakeId,
+                        'content' => $output
+                    ];
+                    $messages[] = $toolCallMsg;
+                    $messages[] = $toolResultMsg;
+                    $toolMessages[] = $toolCallMsg;
+                    $toolMessages[] = $toolResultMsg;
+                    continue;
+                }
+                // Нет tool-вызовов — готовы к стримингу
                 return $messages;
             }
 
-            $messages[] = [
+            $assistantMsg = [
                 'role' => 'assistant',
-                'content' => $msg['content'] ?? '',
+                'content' => $contentText,
                 'tool_calls' => $toolCalls
             ];
+            $messages[] = $assistantMsg;
+            $toolMessages[] = $assistantMsg;
 
             foreach ($toolCalls as $tc) {
                 $id = $tc['id'] ?? '';
@@ -581,15 +627,86 @@ class ChatService extends BaseService {
                 $argsJson = $fn['arguments'] ?? '{}';
                 $output = $this->executeTool($name, $argsJson, $userId);
                 $toolsUsed[] = $name;
-                $messages[] = [
+                Logger::debug('Tool executed', ['name' => $name, 'args' => $argsJson, 'output_preview' => mb_substr($output, 0, 200)]);
+                $toolResultMsg = [
                     'role' => 'tool',
                     'tool_call_id' => $id,
                     'content' => $output
                 ];
+                $messages[] = $toolResultMsg;
+                $toolMessages[] = $toolResultMsg;
             }
         }
 
         return $messages;
+    }
+
+    /**
+     * Строит сокращённый набор messages для tool-resolution раундов.
+     * Полный system prompt слишком велик — модель теряет способность вызывать tools.
+     * Берём: короткий system (только tool-инструкции) + последние сообщения + user question.
+     */
+    private function buildToolResolutionMessages(array $fullMessages): array {
+        // Извлекаем system message
+        $systemMsg = null;
+        $otherMessages = [];
+        foreach ($fullMessages as $msg) {
+            if (($msg['role'] ?? '') === 'system' && $systemMsg === null) {
+                $systemMsg = $msg;
+            } else {
+                $otherMessages[] = $msg;
+            }
+        }
+
+        // Извлекаем дату из оригинального system prompt (уже с правильным часовым поясом пользователя)
+        $origContent = $systemMsg['content'] ?? '';
+        if (preg_match('/Сегодня:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})\.\s*Завтра:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})/u', $origContent, $dm)) {
+            $todayDow = $dm[1];
+            $today = $dm[2];
+            $tomorrowDow = $dm[3];
+            $tomorrow = $dm[4];
+        } else {
+            $now = new DateTime();
+            $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
+            $todayDow = $daysRu[(int) $now->format('N')] ?? '';
+            $today = $now->format('Y-m-d');
+            $tomorrowObj = (clone $now)->modify('+1 day');
+            $tomorrowDow = $daysRu[(int) $tomorrowObj->format('N')] ?? '';
+            $tomorrow = $tomorrowObj->format('Y-m-d');
+        }
+
+        $shortSystem = <<<PROMPT
+Ты — PlanRun, тренер по бегу. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
+
+ИНСТРУМЕНТЫ — вызывай ПРОАКТИВНО, не выдумывай данные:
+1. get_date(phrase) — «завтра», «в среду», «15 марта» → Y-m-d.
+2. get_plan(date) — план на неделю, содержащую дату.
+3. get_workouts(date_from, date_to) — история выполненных тренировок.
+4. get_day_details(date) — план + результат конкретного дня.
+5. update_training_day(date, type, description) — изменить тренировку. Спроси подтверждение.
+6. swap_training_days(date1, date2) — поменять местами. Сначала get_day_details обеих дат.
+7. delete_training_day(date) — удалить тренировку. Спроси подтверждение.
+8. move_training_day(source_date, target_date) — перенести. Сначала get_day_details обеих дат.
+9. recalculate_plan(reason) — пересчитать план. Спроси подтверждение.
+10. generate_next_plan(goals) — новый план. Спроси подтверждение.
+
+ПРАВИЛА:
+- Для ЛЮБОГО вопроса о плане/тренировках — СНАЧАЛА вызови tool, потом отвечай.
+- Для переноса/замены/удаления — сначала get_day_details для всех упомянутых дат, уточни у пользователя, получи подтверждение.
+- После подтверждения (да, давай, ок, супер) — НЕМЕДЛЕННО вызови write-tool (move_training_day, update_training_day, delete_training_day, swap_training_days). НЕ пиши текст — ВЫЗОВИ TOOL.
+- Никогда не угадывай даты и тренировки — всегда вызывай get_date и get_day_details.
+- Отвечай на русском.
+PROMPT;
+
+        $result = [['role' => 'system', 'content' => $shortSystem]];
+
+        // Берём последние сообщения (до 6), чтобы сохранить контекст диалога
+        $tail = array_slice($otherMessages, -6);
+        foreach ($tail as $msg) {
+            $result[] = $msg;
+        }
+
+        return $result;
     }
 
     /**
@@ -760,6 +877,23 @@ class ChatService extends BaseService {
 - План закончился / «хочу новый план» → предложи generate_next_plan.
 - Никогда не выдумывай цифры — если нужны данные, вызови tool.
 
+ПРОАКТИВНЫЙ МОНИТОРИНГ:
+Хороший тренер не ждёт жалоб — он спрашивает первым. При приветствии или общем вопросе проверь контекст и ПРОАКТИВНО отреагируй:
+- Пауза >3 дней без тренировок → «Заметил, ты N дней без бега — всё в порядке? Если нужна корректировка, скажи.»
+- Вчера была тяжёлая ключевая (interval/tempo/long) → «Как прошла вчерашняя тренировка? Как ноги?»
+- Пиковая неделя по плану → «На этой неделе у тебя пиковый объём — следи за самочувствием, не стесняйся снижать.»
+- Выполнение <50% за 2 недели → «Вижу, на последних неделях получилось пробежать меньше запланированного. Может, пересчитаем план?»
+- Забег через 7 дней или меньше → «Забег уже скоро! Как настрой? Если нужна тактика — спрашивай.»
+- Отличный результат в последней тренировке → Похвали конкретно.
+Используй эти триггеры мягко, не в каждом сообщении. Если пользователь пришёл с конкретным вопросом — сначала ответь на него.
+
+КРОСС-ТРЕНИНГ:
+Если пользователь не может бегать (травма, погода, усталость) — предложи альтернативы:
+- Плавание, велосипед, эллипс — для поддержания аэробной формы без ударной нагрузки.
+- Йога, растяжка — для восстановления и гибкости.
+- Силовые — для укрепления мышц и профилактики травм.
+Это не заменяет бег, но помогает сохранить форму во время паузы.
+
 Ниже — контекст пользователя (ID: {$userId}): профиль, план, статистика, сводка по тренировкам.
 В ТРЕНИРОВКИ (кратко) — только сводка. Для деталей вызывай get_workouts или get_day_details.
 
@@ -820,7 +954,85 @@ PROMPT;
         // Текущий вопрос — добавлен в БД после getMessagesAscending, в history его нет
         $messages[] = ['role' => 'user', 'content' => $currentQuestion];
 
-        return $messages;
+        return $this->normalizeMessagesForStrictAlternation($messages);
+    }
+
+    /**
+     * llama.cpp chat template для Ministral требует строгого чередования user/assistant.
+     * История сайта может содержать:
+     * - подряд несколько user-сообщений после неуспешных ответов,
+     * - подряд несколько assistant-сообщений из системных AI-уведомлений,
+     * - ведущие assistant-сообщения без предшествующего user.
+     * Нормализуем такую историю в допустимый вид перед отправкой в LLM.
+     */
+    private function normalizeMessagesForStrictAlternation(array $messages): array {
+        if (empty($messages)) {
+            return $messages;
+        }
+
+        $normalized = [];
+        $index = 0;
+        if (($messages[0]['role'] ?? null) === 'system') {
+            $normalized[] = $messages[0];
+            $index = 1;
+        }
+
+        $appendToSystem = function (string $text) use (&$normalized): void {
+            $text = trim($text);
+            if ($text === '') {
+                return;
+            }
+
+            $note = "═══ ПРЕДЫДУЩИЕ СООБЩЕНИЯ АССИСТЕНТА ═══\n{$text}";
+            if (!empty($normalized) && ($normalized[0]['role'] ?? null) === 'system') {
+                $existing = rtrim((string) ($normalized[0]['content'] ?? ''));
+                if (!str_contains($existing, $note)) {
+                    $normalized[0]['content'] = $existing . "\n\n" . $note;
+                }
+                return;
+            }
+
+            array_unshift($normalized, ['role' => 'system', 'content' => $note]);
+        };
+
+        for (; $index < count($messages); $index++) {
+            $message = $messages[$index];
+            $role = $message['role'] ?? null;
+            $content = trim((string) ($message['content'] ?? ''));
+
+            if ($content === '') {
+                continue;
+            }
+
+            if (!in_array($role, ['user', 'assistant'], true)) {
+                $normalized[] = $message;
+                continue;
+            }
+
+            $lastIndex = count($normalized) - 1;
+            $lastRole = $lastIndex >= 0 ? ($normalized[$lastIndex]['role'] ?? null) : null;
+            $hasConversationTurns = !empty($normalized) && (($normalized[0]['role'] ?? null) !== 'system' || count($normalized) > 1);
+
+            if (!$hasConversationTurns && $role === 'assistant') {
+                $appendToSystem($content);
+                continue;
+            }
+
+            if ($lastRole === $role && in_array($role, ['user', 'assistant'], true)) {
+                $separator = $role === 'user'
+                    ? "\n\n[Дополнение пользователя]\n"
+                    : "\n\n[Предыдущее сообщение ассистента]\n";
+                $normalized[$lastIndex]['content'] = rtrim((string) $normalized[$lastIndex]['content']) . $separator . $content;
+                continue;
+            }
+
+            $normalized[] = [
+                'role' => $role,
+                'content' => $content,
+            ];
+        }
+
+        return $normalized;
     }
 
     /**
@@ -959,6 +1171,9 @@ PROMPT;
                 }
             }
         }
+        // Текстовые tool-вызовы модели (name[ARGS]{...}) — удаляем из вывода
+        $text = preg_replace('/\w+\[ARGS\]\s*\{[^}]*\}/i', '', $text);
+        $text = trim($text);
         // Артефакты: латинская t вместо кириллической т в сокращениях дней
         $text = preg_replace('/\bBt\b/u', 'Вт', $text);
         $text = preg_replace('/\bПt\b/u', 'Пт', $text);
@@ -990,6 +1205,12 @@ PROMPT;
      * @param bool $planWasUpdated Выходной: true при успешном add_training_day
      */
     private function parseAndExecuteActions(string $text, int $userId, array $history = [], ?string $currentUserMessage = null, bool &$planWasUpdated = false): string {
+        // ── Обработка всех ACTION-блоков (move, update, delete, swap, add) ──
+        // Write-action блоки выполняем ТОЛЬКО если пользователь подтвердил ("да", "ок" и т.д.)
+        // или если LLM сама решила выполнить действие (не в ответ на подтверждение — значит контекст ясен)
+        $isConfirmation = $currentUserMessage !== null && $this->isConfirmationMessage($currentUserMessage);
+        $text = $this->executeAllActionBlocks($text, $userId, $planWasUpdated, $isConfirmation);
+
         $params = null;
         $replaceRegex = null;
 
@@ -1059,6 +1280,73 @@ PROMPT;
             Logger::warning('Chat action add_training_day failed', ['error' => $e->getMessage(), 'params' => $params]);
         }
         return $replaceRegex !== null ? trim(preg_replace($replaceRegex, '', $text)) : $text;
+    }
+
+    /**
+     * Находит и выполняет все <!-- ACTION tool_name ... --> блоки в тексте:
+     * move_training_day, update_training_day, delete_training_day, swap_training_days.
+     * add_training_day обрабатывается отдельно (ниже в parseAndExecuteActions).
+     */
+    private function executeAllActionBlocks(string $text, int $userId, bool &$planWasUpdated, bool $isConfirmation = false): string {
+        // Универсальный паттерн: <!-- ACTION tool_name key=value ... -->
+        $pattern = '/\s*<!--\s*ACTION\s+(move_training_day|update_training_day|delete_training_day|swap_training_days)\s+([\s\S]+?)\s*-->\s*/';
+
+        // Проверяем есть ли ACTION блоки в тексте
+        $hasWriteBlocks = preg_match($pattern, $text);
+
+        // Если есть write-action блоки, но пользователь НЕ подтверждал —
+        // это значит LLM вставила ACTION в ответ-предложение (до "да").
+        // В таком случае просто удаляем блоки, но НЕ выполняем.
+        if ($hasWriteBlocks && !$isConfirmation) {
+            // Проверяем, есть ли в тексте признаки запроса подтверждения
+            $askingConfirmation = preg_match('/(подтверди|подтверж|правильно\s*\?|подходит\s*\?|согласен|нужно.*\?|хоч|переставлю|перенесу|обновлю|заменю)/ui', $text);
+            if ($askingConfirmation) {
+                Logger::debug('ACTION blocks found in proposal message — stripping without executing', [
+                    'block_count' => preg_match_all($pattern, $text)
+                ]);
+                $text = preg_replace($pattern, '', $text);
+                return trim($text);
+            }
+        }
+
+        while (preg_match($pattern, $text, $m)) {
+            $toolName = $m[1];
+            $attrs = trim($m[2]);
+
+            // Парсим key=value пары
+            $args = [];
+            // date, source_date, target_date, date1, date2, type, reason
+            foreach (['source_date', 'target_date', 'date1', 'date2', 'date', 'type', 'reason'] as $key) {
+                if (preg_match('/' . $key . '=([^\s"\']+|"[^"]*"|\'[^\']*\')/', $attrs, $km)) {
+                    $args[$key] = trim($km[1], '"\'');
+                }
+            }
+            // description отдельно — может быть многострочным
+            if (preg_match('/description=("([^"]*)"|\'([^\']*)\')/', $attrs, $dm)) {
+                $args['description'] = trim($dm[2] ?? $dm[3] ?? '', '"\'');
+            } elseif (preg_match('/description=([^\s>]+)/', $attrs, $dm)) {
+                $args['description'] = trim($dm[1], '"\'');
+            }
+
+            try {
+                $argsJson = json_encode($args);
+                $output = $this->executeTool($toolName, $argsJson, $userId);
+                $result = json_decode($output, true);
+                if (!isset($result['error'])) {
+                    $planWasUpdated = true;
+                    Logger::info('ACTION block executed', ['tool' => $toolName, 'args' => $args]);
+                } else {
+                    Logger::warning('ACTION block failed', ['tool' => $toolName, 'args' => $args, 'error' => $result['error']]);
+                }
+            } catch (Throwable $e) {
+                Logger::warning('ACTION block exception', ['tool' => $toolName, 'error' => $e->getMessage()]);
+            }
+
+            // Удаляем обработанный блок из текста
+            $text = preg_replace($pattern, '', $text, 1);
+        }
+
+        return $text;
     }
 
     private function isConfirmationMessage(string $text): bool {
@@ -1132,8 +1420,9 @@ PROMPT;
 
         try {
             for ($round = 0; $round <= $maxToolRounds; $round++) {
-                $useTools = ($round === 0) ? $tools : null;
-                $result = $this->callLlmDirect($messages, $useTools);
+                // Всегда передаём tools — LLM нужно видеть доступные инструменты
+                // для цепочных вызовов (get_date → get_day_details и т.п.)
+                $result = $this->callLlmDirect($messages, $tools);
                 $msg = $result['message'] ?? null;
                 if (isset($result['usage']) && !empty($result['usage'])) {
                     $totalUsage = $result['usage'];
@@ -1930,6 +2219,7 @@ PROMPT;
         ];
         if ($tools !== null && $tools !== []) {
             $payload['tools'] = $tools;
+            $payload['tool_choice'] = 'auto';
         }
         $body = json_encode($payload);
 

@@ -1,15 +1,17 @@
 /**
  * Переиспользуемая форма входа (страница или модалка)
  * Включает встроенный сброс пароля по ссылке «Забыли пароль?»
- * На native: логин и пароль сохраняются для восстановления входа по PIN и биометрии.
+ * На native: recovery-данные обновляются только для явно включённых способов входа.
  */
 
 import React, { useState, useEffect } from 'react';
 import useAuthStore from '../stores/useAuthStore';
-import ApiClient from '../api/ApiClient';
 import PinAuthService from '../services/PinAuthService';
 import CredentialBackupService from '../services/CredentialBackupService';
 import { isNativeCapacitor } from '../services/TokenStorageService';
+import { getAuthErrorMessage, getAuthRetryAfter } from '../utils/authError';
+import { useRetryCooldown } from '../hooks/useRetryCooldown';
+import { usePasswordResetRequest } from '../hooks/usePasswordResetRequest';
 import PinInput from './common/PinInput';
 import '../screens/LoginScreen.css';
 
@@ -20,11 +22,20 @@ const LoginForm = ({ onSuccess, onLogin }) => {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [forgotSent, setForgotSent] = useState(false);
-  const [forgotSentToEmail, setForgotSentToEmail] = useState('');
   const [showPinForRecovery, setShowPinForRecovery] = useState(false);
   const [pinForRecovery, setPinForRecovery] = useState('');
   const [canSaveRecovery, setCanSaveRecovery] = useState(false);
+  const loginCooldown = useRetryCooldown();
+  const {
+    loading: forgotLoading,
+    error: forgotError,
+    sent: forgotSent,
+    sentToEmail: forgotSentToEmail,
+    isCoolingDown: forgotCoolingDown,
+    secondsLeft: forgotSecondsLeft,
+    requestReset,
+    resetState: resetForgotState,
+  } = usePasswordResetRequest();
 
   const { login } = useAuthStore();
 
@@ -39,6 +50,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
       setError('Введите логин или email и пароль');
       return;
     }
+    if (loginCooldown.isCoolingDown) return;
     setLoading(true);
     setError('');
     try {
@@ -56,10 +68,14 @@ const LoginForm = ({ onSuccess, onLogin }) => {
         }
         onSuccess?.();
       } else {
-        setError(result?.error || 'Неверный логин или пароль');
+        setError(getAuthErrorMessage(result, result?.error || 'Неверный логин или пароль'));
+        const retryAfter = getAuthRetryAfter(result);
+        if (retryAfter > 0) loginCooldown.startCooldown(retryAfter);
       }
     } catch (err) {
-      setError(err.message || 'Произошла ошибка при входе');
+      setError(getAuthErrorMessage(err, 'Произошла ошибка при входе'));
+      const retryAfter = getAuthRetryAfter(err);
+      if (retryAfter > 0) loginCooldown.startCooldown(retryAfter);
     } finally {
       setLoading(false);
     }
@@ -82,40 +98,18 @@ const LoginForm = ({ onSuccess, onLogin }) => {
 
   const handleForgotSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = email.trim();
-    if (!trimmed) {
-      setError('Введите email или логин');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const api = new ApiClient();
-      const result = await api.requestResetPassword(trimmed);
-      if (result.sent) {
-        setForgotSentToEmail(result.email || trimmed);
-        setForgotSent(true);
-      } else {
-        setError(result.message || 'Не удалось отправить ссылку для сброса пароля.');
-      }
-    } catch (err) {
-      setError(err.message || 'Произошла ошибка. Попробуйте позже.');
-    } finally {
-      setLoading(false);
-    }
+    await requestReset(email);
   };
 
   const goToForgot = () => {
     setView('forgot');
-    setError('');
-    setForgotSent(false);
+    resetForgotState();
     setEmail('');
   };
 
   const backToLogin = () => {
     setView('login');
-    setError('');
-    setForgotSent(false);
+    resetForgotState();
   };
 
   // Встроенный сброс пароля — тот же контейнер, только содержимое формы другое
@@ -134,11 +128,11 @@ const LoginForm = ({ onSuccess, onLogin }) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
-              disabled={loading}
+              disabled={forgotLoading}
             />
-            {error && <div className="login-error">{error}</div>}
-            <button type="submit" className="login-button" disabled={loading}>
-              {loading ? 'Отправка...' : 'Отправить ссылку'}
+            {forgotError && <div className="login-error">{forgotError}</div>}
+            <button type="submit" className="login-button" disabled={forgotLoading || forgotCoolingDown}>
+              {forgotLoading ? 'Отправка...' : forgotCoolingDown ? `Подождите ${forgotSecondsLeft} сек` : 'Отправить ссылку'}
             </button>
           </form>
         ) : (
@@ -205,8 +199,8 @@ const LoginForm = ({ onSuccess, onLogin }) => {
           disabled={loading}
         />
         {error && <div className="login-error">{error}</div>}
-        <button type="submit" className="login-button" disabled={loading}>
-          {loading ? 'Вход...' : 'Войти'}
+        <button type="submit" className="login-button" disabled={loading || loginCooldown.isCoolingDown}>
+          {loading ? 'Вход...' : loginCooldown.isCoolingDown ? `Подождите ${loginCooldown.secondsLeft} сек` : 'Войти'}
         </button>
         <button
           type="button"

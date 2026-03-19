@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /calendar
+Disallow: /chat
+Disallow: /forgot-password
+Disallow: /login
+Disallow: /register
+Disallow: /reset-password
+Disallow: /settings
+Disallow: /stats
+
+Sitemap: https://planrun.ru/sitemap.xml

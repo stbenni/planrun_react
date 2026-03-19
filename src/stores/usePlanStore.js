@@ -15,6 +15,23 @@ const usePlanStore = create((set, get) => ({
   hasPlan: false,
   planStatus: null, // { has_plan: bool, error: string|null }
 
+  applyQueuedPlanState: (queueResult = null) => {
+    set({
+      loading: false,
+      recalculating: false,
+      generatingNext: false,
+      hasPlan: false,
+      plan: null,
+      planStatus: {
+        has_plan: false,
+        generating: true,
+        queued: true,
+        job_id: queueResult?.job_id ?? null,
+        job_type: queueResult?.job_type ?? null,
+      }
+    });
+  },
+
   // Загрузка плана
   loadPlan: async (userId = null) => {
     const { api } = useAuthStore.getState();
@@ -88,7 +105,7 @@ const usePlanStore = create((set, get) => ({
       
       set({ 
         planStatus: status,
-        hasPlan: status?.has_plan || false
+        hasPlan: status?.has_plan || status?.has_old_plan || false
       });
       
       return status;
@@ -112,15 +129,13 @@ const usePlanStore = create((set, get) => ({
     set({ loading: true, error: null, planStatus: { has_plan: false, generating: true } });
 
     try {
+      let result;
       if (withProgress) {
-        await api.regeneratePlan();
+        result = await api.regeneratePlan();
       } else {
-        await api.request('regenerate_plan', {}, 'POST');
+        result = await api.request('regenerate_plan', {}, 'POST');
       }
-      
-      await get().loadPlan();
-
-      set({ loading: false, planStatus: { has_plan: true } });
+      get().applyQueuedPlanState(result);
       useWorkoutRefreshStore.getState().triggerRefresh();
       return true;
     } catch (error) {
@@ -236,7 +251,7 @@ const usePlanStore = create((set, get) => ({
     set({ 
       plan: null, 
       hasPlan: false, 
-      planStatus: null,
+      planStatus: { has_plan: false },
       error: null 
     });
   },

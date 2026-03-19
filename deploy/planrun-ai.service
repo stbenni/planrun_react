@@ -1,0 +1,42 @@
+[Unit]
+Description=PlanRun AI — чат, RAG, генерация планов (llama-server + LM Studio embeddings + Qdrant)
+After=network.target llama-server.service lm-studio.service
+Wants=llama-server.service lm-studio.service
+
+[Service]
+Type=simple
+User=st_benni
+WorkingDirectory=/var/www/ai/planrun_ai_service
+EnvironmentFile=-/var/www/ai/planrun_ai_service/.env
+
+# Чат и планогенерация идут через standalone llama-server.
+# Имена переменных оставлены историческими, чтобы не переписывать Python-код.
+Environment=LMSTUDIO_BASE_URL=http://127.0.0.1:8081/v1
+Environment=LMSTUDIO_CHAT_MODEL=mistralai/ministral-3-14b-reasoning
+Environment=LMSTUDIO_PLAN_MODEL=mistralai/ministral-3-14b-reasoning
+Environment=PLANRUN_STRUCTURED_OUTPUT=false
+
+# RAG: эмбеддинги остаются в LM Studio
+Environment=LMSTUDIO_EMBED_URL=http://127.0.0.1:1234/v1
+Environment=LMSTUDIO_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
+
+Environment=QDRANT_HOST=localhost
+Environment=QDRANT_PORT=6333
+Environment=QDRANT_COLLECTION=planrun_knowledge
+
+# MySQL — прямой доступ к БД проекта
+Environment=DB_HOST=localhost
+Environment=DB_NAME=sv
+Environment=DB_USER=root
+Environment=DB_PASSWORD=
+
+# Дождаться готовности inference backend и embedding backend
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 120); do curl -sf http://127.0.0.1:8081/v1/models >/dev/null 2>&1 && curl -sf http://127.0.0.1:1234/v1/models >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=/var/www/ai/planrun_ai_service/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Выполнить все миграции (таблицы для сброса пароля и JWT).
+ * Выполнить все базовые auth/notification миграции.
  * Запуск на сервере один раз: php scripts/migrate_all.php
  */
 $baseDir = dirname(__DIR__);
@@ -15,16 +15,9 @@ if (!$db) {
 }
 
 $migrations = [
-    'password_reset_tokens' => "CREATE TABLE IF NOT EXISTS password_reset_tokens (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        user_id INT UNSIGNED NOT NULL,
-        token VARCHAR(64) NOT NULL,
-        expires_at DATETIME NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_token (token),
-        INDEX idx_user_id (user_id),
-        INDEX idx_expires_at (expires_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    'email_verification_codes' => trim((string) file_get_contents($baseDir . '/migrations/create_email_verification_codes.sql')),
+    'plan_generation_jobs' => trim((string) file_get_contents($baseDir . '/migrations/create_plan_generation_jobs.sql')),
+    'password_reset_tokens' => trim((string) file_get_contents($baseDir . '/migrations/create_password_reset_tokens.sql')),
     'refresh_tokens' => "CREATE TABLE IF NOT EXISTS refresh_tokens (
         id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id INT UNSIGNED NOT NULL,

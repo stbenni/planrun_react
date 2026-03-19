@@ -12,6 +12,8 @@ class BaseController {
     protected $canEdit;
     protected $canView;
     protected $isOwner;
+    private bool $jsonBodyLoaded = false;
+    private ?array $jsonBodyCache = null;
     
     public function __construct($db) {
         $this->db = $db;
@@ -194,15 +196,34 @@ class BaseController {
      * Получить параметр из GET или POST
      */
     protected function getParam($key, $default = null) {
-        return $_GET[$key] ?? $_POST[$key] ?? $default;
+        if (array_key_exists($key, $_GET)) {
+            return $_GET[$key];
+        }
+        if (array_key_exists($key, $_POST)) {
+            return $_POST[$key];
+        }
+
+        $jsonBody = $this->getJsonBody();
+        if (is_array($jsonBody) && array_key_exists($key, $jsonBody)) {
+            return $jsonBody[$key];
+        }
+
+        return $default;
     }
     
     /**
      * Получить JSON body
      */
     protected function getJsonBody() {
+        if ($this->jsonBodyLoaded) {
+            return $this->jsonBodyCache;
+        }
+
         $rawInput = file_get_contents('php://input');
-        return json_decode($rawInput, true);
+        $decoded = json_decode($rawInput, true);
+        $this->jsonBodyCache = is_array($decoded) ? $decoded : null;
+        $this->jsonBodyLoaded = true;
+        return $this->jsonBodyCache;
     }
 
     /**

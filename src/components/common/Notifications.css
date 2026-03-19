@@ -20,15 +20,29 @@
 }
 
 .notification-card {
-  background: white;
-  border-radius: 16px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
   padding: 16px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--card-surface-compact-shadow);
   display: flex;
   align-items: flex-start;
   gap: 12px;
   animation: slideInRight 300ms ease-out;
   border-left: 4px solid var(--primary-500);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+}
+
+.notification-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-compact-overlay);
+  pointer-events: none;
 }
 
 .notification-card--chat {
@@ -39,11 +53,15 @@
   font-size: 24px;
   line-height: 1;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .notification-content {
   flex: 1;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .notification-title {
@@ -71,6 +89,8 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .notification-btn {
@@ -92,30 +112,40 @@
 }
 
 .notification-dismiss {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  border: none;
-  background: var(--gray-200);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
   color: var(--gray-600);
-  font-size: 18px;
-  line-height: 1;
+  font-size: 0;
+  line-height: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 200ms ease;
   padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .notification-dismiss:hover {
-  background: var(--gray-300);
-  color: var(--gray-900);
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
+  color: var(--primary-600);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 10px 22px rgba(15, 23, 42, 0.1), 0 8px 18px rgba(252, 76, 2, 0.08);
+}
+
+.notification-dismiss .modal-close-icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* Темная тема */
 [data-theme="dark"] .notification-card {
-  background: var(--card-bg);
+  background: var(--card-surface-compact-bg);
   border-color: var(--primary-500);
 }
 
@@ -128,13 +158,17 @@
 }
 
 [data-theme="dark"] .notification-dismiss {
-  background: var(--bg-tertiary);
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
   color: var(--text-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 22px rgba(0, 0, 0, 0.28);
 }
 
 [data-theme="dark"] .notification-dismiss:hover {
-  background: var(--gray-300);
-  color: var(--text-primary);
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 20%, rgba(255, 255, 255, 0.08));
+  color: var(--primary-400);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 24px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(252, 76, 2, 0.06);
 }
 
 /* Десктоп: ниже TopHeader (64px + отступ) */

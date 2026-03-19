@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/BaseController.php';
+require_once __DIR__ . '/../services/AvatarService.php';
 
 class UserController extends BaseController {
     
@@ -18,7 +19,9 @@ class UserController extends BaseController {
         
         try {
             require_once __DIR__ . '/../user_functions.php';
-            $userData = getUserData($this->currentUserId, null, true);
+            // Настройки должны показывать актуальное состояние интеграций и профиля,
+            // поэтому здесь читаем пользователя напрямую из БД без кеша.
+            $userData = getUserData($this->currentUserId, null, false);
             
             if (!$userData) {
                 $this->returnError('Профиль не найден', 404);
@@ -414,8 +417,13 @@ class UserController extends BaseController {
             
             // Аватар и приватность
             if (isset($data['avatar_path'])) {
+                $normalizedAvatar = AvatarService::normalizeStoredAvatarPath($data['avatar_path']);
+                if (!$normalizedAvatar['valid']) {
+                    $this->returnError('Некорректный avatar_path', 400);
+                    return;
+                }
                 $updateFields[] = 'avatar_path = ?';
-                $updateValues[] = $normalizeNull($data['avatar_path']);
+                $updateValues[] = $normalizedAvatar['value'];
                 $types .= 's';
             }
             
@@ -752,11 +760,7 @@ class UserController extends BaseController {
                 
                 // Удаляем файл аватара с диска (вне транзакции — БД уже закоммичена)
                 if (!empty($user['avatar_path'])) {
-                    $projectRoot = dirname(dirname(__DIR__));
-                    $avatarPath = $projectRoot . $user['avatar_path'];
-                    if (file_exists($avatarPath) && is_file($avatarPath)) {
-                        @unlink($avatarPath);
-                    }
+                    AvatarService::deleteAvatarByPath($user['avatar_path']);
                 }
                 
                 clearUserCache($targetUserId);
@@ -798,80 +802,57 @@ class UserController extends BaseController {
                 return;
             }
             
-            $file = $_FILES['avatar'];
-            
-            // Проверка типа файла
-            $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_file($finfo, $file['tmp_name']);
-            finfo_close($finfo);
-            
-            if (!in_array($mimeType, $allowedTypes)) {
-                $this->returnError('Недопустимый тип файла. Разрешены только изображения (JPEG, PNG, GIF, WebP)', 400);
-                return;
-            }
-            
-            // Проверка размера файла (максимум 5MB)
-            if ($file['size'] > 5 * 1024 * 1024) {
-                $this->returnError('Размер файла превышает 5MB', 400);
-                return;
-            }
-            
-            // Папка аватаров рядом с backend (в корне проекта), в backend — только код
-            $projectRoot = dirname(dirname(__DIR__));
-            $avatarDir = $projectRoot . '/uploads/avatars/';
-            
-            if (!is_dir($avatarDir)) {
-                mkdir($avatarDir, 0755, true);
-            }
-            
-            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $fileName = 'avatar_' . $this->currentUserId . '_' . time() . '.' . ($extension ?: 'jpg');
-            $filePath = $avatarDir . $fileName;
-            
-            if (move_uploaded_file($file['tmp_name'], $filePath)) {
-                $oldAvatarStmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
-                $oldAvatarStmt->bind_param("i", $this->currentUserId);
-                $oldAvatarStmt->execute();
-                $oldAvatar = $oldAvatarStmt->get_result()->fetch_assoc();
-                $oldAvatarStmt->close();
-                
-                if ($oldAvatar && $oldAvatar['avatar_path']) {
-                    $oldPath = $projectRoot . $oldAvatar['avatar_path'];
-                    if (file_exists($oldPath)) {
-                        @unlink($oldPath);
-                    }
-                }
-                
-                $relativePath = '/uploads/avatars/' . $fileName;
+            $oldAvatarStmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
+            $oldAvatarStmt->bind_param("i", $this->currentUserId);
+            $oldAvatarStmt->execute();
+            $oldAvatar = $oldAvatarStmt->get_result()->fetch_assoc();
+            $oldAvatarStmt->close();
+
+            $storedAvatar = AvatarService::storeUploadedAvatar($_FILES['avatar'], (int) $this->currentUserId);
+            $relativePath = $storedAvatar['avatar_path'];
+
+            try {
                 $updateStmt = $this->db->prepare("UPDATE users SET avatar_path = ? WHERE id = ?");
                 $updateStmt->bind_param("si", $relativePath, $this->currentUserId);
-                $updateStmt->execute();
+                if (!$updateStmt->execute()) {
+                    throw new RuntimeException('Не удалось сохранить путь аватара в БД');
+                }
                 $updateStmt->close();
-                
-                require_once __DIR__ . '/../user_functions.php';
-                clearUserCache($this->currentUserId);
-                
-                require_once __DIR__ . '/../config/Logger.php';
-                Logger::info("Аватар загружен", ['user_id' => $this->currentUserId]);
-                
-                $updatedUser = getUserData($this->currentUserId, null, false);
-                unset($updatedUser['password']);
-                
-                $this->returnSuccess([
-                    'message' => 'Аватар успешно загружен',
-                    'avatar_path' => $relativePath,
-                    'user' => $updatedUser
-                ]);
-            } else {
-                require_once __DIR__ . '/../config/Logger.php';
-                Logger::error('Ошибка загрузки аватара: move_uploaded_file не удался', [
-                    'user_id' => $this->currentUserId,
-                    'target_dir' => $avatarDir,
-                    'is_writable' => is_dir($avatarDir) ? is_writable($avatarDir) : false
-                ]);
-                $this->returnError('Ошибка загрузки файла. Проверьте, что папка uploads/avatars существует и доступна для записи.', 500);
+            } catch (Throwable $e) {
+                AvatarService::deleteAvatarByPath($relativePath);
+                throw $e;
             }
+
+            if ($oldAvatar && !empty($oldAvatar['avatar_path']) && $oldAvatar['avatar_path'] !== $relativePath) {
+                AvatarService::deleteAvatarByPath($oldAvatar['avatar_path']);
+            }
+
+            require_once __DIR__ . '/../user_functions.php';
+            clearUserCache($this->currentUserId);
+
+            require_once __DIR__ . '/../config/Logger.php';
+            Logger::info("Аватар загружен", [
+                'user_id' => $this->currentUserId,
+                'avatar_path' => $relativePath,
+            ]);
+
+            $updatedUser = getUserData($this->currentUserId, null, false);
+            unset($updatedUser['password']);
+
+            $this->returnSuccess([
+                'message' => 'Аватар успешно загружен',
+                'avatar_path' => $relativePath,
+                'user' => $updatedUser
+            ]);
+        } catch (InvalidArgumentException $e) {
+            $this->returnError($e->getMessage(), 400);
+        } catch (RuntimeException $e) {
+            require_once __DIR__ . '/../config/Logger.php';
+            Logger::error('Ошибка загрузки аватара', [
+                'user_id' => $this->currentUserId,
+                'error' => $e->getMessage(),
+            ]);
+            $this->returnError('Ошибка обработки аватара. Проверьте формат изображения и права на uploads/avatars.', 500);
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -879,33 +860,14 @@ class UserController extends BaseController {
     
     /**
      * Раздать файл аватара (GET, без авторизации)
-     * GET /api_v2.php?action=get_avatar&file=avatar_123_456.jpg
-     * Файлы лежат в projectRoot/uploads/avatars/, веб-сервер их не отдаёт — отдаём через API.
+     * GET /api_v2.php?action=get_avatar&file=avatar_123_456.jpg&variant=sm
      */
     public function getAvatar() {
-        $file = isset($_GET['file']) ? basename($_GET['file']) : '';
-        if ($file === '' || !preg_match('/^avatar_\d+_\d+\.(jpe?g|png|gif|webp)$/i', $file)) {
+        $file = $_GET['file'] ?? '';
+        $variant = $_GET['variant'] ?? 'full';
+        if (!AvatarService::serveRequestedAvatar($file, $variant)) {
             http_response_code(404);
-            exit;
         }
-        $projectRoot = dirname(dirname(__DIR__));
-        $path = $projectRoot . '/uploads/avatars/' . $file;
-        if (!is_file($path) || !is_readable($path)) {
-            http_response_code(404);
-            exit;
-        }
-        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        $mimes = [
-            'jpg' => 'image/jpeg',
-            'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'gif' => 'image/gif',
-            'webp' => 'image/webp',
-        ];
-        $mime = $mimes[$ext] ?? 'application/octet-stream';
-        header('Content-Type: ' . $mime);
-        header('Cache-Control: public, max-age=86400');
-        readfile($path);
         exit;
     }
 
@@ -927,19 +889,16 @@ class UserController extends BaseController {
             $result = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             
-            if ($result && $result['avatar_path']) {
-                $projectRoot = dirname(dirname(__DIR__));
-                $oldPath = $projectRoot . $result['avatar_path'];
-                if (file_exists($oldPath)) {
-                    @unlink($oldPath);
-                }
-            }
-            
-            // Обновляем БД
             $updateStmt = $this->db->prepare("UPDATE users SET avatar_path = NULL WHERE id = ?");
             $updateStmt->bind_param("i", $this->currentUserId);
-            $updateStmt->execute();
+            if (!$updateStmt->execute()) {
+                throw new RuntimeException('Не удалось обновить профиль пользователя');
+            }
             $updateStmt->close();
+
+            if ($result && !empty($result['avatar_path'])) {
+                AvatarService::deleteAvatarByPath($result['avatar_path']);
+            }
             
             // Очищаем кеш пользователя
             require_once __DIR__ . '/../user_functions.php';
@@ -1062,6 +1021,66 @@ class UserController extends BaseController {
     }
 
     /**
+     * Получить URL для Telegram Login
+     * GET /api_v2.php?action=telegram_login_url
+     */
+    public function getTelegramLoginUrl() {
+        if (!$this->requireAuth()) {
+            return;
+        }
+
+        try {
+            require_once __DIR__ . '/../services/TelegramLoginService.php';
+
+            $fromApp = (string) ($this->getParam('from_app', '0')) === '1';
+            $service = new TelegramLoginService($this->db);
+            $authUrl = $service->createAuthorizationUrl((int) $this->currentUserId, $fromApp);
+
+            $this->returnSuccess([
+                'auth_url' => $authUrl,
+            ]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Сгенерировать код привязки Telegram
+     * POST /api_v2.php?action=generate_telegram_link_code
+     */
+    public function generateTelegramLinkCode() {
+        if (!$this->requireAuth()) {
+            return;
+        }
+
+        $this->checkCsrfToken();
+
+        try {
+            $linkCode = bin2hex(random_bytes(8));
+            $expiresAt = date('Y-m-d H:i:s', time() + 10 * 60);
+
+            $stmt = $this->db->prepare("
+                UPDATE users
+                SET telegram_link_code = ?, telegram_link_code_expires = ?
+                WHERE id = ?
+            ");
+            $stmt->bind_param('ssi', $linkCode, $expiresAt, $this->currentUserId);
+            $stmt->execute();
+            $stmt->close();
+
+            require_once __DIR__ . '/../user_functions.php';
+            clearUserCache($this->currentUserId);
+
+            $this->returnSuccess([
+                'code' => $linkCode,
+                'expires_at' => $expiresAt,
+            ]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Отвязать Telegram ID
      * POST /api_v2.php?action=unlink_telegram
      */
@@ -1074,7 +1093,13 @@ class UserController extends BaseController {
         
         try {
             // Обновляем БД
-            $stmt = $this->db->prepare("UPDATE users SET telegram_id = NULL WHERE id = ?");
+            $stmt = $this->db->prepare("
+                UPDATE users
+                SET telegram_id = NULL,
+                    telegram_link_code = NULL,
+                    telegram_link_code_expires = NULL
+                WHERE id = ?
+            ");
             $stmt->bind_param("i", $this->currentUserId);
             $stmt->execute();
             $stmt->close();

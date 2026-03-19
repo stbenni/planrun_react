@@ -4,14 +4,14 @@
  * Справа: аватар с выпадающим меню (Профиль, Настройки тренировок, Конфиденциальность, Интеграции, Выйти)
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
 import { isNativeCapacitor } from '../../services/TokenStorageService';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
 import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon } from './Icons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon, CloseIcon } from './Icons';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -37,6 +37,8 @@ const TopHeader = () => {
   const [isMobile, setIsMobile] = useState(() => isNarrowViewport());
   const menuRef = useRef(null);
   const triggerRef = useRef(null);
+  const navRef = useRef(null);
+  const [navPillStyle, setNavPillStyle] = useState({ left: 0, width: 0 });
 
   useEffect(() => {
     const check = () => setIsMobile(isNarrowViewport());
@@ -74,6 +76,62 @@ const TopHeader = () => {
     return location.pathname.startsWith(path);
   };
 
+  const updateNavPill = () => {
+    if (isMobile) {
+      setNavPillStyle({ left: 0, width: 0 });
+      return;
+    }
+
+    const nav = navRef.current;
+    if (!nav) return;
+
+    const activeItem = nav.querySelector('.top-nav-item.active');
+    if (!activeItem) {
+      setNavPillStyle({ left: 0, width: 0 });
+      return;
+    }
+
+    setNavPillStyle({
+      left: activeItem.offsetLeft,
+      width: activeItem.offsetWidth,
+    });
+  };
+
+  useLayoutEffect(() => {
+    updateNavPill();
+  }, [location.pathname, isMobile]);
+
+  useLayoutEffect(() => {
+    if (isMobile) return undefined;
+
+    let frameId = 0;
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateNavPill);
+    };
+
+    const nav = navRef.current;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && nav
+      ? new ResizeObserver(scheduleUpdate)
+      : null;
+
+    if (nav && resizeObserver) {
+      resizeObserver.observe(nav);
+      nav.querySelectorAll('.top-nav-item').forEach((item) => resizeObserver.observe(item));
+    }
+
+    window.addEventListener('resize', scheduleUpdate);
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(scheduleUpdate).catch(() => {});
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', scheduleUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [isMobile, location.pathname]);
+
   useEffect(() => {
     if (!menuOpen) return;
     const handleClickOutside = (e) => {
@@ -102,13 +160,20 @@ const TopHeader = () => {
     };
   }, [drawerOpen]);
 
+  const navigateToSettingsTab = (tab) => {
+    navigate({
+      pathname: '/settings',
+      search: `?tab=${tab}`,
+    });
+  };
+
   const handleMenuAction = async (action) => {
     setMenuOpen(false);
     setDrawerOpen(false);
-    if (action === 'profile') navigate('/settings?tab=profile');
-    if (action === 'training') navigate('/settings?tab=training');
-    if (action === 'privacy') navigate('/settings?tab=social');
-    if (action === 'integrations') navigate('/settings?tab=integrations');
+    if (action === 'profile') return navigateToSettingsTab('profile');
+    if (action === 'training') return navigateToSettingsTab('training');
+    if (action === 'privacy') return navigateToSettingsTab('social');
+    if (action === 'integrations') return navigateToSettingsTab('integrations');
     if (action === 'logout') {
       await logout();
       if (isNativeCapacitor()) {
@@ -133,7 +198,15 @@ const TopHeader = () => {
           <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
         </div>
 
-        <nav className="top-header-nav">
+        <nav
+          ref={navRef}
+          className="top-header-nav"
+          style={{
+            '--top-nav-pill-left': `${navPillStyle.left}px`,
+            '--top-nav-pill-width': `${navPillStyle.width}px`,
+          }}
+        >
+          <span className="top-nav-pill" aria-hidden="true" />
           {navItems.map(item => {
             const Icon = item.Icon;
             return (
@@ -172,7 +245,7 @@ const TopHeader = () => {
                 {user.avatar_path && !avatarError ? (
                   <img
                     key={user.avatar_path}
-                    src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api')}
+                    src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api', 'sm')}
                     alt=""
                     className="header-avatar-img"
                     onError={() => setAvatarError(true)}
@@ -232,7 +305,7 @@ const TopHeader = () => {
                   <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
                 </div>
                 <button type="button" className="app-drawer-close" onClick={closeDrawer} aria-label="Закрыть меню">
-                  ✕
+                  <CloseIcon className="modal-close-icon" />
                 </button>
               </div>
               {user && (

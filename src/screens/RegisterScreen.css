@@ -13,18 +13,370 @@
 }
 
 .register-content {
-  background: var(--card-bg);
-  border-radius: var(--radius-xl);
+  position: relative;
+  isolation: isolate;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--space-10);
   max-width: var(--page-max-width);
   width: 100%;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.register-content::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.register-content > * {
+  position: relative;
+  z-index: 1;
 }
 
 .register-content--modal {
   max-width: none;
+  border: 0;
+  border-radius: 0;
   box-shadow: none;
   padding: var(--space-6);
+  background: transparent;
+  overflow: visible;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.register-content--modal::before {
+  display: none;
+}
+
+.register-step-lead {
+  margin: 0 0 var(--space-6);
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.register-form-primary-action {
+  margin-top: var(--space-8);
+}
+
+.goal-step-date-field {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+}
+
+.extended-profile__title {
+  margin: var(--space-6) 0 var(--space-3);
+  color: var(--text-primary);
+  font-size: 1.1em;
+}
+
+.extended-profile__desc {
+  margin: 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: 0.95em;
+}
+
+.form-group-hint {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.form-group-hint--spaced {
+  margin-bottom: 10px;
+}
+
+.form-row--compact {
+  margin-bottom: 10px;
+}
+
+.form-group--tight {
+  margin-bottom: 0;
+}
+
+.form-label--secondary {
+  font-size: 0.85em;
+}
+
+.form-help-inline {
+  font-size: 0.85em;
+}
+
+.training-mode-option:has(input[type="radio"]:checked) {
+  border-color: var(--primary-500);
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.14), rgba(255, 107, 61, 0.06));
+  box-shadow: 0 16px 32px rgba(252, 76, 2, 0.14), 0 0 0 1px rgba(252, 76, 2, 0.08);
+}
+
+[data-theme="dark"] .training-mode-option:has(input[type="radio"]:checked) {
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.22), rgba(255, 107, 61, 0.10));
+}
+
+.register-content--modal .register-step-progress {
+  background: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.58));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+.register-content--modal .step {
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
+  box-shadow: var(--surface-glass-inset), 0 8px 18px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(252, 76, 2, 0.06);
+}
+
+.register-content--modal .step.active {
+  color: var(--primary-700);
+  border-bottom-color: color-mix(in srgb, var(--primary-500) 46%, var(--surface-glass-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 7%, var(--surface-glass-control-bg)) 100%);
+  box-shadow: 0 14px 28px rgba(252, 76, 2, 0.14), var(--surface-glass-inset), 0 0 0 1px rgba(252, 76, 2, 0.08);
+}
+
+.register-content--modal .form-group input[type="text"],
+.register-content--modal .form-group input[type="password"],
+.register-content--modal .form-group input[type="email"],
+.register-content--modal .form-group input[type="number"],
+.register-content--modal .form-group input[type="date"],
+.register-content--modal .form-group input[type="time"],
+.register-content--modal .form-group input[type="month"],
+.register-content--modal .form-group select,
+.register-content--modal .form-group textarea,
+.register-content--modal .training-mode-option,
+.register-content--modal .goal-option,
+.register-content--modal .program-card,
+.register-content--modal .gender-option,
+.register-content--modal .radio-option,
+.register-content--modal .checkbox-item,
+.register-content--modal .extended-profile,
+.register-content--modal .goal-assessment-card {
+  border-color: color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 4%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
+  box-shadow: var(--surface-glass-inset), 0 10px 22px rgba(15, 23, 42, 0.05), 0 8px 18px rgba(252, 76, 2, 0.07);
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.58)) saturate(1.14);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.58)) saturate(1.14);
+}
+
+.register-content--modal .training-mode-option:hover,
+.register-content--modal .goal-option:hover,
+.register-content--modal .program-card:hover,
+.register-content--modal .radio-option:hover,
+.register-content--modal .checkbox-item:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--surface-glass-border));
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08), 0 12px 26px rgba(252, 76, 2, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
+.register-content--modal .training-mode-option:has(input[type="radio"]:checked),
+.register-content--modal .goal-option.selected,
+.register-content--modal .program-option.selected .program-card,
+.register-content--modal .program-option input[type="radio"]:checked + .program-card,
+.register-content--modal .gender-option.selected,
+.register-content--modal .radio-option:has(input[type="radio"]:checked),
+.register-content--modal .checkbox-item:has(input[type="checkbox"]:checked) {
+  border-color: var(--primary-500);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-control-bg)) 100%);
+  box-shadow: 0 16px 34px rgba(252, 76, 2, 0.14), var(--surface-glass-inset), 0 0 0 1px rgba(252, 76, 2, 0.08);
+}
+
+.register-content--modal .register-error {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-50) 72%, var(--surface-glass-bg-strong)) 0%, color-mix(in srgb, var(--accent-50) 52%, var(--surface-glass-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-600) 22%, var(--surface-glass-border));
+  box-shadow: var(--surface-glass-shadow), var(--surface-glass-inset);
+}
+
+.register-content--modal .register-plan-started {
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--surface-glass-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-bg-strong)) 0%, color-mix(in srgb, var(--primary-500) 5%, var(--surface-glass-bg)) 100%);
+  box-shadow: var(--surface-glass-shadow), var(--surface-glass-inset), 0 20px 38px rgba(252, 76, 2, 0.10);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .register-step-progress,
+[data-theme="light"] .register-content--modal .register-step-progress {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(243, 247, 251, 0.94) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 12px 24px rgba(15, 23, 42, 0.05);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .step,
+[data-theme="light"] .register-content--modal .step {
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--gray-300));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 248, 252, 0.96) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 26px rgba(15, 23, 42, 0.06);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .step.active,
+[data-theme="light"] .register-content--modal .step.active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
+  box-shadow: 0 18px 34px rgba(252, 76, 2, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="text"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="password"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="email"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="number"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="date"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="time"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group input[type="month"],
+:root:not([data-theme="dark"]) .register-content--modal .form-group select,
+:root:not([data-theme="dark"]) .register-content--modal .form-group textarea,
+:root:not([data-theme="dark"]) .register-content--modal .training-mode-option,
+:root:not([data-theme="dark"]) .register-content--modal .goal-option,
+:root:not([data-theme="dark"]) .register-content--modal .program-card,
+:root:not([data-theme="dark"]) .register-content--modal .gender-option,
+:root:not([data-theme="dark"]) .register-content--modal .radio-option,
+:root:not([data-theme="dark"]) .register-content--modal .checkbox-item,
+:root:not([data-theme="dark"]) .register-content--modal .extended-profile,
+:root:not([data-theme="dark"]) .register-content--modal .goal-assessment-card,
+[data-theme="light"] .register-content--modal .form-group input[type="text"],
+[data-theme="light"] .register-content--modal .form-group input[type="password"],
+[data-theme="light"] .register-content--modal .form-group input[type="email"],
+[data-theme="light"] .register-content--modal .form-group input[type="number"],
+[data-theme="light"] .register-content--modal .form-group input[type="date"],
+[data-theme="light"] .register-content--modal .form-group input[type="time"],
+[data-theme="light"] .register-content--modal .form-group input[type="month"],
+[data-theme="light"] .register-content--modal .form-group select,
+[data-theme="light"] .register-content--modal .form-group textarea,
+[data-theme="light"] .register-content--modal .training-mode-option,
+[data-theme="light"] .register-content--modal .goal-option,
+[data-theme="light"] .register-content--modal .program-card,
+[data-theme="light"] .register-content--modal .gender-option,
+[data-theme="light"] .register-content--modal .radio-option,
+[data-theme="light"] .register-content--modal .checkbox-item,
+[data-theme="light"] .register-content--modal .extended-profile,
+[data-theme="light"] .register-content--modal .goal-assessment-card {
+  border-color: color-mix(in srgb, var(--primary-500) 8%, var(--gray-300));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 248, 252, 0.96) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 24px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.52)) saturate(1.04);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.52)) saturate(1.04);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .training-mode-option:hover,
+:root:not([data-theme="dark"]) .register-content--modal .goal-option:hover,
+:root:not([data-theme="dark"]) .register-content--modal .program-card:hover,
+:root:not([data-theme="dark"]) .register-content--modal .radio-option:hover,
+:root:not([data-theme="dark"]) .register-content--modal .checkbox-item:hover,
+[data-theme="light"] .register-content--modal .training-mode-option:hover,
+[data-theme="light"] .register-content--modal .goal-option:hover,
+[data-theme="light"] .register-content--modal .program-card:hover,
+[data-theme="light"] .register-content--modal .radio-option:hover,
+[data-theme="light"] .register-content--modal .checkbox-item:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--gray-300));
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08), 0 14px 28px rgba(252, 76, 2, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .training-mode-option:has(input[type="radio"]:checked),
+:root:not([data-theme="dark"]) .register-content--modal .goal-option.selected,
+:root:not([data-theme="dark"]) .register-content--modal .program-option.selected .program-card,
+:root:not([data-theme="dark"]) .register-content--modal .program-option input[type="radio"]:checked + .program-card,
+:root:not([data-theme="dark"]) .register-content--modal .gender-option.selected,
+:root:not([data-theme="dark"]) .register-content--modal .radio-option:has(input[type="radio"]:checked),
+:root:not([data-theme="dark"]) .register-content--modal .checkbox-item:has(input[type="checkbox"]:checked),
+[data-theme="light"] .register-content--modal .training-mode-option:has(input[type="radio"]:checked),
+[data-theme="light"] .register-content--modal .goal-option.selected,
+[data-theme="light"] .register-content--modal .program-option.selected .program-card,
+[data-theme="light"] .register-content--modal .program-option input[type="radio"]:checked + .program-card,
+[data-theme="light"] .register-content--modal .gender-option.selected,
+[data-theme="light"] .register-content--modal .radio-option:has(input[type="radio"]:checked),
+[data-theme="light"] .register-content--modal .checkbox-item:has(input[type="checkbox"]:checked) {
+  border-color: color-mix(in srgb, var(--primary-500) 78%, var(--primary-600));
+  background: linear-gradient(180deg, rgba(255, 246, 241, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: 0 20px 38px rgba(252, 76, 2, 0.18), inset 0 3px 0 rgba(252, 76, 2, 0.9), 0 0 0 1px rgba(252, 76, 2, 0.12);
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .register-plan-started,
+[data-theme="light"] .register-content--modal .register-plan-started {
+  border-color: color-mix(in srgb, var(--primary-500) 30%, var(--gray-300));
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: 0 20px 40px rgba(252, 76, 2, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="dark"] .register-content--modal .register-step-progress {
+  background: linear-gradient(180deg, rgba(18, 24, 31, 0.92) 0%, rgba(10, 14, 20, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.24);
+}
+
+[data-theme="dark"] .register-content--modal .step {
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 6%, var(--card-border));
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.96) 0%, rgba(10, 14, 20, 0.98) 100%);
+  box-shadow: var(--surface-glass-inset), 0 14px 28px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="dark"] .register-content--modal .step.active {
+  color: var(--primary-400);
+  border-color: color-mix(in srgb, var(--primary-500) 34%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(22, 26, 34, 0.98) 0%, rgba(11, 14, 20, 0.99) 100%);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(252, 76, 2, 0.14), inset 0 2px 0 rgba(252, 76, 2, 0.62), inset 0 0 22px rgba(252, 76, 2, 0.08);
+}
+
+[data-theme="dark"] .register-content--modal .form-group input[type="text"],
+[data-theme="dark"] .register-content--modal .form-group input[type="password"],
+[data-theme="dark"] .register-content--modal .form-group input[type="email"],
+[data-theme="dark"] .register-content--modal .form-group input[type="number"],
+[data-theme="dark"] .register-content--modal .form-group input[type="date"],
+[data-theme="dark"] .register-content--modal .form-group input[type="time"],
+[data-theme="dark"] .register-content--modal .form-group input[type="month"],
+[data-theme="dark"] .register-content--modal .form-group select,
+[data-theme="dark"] .register-content--modal .form-group textarea,
+[data-theme="dark"] .register-content--modal .training-mode-option,
+[data-theme="dark"] .register-content--modal .goal-option,
+[data-theme="dark"] .register-content--modal .program-card,
+[data-theme="dark"] .register-content--modal .gender-option,
+[data-theme="dark"] .register-content--modal .radio-option,
+[data-theme="dark"] .register-content--modal .checkbox-item,
+[data-theme="dark"] .register-content--modal .extended-profile,
+[data-theme="dark"] .register-content--modal .goal-assessment-card {
+  border-color: color-mix(in srgb, var(--primary-500) 8%, var(--card-border));
+  background: linear-gradient(180deg, rgba(17, 21, 27, 0.96) 0%, rgba(10, 13, 18, 0.98) 100%);
+  box-shadow: var(--surface-glass-inset), 0 12px 24px rgba(0, 0, 0, 0.24), 0 10px 22px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.08);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.08);
+}
+
+[data-theme="dark"] .register-content--modal .form-group input:focus,
+[data-theme="dark"] .register-content--modal .form-group select:focus,
+[data-theme="dark"] .register-content--modal .form-group textarea:focus {
+  border-color: color-mix(in srgb, var(--primary-500) 88%, var(--primary-400));
+  box-shadow: 0 0 0 4px rgba(252, 76, 2, 0.16), 0 18px 32px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .register-content--modal .training-mode-option:hover,
+[data-theme="dark"] .register-content--modal .goal-option:hover,
+[data-theme="dark"] .register-content--modal .program-card:hover,
+[data-theme="dark"] .register-content--modal .radio-option:hover,
+[data-theme="dark"] .register-content--modal .checkbox-item:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 14%, var(--card-border));
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28), 0 14px 26px rgba(252, 76, 2, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .register-content--modal .training-mode-option:has(input[type="radio"]:checked),
+[data-theme="dark"] .register-content--modal .goal-option.selected,
+[data-theme="dark"] .register-content--modal .program-option.selected .program-card,
+[data-theme="dark"] .register-content--modal .program-option input[type="radio"]:checked + .program-card,
+[data-theme="dark"] .register-content--modal .gender-option.selected,
+[data-theme="dark"] .register-content--modal .radio-option:has(input[type="radio"]:checked),
+[data-theme="dark"] .register-content--modal .checkbox-item:has(input[type="checkbox"]:checked) {
+  border-color: color-mix(in srgb, var(--primary-500) 44%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(18, 22, 29, 0.98) 0%, rgba(10, 13, 18, 0.99) 100%);
+  box-shadow: 0 20px 38px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(252, 76, 2, 0.14), inset 0 2px 0 rgba(252, 76, 2, 0.68), inset 0 0 24px rgba(252, 76, 2, 0.08);
+}
+
+[data-theme="dark"] .register-content--modal .register-plan-started {
+  border-color: color-mix(in srgb, var(--primary-500) 28%, var(--card-border));
+  background: linear-gradient(180deg, rgba(18, 22, 29, 0.98) 0%, rgba(11, 14, 20, 0.99) 100%);
+  box-shadow: 0 22px 42px rgba(0, 0, 0, 0.34), inset 0 2px 0 rgba(252, 76, 2, 0.4), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 .register-title {
@@ -52,9 +404,17 @@
 }
 
 .register-plan-started__icon {
-  font-size: 48px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
   margin-bottom: var(--space-3);
+}
+
+.register-plan-started__icon svg {
+  width: 48px;
+  height: 48px;
 }
 
 .register-plan-started__title {
@@ -147,9 +507,16 @@
 }
 
 .form-step h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--text-2xl);
   margin: 0 0 var(--space-6) 0;
   color: var(--text-primary);
+}
+
+.form-heading-icon {
+  flex-shrink: 0;
 }
 
 .form-group {
@@ -158,9 +525,15 @@
 
 .form-group label {
   display: flex;
+  align-items: center;
   margin-bottom: var(--space-2);
   font-weight: var(--font-semibold);
   color: var(--gray-800);
+}
+
+.form-label-icon {
+  flex-shrink: 0;
+  margin-right: var(--space-2);
 }
 
 [data-theme="dark"] .form-group label {
@@ -181,39 +554,42 @@
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: var(--space-3);
-  border: 2px solid var(--gray-300);
-  border-radius: var(--radius-md);
+  min-height: 52px;
+  padding: var(--space-3) var(--space-4);
+  border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
+  border-radius: var(--radius-lg);
   font-size: var(--text-base);
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
   box-sizing: border-box;
-  background: var(--card-bg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 28%, var(--card-bg)) 0%, var(--card-bg) 100%);
   color: var(--text-primary);
   font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
 /* Селект цели — крупнее и оранжевое выделение (специфичность как у .form-group select, чтобы перебить settings.css !important) */
 .form-group select.goal-type-select,
 .goal-type-select {
   font-size: 1.125rem !important;
-  min-height: 48px;
+  min-height: 52px;
   padding: var(--space-3) var(--space-4) !important;
-  border: 2px solid var(--primary-500, #FF4D1A) !important;
-  background: var(--card-bg) !important;
+  border: 1.5px solid color-mix(in srgb, var(--primary-500, #FF4D1A) 18%, var(--gray-300)) !important;
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.12), rgba(255, 255, 255, 0.96)) !important;
   color: var(--text-primary) !important;
   font-weight: 500;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 6px 18px rgba(252, 76, 2, 0.1);
 }
 
 .form-group select.goal-type-select:focus,
 .goal-type-select:focus {
   outline: none;
   border-color: var(--primary-500, #f97316) !important;
-  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.25);
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18), 0 16px 30px rgba(252, 76, 2, 0.16);
 }
 
 [data-theme="dark"] .form-group select.goal-type-select,
 [data-theme="dark"] .goal-type-select {
-  background: var(--bg-tertiary) !important;
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.16), rgba(24, 24, 24, 0.96)) !important;
   border-color: var(--primary-400, #fb923c) !important;
   color: var(--text-primary) !important;
 }
@@ -221,7 +597,37 @@
 [data-theme="dark"] .form-group select.goal-type-select:focus,
 [data-theme="dark"] .goal-type-select:focus {
   border-color: var(--primary-400, #fb923c) !important;
-  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.2);
+  box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.18), 0 16px 30px rgba(255, 107, 61, 0.14);
+}
+
+[data-theme="dark"] .register-content--modal .form-group select.goal-type-select,
+[data-theme="dark"] .register-content--modal .goal-type-select {
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-border)) !important;
+  background: linear-gradient(180deg, rgba(17, 21, 27, 0.98) 0%, rgba(10, 13, 18, 0.99) 100%) !important;
+  box-shadow: inset 0 2px 0 rgba(252, 76, 2, 0.18), 0 12px 24px rgba(0, 0, 0, 0.24) !important;
+}
+
+[data-theme="dark"] .register-content--modal .form-group select.goal-type-select:focus,
+[data-theme="dark"] .register-content--modal .goal-type-select:focus {
+  border-color: var(--primary-400, #fb923c) !important;
+  box-shadow: 0 0 0 4px rgba(252, 76, 2, 0.16), 0 18px 34px rgba(0, 0, 0, 0.3) !important;
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .form-group select.goal-type-select,
+:root:not([data-theme="dark"]) .register-content--modal .goal-type-select,
+[data-theme="light"] .register-content--modal .form-group select.goal-type-select,
+[data-theme="light"] .register-content--modal .goal-type-select {
+  border-color: color-mix(in srgb, var(--primary-500) 24%, var(--gray-300)) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 248, 252, 0.96) 100%) !important;
+  box-shadow: inset 0 2px 0 rgba(252, 76, 2, 0.16), 0 10px 22px rgba(15, 23, 42, 0.06) !important;
+}
+
+:root:not([data-theme="dark"]) .register-content--modal .form-group select.goal-type-select:focus,
+:root:not([data-theme="dark"]) .register-content--modal .goal-type-select:focus,
+[data-theme="light"] .register-content--modal .form-group select.goal-type-select:focus,
+[data-theme="light"] .register-content--modal .goal-type-select:focus {
+  border-color: var(--primary-500, #f97316) !important;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18), 0 18px 34px rgba(252, 76, 2, 0.18) !important;
 }
 
 .form-group input:focus,
@@ -229,7 +635,7 @@
 .form-group textarea:focus {
   outline: none;
   border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px var(--primary-50);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-500) 14%, transparent), 0 14px 28px rgba(252, 76, 2, 0.12);
 }
 
 .form-group small {
@@ -291,9 +697,19 @@
 }
 
 .training-mode-option__icon {
-  font-size: 3em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
   margin-bottom: 15px;
   line-height: 1;
+  color: var(--primary-500);
+}
+
+.training-mode-option__icon svg {
+  width: 34px;
+  height: 34px;
 }
 
 .training-mode-option__title {
@@ -323,7 +739,16 @@
 }
 
 .training-mode-option__list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   margin: 8px 0;
+}
+
+.training-mode-option__list-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary-500);
 }
 
 .training-mode-option:hover {
@@ -352,11 +777,19 @@
 
 /* Бейдж под карточкой (Рекомендуем / Скоро) */
 .training-mode-option-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   margin-top: var(--space-5);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
+}
+
+.training-mode-option-badge__icon {
+  flex-shrink: 0;
 }
 
 .training-mode-option-badge--recommend {
@@ -378,8 +811,9 @@
 [data-theme="dark"] .form-group input,
 [data-theme="dark"] .form-group select:not(.goal-type-select),
 [data-theme="dark"] .form-group textarea {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 10%, var(--bg-tertiary)) 0%, var(--bg-tertiary) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--card-border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
 [data-theme="dark"] .register-step-progress {
@@ -467,6 +901,10 @@
   padding-top: 2px;
 }
 
+.register-content--modal .goal-step-fields-wrap__inner {
+  padding: 10px 6px 8px;
+}
+
 /* Блок «Что ты получишь» — выделение рекомендаций под цель */
 .goal-recommendations {
   margin-top: var(--space-4);
@@ -475,9 +913,23 @@
   border-radius: var(--radius-lg);
 }
 
+.register-content--modal .goal-recommendations {
+  background: transparent;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.register-content--modal .goal-recommendations__content {
+  padding: 0 2px;
+}
+
 [data-theme="dark"] .goal-recommendations {
   background: var(--bg-tertiary);
   border-left-color: var(--primary-400);
+}
+
+[data-theme="dark"] .register-content--modal .goal-recommendations {
+  background: transparent;
 }
 
 .goal-recommendations__title {
@@ -608,6 +1060,12 @@
   align-items: stretch;
 }
 
+.register-content--modal .program-options {
+  gap: calc(var(--space-3) + 4px);
+  padding: 10px;
+  margin: -10px;
+}
+
 .program-option {
   display: flex;
   min-height: 0;
@@ -633,11 +1091,20 @@
   text-align: center;
 }
 
+.register-content--modal .program-card {
+  box-shadow: var(--surface-glass-inset), 0 12px 24px rgba(15, 23, 42, 0.05), 0 12px 28px rgba(252, 76, 2, 0.08);
+}
+
 .program-option input[type="radio"]:checked + .program-card,
 .program-option.selected .program-card {
   border-color: var(--primary-500);
   background: var(--primary-50);
   box-shadow: var(--shadow-md);
+}
+
+.register-content--modal .program-option input[type="radio"]:checked + .program-card,
+.register-content--modal .program-option.selected .program-card {
+  box-shadow: 0 18px 36px rgba(252, 76, 2, 0.14), var(--surface-glass-inset), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 .program-card:hover {
@@ -646,8 +1113,18 @@
 }
 
 .program-icon {
-  font-size: var(--text-2xl);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   margin-bottom: var(--space-2);
+  color: var(--primary-500);
+}
+
+.program-icon svg {
+  width: 28px;
+  height: 28px;
 }
 
 .program-name {
@@ -685,29 +1162,47 @@
 .radio-option {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border: 2px solid var(--gray-200);
-  border-radius: var(--radius-md);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-base);
-  background: var(--card-bg);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base), transform var(--transition-base);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 24%, var(--card-bg)) 0%, var(--card-bg) 100%);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06), 0 10px 24px rgba(252, 76, 2, 0.08);
 }
 
 .radio-option:hover {
-  border-color: var(--primary-500);
-  background: var(--gray-50);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--gray-300));
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.12), rgba(255, 107, 61, 0.04));
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08), 0 14px 28px rgba(252, 76, 2, 0.12);
+  transform: translateY(-1px);
 }
 
 .radio-option input[type="radio"] {
-  width: auto;
+  flex: 0 0 auto;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
   margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
   accent-color: var(--primary-500);
 }
 
 .radio-option input[type="radio"]:checked + span {
   color: var(--primary-500);
   font-weight: var(--font-semibold);
+}
+
+.radio-option:has(input[type="radio"]:checked) {
+  border-color: var(--primary-500);
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.18), rgba(255, 107, 61, 0.08));
+  box-shadow: 0 16px 34px rgba(252, 76, 2, 0.16), 0 0 0 1px rgba(252, 76, 2, 0.12);
 }
 
 /* Чекбоксы */
@@ -738,8 +1233,17 @@
 }
 
 .checkbox-item input[type="checkbox"] {
-  width: auto;
+  flex: 0 0 auto;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
   margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
   accent-color: var(--primary-500);
 }
 
@@ -811,8 +1315,14 @@
   }
 
   .training-mode-option__icon {
-    font-size: 2em;
+    width: 44px;
+    height: 44px;
     margin-bottom: 6px;
+  }
+
+  .training-mode-option__icon svg {
+    width: 26px;
+    height: 26px;
   }
 
   .training-mode-option__title {

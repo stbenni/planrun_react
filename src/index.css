@@ -5,6 +5,14 @@
 @import './styles/cards.css';        /* Базовый класс карточек .card */
 @import './styles/animations.css';
 
+.modal-close-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 /* Локальные шрифты Jost (300–800, normal + italic) */
 @font-face {
   font-family: 'Jost';
@@ -350,27 +358,106 @@
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+  background-color: var(--app-background-base);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb-color) var(--scrollbar-track-color);
+}
+
 body {
   font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
+  min-height: 100vh;
+  position: relative;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--bg-primary);
+  background-color: var(--app-background-base);
   color: var(--text-primary);
   transition: background-color var(--transition-base), color var(--transition-base);
 }
 
+html,
+body,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb-color) var(--scrollbar-track-color);
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+html::-webkit-scrollbar-button,
+body::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track-bg);
+  border: 1px solid var(--scrollbar-track-border);
+  border-radius: var(--scrollbar-radius);
+  box-shadow: var(--scrollbar-track-shadow);
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-bg);
+  border: 2px solid transparent;
+  border-radius: var(--scrollbar-radius);
+  background-clip: padding-box;
+  box-shadow: var(--scrollbar-thumb-shadow);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover-bg);
+  box-shadow: var(--scrollbar-thumb-shadow-hover);
+}
+
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 [data-theme="dark"] body {
-  background-color: var(--bg-primary);
+  background-color: var(--app-background-base);
   color: var(--text-primary);
 }
 
 #root {
   min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+}
+
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--app-background-base);
+  background-image: var(--app-background-image);
+  transition: opacity var(--transition-slow), background-color var(--transition-base);
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Tailwind utilities (префикс tw-) — для лендинга и др. */
+@tailwind utilities;

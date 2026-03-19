@@ -4,10 +4,10 @@
  * Real-time: подписка на ChatSSE — новые сообщения появляются сразу.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatSSE } from '../../services/ChatSSE';
-import { BotIcon, MessageCircleIcon, BellIcon } from './Icons';
+import { BotIcon, MessageCircleIcon, BellIcon, CloseIcon } from './Icons';
 import './Notifications.css';
 
 const userTimezone = (user) => user?.timezone || (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions?.().timeZone) || 'Europe/Moscow';
@@ -21,6 +21,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
   const [planNotifications, setPlanNotifications] = useState([]);
   const [dismissed, setDismissed] = useState(() => new Set());
   const [dismissedLoaded, setDismissedLoaded] = useState(false);
+  const planNotificationsCooldownUntilRef = useRef(0);
 
   const loadDismissed = useCallback(async () => {
     if (!api) return;
@@ -43,116 +44,135 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
     api?.dismissNotification(id).catch(() => {});
   }, [api]);
 
-  const refresh = useCallback(async () => {
+  const loadUpcomingWorkouts = useCallback(async () => {
     if (!api) return;
-
-    const loadUpcomingWorkouts = async () => {
-      try {
-        const plan = await api.getPlan();
-        const weeksData = plan?.weeks_data;
-        if (!plan || !Array.isArray(weeksData)) return;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const dayAfterTomorrow = new Date(today);
-        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-        const upcoming = [];
-        for (const week of weeksData) {
-            if (!week.start_date || !week.days) continue;
-            const startDate = new Date(week.start_date);
-            startDate.setHours(0, 0, 0, 0);
-            const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-            for (let i = 0; i < 7; i++) {
-              const workoutDate = new Date(startDate);
-              workoutDate.setDate(startDate.getDate() + i);
-              workoutDate.setHours(0, 0, 0, 0);
-              if (workoutDate.getTime() === tomorrow.getTime() ||
-                  workoutDate.getTime() === dayAfterTomorrow.getTime()) {
-                const dayKey = dayKeys[i];
-                const dayData = week.days[dayKey];
-                if (dayData && dayData.type !== 'rest' && dayData.type !== 'free') {
-                  upcoming.push({
-                    type: 'workout',
-                    id: `workout_${workoutDate.toISOString().split('T')[0]}`,
-                    date: workoutDate.toISOString().split('T')[0],
-                    dateObj: workoutDate,
-                    dayData,
-                    weekNumber: week.number,
-                    dayKey
-                  });
-                }
-              }
+    try {
+      const plan = await api.getPlan();
+      const weeksData = plan?.weeks_data;
+      if (!plan || !Array.isArray(weeksData)) return;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfterTomorrow = new Date(today);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+      const upcoming = [];
+      for (const week of weeksData) {
+        if (!week.start_date || !week.days) continue;
+        const startDate = new Date(week.start_date);
+        startDate.setHours(0, 0, 0, 0);
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        for (let i = 0; i < 7; i++) {
+          const workoutDate = new Date(startDate);
+          workoutDate.setDate(startDate.getDate() + i);
+          workoutDate.setHours(0, 0, 0, 0);
+          if (workoutDate.getTime() === tomorrow.getTime() ||
+              workoutDate.getTime() === dayAfterTomorrow.getTime()) {
+            const dayKey = dayKeys[i];
+            const dayData = week.days[dayKey];
+            if (dayData && dayData.type !== 'rest' && dayData.type !== 'free') {
+              upcoming.push({
+                type: 'workout',
+                id: `workout_${workoutDate.toISOString().split('T')[0]}`,
+                date: workoutDate.toISOString().split('T')[0],
+                dateObj: workoutDate,
+                dayData,
+                weekNumber: week.number,
+                dayKey
+              });
             }
+          }
         }
-        setUpcomingWorkouts(upcoming.slice(0, 2));
-      } catch (error) {
-        console.error('Error loading upcoming workouts:', error);
       }
-    };
+      setUpcomingWorkouts(upcoming.slice(0, 2));
+    } catch (error) {
+      console.error('Error loading upcoming workouts:', error);
+    }
+  }, [api]);
 
-    const loadAdminMessages = async () => {
-      try {
-        if (isAdmin) {
-          const list = await api.chatAdminGetUnreadNotifications(10);
-          setAdminMessages(list.map((m) => ({
-            ...m,
-            type: 'chat',
-            id: `admin_chat_${m.user_id}_${m.id}`,
-            fromUser: true
-          })));
-        } else {
-          const data = await api.chatGetMessages('admin', 5, 0);
-          const list = Array.isArray(data?.messages) ? data.messages : [];
-          const unread = list.filter((m) => !m.read_at && (
-            m.sender_type === 'admin' || (m.sender_type === 'user' && m.sender_id !== user?.id)
-          ));
-          setAdminMessages(unread.map((m) => ({
-            ...m,
-            type: 'chat',
-            id: `chat_${m.id}`,
-            fromUser: m.sender_type === 'user',
-            username: m.sender_username,
-            user_id: m.sender_id,
-          })));
-        }
-      } catch {
-        setAdminMessages([]);
-      }
-    };
-
-    const loadAiMessages = async () => {
+  const loadAdminMessages = useCallback(async () => {
+    if (!api) return;
+    try {
       if (isAdmin) {
-        setAiMessages([]);
+        const list = await api.chatAdminGetUnreadNotifications(10);
+        setAdminMessages(list.map((m) => ({
+          ...m,
+          type: 'chat',
+          id: `admin_chat_${m.user_id}_${m.id}`,
+          fromUser: true
+        })));
         return;
       }
-      try {
-        const data = await api.chatGetMessages('ai', 5, 0);
-        const list = Array.isArray(data?.messages) ? data.messages : [];
-        const unread = list.filter((m) => m.sender_type === 'ai' && !m.read_at);
-        setAiMessages(unread.map((m) => ({ ...m, type: 'chat_ai', id: `ai_chat_${m.id}` })));
-      } catch {
-        setAiMessages([]);
-      }
-    };
 
-    const loadPlanNotifications = async () => {
-      try {
-        const res = await api.getPlanNotifications();
-        const list = res?.data?.notifications ?? res?.notifications ?? [];
-        setPlanNotifications(list.map(n => ({
-          ...n,
-          type: 'plan_notif',
-          id: `plan_notif_${n.id}`,
-          _id: n.id,
-        })));
-      } catch {
-        setPlanNotifications([]);
-      }
-    };
-
-    await Promise.all([loadUpcomingWorkouts(), loadAdminMessages(), loadAiMessages(), loadPlanNotifications()]);
+      const data = await api.chatGetMessages('admin', 5, 0);
+      const list = Array.isArray(data?.messages) ? data.messages : [];
+      const unread = list.filter((m) => !m.read_at && (
+        m.sender_type === 'admin' || (m.sender_type === 'user' && m.sender_id !== user?.id)
+      ));
+      setAdminMessages(unread.map((m) => ({
+        ...m,
+        type: 'chat',
+        id: `chat_${m.id}`,
+        fromUser: m.sender_type === 'user',
+        username: m.sender_username,
+        user_id: m.sender_id,
+      })));
+    } catch {
+      setAdminMessages([]);
+    }
   }, [api, isAdmin, user?.id]);
+
+  const loadAiMessages = useCallback(async () => {
+    if (!api) return;
+    if (isAdmin) {
+      setAiMessages([]);
+      return;
+    }
+    try {
+      const data = await api.chatGetMessages('ai', 5, 0);
+      const list = Array.isArray(data?.messages) ? data.messages : [];
+      const unread = list.filter((m) => m.sender_type === 'ai' && !m.read_at);
+      setAiMessages(unread.map((m) => ({ ...m, type: 'chat_ai', id: `ai_chat_${m.id}` })));
+    } catch {
+      setAiMessages([]);
+    }
+  }, [api, isAdmin]);
+
+  const loadPlanNotifications = useCallback(async () => {
+    if (!api) return;
+    if (Date.now() < planNotificationsCooldownUntilRef.current) return;
+    try {
+      const res = await api.getPlanNotifications();
+      planNotificationsCooldownUntilRef.current = 0;
+      const list = res?.data?.notifications ?? res?.notifications ?? [];
+      setPlanNotifications(list.map((n) => ({
+        ...n,
+        type: 'plan_notif',
+        id: `plan_notif_${n.id}`,
+        _id: n.id,
+      })));
+    } catch (error) {
+      if (error?.status === 429) {
+        const retryAfterSeconds = Number(error?.retry_after) || 60;
+        planNotificationsCooldownUntilRef.current = Date.now() + (retryAfterSeconds * 1000);
+        return;
+      }
+      setPlanNotifications([]);
+    }
+  }, [api]);
+
+  const refreshPlanData = useCallback(async () => {
+    await Promise.all([loadUpcomingWorkouts(), loadPlanNotifications()]);
+  }, [loadPlanNotifications, loadUpcomingWorkouts]);
+
+  const refreshChatData = useCallback(async () => {
+    await Promise.all([loadAdminMessages(), loadAiMessages()]);
+  }, [loadAdminMessages, loadAiMessages]);
+
+  const refresh = useCallback(async () => {
+    if (!api) return;
+    await Promise.all([refreshPlanData(), refreshChatData()]);
+  }, [api, refreshChatData, refreshPlanData]);
 
   useEffect(() => {
     if (!api) return;
@@ -172,11 +192,11 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
       const now = Date.now();
       if (now - lastSseRefreshRef.current < SSE_REFRESH_DEBOUNCE_MS) return;
       lastSseRefreshRef.current = now;
-      refresh();
+      refreshChatData();
     };
     ChatSSE.subscribe(onUnread);
     return () => ChatSSE.unsubscribe(onUnread);
-  }, [api, refresh]);
+  }, [api, refreshChatData]);
 
   const workoutItems = upcomingWorkouts.filter((w) => !dismissed.has(w.id));
   const chatItems = adminMessages
@@ -230,6 +250,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
                   Открыть
                 </button>
                 <button
+                  type="button"
                   className="notification-dismiss"
                   onClick={() => {
                     handleDismiss(item.id);
@@ -237,7 +258,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
                   }}
                   aria-label="Закрыть"
                 >
-                  ×
+                  <CloseIcon className="modal-close-icon" />
                 </button>
               </div>
             </div>
@@ -266,11 +287,12 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
                   Открыть
                 </button>
                 <button
+                  type="button"
                   className="notification-dismiss"
                   onClick={() => handleDismiss(item.id)}
                   aria-label="Закрыть"
                 >
-                  ×
+                  <CloseIcon className="modal-close-icon" />
                 </button>
               </div>
             </div>
@@ -309,11 +331,12 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
                   Открыть
                 </button>
                 <button
+                  type="button"
                   className="notification-dismiss"
                   onClick={() => handleDismiss(item.id)}
                   aria-label="Закрыть"
                 >
-                  ×
+                  <CloseIcon className="modal-close-icon" />
                 </button>
               </div>
             </div>
@@ -359,11 +382,12 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
                 Открыть
               </button>
               <button
+                type="button"
                 className="notification-dismiss"
                 onClick={() => handleDismiss(workout.id)}
                 aria-label="Закрыть"
               >
-                ×
+                <CloseIcon className="modal-close-icon" />
               </button>
             </div>
           </div>

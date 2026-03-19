@@ -1,7 +1,7 @@
 <?php
 /**
  * Генератор планов тренировок через PlanRun AI
- * Использует локальную LLM (Qwen3 14B) с RAG для создания персональных планов
+ * Использует локальную LLM (Ministral 3 14B Reasoning) с RAG для создания персональных планов
  */
 
 require_once __DIR__ . '/planrun_ai_integration.php';
@@ -73,31 +73,218 @@ function generatePlanViaPlanRunAI($userId) {
     
     // Определяем goal_type
     $goalType = $user['goal_type'] ?? 'health';
-    
-    // Строим промпт
+
+    // Проверяем, нужно ли разбивать план на чанки (>16 недель)
+    $chunks = computePlanChunks($user, $goalType);
+
+    if ($chunks !== null && count($chunks) > 1) {
+        return generateSplitPlan($user, $goalType, $chunks, $userId);
+    }
+
+    // Стандартная генерация (≤16 недель)
     $prompt = buildTrainingPlanPrompt($user, $goalType);
-    
+
     error_log("PlanRun AI Generator: Промпт построен для пользователя {$userId}, длина: " . strlen($prompt) . " символов");
-    
+
     // Вызываем PlanRun AI API
     try {
         $response = callAIAPI($prompt, $user, 3, $userId);
         error_log("PlanRun AI Generator: Получен ответ от PlanRun AI API, длина: " . strlen($response) . " символов");
-        
-        // Парсим JSON ответ
-        $planData = json_decode($response, true);
-        
-        if (!$planData || !isset($planData['weeks'])) {
-            error_log("PlanRun AI Generator: Неверный формат ответа. Ответ: " . substr($response, 0, 500));
-            throw new Exception("Неверный формат ответа от PlanRun AI API");
-        }
-        
+
+        // Парсим JSON ответ с repair pipeline
+        $planData = parseAndRepairPlanJSON($response, $userId);
+
         return $planData;
-        
+
     } catch (Exception $e) {
         error_log("PlanRun AI Generator: Ошибка при генерации плана: " . $e->getMessage());
         throw $e;
     }
+}
+
+/**
+ * Генерация длинного плана по частям (сплит).
+ * Каждый чанк генерируется отдельным вызовом LLM, затем недели объединяются.
+ *
+ * @param array $user       Данные пользователя
+ * @param string $goalType  Тип цели
+ * @param array $chunks     Массив чанков из computePlanChunks()
+ * @param int $userId       ID пользователя
+ * @return array            Объединённый план {weeks: [...]}
+ * @throws Exception
+ */
+function generateSplitPlan(array $user, string $goalType, array $chunks, int $userId): array {
+    $totalWeeks = 0;
+    foreach ($chunks as $chunk) {
+        $totalWeeks += $chunk['weeks_count'];
+    }
+
+    $totalChunks = count($chunks);
+    error_log("PlanRun AI Generator: Сплит-генерация для пользователя {$userId}: {$totalWeeks} недель → {$totalChunks} чанков");
+
+    $allWeeks = [];
+    $prevLastWeek = null;
+
+    foreach ($chunks as $chunkIndex => $chunk) {
+        $prompt = buildPartialPlanPrompt(
+            $user,
+            $goalType,
+            $chunk,
+            $totalWeeks,
+            $chunkIndex,
+            $totalChunks,
+            $prevLastWeek
+        );
+
+        error_log("PlanRun AI Generator: Чанк " . ($chunkIndex + 1) . "/{$totalChunks} — недели {$chunk['week_from']}–{$chunk['week_to']}, промпт: " . strlen($prompt) . " симв.");
+
+        try {
+            $response = callAIAPI($prompt, $user, 3, $userId);
+            error_log("PlanRun AI Generator: Чанк " . ($chunkIndex + 1) . " — ответ: " . strlen($response) . " симв.");
+
+            $chunkPlan = parseAndRepairPlanJSON($response, $userId);
+
+            if (empty($chunkPlan['weeks'])) {
+                throw new Exception("Чанк " . ($chunkIndex + 1) . " вернул пустой план");
+            }
+
+            // Перенумеровываем week_number в абсолютную нумерацию
+            foreach ($chunkPlan['weeks'] as &$week) {
+                $relWeekNum = $week['week_number'] ?? null;
+                if ($relWeekNum !== null) {
+                    $week['week_number'] = $chunk['week_from'] + ($relWeekNum - 1);
+                }
+            }
+            unset($week);
+
+            // Сохраняем последнюю неделю для контекста следующего чанка
+            $prevLastWeek = end($chunkPlan['weeks']);
+
+            // Добавляем недели в общий массив
+            $allWeeks = array_merge($allWeeks, $chunkPlan['weeks']);
+
+        } catch (Exception $e) {
+            error_log("PlanRun AI Generator: Ошибка чанка " . ($chunkIndex + 1) . ": " . $e->getMessage());
+            throw new Exception("Ошибка генерации части " . ($chunkIndex + 1) . " плана: " . $e->getMessage());
+        }
+    }
+
+    // Финальная перенумерация (на случай, если LLM вернула неправильную нумерацию)
+    foreach ($allWeeks as $i => &$week) {
+        $week['week_number'] = $i + 1;
+    }
+    unset($week);
+
+    error_log("PlanRun AI Generator: Сплит-генерация завершена — итого " . count($allWeeks) . " недель");
+
+    return validatePlanStructure(['weeks' => $allWeeks], $userId);
+}
+
+/**
+ * Pipeline: Parse → Validate → Repair JSON ответа от LLM.
+ *
+ * 1. Попытка прямого json_decode
+ * 2. Очистка от текста перед/после JSON (```json ... ```)
+ * 3. Попытка извлечь JSON из текста
+ * 4. Валидация структуры (weeks → days)
+ *
+ * @param string $response Сырой ответ от LLM
+ * @param int $userId ID пользователя (для логов)
+ * @return array Валидный план
+ * @throws Exception
+ */
+function parseAndRepairPlanJSON(string $response, int $userId): array {
+    // 1. Прямой decode
+    $planData = json_decode($response, true);
+    if ($planData && isset($planData['weeks']) && is_array($planData['weeks'])) {
+        return validatePlanStructure($planData, $userId);
+    }
+
+    // 2. LLM иногда оборачивает в ```json...``` или добавляет текст перед/после
+    $cleaned = $response;
+
+    // Убрать markdown code blocks
+    if (preg_match('/```(?:json)?\s*\n?(.*?)\n?\s*```/s', $cleaned, $m)) {
+        $cleaned = $m[1];
+    }
+
+    // Убрать текст до первой { и после последней }
+    $firstBrace = strpos($cleaned, '{');
+    $lastBrace = strrpos($cleaned, '}');
+    if ($firstBrace !== false && $lastBrace !== false && $lastBrace > $firstBrace) {
+        $cleaned = substr($cleaned, $firstBrace, $lastBrace - $firstBrace + 1);
+    }
+
+    $planData = json_decode($cleaned, true);
+    if ($planData && isset($planData['weeks']) && is_array($planData['weeks'])) {
+        error_log("parseAndRepairPlanJSON (user {$userId}): Repaired — extracted JSON from text wrapper");
+        return validatePlanStructure($planData, $userId);
+    }
+
+    // 3. Иногда LLM выдаёт массив напрямую [{...}] вместо {"weeks":[...]}
+    $planData = json_decode($cleaned, true);
+    if (is_array($planData) && !isset($planData['weeks'])) {
+        // Проверяем, может это массив недель напрямую
+        $first = $planData[0] ?? null;
+        if ($first && isset($first['days'])) {
+            error_log("parseAndRepairPlanJSON (user {$userId}): Repaired — wrapped bare weeks array");
+            return validatePlanStructure(['weeks' => $planData], $userId);
+        }
+    }
+
+    // 4. Попытка починить невалидный JSON (trailing commas, single quotes)
+    $repaired = $cleaned;
+    $repaired = preg_replace('/,\s*([}\]])/', '$1', $repaired); // trailing commas
+    $repaired = str_replace("'", '"', $repaired); // single → double quotes
+
+    $planData = json_decode($repaired, true);
+    if ($planData && isset($planData['weeks']) && is_array($planData['weeks'])) {
+        error_log("parseAndRepairPlanJSON (user {$userId}): Repaired — fixed trailing commas / quotes");
+        return validatePlanStructure($planData, $userId);
+    }
+
+    // 5. Не удалось — логируем и бросаем ошибку
+    $jsonError = json_last_error_msg();
+    $snippet = substr($response, 0, 500);
+    error_log("parseAndRepairPlanJSON (user {$userId}): FAILED. json_error={$jsonError}. Snippet: {$snippet}");
+    throw new Exception("Не удалось распарсить ответ LLM. JSON error: {$jsonError}");
+}
+
+/**
+ * Валидация структуры плана: проверяет что weeks содержат days с правильными типами.
+ */
+function validatePlanStructure(array $planData, int $userId): array {
+    $weeks = $planData['weeks'];
+    $warnings = [];
+
+    foreach ($weeks as $wi => $week) {
+        if (!isset($week['days']) || !is_array($week['days'])) {
+            $warnings[] = "Неделя " . ($wi + 1) . ": нет массива days";
+            continue;
+        }
+        foreach ($week['days'] as $di => $day) {
+            if (!is_array($day)) {
+                $warnings[] = "Неделя " . ($wi + 1) . " день " . ($di + 1) . ": не является объектом";
+                $weeks[$wi]['days'][$di] = ['type' => 'rest'];
+                continue;
+            }
+            // Проверка типа
+            $type = strtolower(trim($day['type'] ?? ''));
+            $allowed = ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free',
+                        'easy_run', 'long_run', 'long-run', 'ofp', 'marathon'];
+            if (!in_array($type, $allowed, true)) {
+                $warnings[] = "Неделя " . ($wi + 1) . " день " . ($di + 1) . ": неизвестный тип '{$type}' → rest";
+                $weeks[$wi]['days'][$di]['type'] = 'rest';
+            }
+        }
+    }
+
+    if (!empty($warnings)) {
+        error_log("validatePlanStructure (user {$userId}): " . count($warnings) . " warnings: " . implode('; ', array_slice($warnings, 0, 5)));
+    }
+
+    $planData['weeks'] = $weeks;
+    return $planData;
 }
 
 /**
@@ -226,6 +413,41 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     // Определяем текущую фазу по оригинальному макроциклу
     $currentPhaseInfo = detectCurrentPhase($user, $goalType, $keptWeeks);
 
+    // --- Последние 3 недели ПЛАНА (детальная структура для продолжения) ---
+    $lastPlanWeeks = [];
+    $stmt = $db->prepare("
+        SELECT tpw.week_number, tpw.start_date, tpw.total_volume,
+               tpd.day_of_week, tpd.type, tpd.description
+        FROM training_plan_weeks tpw
+        JOIN training_plan_days tpd ON tpd.week_id = tpw.id
+        WHERE tpw.user_id = ? AND tpw.start_date < ?
+        ORDER BY tpw.week_number DESC, tpd.day_of_week ASC
+    ");
+    $stmt->bind_param('is', $userId, $cutoffDate);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $weekData = [];
+    while ($r = $res->fetch_assoc()) {
+        $wn = (int) $r['week_number'];
+        if (!isset($weekData[$wn])) {
+            $weekData[$wn] = [
+                'week_number' => $wn,
+                'total_volume' => $r['total_volume'],
+                'days' => [],
+            ];
+        }
+        $weekData[$wn]['days'][] = [
+            'day' => (int) $r['day_of_week'],
+            'type' => $r['type'],
+            'desc' => $r['description'],
+        ];
+    }
+    $stmt->close();
+    // Берём последние 3 недели (они уже в DESC порядке)
+    $lastPlanWeeks = array_slice(array_values($weekData), 0, 3);
+    // Разворачиваем обратно в хронологическом порядке
+    $lastPlanWeeks = array_reverse($lastPlanWeeks);
+
     // --- Собираем контекст тренировок ---
     require_once __DIR__ . '/../services/ChatContextBuilder.php';
     $ctxBuilder = new ChatContextBuilder($db);
@@ -287,8 +509,9 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
         }
     }
 
+    $expLevelForDetraining = $user['experience_level'] ?? 'intermediate';
     $detrainingFactor = $daysSinceLastWorkout !== null
-        ? calculateDetrainingFactor($daysSinceLastWorkout)
+        ? calculateDetrainingFactor($daysSinceLastWorkout, $expLevelForDetraining)
         : null;
 
     // Лучшая фактически выполненная длительная (полная история плана)
@@ -339,6 +562,8 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
         'max_planned_volume_km' => round($maxPlannedVolumeKm, 1),
         'best_actual_long_km' => $bestActualLongKm,
         'current_phase' => $currentPhaseInfo,
+        'acwr' => $ctxBuilder->calculateACWR($userId),
+        'last_plan_weeks' => $lastPlanWeeks,
     ];
 
     $prompt = buildRecalculationPrompt($user, $goalType, $recalcContext);
@@ -347,12 +572,7 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
 
     try {
         $response = callAIAPI($prompt, $user, 3, $userId);
-        $planData = json_decode($response, true);
-
-        if (!$planData || !isset($planData['weeks'])) {
-            error_log("PlanRun AI Recalculate: Неверный формат ответа: " . substr($response, 0, 500));
-            throw new Exception("Неверный формат ответа от PlanRun AI API при пересчёте");
-        }
+        $planData = parseAndRepairPlanJSON($response, $userId);
 
         return [
             'plan' => $planData,
@@ -620,12 +840,7 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
 
     try {
         $response = callAIAPI($prompt, $modifiedUser, 3, $userId);
-        $planData = json_decode($response, true);
-
-        if (!$planData || !isset($planData['weeks'])) {
-            error_log("PlanRun AI NextPlan: Неверный формат ответа: " . substr($response, 0, 500));
-            throw new Exception("Неверный формат ответа от PlanRun AI API при генерации нового плана");
-        }
+        $planData = parseAndRepairPlanJSON($response, $userId);
 
         return $planData;
     } catch (Exception $e) {

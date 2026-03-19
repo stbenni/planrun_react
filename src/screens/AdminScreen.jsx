@@ -3,15 +3,18 @@
  * Доступ только для пользователей с role === 'admin'
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import LogoLoading from '../components/common/LogoLoading';
+import { useIsTabActive } from '../hooks/useIsTabActive';
+import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import './AdminScreen.css';
 
 const TAB_USERS = 'users';
 const TAB_SETTINGS = 'settings';
 const TAB_COACH_APPS = 'coach_apps';
+const ADMIN_TABS = [TAB_USERS, TAB_SETTINGS, TAB_COACH_APPS];
 const ROLES = [{ value: 'user', label: 'Пользователь' }, { value: 'coach', label: 'Тренер' }, { value: 'admin', label: 'Администратор' }];
 
 const GOAL_TYPE_LABELS = {
@@ -28,9 +31,77 @@ const TRAINING_MODE_LABELS = {
   both: 'AI + тренер',
 };
 
+const COACH_SPECIALIZATION_LABELS = {
+  marathon: 'Марафон',
+  half_marathon: 'Полумарафон',
+  '5k_10k': '5/10 км',
+  ultra: 'Ультра',
+  trail: 'Трейл',
+  beginner: 'Начинающие',
+  injury_recovery: 'Травмы и восстановление',
+  nutrition: 'Питание',
+  mental: 'Ментальные навыки',
+};
+
+const COACH_PRICING_TYPE_LABELS = {
+  individual: 'Индивидуальные тренировки',
+  group: 'Групповые тренировки',
+  consultation: 'Разовая консультация',
+  custom: 'Другое',
+};
+
+const COACH_PRICING_PERIOD_LABELS = {
+  month: 'в месяц',
+  week: 'в неделю',
+  one_time: 'разово',
+};
+
+function formatCoachSpecialization(value) {
+  return COACH_SPECIALIZATION_LABELS[value] || value;
+}
+
+function formatPricingType(value) {
+  return COACH_PRICING_TYPE_LABELS[value] || value || 'Услуга';
+}
+
+function formatPricingPeriod(value) {
+  return COACH_PRICING_PERIOD_LABELS[value] || value || '';
+}
+
+function formatPricingValue(item) {
+  if (item?.price === null || item?.price === undefined || item?.price === '') {
+    return 'Цена не указана';
+  }
+
+  const amount = Number(item.price);
+  if (!Number.isFinite(amount)) {
+    return 'Цена не указана';
+  }
+
+  const currency = item.currency || 'RUB';
+  const formatted = new Intl.NumberFormat('ru-RU').format(amount);
+  const suffix = currency === 'RUB' ? '₽' : currency;
+  const period = formatPricingPeriod(item.period);
+
+  return period ? `${formatted} ${suffix} ${period}` : `${formatted} ${suffix}`;
+}
+
+function renderApplicationField(label, value, className = '') {
+  return (
+    <div className={`admin-coach-app-section ${className}`.trim()}>
+      <div className="admin-coach-app-section-label">{label}</div>
+      <div className="admin-coach-app-section-value">
+        {value && String(value).trim() ? value : 'Не указано'}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminScreen() {
   const navigate = useNavigate();
   const { user, api } = useAuthStore();
+  const isAdminRouteActive = useIsTabActive('/admin');
+  const adminPanelsRef = useRef(null);
   const [tab, setTab] = useState(TAB_USERS);
   const [csrfToken, setCsrfToken] = useState('');
   const [loading, setLoading] = useState(true);
@@ -50,6 +121,15 @@ export default function AdminScreen() {
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   const [broadcastContent, setBroadcastContent] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
+
+  useSwipeableTabs({
+    containerRef: adminPanelsRef,
+    tabs: ADMIN_TABS,
+    activeTab: tab,
+    onTabChange: setTab,
+    enabled: true,
+    ignoreSelector: '.admin-table-wrap, [data-swipe-lock="true"], input, textarea, select, [contenteditable="true"]',
+  });
   const [broadcastTarget, setBroadcastTarget] = useState('all'); // 'all' | 'page'
 
   // Настройки сайта
@@ -163,7 +243,35 @@ export default function AdminScreen() {
     if (tab === TAB_USERS) loadUsers();
     if (tab === TAB_SETTINGS) loadSettings();
     if (tab === TAB_COACH_APPS) loadCoachApps();
-  }, [isAdmin, api, tab, loadUsers, loadSettings]);
+  }, [isAdmin, api, tab, loadUsers, loadSettings, loadCoachApps]);
+
+  useEffect(() => {
+    if (!isAdmin || !api || !isAdminRouteActive || tab !== TAB_COACH_APPS) {
+      return;
+    }
+
+    loadCoachApps();
+
+    const refreshCoachApps = () => {
+      loadCoachApps();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshCoachApps();
+      }
+    };
+
+    const intervalId = window.setInterval(refreshCoachApps, 15000);
+    window.addEventListener('focus', refreshCoachApps);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshCoachApps);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAdmin, api, isAdminRouteActive, tab, loadCoachApps]);
 
   useEffect(() => {
     const t = setTimeout(() => setUsersSearchDebounced(usersSearch), 400);
@@ -249,8 +357,15 @@ export default function AdminScreen() {
     }
   };
 
-  if (!user) return null;
-  if (!isAdmin) return null;
+  if (!user) {
+    return (
+      <div className="loading-container">
+        <LogoLoading />
+      </div>
+    );
+  }
+
+  if (!isAdmin) return <Navigate to="/" replace />;
 
   const totalPages = Math.max(1, Math.ceil(usersTotal / perPage));
 
@@ -293,6 +408,7 @@ export default function AdminScreen() {
         </div>
       )}
 
+      <div ref={adminPanelsRef} className="admin-tab-panels">
       {tab === TAB_USERS && (
         <section className="admin-section admin-users" aria-label="Пользователи">
           <div className="admin-users-toolbar">
@@ -470,30 +586,85 @@ export default function AdminScreen() {
           ) : (
             <div className="admin-coach-apps-list">
               {coachApps.map((app) => {
-                const specs = (() => { try { return JSON.parse(app.coach_specialization || '[]'); } catch { return []; } })();
+                const specs = Array.isArray(app.coach_specialization)
+                  ? app.coach_specialization
+                  : (() => { try { return JSON.parse(app.coach_specialization || '[]'); } catch { return []; } })();
+                const pricingItems = Array.isArray(app.coach_pricing_json)
+                  ? app.coach_pricing_json
+                  : (() => { try { return JSON.parse(app.coach_pricing_json || '[]'); } catch { return []; } })();
+
                 return (
                   <div key={app.id} className="admin-coach-app-card">
                     <div className="admin-coach-app-header">
-                      <strong>{app.username || `User #${app.user_id}`}</strong>
+                      <div className="admin-coach-app-header-main">
+                        <strong>{app.username || `User #${app.user_id}`}</strong>
+                        <div className="admin-coach-app-subline">
+                          <span>ID {app.user_id}</span>
+                          {app.email && <span>{app.email}</span>}
+                          {app.username_slug && <span>@{app.username_slug}</span>}
+                        </div>
+                      </div>
                       <span className="admin-coach-app-date">
-                        {app.created_at ? new Date(app.created_at).toLocaleDateString('ru') : ''}
+                        {app.created_at ? new Date(app.created_at).toLocaleString('ru-RU') : ''}
                       </span>
                     </div>
-                    {app.coach_bio && <p className="admin-coach-app-bio">{app.coach_bio}</p>}
-                    {specs.length > 0 && (
-                      <div className="admin-coach-app-specs">
-                        {specs.map((s) => <span key={s} className="coach-spec-tag">{s}</span>)}
+
+                    <div className="admin-coach-app-meta">
+                      <span className={`admin-coach-app-pill ${app.coach_accepts_new ? 'admin-coach-app-pill--success' : ''}`}>
+                        {app.coach_accepts_new ? 'Принимает новых учеников' : 'Не принимает новых учеников'}
+                      </span>
+                      <span className="admin-coach-app-pill">
+                        {app.coach_prices_on_request ? 'Цены по запросу' : 'Цены опубликованы'}
+                      </span>
+                      <span className="admin-coach-app-pill">
+                        Опыт: {app.coach_experience_years ? `${app.coach_experience_years} лет` : 'не указан'}
+                      </span>
+                    </div>
+
+                    <div className="admin-coach-app-grid">
+                      <div className="admin-coach-app-section admin-coach-app-section--full">
+                        <div className="admin-coach-app-section-label">Специализации</div>
+                        {specs.length > 0 ? (
+                          <div className="admin-coach-app-specs">
+                            {specs.map((s) => (
+                              <span key={s} className="coach-spec-tag">{formatCoachSpecialization(s)}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="admin-coach-app-section-value">Не указаны</div>
+                        )}
                       </div>
-                    )}
-                    {app.coach_experience_years && (
-                      <p className="admin-coach-app-detail">Опыт: {app.coach_experience_years} лет</p>
-                    )}
-                    {app.coach_philosophy && (
-                      <p className="admin-coach-app-detail">Подход: {app.coach_philosophy}</p>
-                    )}
-                    {app.coach_certifications && (
-                      <p className="admin-coach-app-detail">Сертификаты: {app.coach_certifications}</p>
-                    )}
+
+                      {renderApplicationField('О себе', app.coach_bio, 'admin-coach-app-section--full')}
+                      {renderApplicationField('Тренерская философия', app.coach_philosophy)}
+                      {renderApplicationField('Свои достижения как бегун', app.coach_runner_achievements)}
+                      {renderApplicationField('Достижения учеников', app.coach_athlete_achievements)}
+                      {renderApplicationField('Сертификации', app.coach_certifications)}
+                      {renderApplicationField('Дополнительные контакты', app.coach_contacts_extra)}
+
+                      <div className="admin-coach-app-section admin-coach-app-section--full">
+                        <div className="admin-coach-app-section-label">Стоимость услуг</div>
+                        {app.coach_prices_on_request ? (
+                          <div className="admin-coach-app-section-value">Цены по запросу</div>
+                        ) : pricingItems.length > 0 ? (
+                          <div className="admin-coach-app-pricing-list">
+                            {pricingItems.map((item, index) => (
+                              <div key={`${item.type || 'pricing'}-${index}`} className="admin-coach-app-pricing-item">
+                                <div className="admin-coach-app-pricing-title">
+                                  {item.label || formatPricingType(item.type)}
+                                </div>
+                                <div className="admin-coach-app-pricing-value">
+                                  {formatPricingValue(item)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="admin-coach-app-section-value">Не указана</div>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="admin-coach-app-actions">
                       <button
                         type="button"
@@ -517,6 +688,7 @@ export default function AdminScreen() {
           )}
         </section>
       )}
+      </div>
 
       {broadcastModalOpen && (
         <div className="admin-modal-overlay" onClick={() => !broadcastSending && setBroadcastModalOpen(false)}>

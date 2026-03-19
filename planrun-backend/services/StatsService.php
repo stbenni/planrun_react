@@ -321,15 +321,23 @@ class StatsService extends BaseService {
             return null;
         }
 
-        // Сортируем по VDOT (лучшие сверху), берём топ-10
+        // Сортируем по VDOT (лучшие сверху)
         usort($candidates, fn($a, $b) => $b['vdot'] <=> $a['vdot']);
-        $top = array_slice($candidates, 0, 10);
+        $bestSingle = $candidates[0];
+
+        // Отсекаем easy/recovery: оставляем только тренировки с VDOT ≥ 85% от лучшего
+        // Это убирает лёгкие пробежки, разминки, прогулки записанные как running
+        $vdotThreshold = $bestSingle['vdot'] * 0.85;
+        $hardEfforts = array_filter($candidates, fn($c) => $c['vdot'] >= $vdotThreshold);
+        $hardEfforts = array_values($hardEfforts);
+
+        // Берём топ-5 из quality efforts
+        $top = array_slice($hardEfforts, 0, 5);
 
         // Recency weight: 0.85^weeks_ago — недавние важнее
-        // Distance relevance: при целевой дистанции — результаты ближе к ней важнее (темп 5к быстрее полумарафона)
+        // Distance relevance: при целевой дистанции — результаты ближе к ней важнее
         $weightedSum = 0;
         $weightTotal = 0;
-        $bestSingle = $top[0];
 
         foreach ($top as $c) {
             $w = pow(0.85, $c['weeks_ago']);
@@ -343,20 +351,13 @@ class StatsService extends BaseService {
         }
 
         $avgVdot = $weightTotal > 0 ? $weightedSum / $weightTotal : $bestSingle['vdot'];
-
-        // Если взвешенное среднее сильно ниже лучшего — возможен выброс; используем среднее топ-3
-        if (count($top) >= 3 && ($bestSingle['vdot'] - $avgVdot) > 3) {
-            $medianVdot = $top[1]['vdot']; // второй по величине как компромисс
-            $avgVdot = ($avgVdot + $medianVdot) / 2;
-        }
-
         $avgVdot = max(20, min(85, round($avgVdot, 1)));
 
         return [
             'distance_km' => $bestSingle['distance_km'],
             'time_sec' => $bestSingle['time_sec'],
             'vdot' => $avgVdot,
-            'vdot_source_detail' => count($top) . ' тренировок за ' . $weeksWindow . ' нед.',
+            'vdot_source_detail' => count($top) . ' quality efforts из ' . count($candidates) . ' тренировок за ' . $weeksWindow . ' нед.',
         ];
     }
 

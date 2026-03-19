@@ -23,7 +23,7 @@
 
 - **MAIL_HOST**  
   - Если Roundcube и сайт на **одном сервере**: укажите `localhost` или `127.0.0.1`.  
-  - Если почта на **другом сервере**: укажите тот же хост, что в настройках SMTP Roundcube (например `mail.s-vladimirov.ru` или FQDN сервера).
+  - Если почта на **другом сервере**: укажите тот же хост, что в настройках SMTP Roundcube (например `mail.planrun.ru` или FQDN сервера).
 - **MAIL_PORT**  
   - `587` — обычно submission с **STARTTLS** (в .env задайте `MAIL_ENCRYPTION=tls`).  
   - `465` — SMTPS по SSL (задайте `MAIL_ENCRYPTION=ssl`).  
@@ -33,7 +33,7 @@
 
 ### 2. Логин и пароль
 
-- **MAIL_USERNAME** — полный адрес ящика (как в Roundcube), например `noreply@s-vladimirov.ru` или `info@s-vladimirov.ru`.  
+- **MAIL_USERNAME** — полный адрес ящика (как в Roundcube), например `info@planrun.ru` или `noreply@planrun.ru`.  
 - **MAIL_PASSWORD** — пароль этого ящика (тот же, что в Roundcube).
 
 Домен в логине должен совпадать с доменом почтового сервера (часто один и тот же, что и у Roundcube).
@@ -64,13 +64,13 @@ MAIL_VERIFY_PEER=0
 openssl s_client -connect localhost:587 -starttls smtp -brief 2>/dev/null || true
 
 # Или для удалённого хоста (подставьте свой MAIL_HOST)
-openssl s_client -connect mail.s-vladimirov.ru:587 -starttls smtp -brief 2>/dev/null || true
+openssl s_client -connect mail.planrun.ru:587 -starttls smtp -brief 2>/dev/null || true
 ```
 
 Проверка отправки через PHP (без веб-сервера):
 
 ```bash
-cd /var/www/vladimirov/planrun-backend
+cd /var/www/planrun/planrun-backend
 php scripts/check_password_reset.php YOUR_USERNAME
 ```
 
@@ -84,10 +84,10 @@ php scripts/check_password_reset.php YOUR_USERNAME
 # Почта — те же параметры, что в Roundcube (SMTP)
 MAIL_HOST=localhost
 MAIL_PORT=587
-MAIL_USERNAME=noreply@s-vladimirov.ru
+MAIL_USERNAME=info@planrun.ru
 MAIL_PASSWORD=ваш_пароль_ящика
 MAIL_ENCRYPTION=tls
-MAIL_FROM_ADDRESS=noreply@s-vladimirov.ru
+MAIL_FROM_ADDRESS=info@planrun.ru
 MAIL_FROM_NAME=PlanRun
 ```
 

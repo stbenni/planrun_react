@@ -45,6 +45,13 @@ const PACE_ZONE_COLORS = {
   repetition: 'var(--workout-control)',
 };
 
+const COMPACT_TABLE_KEY_GROUPS = [
+  ['5k'],
+  ['10k'],
+  ['half', '21.1k'],
+  ['marathon', '42.2k'],
+];
+
 const SWIPE_THRESHOLD = 50;
 
 const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
@@ -56,7 +63,8 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
   const isMobile = useMediaQuery('(max-width: 1023px)');
   const useShortLabels = compact || isMobile;
   const distLabels = useShortLabels ? DISTANCE_LABELS_SHORT : DISTANCE_LABELS_FULL;
-  const showRiegel = !compact || isMobile;
+  const isCompactCard = compact && !isMobile;
+  const showRiegel = !isCompactCard;
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -118,7 +126,25 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
     touchStartRef.current = null;
   };
 
-  const showPagination = compact && training_paces;
+  const showPagination = isCompactCard && training_paces;
+  const goalDistanceKey = goal?.race_distance || null;
+  const compactTableKeys = COMPACT_TABLE_KEY_GROUPS
+    .map((group) => group.find((key) => predictions?.[key]))
+    .filter(Boolean);
+  const getCompactPageState = (pageIndex) => {
+    if (pageIndex === page) return 'race-prediction__page--active';
+    return pageIndex < page ? 'race-prediction__page--before' : 'race-prediction__page--after';
+  };
+  const isCompactTargetKey = (key) => {
+    if (!goalDistanceKey) return false;
+    if (goalDistanceKey === key) return true;
+    return (
+      (goalDistanceKey === '42.2k' && key === 'marathon') ||
+      (goalDistanceKey === 'marathon' && key === '42.2k') ||
+      (goalDistanceKey === '21.1k' && key === 'half') ||
+      (goalDistanceKey === 'half' && key === '21.1k')
+    );
+  };
 
   const headerRow = (
     <div className="race-prediction__header-row">
@@ -166,10 +192,34 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
       </div>
   );
 
-  const page1 = (
+  const compactMiniPage = (
     <>
-      {headerRow}
-      {tableBlock}
+      <div className="race-prediction__compact-section-head">
+        <span className="race-prediction__compact-section-title">Прогнозы</span>
+        {showPagination && (
+          <button
+            type="button"
+            className="race-prediction__compact-toggle"
+            onClick={() => setPage(1)}
+            aria-label="Показать тренировочные зоны"
+          >
+            <span>Зоны</span>
+            <ChevronRight size={14} className="race-prediction__compact-toggle-icon" />
+          </button>
+        )}
+      </div>
+      <div className="race-prediction__compact-grid">
+        {compactTableKeys.map((key) => (
+          <div
+            key={key}
+            className={`race-prediction__compact-cell ${isCompactTargetKey(key) ? 'race-prediction__compact-cell--target' : ''}`}
+          >
+            <span className="race-prediction__compact-cell-dist">{distLabels[key] || key}</span>
+            <span className="race-prediction__compact-cell-time">{predictions[key].formatted}</span>
+            <span className="race-prediction__compact-cell-pace">{predictions[key].pace_formatted}/км</span>
+          </div>
+        ))}
+      </div>
     </>
   );
 
@@ -191,39 +241,59 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
     </div>
   );
 
-  if (compact && showPagination) {
+  const compactZonesPage = training_paces && (
+    <>
+      <div className="race-prediction__compact-section-head">
+        <span className="race-prediction__compact-section-title">Тренировочные зоны</span>
+        <button
+          type="button"
+          className="race-prediction__compact-toggle race-prediction__compact-toggle--back"
+          onClick={() => setPage(0)}
+          aria-label="Вернуться к прогнозам"
+        >
+          <ChevronLeft size={14} className="race-prediction__compact-toggle-icon" />
+          <span>Прогноз</span>
+        </button>
+      </div>
+      <div className="race-prediction__compact-zones-list">
+        {Object.entries(training_paces).map(([zone, pace]) => (
+          <div key={zone} className="race-prediction__compact-zone-item">
+            <span
+              className="race-prediction__pace-dot"
+              style={{ background: PACE_ZONE_COLORS[zone] }}
+            />
+            <span className="race-prediction__compact-zone-label">{PACE_ZONE_LABELS[zone] || zone}</span>
+            <span className="race-prediction__compact-zone-value">{pace}/км</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  if (isCompactCard) {
     return (
       <div
-        className="race-prediction race-prediction--compact"
+        className="race-prediction race-prediction--compact-layout"
         onTouchStart={handleSwipeStart}
         onTouchEnd={handleSwipeEnd}
       >
+        {headerRow}
         <div className="race-prediction__pages">
-          <div className={`race-prediction__page ${page === 0 ? 'race-prediction__page--active' : ''}`}>
-            {page1}
+          <div
+            className={`race-prediction__page ${getCompactPageState(0)}`}
+            aria-hidden={page !== 0}
+          >
+            {compactMiniPage}
           </div>
-          <div className={`race-prediction__page ${page === 1 ? 'race-prediction__page--active' : ''}`}>
-            {page2}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="race-prediction__nav"
-          onClick={() => setPage((p) => (p === 0 ? 1 : 0))}
-          aria-label={page === 0 ? 'Тренировочные зоны' : 'Прогнозы'}
-        >
-          {page === 0 ? (
-            <>
-              <span className="race-prediction__nav-hint">Тренировочные зоны</span>
-              <ChevronRight size={16} className="race-prediction__nav-icon" />
-            </>
-          ) : (
-            <>
-              <ChevronLeft size={16} className="race-prediction__nav-icon" />
-              <span className="race-prediction__nav-hint">Прогнозы</span>
-            </>
+          {showPagination && (
+            <div
+              className={`race-prediction__page ${getCompactPageState(1)}`}
+              aria-hidden={page !== 1}
+            >
+              {compactZonesPage}
+            </div>
           )}
-        </button>
+        </div>
       </div>
     );
   }

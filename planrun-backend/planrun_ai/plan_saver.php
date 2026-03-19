@@ -26,8 +26,8 @@ const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other
  * @return void
  * @throws Exception
  */
-function saveTrainingPlan($db, $userId, $planData, $startDate) {
-    $normalized = normalizeTrainingPlan($planData, $startDate);
+function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPreferences = null) {
+    $normalized = normalizeTrainingPlan($planData, $startDate, 0, $userPreferences);
 
     foreach ($normalized['warnings'] as $w) {
         error_log("saveTrainingPlan (user {$userId}): {$w}");
@@ -165,7 +165,7 @@ function saveTrainingPlan($db, $userId, $planData, $startDate) {
  * @return void
  * @throws Exception
  */
-function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate) {
+function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate, ?array $userPreferences = null) {
     $lastKeptWeek = 0;
     $stmt = $db->prepare(
         "SELECT MAX(week_number) AS max_wn FROM training_plan_weeks WHERE user_id = ? AND start_date < ?"
@@ -176,7 +176,7 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
     $stmt->close();
     $lastKeptWeek = (int) ($row['max_wn'] ?? 0);
 
-    $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek);
+    $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek, $userPreferences);
 
     foreach ($normalized['warnings'] as $w) {
         error_log("saveRecalculatedPlan (user {$userId}): {$w}");

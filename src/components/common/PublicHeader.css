@@ -7,18 +7,18 @@
   top: 0;
   left: 0;
   right: 0;
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--gray-300);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--card-surface-bg);
+  border-bottom: 1px solid var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
   z-index: 1000;
-  backdrop-filter: blur(10px);
-  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
   height: 64px;
 }
 
 [data-theme="dark"] .public-header {
-  background: rgba(37, 37, 37, 0.95);
-  border-bottom-color: var(--card-border);
+  background: var(--card-surface-bg);
+  border-bottom-color: var(--card-surface-border);
 }
 
 .public-header-container {
@@ -70,28 +70,32 @@
 
 .public-header-login-btn {
   padding: 10px 20px;
-  background: transparent;
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .public-header-login-btn:hover {
-  background: var(--gray-100);
-  border-color: var(--gray-300);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 7%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 [data-theme="dark"] .public-header-login-btn {
   color: var(--text-primary);
-  border-color: var(--card-border);
+  border-color: var(--card-surface-compact-border);
 }
 
 [data-theme="dark"] .public-header-login-btn:hover {
-  background: var(--bg-tertiary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
 }
 
 .public-header-register-btn {

@@ -8,7 +8,7 @@
   max-width: var(--page-max-width);
   margin: 0 auto;
   padding: var(--page-padding);
-  background: var(--bg-primary);
+  background: transparent;
   min-height: 100vh;
   padding-bottom: var(--page-padding-bottom);
   overflow-y: auto;
@@ -24,7 +24,7 @@
 }
 
 [data-theme="dark"] .dashboard {
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-primary);
   /* Горизонтальные отступы как у хедера (--page-padding-x) */
   padding-left: var(--page-padding-x);
@@ -153,6 +153,31 @@
   background: var(--primary-500);
   color: #fff;
   border: none;
+}
+
+.plan-generation-notice--info {
+  background: var(--card-surface-compact-bg);
+  border: 2px solid var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+}
+
+.plan-generation-notice--info .plan-generation-notice__title {
+  color: var(--text-primary);
+}
+
+.plan-generation-notice--info .plan-generation-notice__message {
+  color: var(--text-secondary);
+}
+
+.plan-generation-notice--info .plan-generation-notice__btn {
+  background: var(--primary-500);
+  color: #fff;
+  border: none;
+}
+
+[data-theme="dark"] .plan-generation-notice--info {
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 .plan-generation-notice__icon {
@@ -358,19 +383,39 @@
 }
 
 .dashboard-customizer {
-  background: var(--card-bg);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
+  position: relative;
+  isolation: isolate;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
   max-width: 400px;
   width: 100%;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.dashboard-customizer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.dashboard-customizer > * {
+  position: relative;
+  z-index: 1;
 }
 
 [data-theme="dark"] .dashboard-customizer {
-  border: 1px solid var(--card-border);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
 }
 
 .dashboard-customizer-header {
@@ -388,21 +433,51 @@
 }
 
 .dashboard-customizer-close {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   padding: 0;
-  font-size: 24px;
-  line-height: 1;
-  color: var(--gray-600);
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
+  font-size: 0;
+  line-height: 0;
+  color: var(--gray-500);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
+  border-radius: var(--radius-full);
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 22px rgba(15, 23, 42, 0.08);
+  transition: color var(--transition-base), background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .dashboard-customizer-close:hover {
-  background: var(--gray-100);
-  color: var(--gray-800);
+  color: var(--primary-600);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 14px 28px rgba(15, 23, 42, 0.1), 0 10px 22px rgba(252, 76, 2, 0.10);
+  transform: translateY(-1px);
+}
+
+.dashboard-customizer-close .modal-close-icon {
+  width: 18px;
+  height: 18px;
+}
+
+[data-theme="dark"] .dashboard-customizer-close {
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .dashboard-customizer-close:hover {
+  color: var(--primary-400);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 30px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 .dashboard-customizer-hint {
@@ -721,36 +796,59 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-customizer-remove {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   padding: 0;
-  font-size: 14px;
-  line-height: 1;
-  border: 1px solid var(--gray-300);
-  background: white;
-  border-radius: var(--radius-sm);
+  font-size: 0;
+  line-height: 0;
+  border: 1px solid color-mix(in srgb, var(--danger-500, #dc2626) 18%, var(--card-surface-compact-border));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.9) 100%);
+  border-radius: 10px;
   cursor: pointer;
   color: var(--danger-500, #dc2626);
-  border-color: var(--danger-200, #fecaca);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 16px rgba(15, 23, 42, 0.08);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .dashboard-customizer-remove:hover {
-  background: var(--danger-50, #fef2f2);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.98) 0%, rgba(254, 226, 226, 0.94) 100%);
+  border-color: color-mix(in srgb, var(--danger-500, #dc2626) 42%, var(--card-surface-compact-border));
+  color: var(--danger-600, #dc2626);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 20px rgba(220, 38, 38, 0.12);
+  transform: translateY(-1px);
 }
 
 [data-theme="dark"] .dashboard-customizer-remove {
-  background: var(--bg-primary);
-  border-color: var(--card-border);
+  background: linear-gradient(180deg, rgba(11, 15, 21, 0.94) 0%, rgba(8, 11, 16, 0.98) 100%);
+  border-color: color-mix(in srgb, var(--danger-500, #ef4444) 18%, rgba(255, 255, 255, 0.08));
   color: var(--danger-400, #f87171);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 18px rgba(0, 0, 0, 0.24);
+}
+
+[data-theme="dark"] .dashboard-customizer-remove:hover {
+  background: linear-gradient(180deg, rgba(60, 18, 18, 0.92) 0%, rgba(36, 11, 11, 0.98) 100%);
+  border-color: color-mix(in srgb, var(--danger-500, #ef4444) 44%, rgba(255, 255, 255, 0.08));
+  color: #fda4af;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 22px rgba(127, 29, 29, 0.28);
+}
+
+.dashboard-customizer-remove .modal-close-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 
 .dashboard-customizer-add {
   padding: 16px 20px 20px;
-  border-top: 1px solid var(--gray-200);
+  border-top: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
 }
 
 [data-theme="dark"] .dashboard-customizer-add {
-  border-top-color: var(--card-border);
+  border-top-color: color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
 }
 
 .dashboard-customizer-add label {
@@ -765,15 +863,18 @@ body.dashboard-customizer-dragging {
   width: 100%;
   padding: 10px 12px;
   font-size: var(--text-base);
-  border: 1px solid var(--gray-300);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-md);
-  background: white;
+  background: var(--card-surface-compact-bg);
   color: var(--text-primary);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-customizer-add select {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 .dashboard-section {
@@ -801,17 +902,22 @@ body.dashboard-customizer-dragging {
   overflow: hidden;
 }
 
+/* У пустых карточек верхнего ряда тень и скругление должны рисоваться самим блоком, без квадратного клипа родителя */
+.dashboard-row-two .dashboard-module-card:has(> .dashboard-top-card.dashboard-empty) {
+  border-radius: 20px;
+  overflow: visible;
+}
+
 /* Чтобы подсветка при hover не обрезалась в уголках — у виджетов с контейнером разрешаем overflow */
 .dashboard-row-two .dashboard-module-card--workout,
 .dashboard-row-two .dashboard-module-card--week-progress,
 .dashboard-row-two .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid),
-.dashboard-row-two .dashboard-module-card:has(.race-prediction) {
+.dashboard-row-two .dashboard-module-card:has(.race-prediction),
+.dashboard-row-two .dashboard-module-card:has(.dashboard-module-link-card),
+.dashboard-row-two .dashboard-module-card:has(.dashboard-module-link-btn) {
   overflow: visible;
-}
-.dashboard-row-two .dashboard-module-card:has(.race-prediction) {
-  overflow: hidden;
 }
 
 /* Hover только у «обычных» карточек без оформления — не трогаем виджеты с контейнером */
@@ -826,12 +932,39 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-module-card:has(.dashboard-metrics-grid),
 .dashboard-module-card:has(.race-prediction) {
+  position: relative;
+  isolation: isolate;
   transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.dashboard-module-card--week-progress::before,
+.dashboard-module-card:has(.dashboard-week-strip)::before,
+.dashboard-module-card:has(.dashboard-stats-widget)::before,
+.dashboard-module-card:has(.dashboard-metrics-grid)::before,
+.dashboard-module-card:has(.race-prediction)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .dashboard-module-card--week-progress::before,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget)::before,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid)::before,
+[data-theme="dark"] .dashboard-module-card:has(.race-prediction)::before {
+  background: var(--card-surface-overlay);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip)::before {
+  background: var(--card-surface-overlay);
 }
 
 /* У виджета тренировки контейнер прозрачный — задаём border-radius, чтобы тень при hover повторяла скругление */
 .dashboard-module-card--workout {
-  border-radius: 20px;
+  border-radius: var(--card-surface-radius);
 }
 
 .dashboard-module-card--workout:hover,
@@ -841,7 +974,7 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-metrics-grid):hover,
 .dashboard-module-card:has(.race-prediction):hover {
   transform: translateY(-4px);
-  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4);
+  box-shadow: var(--card-surface-shadow-hover);
 }
 
 [data-theme="dark"] .dashboard-module-card--workout:hover,
@@ -851,39 +984,48 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid):hover,
 [data-theme="dark"] .dashboard-module-card:has(.race-prediction):hover {
   transform: translateY(-4px);
-  box-shadow: 0 6px 24px rgba(255, 107, 61, 0.4);
+  box-shadow: var(--card-surface-shadow-hover);
 }
 
 /* Свечение контейнера у «Сегодня» и «Следующая» в тёмной теме (как у остальных виджетов) */
 [data-theme="dark"] .dashboard-module-card--workout .workout-card {
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-compact-shadow);
 }
 
 .dashboard-module-card--workout .workout-card:hover,
 .dashboard-module-card--workout .workout-card:active {
   transform: none;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.04);
+  box-shadow: var(--card-surface-compact-shadow-hover);
+  border-color: color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-border));
 }
 
 .dashboard-module-card--workout .workout-card {
   transition: none;
   border-left: none !important;
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+}
+
+.dashboard-module-card--workout .workout-card::before {
+  background: var(--card-surface-compact-overlay);
 }
 
 /* Убираем оранжевый бордер у «Сегодняшняя тренировка» на дашборде */
 .dashboard-module-card--workout .workout-card-today {
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
 }
 [data-theme="dark"] .dashboard-module-card--workout .workout-card-today {
-  border-color: var(--card-border);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
 }
 
 [data-theme="dark"] .dashboard-module-card--workout .workout-card:hover,
 [data-theme="dark"] .dashboard-module-card--workout .workout-card:active {
-  box-shadow: none;
-  border-color: var(--card-border);
+  box-shadow: var(--card-surface-compact-shadow-hover);
+  border-color: color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-border));
 }
 
 [data-theme="dark"] .dashboard-module-card {
@@ -1129,18 +1271,21 @@ body.dashboard-customizer-dragging {
   gap: 16px;
   width: 100%;
   padding: 20px var(--dashboard-card-padding);
-  background: white;
-  border: 1px solid var(--gray-200);
-  border-radius: 20px;
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
   cursor: pointer;
   text-align: left;
-  transition: box-shadow 0.25s ease, border-color 0.2s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, border-color 0.2s, transform 0.25s ease;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .dashboard-module-link-card:hover {
-  border-color: var(--primary-300);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 32px rgba(0, 0, 0, 0.08);
+  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow-hover);
+  transform: translateY(-2px);
 }
 
 .dashboard-module-link-icon {
@@ -1162,8 +1307,8 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-link-card {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 .dashboard-module-link-btn {
@@ -1200,25 +1345,30 @@ body.dashboard-customizer-dragging {
   text-align: center;
   padding: var(--dashboard-card-padding);
   color: var(--text-secondary);
-  background: var(--card-bg);
-  border-radius: 20px;
-  border: 1px solid var(--gray-200);
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
+  border: 1px solid var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
   cursor: pointer;
 }
 
 /* Карточка календаря — фон, бордер, свечение (transition и hover — в общем блоке выше) */
 .dashboard-module-card:has(.dashboard-week-strip) {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip) {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+  background: var(--card-surface-bg) !important;
+  border-color: var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
 }
 
 .dashboard-week-calendar-wrap {
@@ -1535,17 +1685,19 @@ body.dashboard-customizer-dragging {
 
 /* Прогресс недели — контейнер (transition и hover — в общем блоке) */
 .dashboard-module-card--week-progress {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-module-card--week-progress {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+  background: var(--card-surface-bg) !important;
+  border-color: var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
 }
 
 /* Внутри контейнера прогресса недели — без своей карточки, один общий контейнер */
@@ -1570,32 +1722,36 @@ body.dashboard-customizer-dragging {
 
 /* Виджет прогноза на забег — контейнер (как у статистики и календаря) */
 .dashboard-module-card:has(.race-prediction) {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.race-prediction) {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
 }
 
 /* Виджет статистики — контейнер (transition и hover — в общем блоке) */
 .dashboard-module-card:has(.dashboard-stats-widget) {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
 }
 
 .dashboard-stats-widget {
@@ -1613,43 +1769,82 @@ body.dashboard-customizer-dragging {
   color: var(--text-secondary);
 }
 
+.dashboard-module-card--week-progress,
+.dashboard-module-card:has(.dashboard-week-strip),
+.dashboard-module-card:has(.dashboard-stats-widget),
+.dashboard-module-card:has(.dashboard-metrics-grid),
+.dashboard-module-card:has(.race-prediction) {
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+[data-theme="dark"] .dashboard-module-card--week-progress,
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget),
+[data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid),
+[data-theme="dark"] .dashboard-module-card:has(.race-prediction) {
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
+}
+
 .dashboard-stats-time-range {
-  display: flex;
+  display: inline-flex;
+  align-self: flex-start;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+  border-radius: 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 4%, var(--surface-glass-bg-strong)) 0%, var(--surface-glass-bg) 100%);
+  box-shadow: var(--surface-glass-inset), 0 10px 22px rgba(15, 23, 42, 0.05);
   margin-bottom: 16px;
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.18);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.18);
 }
 
 .dashboard-time-range-btn {
+  min-height: 40px;
   padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--gray-200);
-  background: white;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--gray-700);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
 }
 
 .dashboard-time-range-btn:hover {
-  border-color: var(--primary-500);
-  color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--surface-glass-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
+  color: var(--primary-600);
 }
 
 /* Активная кнопка периода — Liquid Glass, в тон блоку */
 .dashboard-time-range-btn.active {
-  background: var(--glass-bg-strong);
-  border: var(--glass-border);
-  color: var(--primary-500);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 12%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 5%, var(--surface-glass-control-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-border));
+  color: var(--primary-700);
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 0 0 1px rgba(252, 76, 2, 0.08);
+}
+
+.dashboard-time-range-btn.active:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 16%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 6%, var(--surface-glass-control-bg)) 100%);
+  color: var(--primary-700);
 }
 
 .dashboard-stats-metrics-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+  padding: 4px;
+  margin: -4px;
 }
 
 /* 4 в ряд только при полной ширине и широком экране */
@@ -1666,15 +1861,18 @@ body.dashboard-customizer-dragging {
 
 /* Карточки метрик в статистике: сверху подпись, снизу значение (привычный скан) */
 .dashboard-stat-metric-card {
-  background: var(--gray-50);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
   border-radius: 16px;
   padding: 16px;
-  border: 1px solid var(--gray-200);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   text-align: center;
+  box-shadow: var(--surface-glass-inset), 0 10px 20px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.62)) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.62)) saturate(1.16);
 }
 
 .dashboard-stat-metric-card__label {
@@ -1723,21 +1921,34 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-time-range-btn {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: transparent;
+  border-color: transparent;
   color: var(--text-primary);
 }
 
 [data-theme="dark"] .dashboard-time-range-btn.active {
-  background: var(--glass-bg-strong);
-  border: var(--glass-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 10%, var(--bg-tertiary)) 0%, color-mix(in srgb, var(--primary-500) 4%, var(--surface-glass-control-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--surface-glass-border));
   color: var(--primary-400);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 107, 61, 0.08);
+}
+
+[data-theme="dark"] .dashboard-stats-time-range {
+  background: color-mix(in srgb, var(--primary-500) 1.25%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--primary-500) 4%, var(--card-border));
+  box-shadow: var(--surface-glass-inset), 0 10px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255, 107, 61, 0.03);
+}
+
+[data-theme="dark"] .dashboard-time-range-btn:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 8%, var(--card-border));
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.06), rgba(255, 107, 61, 0.025));
+  color: var(--primary-400);
 }
 
 [data-theme="dark"] .dashboard-stat-metric-card {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--primary-500) 1%, var(--bg-tertiary));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 4%, var(--card-border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 [data-theme="dark"] .dashboard-stat-metric-card__label {
@@ -1942,6 +2153,11 @@ body.dashboard-customizer-dragging {
 .dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid .metric-card:nth-child(1) {
   grid-column: 1 / -1;
 }
+
+.dashboard-metrics-grid {
+  padding: 4px;
+  margin: -4px;
+}
 /* С прогрессом — 4 карточки: одна во всю ширину, три в ряд снизу */
 .dashboard-section:not(.dashboard-section-inline) .dashboard-metrics-grid--with-progress {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1969,12 +2185,14 @@ body.dashboard-customizer-dragging {
 
 /* Контейнер быстрых метрик (transition и hover — в общем блоке) */
 .dashboard-module-card:has(.dashboard-metrics-grid) {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15);
+  box-shadow: var(--card-surface-shadow);
   justify-content: center;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid) {
@@ -2004,10 +2222,25 @@ body.dashboard-customizer-dragging {
   padding: 14px;
 }
 
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .dashboard-stats-time-range {
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+}
+
+.dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .dashboard-time-range-btn {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
 /* Компактные размеры виджета прогноза на забег в ряду с другим виджетом */
 .dashboard-row-two .dashboard-module-card:has(.race-prediction) {
   padding: 14px;
-  padding-bottom: 0;
+  padding-bottom: 14px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -2043,8 +2276,8 @@ body.dashboard-customizer-dragging {
   padding: var(--space-2) var(--space-2);
 }
 .dashboard-row-two .race-prediction__page {
-  padding-left: var(--space-3);
-  padding-right: var(--space-3);
+  padding-left: 0;
+  padding-right: 0;
   box-sizing: border-box;
   max-width: 100%;
 }
@@ -2113,35 +2346,38 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  box-shadow: 0 4px 20px rgba(255, 107, 61, 0.35), 0 0 0 1px rgba(255, 107, 61, 0.15) !important;
+  background: var(--card-surface-bg) !important;
+  border-color: var(--card-surface-border) !important;
+  box-shadow: var(--card-surface-shadow) !important;
 }
 
 /* У быстрых метрик и виджета статистики — границы у каждой .metric-card */
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card,
 .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
-  background: white;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover,
 .dashboard-module-card:has(.dashboard-stats-widget) .metric-card:hover {
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--card-surface-compact-shadow-hover);
   transform: translateY(-4px);
 }
 
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget) .metric-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 20px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:active,
@@ -2317,11 +2553,11 @@ body.dashboard-customizer-dragging {
 
 .metric-card {
   min-width: 0;
-  background: white;
-  border-radius: 20px;
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
   padding: 26px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: var(--card-surface-compact-shadow);
+  border: 1px solid var(--card-surface-compact-border);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -2333,17 +2569,18 @@ body.dashboard-customizer-dragging {
 }
 
 [data-theme="dark"] .metric-card {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
 }
 
 .metric-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 [data-theme="dark"] .metric-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 20px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--card-surface-compact-shadow-hover);
 }
 
 .metric-card:active {
@@ -2405,25 +2642,69 @@ body.dashboard-customizer-dragging {
 
 /* Карточка «день отдыха» — в едином стиле с progress-card */
 .dashboard-top-card.dashboard-empty {
-  background: white;
-  border-radius: 20px;
+  background: var(--card-surface-bg);
+  border-radius: var(--card-surface-radius);
   padding: var(--dashboard-card-padding);
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: var(--card-surface-shadow);
+  border: 1px solid var(--card-surface-border);
   justify-content: center;
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+  background-clip: padding-box;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.dashboard-top-card.dashboard-empty::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
 }
 
 [data-theme="dark"] .dashboard-top-card.dashboard-empty {
-  background: var(--card-bg);
-  border-color: var(--card-border);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
   color: var(--text-primary);
+  box-shadow: var(--card-surface-shadow);
+}
+
+[data-theme="dark"] .dashboard-top-card.dashboard-empty::before {
+  background: var(--card-surface-overlay);
 }
 
 .empty-icon {
   font-size: var(--text-4xl);
   margin-bottom: 12px;
   line-height: 1;
+}
+
+.dashboard-top-card.dashboard-empty .empty-icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--primary-700);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 8%, rgba(255, 255, 255, 0.96)) 0%, color-mix(in srgb, var(--primary-500) 3%, rgba(248, 250, 252, 0.92)) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 26px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(252, 76, 2, 0.08);
+}
+
+[data-theme="dark"] .dashboard-top-card.dashboard-empty .empty-icon {
+  color: var(--primary-400);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--bg-secondary)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--bg-tertiary)) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.24), 0 8px 18px rgba(252, 76, 2, 0.08);
+}
+
+.dashboard-top-card.dashboard-empty .empty-icon svg {
+  width: 34px;
+  height: 34px;
 }
 
 .empty-text {
@@ -2434,6 +2715,11 @@ body.dashboard-customizer-dragging {
   letter-spacing: -0.3px;
 }
 
+.dashboard-top-card.dashboard-empty .empty-text {
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
 [data-theme="dark"] .empty-text {
   color: var(--text-primary);
 }
@@ -2442,6 +2728,13 @@ body.dashboard-customizer-dragging {
   font-size: var(--text-sm);
   color: var(--gray-600);
   font-weight: var(--font-medium);
+}
+
+.dashboard-top-card.dashboard-empty .empty-subtext {
+  max-width: 320px;
+  margin: 0 auto;
+  line-height: 1.55;
+  color: var(--text-secondary);
 }
 
 [data-theme="dark"] .empty-subtext {
@@ -2456,6 +2749,8 @@ body.dashboard-customizer-dragging {
   flex: 0 0 auto;
   align-self: center;
   display: inline-block;
+  margin-top: 16px !important;
+  box-shadow: 0 14px 30px rgba(252, 76, 2, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 /* WorkoutCard внутри верхней секции — компактный вид в едином стиле */
@@ -2679,8 +2974,18 @@ body.dashboard-customizer-dragging {
   }
 
   .dashboard-time-range-btn {
-    min-height: 44px;
-    padding: 10px 14px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border-radius: 9px;
+    font-size: 12px;
+    line-height: 1.1;
+  }
+
+  .dashboard-stats-time-range {
+    gap: 4px;
+    padding: 4px;
+    border-radius: 14px;
+    margin-bottom: 12px;
   }
 
   .dashboard-module-link-card {

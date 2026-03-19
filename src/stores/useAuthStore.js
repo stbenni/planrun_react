@@ -11,6 +11,13 @@ import PinAuthService from '../services/PinAuthService';
 import CredentialBackupService from '../services/CredentialBackupService';
 import TokenStorageService, { isNativeCapacitor } from '../services/TokenStorageService';
 
+function shouldPrefetchAiPlan(userData) {
+  return Boolean(
+    userData?.onboarding_completed &&
+    (userData?.training_mode === 'ai' || userData?.training_mode === 'both')
+  );
+}
+
 const useAuthStore = create(
   persist(
     (set, get) => ({
@@ -40,9 +47,8 @@ const useAuthStore = create(
       // Инициализация
       initialize: async () => {
         const apiClient = new ApiClient();
-        // Обработчик истечения токена: пытаемся восстановить сессию по credentials,
-        // только если не удалось — разлогиниваем. Работает для всех native-пользователей,
-        // включая тех, кто не настраивал PIN/биометрию.
+        // Обработчик истечения токена: пытаемся восстановить сессию по biometric recovery,
+        // только если пользователь явно включил этот способ входа.
         apiClient.onTokenExpired = async () => {
           if (get()._unlocking || get().isLocked) return;
           if (get()._credentialRecoveryInProgress) return;
@@ -50,7 +56,7 @@ const useAuthStore = create(
           if (isNativeCapacitor()) {
             set({ _credentialRecoveryInProgress: true });
             try {
-              const hasCredentials = await CredentialBackupService.hasCredentials();
+              const hasCredentials = await CredentialBackupService.hasCredentialsFor('biometric');
               if (hasCredentials) {
                 const result = await CredentialBackupService.recoverAndLoginBiometric(apiClient);
                 if (result?.success) {
@@ -78,6 +84,9 @@ const useAuthStore = create(
 
         try {
           const isNative = isNativeCapacitor();
+          const passwordReauthBypass = isNative
+            ? await TokenStorageService.isPasswordReauthBypassEnabled().catch(() => false)
+            : false;
 
           if (isNative) {
             // Проверяем PIN/биометрию ДО токенов — lock screen должен показываться
@@ -98,7 +107,7 @@ const useAuthStore = create(
               }
             } catch (_) {}
 
-            if (pinEnabled || biometricEnabled) {
+            if ((pinEnabled || biometricEnabled) && !passwordReauthBypass) {
               set({ isLocked: true, _lockEnabled: true, loading: false });
               get().setupBackgroundLock?.();
               clearTimeout(safetyTimeout);
@@ -126,7 +135,7 @@ const useAuthStore = create(
                 get().setupBackgroundLock?.();
               }
               // План — в фоне, не блокируя показ UI (Dashboard подхватит из store)
-              if (userData.onboarding_completed) {
+              if (shouldPrefetchAiPlan(userData)) {
                 import('./usePlanStore').then(async (mod) => {
                   const planStore = mod.default.getState();
                   const status = await planStore.checkPlanStatus().catch(() => null);
@@ -196,9 +205,10 @@ const useAuthStore = create(
         await api.setToken(tokens.accessToken, tokens.refreshToken);
         const userData = await api.getCurrentUser();
         if (userData?.authenticated) {
+          await TokenStorageService.setPasswordReauthBypass(false).catch(() => {});
           set({ user: userData, isAuthenticated: true, isLocked: false });
           // План и push — в фоне
-          if (userData.onboarding_completed) {
+          if (shouldPrefetchAiPlan(userData)) {
             import('./usePlanStore').then(async (mod) => {
               const planStore = mod.default.getState();
               const status = await planStore.checkPlanStatus().catch(() => null);
@@ -253,8 +263,9 @@ const useAuthStore = create(
         }
 
         if (userData?.authenticated) {
+          await TokenStorageService.setPasswordReauthBypass(false).catch(() => {});
           set({ user: userData, isAuthenticated: true, isLocked: false });
-          if (userData.onboarding_completed) {
+          if (shouldPrefetchAiPlan(userData)) {
             import('./usePlanStore').then(async (mod) => {
               const planStore = mod.default.getState();
               const status = await planStore.checkPlanStatus().catch(() => null);
@@ -284,6 +295,7 @@ const useAuthStore = create(
           const result = await api.login(username, password, useJwt);
           
           if (result.success) {
+            await TokenStorageService.setPasswordReauthBypass(false).catch(() => {});
             const user = result.user || { authenticated: true };
             set({ user, isAuthenticated: true });
             const fullUser = await get().api.getCurrentUser().catch(() => null);
@@ -292,7 +304,7 @@ const useAuthStore = create(
             }
             // План и push — в фоне, не блокируя навигацию на Dashboard
             const bgUser = fullUser ?? user;
-            if (bgUser?.onboarding_completed) {
+            if (shouldPrefetchAiPlan(bgUser)) {
               import('./usePlanStore').then(async (mod) => {
                 const planStore = mod.default.getState();
                 const status = await planStore.checkPlanStatus().catch(() => null);
@@ -329,6 +341,9 @@ const useAuthStore = create(
         (await import('./usePlanStore')).default.getState().clearPlan();
 
         try {
+          if (clearStoredCredentials) {
+            await TokenStorageService.setPasswordReauthBypass(false).catch(() => {});
+          }
           if (clearStoredCredentials && isNativeCapacitor()) {
             const { unregisterPushNotifications } = await import('../services/PushService');
             unregisterPushNotifications(api).catch(() => {});
@@ -354,6 +369,11 @@ const useAuthStore = create(
             }
           }
         }
+      },
+
+      beginPasswordReauth: async () => {
+        await TokenStorageService.setPasswordReauthBypass(true).catch(() => {});
+        await get().logout(false);
       },
 
       // Вход по PIN-коду
@@ -383,10 +403,7 @@ const useAuthStore = create(
           }
 
           const unlockResult = await get()._completeUnlock(tokens, async (api) => {
-            if (await CredentialBackupService.hasCredentials()) {
-              return CredentialBackupService.recoverAndLogin(pin, api);
-            }
-            return { success: false };
+            return CredentialBackupService.recoverAndLogin(pin, api);
           });
 
           if (unlockResult.success) {
@@ -424,7 +441,7 @@ const useAuthStore = create(
           }
 
           const recoveryFn = async (api) => {
-            if (await CredentialBackupService.hasCredentials()) {
+            if (await CredentialBackupService.hasCredentialsFor('biometric')) {
               return CredentialBackupService.recoverAndLoginBiometric(api);
             }
             return { success: false };

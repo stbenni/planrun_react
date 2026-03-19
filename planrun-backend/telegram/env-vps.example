@@ -1,0 +1,11 @@
+# .env для VPS (tg.planrun.ru) — /var/www/telegram-webhook-proxy/.env
+
+WEBHOOK_PROXY_SECRET=f8c99b61f31b4a3c0795bc871ffbf930405c24c02edf989d895c7231a35f606a
+
+# Backend URLs для alter-vision (обязательно — пути /bots/.../bot.php):
+WEBHOOK_BACKEND_HDAY=https://alter-vision.ru/bots/hday/bot.php
+WEBHOOK_BACKEND_GPU_ALERT=https://alter-vision.ru/bots/gpu-alert/bot.php
+WEBHOOK_BACKEND_TSD=https://alter-vision.ru/bots/tsd/tsd.php
+
+# planrun (по умолчанию в коде, раскомментировать для переопределения):
+# WEBHOOK_BACKEND_PLANRUN=https://planrun.ru/bot/webhook-internal.php

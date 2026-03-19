@@ -8,7 +8,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UsersIcon, MailIcon, TrashIcon } from '../components/common/Icons';
+import { UsersIcon, MailIcon, TrashIcon, CloseIcon } from '../components/common/Icons';
 import './AthletesOverviewScreen.css';
 
 const SORT_OPTIONS = [
@@ -302,10 +302,10 @@ function AthleteCard({ athlete, navigate, api, attention }) {
   const raceDate = formatRaceDate(a.race_date);
 
   return (
-    <div className={`ao-card card ${attention ? 'ao-card--attention' : ''}`}>
+    <div className={`ao-card card card--interactive ${attention ? 'ao-card--attention' : ''}`}>
       <Link to={`/${a.username_slug}`} className="ao-card-avatar">
         {a.avatar_path ? (
-          <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api')} alt="" />
+          <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" />
         ) : (
           <div className="ao-card-avatar-placeholder">{(a.username || '?')[0]}</div>
         )}
@@ -445,7 +445,9 @@ function GroupsModal({ api, groups, athletes, onClose, onSave }) {
       <div className="ao-modal" ref={modalRef}>
         <div className="ao-modal-header">
           <h2>Группы</h2>
-          <button className="ao-modal-close" onClick={onClose}>×</button>
+          <button className="ao-modal-close" onClick={onClose} aria-label="Закрыть">
+            <CloseIcon className="modal-close-icon" />
+          </button>
         </div>
 
         {editingGroup ? (

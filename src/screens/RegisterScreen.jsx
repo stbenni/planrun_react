@@ -6,22 +6,50 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
-import { ClipboardListIcon, TimeIcon, CheckIcon, AlertTriangleIcon, XCircleIcon } from '../components/common/Icons';
+import {
+  ClipboardListIcon,
+  TimeIcon,
+  CheckIcon,
+  AlertTriangleIcon,
+  XCircleIcon,
+  BotIcon,
+  PenLineIcon,
+  UserIcon,
+  TargetIcon,
+  LeafIcon,
+  RunningIcon,
+  HeartIcon,
+  SettingsIcon,
+  CalendarIcon,
+  GraduationCapIcon,
+  PaceIcon,
+  MedalIcon,
+} from '../components/common/Icons';
+import getAuthClient from '../api/getAuthClient';
+import { useVerificationCodeFlow } from '../hooks/useVerificationCodeFlow';
 import './RegisterScreen.css';
 import './LoginScreen.css'; /* стили логина для короткого попапа регистрации */
 
 const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalOnly, specializationOnly, onSpecializationSuccess }) => {
   const navigate = useNavigate();
   const { api, updateUser } = useAuthStore();
+  const currentApi = api || getAuthClient();
   // Везде только два режима: специализация (попап после входа) или минимальная регистрация (логин/email/пароль)
   const isMinimalFlow = !specializationOnly;
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Шаг верификации email: 'form' → 'code'
-  const [verificationStep, setVerificationStep] = useState('form');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [codeAttemptsLeft, setCodeAttemptsLeft] = useState(3);
+  const {
+    verificationStep,
+    verificationCode,
+    setVerificationCode,
+    codeAttemptsLeft,
+    isCoolingDown: isVerificationCoolingDown,
+    secondsLeft: verificationSecondsLeft,
+    handleRequestError,
+    handleConfirmError,
+    markCodeSent,
+  } = useVerificationCodeFlow({ onError: setError });
   
   // Данные формы - все поля
   const [formData, setFormData] = useState({
@@ -87,6 +115,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const assessmentTimerRef = useRef(null);
 
+  const requestVerificationCode = async () => {
+    if (!currentApi) {
+      throw new Error('API не инициализирован.');
+    }
+
+    await currentApi.sendVerificationCode(formData.email.trim());
+    markCodeSent();
+  };
+
   // Функция для получения следующего понедельника
   function getNextMonday() {
     const today = new Date();
@@ -142,7 +179,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     assessmentTimerRef.current = setTimeout(async () => {
       setAssessmentLoading(true);
       try {
-        const currentApi = api || useAuthStore.getState().api;
         if (!currentApi) return;
         const result = await currentApi.assessGoal({
           goal_type: formData.goal_type,
@@ -220,7 +256,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   };
 
   const validateField = async (field, value) => {
-    const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) return { valid: true };
     try {
       const result = await currentApi.validateField(field, value);
@@ -431,7 +466,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     
     try {
       // Получаем API клиент
-      const currentApi = api || useAuthStore.getState().api;
       if (!currentApi) {
         setError('API не инициализирован. Попробуйте обновить страницу.');
         setLoading(false);
@@ -462,6 +496,11 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         
         // Небольшая задержка чтобы состояние успело обновиться
         setTimeout(() => {
+          if (onSuccess) {
+            onSuccess(result);
+            return;
+          }
+
           // Перенаправляем на главную страницу с информацией о генерации плана
           navigate('/', { 
             state: { 
@@ -483,7 +522,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const handleSubmitMinimal = async () => {
     setLoading(true);
     setError('');
-    const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
       setError('API не инициализирован.');
       setLoading(false);
@@ -505,6 +543,10 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         setLoading(false);
         return;
       }
+      if (isVerificationCoolingDown) {
+        setLoading(false);
+        return;
+      }
       try {
         const usernameResult = await validateField('username', formData.username);
         if (!usernameResult.valid) {
@@ -518,12 +560,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
           setLoading(false);
           return;
         }
-        await currentApi.sendVerificationCode(formData.email.trim());
-        setVerificationStep('code');
-        setVerificationCode('');
-        setCodeAttemptsLeft(3);
+        await requestVerificationCode();
       } catch (err) {
-        setError(err.message || 'Не удалось отправить код');
+        handleRequestError(err);
       } finally {
         setLoading(false);
       }
@@ -544,15 +583,42 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         verification_code: codeDigits,
       });
       if (result.success) {
-        useAuthStore.setState({ user: result.user || { authenticated: true }, isAuthenticated: true });
-        if (onRegister) onRegister(result.user);
-        navigate('/', { state: { registrationSuccess: true } });
+        const authenticatedUser = {
+          ...(result.user && typeof result.user === 'object' ? result.user : {}),
+          authenticated: true,
+        };
+
+        updateUser(authenticatedUser);
+
+        try {
+          if (onRegister) {
+            await Promise.resolve(onRegister(authenticatedUser));
+          }
+        } catch (callbackError) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[RegisterScreen] onRegister callback failed:', callbackError);
+          }
+        }
+
+        const successPayload = { ...result, user: authenticatedUser };
+
+        if (onSuccess) {
+          try {
+            await Promise.resolve(onSuccess(successPayload));
+            return;
+          } catch (callbackError) {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('[RegisterScreen] onSuccess callback failed:', callbackError);
+            }
+          }
+        }
+
+        navigate('/', { replace: true, state: { registrationSuccess: true } });
       } else {
         setError(result.error || 'Ошибка регистрации');
       }
     } catch (err) {
-      setError(err.message || 'Ошибка регистрации');
-      if (typeof err.attempts_left === 'number') setCodeAttemptsLeft(err.attempts_left);
+      handleConfirmError(err);
     } finally {
       setLoading(false);
     }
@@ -561,7 +627,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const handleSubmitSpecialization = async () => {
     setLoading(true);
     setError('');
-    const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
       setError('API не инициализирован.');
       setLoading(false);
@@ -600,6 +665,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const currentStepIndex = getCurrentStepIndex();
   const progress = ((currentStepIndex + 1) / totalSteps) * 100;
   const dayLabels = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
+  const healthPrograms = [
+    { value: 'start_running', Icon: LeafIcon, name: 'Начни бегать', duration: '8 недель', desc: 'С нуля до 20 минут непрерывного бега' },
+    { value: 'couch_to_5k', Icon: RunningIcon, name: '5 км без остановки', duration: '10 недель', desc: 'Классическая программа Couch to 5K' },
+    { value: 'regular_running', Icon: HeartIcon, name: 'Регулярный бег', duration: '12 недель', desc: '3 раза в неделю, плавный рост объёма' },
+    { value: 'custom', Icon: SettingsIcon, name: 'Свой план', duration: 'по выбору', desc: 'Укажу параметры сам' },
+  ];
 
   /* Короткий попап регистрации в стиле окна логина */
   if (embedInModal && isMinimalFlow) {
@@ -668,10 +739,14 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
           <button
             type="button"
             className="login-button"
-            disabled={loading}
+            disabled={loading || (!isCodeStep && isVerificationCoolingDown)}
             onClick={(e) => { e.preventDefault(); handleNext(); }}
           >
-            {loading ? (isCodeStep ? 'Проверка...' : 'Отправка...') : isCodeStep ? 'Подтвердить' : 'Далее'}
+            {loading
+              ? (isCodeStep ? 'Проверка...' : 'Отправка...')
+              : (!isCodeStep && isVerificationCoolingDown)
+                ? `Подождите ${verificationSecondsLeft} сек`
+                : isCodeStep ? 'Подтвердить' : 'Далее'}
           </button>
           {isCodeStep && (
             <button
@@ -679,22 +754,20 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               className="register-resend-code"
               onClick={async (e) => {
                 e.preventDefault();
-                if (loading) return;
+                if (loading || isVerificationCoolingDown) return;
                 setError('');
                 setLoading(true);
                 try {
-                  await (api || useAuthStore.getState().api)?.sendVerificationCode(formData.email.trim());
-                  setCodeAttemptsLeft(3);
-                  setVerificationCode('');
-                  setError('');
+                  await requestVerificationCode();
                 } catch (err) {
-                  setError(err.message || 'Не удалось отправить код');
+                  handleRequestError(err);
                 } finally {
                   setLoading(false);
                 }
               }}
+              disabled={loading || isVerificationCoolingDown}
             >
-              Запросить код повторно
+              {isVerificationCoolingDown ? `Повтор через ${verificationSecondsLeft} сек` : 'Запросить код повторно'}
             </button>
           )}
         </form>
@@ -711,7 +784,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
 
         {!isMinimalFlow && specializationOnly && planSubmitResult && (
           <div className="register-plan-started">
-            <div className="register-plan-started__icon">🤖</div>
+            <div className="register-plan-started__icon">
+              <BotIcon />
+            </div>
             <h3 className="register-plan-started__title">План тренировок запущен на генерацию</h3>
             <p className="register-plan-started__message">
               {planSubmitResult.plan_message || 'Это займёт 3–5 минут. На дашборде отобразится статус.'}
@@ -817,35 +892,37 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                   <button
                     type="button"
                     className="btn btn-secondary btn--sm"
-                    disabled={loading}
+                    disabled={loading || isVerificationCoolingDown}
                     onClick={async (e) => {
                       e.preventDefault();
-                      if (loading) return;
+                      if (loading || isVerificationCoolingDown) return;
                       setError('');
                       setLoading(true);
                       try {
-                        await (api || useAuthStore.getState().api)?.sendVerificationCode(formData.email.trim());
-                        setCodeAttemptsLeft(3);
-                        setVerificationCode('');
+                        await requestVerificationCode();
                       } catch (err) {
-                        setError(err.message || 'Не удалось отправить код');
+                        handleRequestError(err);
                       } finally {
                         setLoading(false);
                       }
                     }}
                   >
-                    Запросить код повторно
+                    {isVerificationCoolingDown ? `Повтор через ${verificationSecondsLeft} сек` : 'Запросить код повторно'}
                   </button>
                 </>
               )}
-              <div style={{ marginTop: 'var(--space-8)' }}>
+              <div className="register-form-primary-action">
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={loading}
+                  disabled={loading || (verificationStep !== 'code' && isVerificationCoolingDown)}
                   onClick={(e) => { e.preventDefault(); handleNext(); }}
                 >
-                  {loading ? (verificationStep === 'code' ? 'Проверка...' : 'Отправка...') : verificationStep === 'code' ? 'Подтвердить' : 'Далее'}
+                  {loading
+                    ? (verificationStep === 'code' ? 'Проверка...' : 'Отправка...')
+                    : (verificationStep !== 'code' && isVerificationCoolingDown)
+                      ? `Подождите ${verificationSecondsLeft} сек`
+                      : verificationStep === 'code' ? 'Подтвердить' : 'Далее'}
                 </button>
               </div>
             </div>
@@ -854,7 +931,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
           {/* Шаг 0: Выбор режима (только в режиме специализации) */}
           {!isMinimalFlow && step === 0 && (
             <div className="form-step">
-              <p style={{ marginBottom: '30px', color: '#6b7280', fontSize: '1.05em' }}>
+              <p className="register-step-lead">
                 Выбери, как хочешь тренироваться:
               </p>
               
@@ -868,17 +945,22 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                 >
                   <input type="radio" name="training_mode" value="ai" checked={formData.training_mode === 'ai'} onChange={() => {}} readOnly />
                   <div className="training-mode-option__left">
-                    <div className="training-mode-option__icon">🤖</div>
+                    <div className="training-mode-option__icon">
+                      <BotIcon />
+                    </div>
                     <div className="training-mode-option__title">AI-ТРЕНЕР</div>
                     <div className="training-mode-option__price">(бесплатно)</div>
                   </div>
                   <div className="training-mode-option__right">
                     <ul className="training-mode-option__list">
-                      <li>✓ AI создаст персональный план</li>
-                      <li>✓ Адаптирует его каждую неделю</li>
-                      <li>✓ Анализирует твой прогресс</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />AI создаст персональный план</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Адаптирует его каждую неделю</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Анализирует твой прогресс</li>
                     </ul>
-                    <div className="training-mode-option-badge training-mode-option-badge--recommend">👈 Рекомендуем</div>
+                    <div className="training-mode-option-badge training-mode-option-badge--recommend">
+                      <CheckIcon className="training-mode-option-badge__icon" />
+                      Рекомендуем
+                    </div>
                   </div>
                  
                 </label>
@@ -891,31 +973,35 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                 >
                   <input type="radio" name="training_mode" value="self" checked={formData.training_mode === 'self'} onChange={() => {}} readOnly />
                   <div className="training-mode-option__left">
-                    <div className="training-mode-option__icon">📝</div>
+                    <div className="training-mode-option__icon">
+                      <PenLineIcon />
+                    </div>
                     <div className="training-mode-option__title">САМ</div>
                     <div className="training-mode-option__price">(бесплатно)</div>
                   </div>
                   <div className="training-mode-option__right">
                     <ul className="training-mode-option__list">
-                      <li>✓ Создавай план сам</li>
-                      <li>✓ Добавляй тренировки вручную</li>
-                      <li>✓ Полный контроль над планом</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Создавай план сам</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Добавляй тренировки вручную</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Полный контроль над планом</li>
                     </ul>
                   </div>
                 </label>
                 <label className="training-mode-option training-mode-option--soon">
                   <input type="radio" name="training_mode" value="coach" disabled />
                   <div className="training-mode-option__left">
-                    <div className="training-mode-option__icon">👤</div>
+                    <div className="training-mode-option__icon">
+                      <UserIcon />
+                    </div>
                     <div className="training-mode-option__title">ЖИВОЙ ТРЕНЕР</div>
                     <div className="training-mode-option__price">(от 1000₽/мес)</div>
                   </div>
                   <div className="training-mode-option__right">
                     <ul className="training-mode-option__list">
-                      <li>✓ Персональный тренер</li>
-                      <li>✓ Корректировки плана</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Персональный тренер</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Корректировки плана</li>
                       <li>в реальном времени</li>
-                      <li>✓ Поддержка и мотивация</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />Поддержка и мотивация</li>
                     </ul>
                     <div className="training-mode-option-badge training-mode-option-badge--soon">Скоро</div>
                   </div>
@@ -927,7 +1013,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
           {/* Шаг 2: Цель (только в режиме специализации) */}
           {!isMinimalFlow && ((!specializationOnly && step === 2) || (specializationOnly && step === 1 && formData.training_mode !== 'self')) && (
             <div className="form-step">
-              <h2>🎯 Какая у тебя цель?</h2>
+              <h2><TargetIcon className="form-heading-icon" />Какая у тебя цель?</h2>
               
               <div className="form-group">
                 <label>Что вы хотите достичь? <span className="required">*</span></label>
@@ -1033,12 +1119,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                   <div className="form-group">
                     <label>Выберите программу <span className="required">*</span></label>
                     <div className="program-options">
-                      {[
-                        { value: 'start_running', icon: '🌱', name: 'Начни бегать', duration: '8 недель', desc: 'С нуля до 20 минут непрерывного бега' },
-                        { value: 'couch_to_5k', icon: '🏃', name: '5 км без остановки', duration: '10 недель', desc: 'Классическая программа Couch to 5K' },
-                        { value: 'regular_running', icon: '💪', name: 'Регулярный бег', duration: '12 недель', desc: '3 раза в неделю, плавный рост объёма' },
-                        { value: 'custom', icon: '⚙️', name: 'Свой план', duration: 'по выбору', desc: 'Укажу параметры сам' },
-                      ].map(program => (
+                      {healthPrograms.map(program => (
                         <label key={program.value} className={`program-option ${formData.health_program === program.value ? 'selected' : ''}`}>
                           <input
                             type="radio"
@@ -1048,7 +1129,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                             onChange={(e) => handleChange('health_program', e.target.value)}
                           />
                           <div className="program-card">
-                            <span className="program-icon">{program.icon}</span>
+                            <span className="program-icon">
+                              <program.Icon />
+                            </span>
                             <span className="program-name">{program.name}</span>
                             <span className="program-duration">{program.duration}</span>
                             <span className="program-desc">{program.desc}</span>
@@ -1080,8 +1163,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                 </div>
               </div>
 
-              <div className="form-group goal-step-date-field" style={{ marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e5e7eb' }}>
-                <label>📅 С какого дня начинаем тренировки? <span className="required">*</span></label>
+              <div className="form-group goal-step-date-field">
+                <label><CalendarIcon className="form-label-icon" />С какого дня начинаем тренировки? <span className="required">*</span></label>
                 <input
                   type="date"
                   value={formData.training_start_date}
@@ -1103,11 +1186,11 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               
               {formData.training_mode === 'self' && (
                 <>
-                  <p style={{ marginBottom: '20px', color: '#6b7280', fontSize: '1.05em' }}>
+                  <p className="register-step-lead">
                     Для создания календаря нужна базовая информация:
                   </p>
                   <div className="form-group">
-                    <label>📅 Дата начала тренировок</label>
+                    <label><CalendarIcon className="form-label-icon" />Дата начала тренировок</label>
                     <input
                       type="date"
                       value={formData.training_start_date || ''}
@@ -1188,7 +1271,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       />
                     </div>
                     <div className="form-group">
-                      <label>💪 Какой у тебя опыт? <span className="required">*</span></label>
+                      <label><GraduationCapIcon className="form-label-icon" />Какой у тебя опыт? <span className="required">*</span></label>
                       <select
                         value={formData.experience_level}
                         onChange={(e) => handleChange('experience_level', e.target.value)}
@@ -1206,7 +1289,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                   
                   <div className="form-row">
                     <div className="form-group">
-                      <label>🏃 Сколько бегаешь сейчас?</label>
+                      <label><RunningIcon className="form-label-icon" />Сколько бегаешь сейчас?</label>
                       <input
                         type="number"
                         min="0"
@@ -1236,13 +1319,13 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                   {/* Расширенный профиль бегуна */}
                   {showExtendedProfile && (
                     <div className="extended-profile">
-                      <h3 style={{ margin: '25px 0 15px', color: 'var(--text-primary)', fontSize: '1.1em' }}>Расскажи больше о своём беге</h3>
-                      <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.95em' }}>
+                      <h3 className="extended-profile__title">Расскажи больше о своём беге</h3>
+                      <p className="extended-profile__desc">
                         Эти данные помогут создать более точный план (необязательно)
                       </p>
                       
                       <div className="form-group">
-                        <label>🚶 Комфортный темп (минуты:секунды на км)</label>
+                        <label><PaceIcon className="form-label-icon" />Комфортный темп (минуты:секунды на км)</label>
                         <input
                           type="text"
                           value={formData.easy_pace_min || ''}
@@ -1325,7 +1408,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </div>
                       
                       <div className="form-group">
-                        <label>🎯 Это твой первый забег на целевую дистанцию?</label>
+                        <label><TargetIcon className="form-label-icon" />Это твой первый забег на целевую дистанцию?</label>
                         <div className="radio-group-horizontal">
                           <label className="radio-option">
                             <input
@@ -1351,12 +1434,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </div>
                       
                       <div className="form-group">
-                        <label>🏅 Последний официальный результат</label>
-                        <small style={{ display: 'block', marginBottom: '10px' }}>Поможет точнее оценить твой уровень</small>
+                        <label><MedalIcon className="form-label-icon" />Последний официальный результат</label>
+                        <small className="form-group-hint form-group-hint--spaced">Поможет точнее оценить твой уровень</small>
                         
-                        <div className="form-row" style={{ marginBottom: '10px' }}>
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label style={{ fontSize: '0.85em' }}>Дистанция</label>
+                        <div className="form-row form-row--compact">
+                          <div className="form-group form-group--tight">
+                            <label className="form-label--secondary">Дистанция</label>
                             <select
                               value={formData.last_race_distance}
                               onChange={(e) => handleChange('last_race_distance', e.target.value)}
@@ -1370,8 +1453,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                             </select>
                           </div>
                           {formData.last_race_distance === 'other' && (
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.85em' }}>Дистанция последнего забега (км)</label>
+                            <div className="form-group form-group--tight">
+                              <label className="form-label--secondary">Дистанция последнего забега (км)</label>
                               <input
                                 type="number"
                                 min="0"
@@ -1381,15 +1464,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                                 value={formData.last_race_distance_km}
                                 onChange={(e) => handleChange('last_race_distance_km', e.target.value)}
                               />
-                              <small style={{ fontSize: '0.85em' }}>Укажите точную дистанцию в километрах, если она отличается от стандартных</small>
+                              <small className="form-help-inline">Укажите точную дистанцию в километрах, если она отличается от стандартных</small>
                             </div>
                           )}
                         </div>
                         
                         {formData.last_race_distance && formData.last_race_distance !== '' && (
                           <div className="form-row">
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.85em' }}>Результат</label>
+                            <div className="form-group form-group--tight">
+                              <label className="form-label--secondary">Результат</label>
                               <input
                                 type="time"
                                 step="1"
@@ -1398,8 +1481,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                               />
                               <small>Формат: ЧЧ:ММ:СС</small>
                             </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.85em' }}>Когда</label>
+                            <div className="form-group form-group--tight">
+                              <label className="form-label--secondary">Когда</label>
                               <input
                                 type="month"
                                 max={new Date().toISOString().slice(0, 7)}
@@ -1432,7 +1515,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
 
                   <div className="form-group">
                     <label>Планируете ли вы делать ОФП? <span className="required">*</span></label>
-                    <small style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>ОФП — общая физическая подготовка (силовые, растяжка)</small>
+                    <small className="form-group-hint form-group-hint--spaced">ОФП — общая физическая подготовка (силовые, растяжка)</small>
                     <div className="form-row form-row--two-cols ofp-choice-row">
                       <label className={`gender-option ${formData.will_do_ofp === 'yes' ? 'selected' : ''}`}>
                         <input

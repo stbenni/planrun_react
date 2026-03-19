@@ -30,30 +30,50 @@
 
 /* Первый блок: карточка профиля — токены из sports-colors.css */
 .profile-header {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: flex-start;
   gap: var(--space-6);
   margin-bottom: var(--space-8);
   padding: var(--space-6);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-md);
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  overflow: visible;
+  background-clip: padding-box;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.profile-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.profile-header > * {
+  position: relative;
+  z-index: 1;
 }
 
 .profile-header:hover {
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--card-surface-shadow-hover);
 }
 
 [data-theme="dark"] .profile-header {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-  box-shadow: var(--shadow-md);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
 }
 
 [data-theme="dark"] .profile-header:hover {
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--card-surface-shadow-hover);
 }
 
 .profile-left {
@@ -188,18 +208,22 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
+  border: 1px solid var(--card-surface-compact-border);
   text-decoration: none;
   color: var(--text-primary);
   transition: all var(--transition-base);
   white-space: nowrap;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .profile-coach-item:hover {
-  background: var(--gray-100);
-  border-color: var(--primary-300);
+  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow-hover);
+  transform: translateY(-2px);
 }
 
 .profile-coach-avatar {
@@ -228,10 +252,13 @@
   display: inline-flex;
   align-items: center;
   padding: var(--space-2) var(--space-3);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
+  border: 1px solid var(--card-surface-compact-border);
   white-space: nowrap;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .profile-ai-trainer-logo {
@@ -254,7 +281,7 @@
 }
 
 [data-theme="dark"] .profile-ai-trainer {
-  background: var(--bg-tertiary);
+  background: var(--card-surface-compact-bg);
 }
 
 [data-theme="dark"] .profile-ai-trainer-logo {
@@ -262,12 +289,11 @@
 }
 
 [data-theme="dark"] .profile-coach-item {
-  background: var(--bg-tertiary);
+  background: var(--card-surface-compact-bg);
 }
 
 [data-theme="dark"] .profile-coach-item:hover {
-  background: var(--bg-secondary);
-  border-color: var(--primary-600);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
 }
 
 .profile-widget-loading {
@@ -289,16 +315,18 @@
 .profile-access-denied {
   text-align: center;
   padding: var(--space-12) var(--space-6);
-  border-radius: var(--radius-2xl);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--card-surface-radius);
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
 [data-theme="dark"] .profile-access-denied {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-  box-shadow: var(--shadow-md);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
 }
 
 .profile-access-denied h2 {
@@ -338,23 +366,27 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--card-surface-radius-compact);
+  border: 1px solid var(--card-surface-compact-border);
   transition: all var(--transition-base);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .recent-workout-item:hover {
-  background: var(--gray-100);
+  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow-hover);
   transform: translateX(4px);
 }
 
 [data-theme="dark"] .recent-workout-item {
-  background: var(--bg-tertiary);
+  background: var(--card-surface-compact-bg);
 }
 
 [data-theme="dark"] .recent-workout-item:hover {
-  background: var(--bg-secondary);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-compact-border));
 }
 
 .recent-workout-date {
@@ -379,7 +411,7 @@
 
 /* Темная тема */
 [data-theme="dark"] .recent-workouts-section {
-  background: var(--card-bg);
+  background: var(--card-surface-bg);
 }
 
 [data-theme="dark"] .coach-badge {
@@ -389,7 +421,55 @@
 
 /* Блок тренера на профиле */
 .coach-profile-block {
+  position: relative;
+  isolation: isolate;
   padding: var(--space-5);
+  border-radius: var(--card-surface-radius);
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.coach-profile-block::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.coach-profile-block > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-module-card:has(.recent-workouts-list) {
+  position: relative;
+  isolation: isolate;
+  padding: var(--card-surface-padding);
+  border-radius: var(--card-surface-radius);
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.dashboard-module-card:has(.recent-workouts-list)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.dashboard-module-card:has(.recent-workouts-list) > * {
+  position: relative;
+  z-index: 1;
 }
 
 .coach-profile-title {

@@ -10,18 +10,11 @@
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($action === 'get_avatar' && $method === 'GET') {
-    $file = isset($_GET['file']) ? basename($_GET['file']) : '';
-    if ($file !== '' && preg_match('/^avatar_\d+_\d+\.(jpe?g|png|gif|webp)$/i', $file)) {
-        $projectRoot = dirname(__DIR__);
-        $path = $projectRoot . '/uploads/avatars/' . $file;
-        if (is_file($path) && is_readable($path)) {
-            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-            $mimes = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
-            header('Content-Type: ' . ($mimes[$ext] ?? 'application/octet-stream'));
-            header('Cache-Control: public, max-age=86400');
-            readfile($path);
-            exit;
-        }
+    require_once __DIR__ . '/services/AvatarService.php';
+    $file = $_GET['file'] ?? '';
+    $variant = $_GET['variant'] ?? 'full';
+    if (AvatarService::serveRequestedAvatar($file, $variant)) {
+        exit;
     }
     http_response_code(404);
     header('Content-Type: application/json; charset=utf-8');
@@ -73,7 +66,6 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/config/Logger.php';
 require_once __DIR__ . '/config/error_handler.php';
-require_once __DIR__ . '/config/RateLimiter.php';
 require_once __DIR__ . '/cache_config.php';
 
 // Регистрируем обработчики ошибок
@@ -95,6 +87,21 @@ require_once __DIR__ . '/controllers/IntegrationsController.php';
 require_once __DIR__ . '/controllers/PushController.php';
 require_once __DIR__ . '/controllers/CoachController.php';
 require_once __DIR__ . '/controllers/NoteController.php';
+
+if (!function_exists('planrunRouteControllerAction')) {
+    function planrunRouteControllerAction($db, $controllerClass, $controllerMethod, $requestMethod, $allowedMethods = null) {
+        if ($allowedMethods !== null) {
+            $allowed = is_array($allowedMethods) ? $allowedMethods : [$allowedMethods];
+            if (!in_array($requestMethod, $allowed, true)) {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+        }
+
+        $controller = new $controllerClass($db);
+        $controller->{$controllerMethod}();
+        exit;
+    }
+}
 
 try {
     $db = getDBConnection();
@@ -133,7 +140,11 @@ try {
     // Оценка реалистичности цели — без авторизации (вызывается при регистрации)
     if ($action === 'assess_goal' && $method === 'POST') {
         require_once __DIR__ . '/planrun_ai/prompt_builder.php';
+        require_once __DIR__ . '/services/TrainingStateBuilder.php';
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        if (isset($db) && $db instanceof mysqli) {
+            $input['training_state'] = (new TrainingStateBuilder($db))->buildForUser($input);
+        }
         $result = assessGoalRealism($input);
         echo json_encode(['success' => true, 'data' => $result], JSON_UNESCAPED_UNICODE);
         exit;
@@ -291,280 +302,155 @@ try {
         exit;
     }
     
-    // Rate limiting (для авторизованных пользователей)
-    if (isAuthenticated()) {
-        $currentUserId = getCurrentUserId();
-        if ($currentUserId) {
-            try {
-                $rateLimitAction = 'default';
-                if (strpos($action, 'plan') !== false) {
-                    $rateLimitAction = 'plan_generation';
-                }
-                if (strpos($action, 'chat_send') !== false) {
-                    $rateLimitAction = 'chat';
-                }
-                RateLimiter::checkApiLimit($currentUserId, $rateLimitAction);
-            } catch (Exception $e) {
-                if (strpos($e->getMessage(), 'Превышен лимит') !== false) {
-                    Logger::warning('Rate limit exceeded', [
-                        'user_id' => $currentUserId,
-                        'action' => $action
-                    ]);
-                    ErrorHandler::returnJsonError($e->getMessage(), 429);
-                }
-            }
-        }
-    }
-    
     // Маршрутизация на контроллеры
     switch ($action) {
         // TrainingPlanController
         case 'load':
-            $controller = new TrainingPlanController($db);
-            $controller->load();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'load', $method);
             break;
             
         case 'check_plan_status':
-            $controller = new TrainingPlanController($db);
-            $controller->checkStatus();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'checkStatus', $method);
             break;
             
         case 'regenerate_plan':
-            $controller = new TrainingPlanController($db);
-            $controller->regeneratePlan();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'regeneratePlan', $method);
             break;
             
         case 'regenerate_plan_with_progress':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new TrainingPlanController($db);
-            $controller->regeneratePlanWithProgress();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'regeneratePlanWithProgress', $method, 'POST');
             break;
             
         case 'recalculate_plan':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new TrainingPlanController($db);
-            $controller->recalculatePlan();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'recalculatePlan', $method, 'POST');
             break;
 
         case 'generate_next_plan':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new TrainingPlanController($db);
-            $controller->generateNextPlan();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'generateNextPlan', $method, 'POST');
             break;
 
         case 'reactivate_plan':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new TrainingPlanController($db);
-            $controller->reactivatePlan();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'reactivatePlan', $method, 'POST');
+            break;
+
+        case 'clear_plan':
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'clearPlan', $method, 'POST');
             break;
 
         case 'clear_plan_generation_message':
-            $controller = new TrainingPlanController($db);
-            $controller->clearPlanGenerationMessage();
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'clearPlanGenerationMessage', $method);
             break;
             
         // WorkoutController
         case 'get_day':
-            $controller = new WorkoutController($db);
-            $controller->getDay();
+            planrunRouteControllerAction($db, WorkoutController::class, 'getDay', $method);
             break;
             
         case 'get_workout_timeline':
-            $controller = new WorkoutController($db);
-            $controller->getWorkoutTimeline();
+            planrunRouteControllerAction($db, WorkoutController::class, 'getWorkoutTimeline', $method);
             break;
             
         case 'save_result':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WorkoutController($db);
-            $controller->saveResult();
+            planrunRouteControllerAction($db, WorkoutController::class, 'saveResult', $method, 'POST');
             break;
 
         case 'upload_workout':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WorkoutController($db);
-            $controller->uploadWorkout();
+            planrunRouteControllerAction($db, WorkoutController::class, 'uploadWorkout', $method, 'POST');
             break;
             
         case 'get_result':
-            $controller = new WorkoutController($db);
-            $controller->getResult();
+            planrunRouteControllerAction($db, WorkoutController::class, 'getResult', $method);
             break;
             
         case 'get_all_results':
-            $controller = new WorkoutController($db);
-            $controller->getAllResults();
+            planrunRouteControllerAction($db, WorkoutController::class, 'getAllResults', $method);
             break;
             
         case 'delete_workout':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WorkoutController($db);
-            $controller->deleteWorkout();
+            planrunRouteControllerAction($db, WorkoutController::class, 'deleteWorkout', $method, 'POST');
             break;
             
         case 'save':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WorkoutController($db);
-            $controller->save();
+            planrunRouteControllerAction($db, WorkoutController::class, 'save', $method, 'POST');
             break;
             
         case 'reset':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WorkoutController($db);
-            $controller->reset();
+            planrunRouteControllerAction($db, WorkoutController::class, 'reset', $method, 'POST');
             break;
             
         // StatsController
         case 'stats':
-            $controller = new StatsController($db);
-            $controller->stats();
+            planrunRouteControllerAction($db, StatsController::class, 'stats', $method);
             break;
             
         case 'get_all_workouts_summary':
-            $controller = new StatsController($db);
-            $controller->getAllWorkoutsSummary();
+            planrunRouteControllerAction($db, StatsController::class, 'getAllWorkoutsSummary', $method);
             break;
 
         case 'get_all_workouts_list':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new StatsController($db);
-            $controller->getAllWorkoutsList();
+            planrunRouteControllerAction($db, StatsController::class, 'getAllWorkoutsList', $method, 'GET');
             break;
             
         case 'prepare_weekly_analysis':
-            $controller = new StatsController($db);
-            $controller->prepareWeeklyAnalysis();
+            planrunRouteControllerAction($db, StatsController::class, 'prepareWeeklyAnalysis', $method);
             break;
 
         case 'race_prediction':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new StatsController($db);
-            $controller->racePrediction();
+            planrunRouteControllerAction($db, StatsController::class, 'racePrediction', $method, 'GET');
             break;
 
         // ExerciseController
         case 'add_day_exercise':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ExerciseController($db);
-            $controller->addDayExercise();
+            planrunRouteControllerAction($db, ExerciseController::class, 'addDayExercise', $method, 'POST');
             break;
             
         case 'update_day_exercise':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ExerciseController($db);
-            $controller->updateDayExercise();
+            planrunRouteControllerAction($db, ExerciseController::class, 'updateDayExercise', $method, 'POST');
             break;
             
         case 'delete_day_exercise':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ExerciseController($db);
-            $controller->deleteDayExercise();
+            planrunRouteControllerAction($db, ExerciseController::class, 'deleteDayExercise', $method, 'POST');
             break;
             
         case 'reorder_day_exercises':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ExerciseController($db);
-            $controller->reorderDayExercises();
+            planrunRouteControllerAction($db, ExerciseController::class, 'reorderDayExercises', $method, 'POST');
             break;
             
         case 'list_exercise_library':
-            $controller = new ExerciseController($db);
-            $controller->listExerciseLibrary();
+            planrunRouteControllerAction($db, ExerciseController::class, 'listExerciseLibrary', $method);
             break;
             
         // WeekController
         case 'add_week':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->addWeek();
+            planrunRouteControllerAction($db, WeekController::class, 'addWeek', $method, 'POST');
             break;
             
         case 'delete_week':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->deleteWeek();
+            planrunRouteControllerAction($db, WeekController::class, 'deleteWeek', $method, 'POST');
             break;
             
         case 'add_training_day':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->addTrainingDay();
+            planrunRouteControllerAction($db, WeekController::class, 'addTrainingDay', $method, 'POST');
             break;
-
+            
         case 'add_training_day_by_date':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->addTrainingDayByDate();
+            planrunRouteControllerAction($db, WeekController::class, 'addTrainingDayByDate', $method, 'POST');
             break;
-
+            
         case 'update_training_day':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->updateTrainingDay();
+            planrunRouteControllerAction($db, WeekController::class, 'updateTrainingDay', $method, 'POST');
             break;
-
+            
         case 'delete_training_day':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->deleteTrainingDay();
+            planrunRouteControllerAction($db, WeekController::class, 'deleteTrainingDay', $method, 'POST');
             break;
-
+            
         case 'copy_day':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->copyDay();
+            planrunRouteControllerAction($db, WeekController::class, 'copyDay', $method, 'POST');
             break;
-
+            
         case 'copy_week':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new WeekController($db);
-            $controller->copyWeek();
+            planrunRouteControllerAction($db, WeekController::class, 'copyWeek', $method, 'POST');
             break;
 
         // AdaptationController
@@ -607,11 +493,7 @@ try {
             break;
             
         case 'remove_avatar':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->removeAvatar();
+            planrunRouteControllerAction($db, UserController::class, 'removeAvatar', $method, 'POST');
             break;
             
         case 'get_avatar':
@@ -620,92 +502,56 @@ try {
             break;
 
         case 'update_privacy':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->updatePrivacy();
+            planrunRouteControllerAction($db, UserController::class, 'updatePrivacy', $method, 'POST');
             break;
             
         case 'notifications_dismissed':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->getNotificationsDismissed();
+            planrunRouteControllerAction($db, UserController::class, 'getNotificationsDismissed', $method, 'GET');
             break;
 
         case 'notifications_dismiss':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->dismissNotification();
+            planrunRouteControllerAction($db, UserController::class, 'dismissNotification', $method, 'POST');
             break;
 
         case 'register_push_token':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new PushController($db);
-            $controller->registerToken();
+            planrunRouteControllerAction($db, PushController::class, 'registerToken', $method, 'POST');
             break;
 
         case 'unregister_push_token':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new PushController($db);
-            $controller->unregisterToken();
+            planrunRouteControllerAction($db, PushController::class, 'unregisterToken', $method, 'POST');
+            break;
+
+        case 'telegram_login_url':
+            planrunRouteControllerAction($db, UserController::class, 'getTelegramLoginUrl', $method, 'GET');
+            break;
+
+        case 'generate_telegram_link_code':
+            planrunRouteControllerAction($db, UserController::class, 'generateTelegramLinkCode', $method, 'POST');
             break;
 
         case 'unlink_telegram':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new UserController($db);
-            $controller->unlinkTelegram();
+            planrunRouteControllerAction($db, UserController::class, 'unlinkTelegram', $method, 'POST');
             break;
 
         // IntegrationsController (Huawei, Garmin, Strava)
         case 'integration_oauth_url':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new IntegrationsController($db);
-            $controller->getOAuthUrl();
+            planrunRouteControllerAction($db, IntegrationsController::class, 'getOAuthUrl', $method, 'GET');
             break;
 
         case 'integrations_status':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new IntegrationsController($db);
-            $controller->getStatus();
+            planrunRouteControllerAction($db, IntegrationsController::class, 'getStatus', $method, 'GET');
             break;
 
         case 'sync_workouts':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new IntegrationsController($db);
-            $controller->syncWorkouts();
+            planrunRouteControllerAction($db, IntegrationsController::class, 'syncWorkouts', $method, 'POST');
             break;
 
         case 'unlink_integration':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new IntegrationsController($db);
-            $controller->unlink();
+            planrunRouteControllerAction($db, IntegrationsController::class, 'unlink', $method, 'POST');
             break;
 
         case 'strava_token_error':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new IntegrationsController($db);
-            $controller->getStravaTokenError();
+            planrunRouteControllerAction($db, IntegrationsController::class, 'getStravaTokenError', $method, 'GET');
             break;
             
         // AuthController
@@ -723,457 +569,245 @@ try {
             break;
             
         case 'login':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AuthController($db);
-            $controller->login();
+            planrunRouteControllerAction($db, AuthController::class, 'login', $method, 'POST');
             break;
             
         case 'logout':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AuthController($db);
-            $controller->logout();
+            planrunRouteControllerAction($db, AuthController::class, 'logout', $method, 'POST');
             break;
             
         case 'refresh_token':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AuthController($db);
-            $controller->refreshToken();
+            planrunRouteControllerAction($db, AuthController::class, 'refreshToken', $method, 'POST');
             break;
             
         case 'check_auth':
-            $controller = new AuthController($db);
-            $controller->checkAuth();
+            planrunRouteControllerAction($db, AuthController::class, 'checkAuth', $method);
             break;
 
         // AdminController
         case 'admin_list_users':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->listUsers();
+            planrunRouteControllerAction($db, AdminController::class, 'listUsers', $method, 'GET');
             break;
 
         case 'admin_get_user':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->getUser();
+            planrunRouteControllerAction($db, AdminController::class, 'getUser', $method, 'GET');
             break;
 
         case 'admin_update_user':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->updateUser();
+            planrunRouteControllerAction($db, AdminController::class, 'updateUser', $method, 'POST');
             break;
 
         case 'admin_get_settings':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->getSettings();
+            planrunRouteControllerAction($db, AdminController::class, 'getSettings', $method, 'GET');
             break;
 
         case 'admin_update_settings':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->updateSettings();
+            planrunRouteControllerAction($db, AdminController::class, 'updateSettings', $method, 'POST');
             break;
 
         case 'request_password_reset':
-            $controller = new AuthController($db);
-            $controller->requestPasswordReset();
+            planrunRouteControllerAction($db, AuthController::class, 'requestPasswordReset', $method);
             break;
 
         case 'confirm_password_reset':
-            $controller = new AuthController($db);
-            $controller->confirmPasswordReset();
+            planrunRouteControllerAction($db, AuthController::class, 'confirmPasswordReset', $method);
             break;
 
         // ChatController
         case 'chat_get_messages':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getMessages();
+            planrunRouteControllerAction($db, ChatController::class, 'getMessages', $method, 'GET');
             break;
 
         case 'chat_send_message':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->sendMessage();
+            planrunRouteControllerAction($db, ChatController::class, 'sendMessage', $method, 'POST');
             break;
 
         case 'chat_send_message_stream':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->sendMessageStream();
+            planrunRouteControllerAction($db, ChatController::class, 'sendMessageStream', $method, 'POST');
             break;
 
         case 'chat_clear_ai':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->clearAiChat();
+            planrunRouteControllerAction($db, ChatController::class, 'clearAiChat', $method, 'POST');
             break;
 
         case 'chat_mark_all_read':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->markAllRead();
+            planrunRouteControllerAction($db, ChatController::class, 'markAllRead', $method, 'POST');
             break;
 
         case 'chat_admin_mark_all_read':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->markAdminAllRead();
+            planrunRouteControllerAction($db, ChatController::class, 'markAdminAllRead', $method, 'POST');
             break;
 
         case 'chat_mark_read':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->markRead();
+            planrunRouteControllerAction($db, ChatController::class, 'markRead', $method, 'POST');
             break;
 
         case 'chat_send_message_to_admin':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->sendMessageToAdmin();
+            planrunRouteControllerAction($db, ChatController::class, 'sendMessageToAdmin', $method, 'POST');
             break;
 
         case 'chat_get_direct_dialogs':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getDirectDialogs();
+            planrunRouteControllerAction($db, ChatController::class, 'getDirectDialogs', $method, 'GET');
             break;
 
         case 'chat_get_direct_messages':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getDirectMessages();
+            planrunRouteControllerAction($db, ChatController::class, 'getDirectMessages', $method, 'GET');
             break;
 
         case 'chat_send_message_to_user':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->sendMessageToUser();
+            planrunRouteControllerAction($db, ChatController::class, 'sendMessageToUser', $method, 'POST');
             break;
 
         case 'chat_clear_direct_dialog':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->clearDirectDialog();
+            planrunRouteControllerAction($db, ChatController::class, 'clearDirectDialog', $method, 'POST');
             break;
 
         case 'chat_admin_send_message':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->sendAdminMessage();
+            planrunRouteControllerAction($db, ChatController::class, 'sendAdminMessage', $method, 'POST');
             break;
 
         case 'chat_admin_chat_users':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getAdminChatUsers();
+            planrunRouteControllerAction($db, ChatController::class, 'getAdminChatUsers', $method, 'GET');
             break;
 
         case 'chat_admin_unread_notifications':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getAdminUnreadNotifications();
+            planrunRouteControllerAction($db, ChatController::class, 'getAdminUnreadNotifications', $method, 'GET');
             break;
 
         case 'chat_admin_broadcast':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->broadcastAdminMessage();
+            planrunRouteControllerAction($db, ChatController::class, 'broadcastAdminMessage', $method, 'POST');
             break;
 
         case 'chat_admin_get_messages':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->getAdminMessages();
+            planrunRouteControllerAction($db, ChatController::class, 'getAdminMessages', $method, 'GET');
             break;
 
         case 'chat_admin_mark_conversation_read':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->markAdminConversationRead();
+            planrunRouteControllerAction($db, ChatController::class, 'markAdminConversationRead', $method, 'POST');
             break;
 
         case 'chat_add_ai_message':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new ChatController($db);
-            $controller->addAIMessage();
+            planrunRouteControllerAction($db, ChatController::class, 'addAIMessage', $method, 'POST');
             break;
 
         // CoachController
         case 'list_coaches':
-            $controller = new CoachController($db);
-            $controller->listCoaches();
+            planrunRouteControllerAction($db, CoachController::class, 'listCoaches', $method);
             break;
 
         case 'request_coach':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->requestCoach();
+            planrunRouteControllerAction($db, CoachController::class, 'requestCoach', $method, 'POST');
             break;
 
         case 'coach_requests':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->getCoachRequests();
+            planrunRouteControllerAction($db, CoachController::class, 'getCoachRequests', $method, 'GET');
             break;
 
         case 'accept_coach_request':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->acceptCoachRequest();
+            planrunRouteControllerAction($db, CoachController::class, 'acceptCoachRequest', $method, 'POST');
             break;
 
         case 'reject_coach_request':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->rejectCoachRequest();
+            planrunRouteControllerAction($db, CoachController::class, 'rejectCoachRequest', $method, 'POST');
             break;
 
         case 'get_my_coaches':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->getMyCoaches();
+            planrunRouteControllerAction($db, CoachController::class, 'getMyCoaches', $method, 'GET');
             break;
 
         case 'remove_coach':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->removeCoach();
+            planrunRouteControllerAction($db, CoachController::class, 'removeCoach', $method, 'POST');
             break;
 
         case 'apply_coach':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->applyCoach();
+            planrunRouteControllerAction($db, CoachController::class, 'applyCoach', $method, 'POST');
             break;
 
         case 'coach_athletes':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->getCoachAthletes();
+            planrunRouteControllerAction($db, CoachController::class, 'getCoachAthletes', $method, 'GET');
             break;
 
         case 'get_coach_pricing':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->getCoachPricing();
+            planrunRouteControllerAction($db, CoachController::class, 'getCoachPricing', $method, 'GET');
             break;
 
         case 'update_coach_pricing':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new CoachController($db);
-            $controller->updateCoachPricing();
+            planrunRouteControllerAction($db, CoachController::class, 'updateCoachPricing', $method, 'POST');
             break;
 
         // CoachController — группы атлетов
         case 'get_coach_groups':
-            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->getCoachGroups();
+            planrunRouteControllerAction($db, CoachController::class, 'getCoachGroups', $method, 'GET');
             break;
 
         case 'save_coach_group':
-            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->saveCoachGroup();
+            planrunRouteControllerAction($db, CoachController::class, 'saveCoachGroup', $method, 'POST');
             break;
 
         case 'delete_coach_group':
-            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->deleteCoachGroup();
+            planrunRouteControllerAction($db, CoachController::class, 'deleteCoachGroup', $method, 'POST');
             break;
 
         case 'get_group_members':
-            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->getGroupMembers();
+            planrunRouteControllerAction($db, CoachController::class, 'getGroupMembers', $method, 'GET');
             break;
 
         case 'update_group_members':
-            if ($method !== 'POST') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->updateGroupMembers();
+            planrunRouteControllerAction($db, CoachController::class, 'updateGroupMembers', $method, 'POST');
             break;
 
         case 'get_athlete_groups':
-            if ($method !== 'GET') { ErrorHandler::returnJsonError('Метод не поддерживается', 405); }
-            $controller = new CoachController($db);
-            $controller->getAthleteGroups();
+            planrunRouteControllerAction($db, CoachController::class, 'getAthleteGroups', $method, 'GET');
             break;
 
         // AdminController — заявки тренеров
         case 'admin_coach_applications':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->getCoachApplications();
+            planrunRouteControllerAction($db, AdminController::class, 'getCoachApplications', $method, 'GET');
             break;
 
         case 'admin_approve_coach':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->approveCoachApplication();
+            planrunRouteControllerAction($db, AdminController::class, 'approveCoachApplication', $method, 'POST');
             break;
 
         case 'admin_reject_coach':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new AdminController($db);
-            $controller->rejectCoachApplication();
+            planrunRouteControllerAction($db, AdminController::class, 'rejectCoachApplication', $method, 'POST');
             break;
 
         // NoteController — заметки к дням и неделям
         case 'get_day_notes':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->getDayNotes();
+            planrunRouteControllerAction($db, NoteController::class, 'getDayNotes', $method, 'GET');
             break;
 
         case 'save_day_note':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->saveDayNote();
+            planrunRouteControllerAction($db, NoteController::class, 'saveDayNote', $method, 'POST');
             break;
 
         case 'delete_day_note':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->deleteDayNote();
+            planrunRouteControllerAction($db, NoteController::class, 'deleteDayNote', $method, 'POST');
             break;
 
         case 'get_week_notes':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->getWeekNotes();
+            planrunRouteControllerAction($db, NoteController::class, 'getWeekNotes', $method, 'GET');
             break;
 
         case 'save_week_note':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->saveWeekNote();
+            planrunRouteControllerAction($db, NoteController::class, 'saveWeekNote', $method, 'POST');
             break;
 
         case 'delete_week_note':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->deleteWeekNote();
+            planrunRouteControllerAction($db, NoteController::class, 'deleteWeekNote', $method, 'POST');
             break;
 
         case 'get_note_counts':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->getNoteCounts();
+            planrunRouteControllerAction($db, NoteController::class, 'getNoteCounts', $method, 'GET');
             break;
 
         case 'get_plan_notifications':
-            if ($method !== 'GET') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->getPlanNotifications();
+            planrunRouteControllerAction($db, NoteController::class, 'getPlanNotifications', $method, 'GET');
             break;
 
         case 'mark_plan_notification_read':
-            if ($method !== 'POST') {
-                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
-            }
-            $controller = new NoteController($db);
-            $controller->markPlanNotificationRead();
+            planrunRouteControllerAction($db, NoteController::class, 'markPlanNotificationRead', $method, 'POST');
             break;
 
         default:

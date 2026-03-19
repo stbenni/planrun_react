@@ -1,12 +1,14 @@
 #!/bin/bash
-# Применить Nginx-конфиг для s-vladimirov.ru (SPA + /api PHP-FPM).
+# Применить Nginx-конфиг для planrun.ru (SPA + /api PHP-FPM).
+# Legacy-домен старого проекта этот скрипт не трогает.
 # Запуск из корня проекта: sudo ./deploy/apply-nginx.sh
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-TEMPLATE="$SCRIPT_DIR/vladimirov-le-ssl.nginx.conf.template"
-DEST="/etc/nginx/sites-available/vladimirov-le-ssl.conf"
+BOT_ROOT="${BOT_ROOT:-${PROJECT_ROOT}-bot}"
+TEMPLATE="$SCRIPT_DIR/planrun.nginx.conf.template"
+DEST="/etc/nginx/sites-available/planrun"
 
 # Сокет/адрес PHP-FPM: автоопределение или по умолчанию
 # На этом сервере FPM слушает 127.0.0.1:9999 (TCP), а не unix socket
@@ -37,20 +39,14 @@ if [ -z "$PHP_FPM_SOCK" ]; then
 fi
 
 sed -e "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" \
+    -e "s|{{BOT_ROOT}}|$BOT_ROOT|g" \
     -e "s|{{PHP_FPM_SOCK}}|$PHP_FPM_SOCK|g" \
     "$TEMPLATE" > "$DEST"
 
 # Включить сайт, если ещё не включён
-ENABLED="/etc/nginx/sites-enabled/vladimirov-le-ssl.conf"
+ENABLED="/etc/nginx/sites-enabled/planrun"
 [ -L "$ENABLED" ] || ln -sf "$DEST" "$ENABLED"
-
-# Убрать старый конфиг с тем же server_name, иначе Nginx выдаст "conflicting server name" и один блок будет проигнорирован
-OLD_SITE="/etc/nginx/sites-enabled/vladimirov"
-if [ -e "$OLD_SITE" ] && [ ! "$OLD_SITE" -ef "$ENABLED" ]; then
-  rm -f "$OLD_SITE"
-  echo "Отключён старый сайт: $OLD_SITE (теперь используется только vladimirov-le-ssl.conf)"
-fi
 
 nginx -t
 systemctl reload nginx
-echo "OK: Nginx config applied (PROJECT_ROOT=$PROJECT_ROOT, PHP_FPM_SOCK=$PHP_FPM_SOCK), reloaded."
+echo "OK: Nginx config applied (PROJECT_ROOT=$PROJECT_ROOT, BOT_ROOT=$BOT_ROOT, PHP_FPM_SOCK=$PHP_FPM_SOCK), reloaded."

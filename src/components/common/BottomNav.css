@@ -1,60 +1,120 @@
 /**
- * Стили для Bottom Navigation
- * Фиксированные размеры без env() в базе — одинаково в эмуляторе и на реальном Android.
+ * Bottom nav в общей визуальной системе приложения:
+ * тот же warm glass, те же pill-индикаторы и оранжевые акценты, что у TopHeader и табов.
  */
 
 /* Парящая панель: высота и отступы только из переменных, без calc/env */
 .bottom-nav {
+  --bottom-nav-radius: 22px;
+  --bottom-nav-pill-radius: 16px;
   position: fixed;
   bottom: var(--bottom-nav-floating-gap, 12px);
   left: var(--bottom-nav-floating-gap, 12px);
   right: var(--bottom-nav-floating-gap, 12px);
-  height: var(--bottom-nav-height);
-  min-height: var(--bottom-nav-height);
-  padding-top: 8px;
-  padding-bottom: 8px;
+  height: 72px;
+  min-height: 72px;
+  padding-top: 6px;
+  padding-bottom: 6px;
   padding-left: 4px;
   padding-right: 4px;
   box-sizing: border-box;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: var(--glass-border);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2.2%, var(--surface-glass-bg-strong)) 0%,
+      color-mix(in srgb, var(--primary-500) 0.8%, var(--surface-glass-bg)) 100%
+    );
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.92)) saturate(1.12);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.92)) saturate(1.12);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 7%, var(--surface-glass-border));
   display: flex;
   justify-content: space-around;
   align-items: center;
-  box-shadow: var(--glass-shadow), var(--glass-shadow-inset), 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 16px 30px rgba(15, 23, 42, 0.12),
+    0 6px 18px rgba(252, 76, 2, 0.06),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(252, 76, 2, 0.02);
   z-index: 1000;
-  border-radius: 24px;
+  border-radius: var(--bottom-nav-radius);
   isolation: isolate;
   overflow: visible;
   --pill-left: 0;
   --pill-width: 60px;
 }
 
+.bottom-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at left center, rgba(252, 76, 2, 0.06), transparent 24%),
+    radial-gradient(circle at right center, rgba(252, 76, 2, 0.05), transparent 22%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bottom-nav::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.65;
+}
+
 /* Таблетка: фиксированные 8px сверху/снизу, min-height чтобы не схлопывалась на Android */
 .nav-pill {
   position: absolute;
   left: 0;
-  top: 8px;
-  bottom: 8px;
-  min-height: 48px;
+  top: 6px;
+  bottom: 6px;
+  min-height: 46px;
   width: var(--pill-width);
   transform: translateX(var(--pill-left));
   transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1), width 0.28s cubic-bezier(0.33, 1, 0.68, 1);
-  border-radius: 9999px;
-  background: var(--glass-bg-strong);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+  border-radius: var(--bottom-nav-pill-radius);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-500) 4%, var(--surface-glass-control-strong)) 0%,
+    color-mix(in srgb, var(--primary-500) 1.5%, var(--surface-glass-control-bg)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 0 rgba(15, 23, 42, 0.14),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.04));
   pointer-events: none;
   z-index: 0;
 }
 
 [data-theme="dark"] .nav-pill {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-500) 3.5%, var(--bg-tertiary)) 0%,
+    color-mix(in srgb, var(--primary-500) 1.5%, var(--surface-glass-control-bg)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 12%, rgba(255, 255, 255, 0.04));
 }
 
 [data-theme="dark"] .bottom-nav {
-  box-shadow: var(--glass-shadow), var(--glass-shadow-inset), 0 8px 32px rgba(0, 0, 0, 0.4);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 1.6%, var(--surface-glass-bg-strong)) 0%,
+      color-mix(in srgb, var(--primary-500) 0.7%, var(--surface-glass-bg)) 100%
+    );
+  border-color: color-mix(in srgb, var(--primary-500) 5%, var(--surface-glass-border));
+  box-shadow:
+    0 18px 30px rgba(0, 0, 0, 0.34),
+    0 6px 16px rgba(252, 76, 2, 0.08),
+    var(--surface-glass-inset),
+    0 0 0 1px rgba(255, 107, 61, 0.03);
 }
 
 .nav-item {
@@ -65,13 +125,13 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 8px 12px;
-  margin: 0 2px;
+  padding: 6px 8px;
+  margin: 0;
   border: none;
-  border-radius: 24px;
+  border-radius: var(--bottom-nav-pill-radius);
   background: transparent;
   cursor: pointer;
-  transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), color 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), color 0.2s ease, opacity 0.2s ease;
   flex: 1;
   min-width: 0;
   -webkit-tap-highlight-color: transparent;
@@ -90,22 +150,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--gray-600);
+  color: var(--text-secondary);
   transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), color 0.2s ease;
 }
 
 .nav-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   flex-shrink: 0;
 }
 
 .nav-label {
   display: block;
-  font-size: 12px;
-  line-height: 1.2;
-  color: var(--gray-600);
-  font-weight: 300;
+  font-size: 10px;
+  line-height: 1.1;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0;
   transition: color 200ms cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
   overflow: hidden;
@@ -114,11 +175,11 @@
 }
 
 [data-theme="dark"] .nav-icon {
-  color: #fff;
+  color: var(--text-secondary);
 }
 
 [data-theme="dark"] .nav-label {
-  color: #fff;
+  color: var(--text-secondary);
 }
 
 .nav-item.active .nav-icon {
@@ -127,7 +188,7 @@
 
 .nav-item.active .nav-label {
   color: var(--primary-500);
-  font-weight: 300;
+  font-weight: 600;
 }
 
 [data-theme="dark"] .nav-item.active .nav-icon {
@@ -136,7 +197,7 @@
 
 [data-theme="dark"] .nav-item.active .nav-label {
   color: var(--primary-500);
-  font-weight: 300;
+  font-weight: 600;
 }
 
 /* Аватар в последней вкладке (профиль) */
@@ -192,8 +253,8 @@
 @media (max-width: 1023px) {
   .bottom-nav {
     z-index: 1100;
-    height: var(--bottom-nav-height);
-    min-height: var(--bottom-nav-height);
+    height: 72px;
+    min-height: 72px;
     left: var(--bottom-nav-floating-gap, 12px);
     right: var(--bottom-nav-floating-gap, 12px);
     bottom: var(--bottom-nav-floating-gap, 12px);
@@ -208,33 +269,41 @@
     left: 12px;
     right: 12px;
     bottom: 12px;
-    height: var(--bottom-nav-height);
-    min-height: var(--bottom-nav-height);
-    padding-top: 8px;
-    padding-bottom: 8px;
+    height: 72px;
+    min-height: 72px;
+    padding-top: 6px;
+    padding-bottom: 6px;
   }
   .bottom-nav .nav-pill {
-    top: 8px;
-    bottom: 8px;
-    min-height: 48px;
+    top: 6px;
+    bottom: 6px;
+    min-height: 46px;
   }
 }
 
 /*
- * Нативное приложение (Capacitor) — стиль как в Telegram для Android (Liquid Glass, 2026):
- * плавающая панель, скругления, непрозрачный фон (WebView не поддерживает backdrop-filter),
- * капсула активной вкладки.
+ * В нативном приложении сохраняем тот же visual language, но делаем фон плотнее,
+ * чтобы не зависеть от качества backdrop-filter в WebView.
  */
 html.native-app .bottom-nav {
-  background: rgba(255, 255, 255, 0.98);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 3%, rgba(255, 255, 255, 0.96)) 0%,
+      rgba(248, 250, 252, 0.96) 100%
+    );
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border-radius: 20px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-  padding-top: 8px;
-  padding-bottom: 8px;
-  height: var(--bottom-nav-height);
-  min-height: var(--bottom-nav-height);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, rgba(226, 232, 240, 0.92));
+  border-radius: var(--bottom-nav-radius);
+  box-shadow:
+    0 14px 24px rgba(15, 23, 42, 0.12),
+    0 6px 16px rgba(252, 76, 2, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  padding-top: 6px;
+  padding-bottom: 6px;
+  height: 72px;
+  min-height: 72px;
   bottom: calc(var(--bottom-nav-floating-gap, 12px) + env(safe-area-inset-bottom, 0px));
   align-items: center;
   display: flex;
@@ -242,8 +311,17 @@ html.native-app .bottom-nav {
 }
 
 html.native-app[data-theme="dark"] .bottom-nav {
-  background: rgba(28, 28, 28, 0.98);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 1.8%, rgba(22, 27, 33, 0.98)) 0%,
+      rgba(16, 19, 24, 0.98) 100%
+    );
+  border-color: color-mix(in srgb, var(--primary-500) 5%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 16px 28px rgba(0, 0, 0, 0.36),
+    0 6px 16px rgba(252, 76, 2, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* В приложении: такой же размер вкладок и таблетки, как на сайте */
@@ -252,11 +330,11 @@ html.native-app .bottom-nav .nav-item {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
+  padding: 6px 8px;
   gap: 4px;
   align-self: stretch;
   min-height: 0;
-  border-radius: 9999px;
+  border-radius: var(--bottom-nav-pill-radius);
   transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
@@ -270,27 +348,42 @@ html.native-app .bottom-nav .nav-item.active {
 }
 
 html.native-app .bottom-nav .nav-pill {
-  top: 8px;
-  bottom: 8px;
-  min-height: 48px;
-  min-width: 82px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+  top: 6px;
+  bottom: 6px;
+  min-height: 46px;
+  min-width: 64px;
+  border-radius: var(--bottom-nav-pill-radius);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-500) 4%, rgba(255, 255, 255, 0.95)) 0%,
+    color-mix(in srgb, var(--primary-500) 1.5%, rgba(248, 250, 252, 0.94)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.1),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.04));
 }
 
 html.native-app[data-theme="dark"] .bottom-nav .nav-pill {
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-500) 3.5%, rgba(28, 34, 43, 0.96)) 0%,
+    color-mix(in srgb, var(--primary-500) 1.5%, rgba(16, 19, 24, 0.94)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.26),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 12%, rgba(255, 255, 255, 0.04));
 }
 
 html.native-app .bottom-nav .nav-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  font-size: 22px;
-  line-height: 24px;
+  width: 21px;
+  height: 21px;
+  font-size: 21px;
+  line-height: 21px;
   padding: 0;
   margin: 0;
   text-align: center;
@@ -301,4 +394,22 @@ html.native-app .bottom-nav .nav-icon-avatar {
   flex-shrink: 0;
   width: 24px;
   height: 24px;
+}
+
+@media (max-width: 390px) {
+  .bottom-nav {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .nav-item,
+  html.native-app .bottom-nav .nav-item {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .nav-label {
+    font-size: 10px;
+  }
 }

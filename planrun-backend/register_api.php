@@ -26,60 +26,75 @@ if (!defined('API_CORS_SENT') || !API_CORS_SENT) {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/config/RateLimiter.php';
+require_once __DIR__ . '/services/EmailVerificationService.php';
+require_once __DIR__ . '/services/RegistrationService.php';
+require_once __DIR__ . '/services/RegisterApiService.php';
+require_once __DIR__ . '/../api/session_init.php';
 // auth.php не подключаем: для регистрации не нужен, session_start() только в конце для автологина
+
+if (!function_exists('planrunEnsureSessionStarted')) {
+    function planrunEnsureSessionStarted() {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return true;
+        }
+
+        @session_start();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return true;
+        }
+
+        session_save_path(sys_get_temp_dir());
+        @session_start();
+
+        return session_status() === PHP_SESSION_ACTIVE;
+    }
+}
+
+if (!function_exists('planrunGetRegisterApiService')) {
+    function planrunGetRegisterApiService() {
+        $db = getDBConnection();
+        if (!$db) {
+            return null;
+        }
+        return new RegisterApiService($db);
+    }
+}
+
+if (!function_exists('planrunRespondJson')) {
+    function planrunRespondJson($payload, $statusCode = 200) {
+        http_response_code((int) $statusCode);
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
+if (!function_exists('planrunAutoLoginRegisteredUser')) {
+    function planrunAutoLoginRegisteredUser(array $result, $fallbackUsername = '') {
+        $userId = (int) ($result['user']['id'] ?? 0);
+        planrunEnsureSessionStarted();
+        $_SESSION['authenticated'] = true;
+        $_SESSION['user_id'] = $userId;
+        $_SESSION['username'] = (string) ($result['user']['username'] ?? $fallbackUsername);
+        $_SESSION['login_time'] = time();
+    }
+}
 
 // Валидация поля
 if (isset($_GET['action']) && $_GET['action'] === 'validate_field') {
-    $field = $_GET['field'] ?? '';
-    $value = $_GET['value'] ?? '';
-    $result = ['valid' => true, 'message' => ''];
-    
-    $db = getDBConnection();
-    if (!$db) {
-        echo json_encode(['valid' => false, 'message' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
-        exit;
+    $field = (string) ($_GET['field'] ?? '');
+    $value = (string) ($_GET['value'] ?? '');
+
+    $registerApiService = planrunGetRegisterApiService();
+    if (!$registerApiService) {
+        planrunRespondJson(['valid' => false, 'message' => 'Ошибка подключения к БД']);
     }
-    
-    switch ($field) {
-        case 'username':
-            if (empty($value)) {
-                $result = ['valid' => false, 'message' => 'Имя пользователя обязательно'];
-            } elseif (strlen($value) < 3) {
-                $result = ['valid' => false, 'message' => 'Имя пользователя должно быть не менее 3 символов'];
-            } elseif (strlen($value) > 50) {
-                $result = ['valid' => false, 'message' => 'Имя пользователя должно быть не более 50 символов'];
-            } elseif (!preg_match('/^[a-zA-Z0-9_а-яА-ЯёЁ\s-]+$/u', $value)) {
-                $result = ['valid' => false, 'message' => 'Имя пользователя может содержать только буквы, цифры, пробелы, дефисы и подчеркивания'];
-            } else {
-                $checkStmt = $db->prepare('SELECT id FROM users WHERE username = ?');
-                $checkStmt->bind_param('s', $value);
-                $checkStmt->execute();
-                if ($checkStmt->get_result()->fetch_assoc()) {
-                    $result = ['valid' => false, 'message' => 'Это имя пользователя уже занято'];
-                }
-                $checkStmt->close();
-            }
-            break;
-            
-        case 'email':
-            if (empty(trim((string)$value))) {
-                $result = ['valid' => false, 'message' => 'Email обязателен'];
-            } elseif (!filter_var(trim($value), FILTER_VALIDATE_EMAIL)) {
-                $result = ['valid' => false, 'message' => 'Некорректный формат email'];
-            } else {
-                $checkStmt = $db->prepare('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""');
-                $checkStmt->bind_param('s', $value);
-                $checkStmt->execute();
-                if ($checkStmt->get_result()->fetch_assoc()) {
-                    $result = ['valid' => false, 'message' => 'Этот email уже используется'];
-                }
-                $checkStmt->close();
-            }
-            break;
+
+    try {
+        planrunRespondJson($registerApiService->validateField($field, $value));
+    } catch (Throwable $e) {
+        planrunRespondJson(['valid' => false, 'message' => 'Ошибка валидации']);
     }
-    
-    echo json_encode($result, JSON_UNESCAPED_UNICODE);
-    exit;
 }
 
 // Регистрация
@@ -98,69 +113,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ——— Отправка кода подтверждения на email ———
     if (($input['action'] ?? '') === 'send_verification_code') {
-        $emailForCode = trim($input['email'] ?? '');
-        if (empty($emailForCode)) {
-            echo json_encode(['success' => false, 'error' => 'Введите email'], JSON_UNESCAPED_UNICODE);
-            exit;
+        $registerApiService = planrunGetRegisterApiService();
+        if (!$registerApiService) {
+            planrunRespondJson(['success' => false, 'error' => 'Ошибка подключения к БД']);
         }
-        if (!filter_var($emailForCode, FILTER_VALIDATE_EMAIL)) {
-            echo json_encode(['success' => false, 'error' => 'Некорректный формат email'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $db = getDBConnection();
-        if (!$db) {
-            echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        // Таблица кодов (создаём при первом использовании)
-        $db->query("CREATE TABLE IF NOT EXISTS email_verification_codes (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            email VARCHAR(255) NOT NULL,
-            code CHAR(6) NOT NULL,
-            attempts_left TINYINT UNSIGNED NOT NULL DEFAULT 3,
-            expires_at DATETIME NOT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY idx_email (email),
-            INDEX idx_expires_at (expires_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        $expiresAt = date('Y-m-d H:i:s', time() + 600); // 10 минут
-        $stmt = $db->prepare('DELETE FROM email_verification_codes WHERE email = ?');
-        $stmt->bind_param('s', $emailForCode);
-        $stmt->execute();
-        $stmt->close();
-        $stmt = $db->prepare('INSERT INTO email_verification_codes (email, code, attempts_left, expires_at) VALUES (?, ?, 3, ?)');
-        $stmt->bind_param('sss', $emailForCode, $code, $expiresAt);
-        if (!$stmt->execute()) {
-            $stmt->close();
-            echo json_encode(['success' => false, 'error' => 'Ошибка сохранения кода'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $stmt->close();
+
         try {
-            $autoload = __DIR__ . '/vendor/autoload.php';
-            if (is_file($autoload)) {
-                require_once $autoload;
-                require_once __DIR__ . '/services/EmailService.php';
-                $emailService = new EmailService();
-                $emailService->sendVerificationCode($emailForCode, $code, 10);
-            } else {
-                $fromEmail = function_exists('env') ? env('MAIL_FROM_ADDRESS', 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost')) : ('noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
-                $fromName = function_exists('env') ? env('MAIL_FROM_NAME', 'PlanRun') : 'PlanRun';
-                if (!function_exists('env')) {
-                    require_once __DIR__ . '/config/env_loader.php';
-                }
-                $subject = '=?UTF-8?B?' . base64_encode('Код подтверждения PlanRun') . '?=';
-                $body = "Ваш код: $code\nДействителен 10 минут.\nЕсли письмо попало в папку «Спам», откройте его оттуда — это мы.\n\n— PlanRun";
-                $headers = "From: $fromName <$fromEmail>\r\nContent-Type: text/plain; charset=UTF-8\r\n";
-                @mail($emailForCode, $subject, $body, $headers);
+            $result = $registerApiService->sendVerificationCode(
+                $input['email'] ?? '',
+                (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown')
+            );
+            planrunRespondJson($result);
+        } catch (Exception $e) {
+            $statusCode = (int) $e->getCode();
+            if ($statusCode < 400 || $statusCode > 599) {
+                $statusCode = strpos($e->getMessage(), 'лимит') !== false ? 429 : 500;
             }
+            planrunRespondJson(['success' => false, 'error' => $e->getMessage()], $statusCode);
         } catch (Throwable $e) {
-            echo json_encode(['success' => false, 'error' => 'Не удалось отправить письмо. Попробуйте позже.'], JSON_UNESCAPED_UNICODE);
-            exit;
+            $statusCode = (int) $e->getCode();
+            if ($statusCode < 400 || $statusCode > 599) {
+                $statusCode = 500;
+            }
+            planrunRespondJson(['success' => false, 'error' => $e->getMessage()], $statusCode);
         }
-        echo json_encode(['success' => true, 'message' => 'Код отправлен на указанный email'], JSON_UNESCAPED_UNICODE);
-        exit;
     }
     
     // Получаем данные (пароль trim для консистентности с логином — иначе пробелы при вводе ломают повторный вход)
@@ -333,152 +309,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        $verificationCode = isset($input['verification_code']) ? preg_replace('/\D/', '', (string) $input['verification_code']) : '';
-        if (strlen($verificationCode) !== 6) {
-            echo json_encode(['success' => false, 'error' => 'Введите 6-значный код из письма', 'code_required' => true], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $emailForVerify = trim($email);
-        $row = null;
-        $tableCheck = @$db->query("SHOW TABLES LIKE 'email_verification_codes'");
-        if ($tableCheck && $tableCheck->num_rows > 0) {
-            $stmt = $db->prepare('SELECT code, attempts_left, expires_at FROM email_verification_codes WHERE email = ?');
-            $stmt->bind_param('s', $emailForVerify);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-        }
-        if (!$row) {
-            echo json_encode(['success' => false, 'error' => 'Сначала запросите код подтверждения на email', 'code_required' => true], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        if ($row['attempts_left'] < 1) {
-            $delStmt = $db->prepare('DELETE FROM email_verification_codes WHERE email = ?');
-            $delStmt->bind_param('s', $emailForVerify);
-            $delStmt->execute();
-            $delStmt->close();
-            echo json_encode(['success' => false, 'error' => 'Исчерпаны попытки ввода кода. Запросите новый код.', 'attempts_left' => 0, 'code_required' => true], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        if (strtotime($row['expires_at']) < time()) {
-            $delStmt2 = $db->prepare('DELETE FROM email_verification_codes WHERE email = ?');
-            $delStmt2->bind_param('s', $emailForVerify);
-            $delStmt2->execute();
-            $delStmt2->close();
-            echo json_encode(['success' => false, 'error' => 'Время действия кода истекло. Запросите новый код.', 'code_required' => true], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        if ($row['code'] !== $verificationCode) {
-            $newAttempts = (int) $row['attempts_left'] - 1;
-            $upd = $db->prepare('UPDATE email_verification_codes SET attempts_left = ? WHERE email = ?');
-            $upd->bind_param('is', $newAttempts, $emailForVerify);
-            $upd->execute();
-            $upd->close();
-            echo json_encode([
-                'success' => false,
-                'error' => 'Неверный код. Осталось попыток: ' . $newAttempts,
-                'attempts_left' => $newAttempts,
-                'code_required' => true
-            ], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $delUsed = $db->prepare('DELETE FROM email_verification_codes WHERE email = ?');
-        $delUsed->bind_param('s', $emailForVerify);
-        $delUsed->execute();
-        $delUsed->close();
-        $registrationEnabled = true;
-        $tableExists = @$db->query("SHOW TABLES LIKE 'site_settings'");
-        if ($tableExists && $tableExists->num_rows > 0) {
-            $res = @$db->query("SELECT value FROM site_settings WHERE `key` = 'registration_enabled' LIMIT 1");
-            if ($res && ($row = $res->fetch_assoc()) && isset($row['value']) && (string)$row['value'] === '0') {
-                $registrationEnabled = false;
+        try {
+            $registrationService = new RegistrationService($db);
+            $result = $registrationService->registerMinimal($input);
+            if (empty($result['success'])) {
+                planrunRespondJson($result);
             }
-        }
-        if (!$registrationEnabled) {
-            echo json_encode(['success' => false, 'error' => 'Регистрация отключена администратором'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $checkStmt = $db->prepare('SELECT id FROM users WHERE username = ?');
-        $checkStmt->bind_param('s', $username);
-        $checkStmt->execute();
-        if ($checkStmt->get_result()->fetch_assoc()) {
-            $checkStmt->close();
-            echo json_encode(['success' => false, 'error' => 'Пользователь с таким именем уже существует'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $checkStmt->close();
-        $emailCheck = $db->prepare('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""');
-        $emailTrimmed = trim($email);
-        if ($emailTrimmed !== '') {
-            $emailCheck->bind_param('s', $emailTrimmed);
-            $emailCheck->execute();
-            if ($emailCheck->get_result()->fetch_assoc()) {
-                $emailCheck->close();
-                echo json_encode(['success' => false, 'error' => 'Этот email уже используется'], JSON_UNESCAPED_UNICODE);
-                exit;
+        } catch (Throwable $e) {
+            $statusCode = (int) $e->getCode();
+            if ($statusCode < 400 || $statusCode > 599) {
+                $statusCode = 500;
             }
-            $emailCheck->close();
+            planrunRespondJson(['success' => false, 'error' => $e->getMessage(), 'code_required' => true], $statusCode);
         }
-        $usernameSlug = mb_strtolower($username, 'UTF-8');
-        $usernameSlug = preg_replace('/[^a-z0-9_]/', '_', $usernameSlug);
-        $usernameSlug = preg_replace('/_+/', '_', $usernameSlug);
-        $usernameSlug = trim($usernameSlug, '_');
-        if ($usernameSlug === '') {
-            $usernameSlug = 'user_' . substr(md5(uniqid((string)mt_rand(), true)), 0, 8);
-        }
-        $checkSlugStmt = $db->prepare('SELECT id FROM users WHERE username_slug = ?');
-        $checkSlugStmt->bind_param('s', $usernameSlug);
-        $checkSlugStmt->execute();
-        $counter = 1;
-        $originalSlug = $usernameSlug;
-        while ($checkSlugStmt->get_result()->fetch_assoc()) {
-            $usernameSlug = $originalSlug . '_' . $counter;
-            $checkSlugStmt->close();
-            $checkSlugStmt = $db->prepare('SELECT id FROM users WHERE username_slug = ?');
-            $checkSlugStmt->bind_param('s', $usernameSlug);
-            $checkSlugStmt->execute();
-            $counter++;
-        }
-        $checkSlugStmt->close();
-        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-        $emailVal = !empty($email) ? $email : null;
-        $onboardingCompleted = 0;
-        // ENUM training_mode = ('ai','coach','both','self') — используем 'self' как заглушку до специализации
-        $trainingModePlaceholder = 'self';
-        $goalTypeHealth = 'health';
-        $genderMale = 'male';
-        // role не указываем — используется DEFAULT колонки (избегаем ошибки "Data truncated" если ENUM без 'user')
-        $stmt = $db->prepare("INSERT INTO users (username, username_slug, password, email, onboarding_completed, training_mode, goal_type, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        if (!$stmt) {
-            echo json_encode(['success' => false, 'error' => 'Ошибка подготовки запроса: ' . $db->error], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $stmt->bind_param('ssssisss', $username, $usernameSlug, $hashedPassword, $emailVal, $onboardingCompleted, $trainingModePlaceholder, $goalTypeHealth, $genderMale);
-        if (!$stmt->execute()) {
-            $stmt->close();
-            echo json_encode(['success' => false, 'error' => 'Ошибка выполнения запроса: ' . $stmt->error], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $userId = $db->insert_id;
-        $stmt->close();
-        if (!$userId) {
-            echo json_encode(['success' => false, 'error' => 'Не удалось получить ID нового пользователя'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        $_SESSION['authenticated'] = true;
-        $_SESSION['user_id'] = $userId;
-        $_SESSION['username'] = $username;
-        $_SESSION['login_time'] = time();
-        echo json_encode([
-            'success' => true,
-            'message' => 'Регистрация успешна',
-            'plan_message' => null,
-            'user' => ['id' => $userId, 'username' => $username, 'email' => $emailVal, 'onboarding_completed' => 0]
-        ], JSON_UNESCAPED_UNICODE);
-        exit;
+        planrunAutoLoginRegisteredUser($result);
+        // JWT для native-клиента выдаём отдельным запросом на /login после успешной регистрации.
+        // Так регистрация не зависит от refresh_tokens/KeyStore-специфики и быстрее возвращает успех.
+        planrunRespondJson($result);
     }
     
     // ——— Полная регистрация (ниже) ———
@@ -558,244 +405,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    
-    // Проверка: регистрация включена в админке (таблица site_settings может отсутствовать — тогда считаем включённой)
-    $registrationEnabled = true;
-    $tableExists = @$db->query("SHOW TABLES LIKE 'site_settings'");
-    if ($tableExists && $tableExists->num_rows > 0) {
-        $res = @$db->query("SELECT value FROM site_settings WHERE `key` = 'registration_enabled' LIMIT 1");
-        if ($res && ($row = $res->fetch_assoc()) && isset($row['value']) && (string)$row['value'] === '0') {
-            $registrationEnabled = false;
-        }
+    $registrationService = new RegistrationService($db);
+    $result = $registrationService->registerFull([
+        'username' => $username,
+        'password' => $password,
+        'email' => $email,
+        'goal_type' => $goalType,
+        'race_distance' => !empty($raceDistance) ? $raceDistance : null,
+        'race_date' => !empty($raceDate) ? $raceDate : null,
+        'race_target_time' => !empty($raceTargetTime) ? $raceTargetTime : null,
+        'target_marathon_date' => !empty($targetMarathonDate) ? $targetMarathonDate : null,
+        'target_marathon_time' => !empty($targetMarathonTime) ? $targetMarathonTime : null,
+        'training_start_date' => !empty($trainingStartDate) ? $trainingStartDate : null,
+        'gender' => $gender,
+        'birth_year' => $birthYear,
+        'height_cm' => $heightCm,
+        'weight_kg' => $weightKg,
+        'experience_level' => $experienceLevel,
+        'weekly_base_km' => $weeklyBaseKm,
+        'sessions_per_week' => $sessionsPerWeek,
+        'preferred_days' => !empty($preferredDaysJson) && $preferredDaysJson !== '[]' ? $preferredDaysJson : null,
+        'preferred_ofp_days' => !empty($preferredOfpDaysJson) && $preferredOfpDaysJson !== '[]' ? $preferredOfpDaysJson : null,
+        'has_treadmill' => $hasTreadmill,
+        'ofp_preference' => $ofpPreference,
+        'training_time_pref' => $trainingTimePref,
+        'health_notes' => $healthNotes,
+        'device_type' => $deviceType,
+        'weight_goal_kg' => $weightGoalKg,
+        'weight_goal_date' => $weightGoalDate,
+        'health_program' => $healthProgram,
+        'health_plan_weeks' => $healthPlanWeeks,
+        'current_running_level' => $currentRunningLevel,
+        'running_experience' => $runningExperience,
+        'easy_pace_sec' => $easyPaceSec,
+        'is_first_race_at_distance' => $isFirstRaceAtDistance,
+        'last_race_distance' => $lastRaceDistance,
+        'last_race_distance_km' => $lastRaceDistanceKm,
+        'last_race_time' => $lastRaceTime,
+        'last_race_date' => $lastRaceDate,
+        'training_mode' => $trainingMode,
+    ]);
+    if (empty($result['success'])) {
+        planrunRespondJson($result);
     }
-    if (!$registrationEnabled) {
-        echo json_encode(['success' => false, 'error' => 'Регистрация отключена администратором'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    
-    // Проверка уникальности
-    $checkStmt = $db->prepare('SELECT id FROM users WHERE username = ?');
-    $checkStmt->bind_param('s', $username);
-    $checkStmt->execute();
-    if ($checkStmt->get_result()->fetch_assoc()) {
-        $checkStmt->close();
-        echo json_encode(['success' => false, 'error' => 'Пользователь с таким именем уже существует'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    $checkStmt->close();
-    
-    // Генерируем slug
-    $usernameSlug = mb_strtolower($username, 'UTF-8');
-    $usernameSlug = preg_replace('/[^a-z0-9_]/', '_', $usernameSlug);
-    $usernameSlug = preg_replace('/_+/', '_', $usernameSlug);
-    $usernameSlug = trim($usernameSlug, '_');
-    
-    // Проверяем уникальность slug
-    $checkSlugStmt = $db->prepare('SELECT id FROM users WHERE username_slug = ?');
-    $checkSlugStmt->bind_param('s', $usernameSlug);
-    $checkSlugStmt->execute();
-    $counter = 1;
-    $originalSlug = $usernameSlug;
-    while ($checkSlugStmt->get_result()->fetch_assoc()) {
-        $usernameSlug = $originalSlug . '_' . $counter;
-        $checkSlugStmt->close();
-        $checkSlugStmt = $db->prepare('SELECT id FROM users WHERE username_slug = ?');
-        $checkSlugStmt->bind_param('s', $usernameSlug);
-        $checkSlugStmt->execute();
-        $counter++;
-    }
-    $checkSlugStmt->close();
-    
-    // Подготавливаем данные для вставки
-    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-    $role = 'user';
-    
-    // Нормализуем NULL значения
-    $email = !empty($email) ? $email : null;
-    $targetMarathonDate = !empty($targetMarathonDate) ? $targetMarathonDate : null;
-    $targetMarathonTime = !empty($targetMarathonTime) ? $targetMarathonTime : null;
-    $raceDistance = !empty($raceDistance) ? $raceDistance : null;
-    $raceDate = !empty($raceDate) ? $raceDate : null;
-    $raceTargetTime = !empty($raceTargetTime) ? $raceTargetTime : null;
-    $trainingStartDate = !empty($trainingStartDate) ? $trainingStartDate : null;
-    $preferredDaysJson = !empty($preferredDaysJson) && $preferredDaysJson !== '[]' ? $preferredDaysJson : null;
-    $preferredOfpDaysJson = !empty($preferredOfpDaysJson) && $preferredOfpDaysJson !== '[]' ? $preferredOfpDaysJson : null;
-    
-    // Создаем массив данных с явным маппингом полей
-    $userData = [
-        'username' => ['value' => $username, 'type' => 's'],
-        'username_slug' => ['value' => $usernameSlug, 'type' => 's'],
-        'password' => ['value' => $hashedPassword, 'type' => 's'],
-        'email' => ['value' => $email, 'type' => 's'],
-        'role' => ['value' => $role, 'type' => 's'],
-        'goal_type' => ['value' => $goalType, 'type' => 's'],
-        'race_distance' => ['value' => $raceDistance, 'type' => 's'],
-        'race_date' => ['value' => $raceDate, 'type' => 's'],
-        'race_target_time' => ['value' => $raceTargetTime, 'type' => 's'],
-        'target_marathon_date' => ['value' => $targetMarathonDate, 'type' => 's'],
-        'target_marathon_time' => ['value' => $targetMarathonTime, 'type' => 's'],
-        'training_start_date' => ['value' => $trainingStartDate, 'type' => 's'],
-        'gender' => ['value' => $gender, 'type' => 's'],
-        'birth_year' => ['value' => $birthYear, 'type' => 'i'],
-        'height_cm' => ['value' => $heightCm, 'type' => 'i'],
-        'weight_kg' => ['value' => $weightKg, 'type' => 'd'],
-        'experience_level' => ['value' => $experienceLevel, 'type' => 's'],
-        'weekly_base_km' => ['value' => $weeklyBaseKm, 'type' => 'd'],
-        'sessions_per_week' => ['value' => $sessionsPerWeek, 'type' => 'i'],
-        'preferred_days' => ['value' => $preferredDaysJson, 'type' => 's'],
-        'preferred_ofp_days' => ['value' => $preferredOfpDaysJson, 'type' => 's'],
-        'has_treadmill' => ['value' => $hasTreadmill, 'type' => 'i'],
-        'ofp_preference' => ['value' => $ofpPreference, 'type' => 's'],
-        'training_time_pref' => ['value' => $trainingTimePref, 'type' => 's'],
-        'health_notes' => ['value' => $healthNotes, 'type' => 's'],
-        'device_type' => ['value' => $deviceType, 'type' => 's'],
-        'weight_goal_kg' => ['value' => $weightGoalKg, 'type' => 'd'],
-        'weight_goal_date' => ['value' => $weightGoalDate, 'type' => 's'],
-        'health_program' => ['value' => $healthProgram, 'type' => 's'],
-        'health_plan_weeks' => ['value' => $healthPlanWeeks, 'type' => 'i'],
-        'current_running_level' => ['value' => $currentRunningLevel, 'type' => 's'],
-        'running_experience' => ['value' => $runningExperience, 'type' => 's'],
-        'easy_pace_sec' => ['value' => $easyPaceSec, 'type' => 'i'],
-        'is_first_race_at_distance' => ['value' => $isFirstRaceAtDistance, 'type' => 'i'],
-        'last_race_distance' => ['value' => $lastRaceDistance, 'type' => 's'],
-        'last_race_distance_km' => ['value' => $lastRaceDistanceKm, 'type' => 'd'],
-        'last_race_time' => ['value' => $lastRaceTime, 'type' => 's'],
-        'last_race_date' => ['value' => $lastRaceDate, 'type' => 's'],
-        'training_mode' => ['value' => $trainingMode, 'type' => 's'],
-        'onboarding_completed' => ['value' => 1, 'type' => 'i']
-    ];
-    
-    // Строим SQL запрос динамически
-    $fields = array_keys($userData);
-    $placeholders = array_fill(0, count($fields), '?');
-    $types = '';
-    
-    foreach ($userData as $field => $info) {
-        $types .= $info['type'];
-    }
-    
-    $sql = "INSERT INTO users (" . implode(', ', $fields) . ") VALUES (" . implode(', ', $placeholders) . ")";
-    
-    $stmt = $db->prepare($sql);
-    if (!$stmt) {
-        echo json_encode(['success' => false, 'error' => 'Ошибка подготовки запроса: ' . $db->error], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    
-    // bind_param требует ссылки; в PHP 8.1+ ссылки из foreach нужно собирать через отдельный массив
-    $bindValues = [$types];
-    foreach ($userData as $field => $info) {
-        $bindValues[] = $userData[$field]['value'];
-    }
-    $refs = [];
-    foreach ($bindValues as $k => $v) {
-        $refs[$k] = &$bindValues[$k];
-    }
-    call_user_func_array([$stmt, 'bind_param'], $refs);
-    
-    if (!$stmt->execute()) {
-        $stmt->close();
-        echo json_encode(['success' => false, 'error' => 'Ошибка выполнения запроса: ' . $stmt->error], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    
-    $userId = $db->insert_id;
-    $stmt->close();
-    
-    if (!$userId) {
-        echo json_encode(['success' => false, 'error' => 'Не удалось получить ID нового пользователя'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    
-    // Создаем запись плана
-    $planDate = null;
-    $planTime = null;
-    
-    if ($goalType === 'race' || $goalType === 'time_improvement') {
-        if (!empty($raceDate)) {
-            $planDate = $raceDate;
-            $planTime = $raceTargetTime ?: $targetMarathonTime;
-        } elseif (!empty($targetMarathonDate)) {
-            $planDate = $targetMarathonDate;
-            $planTime = $targetMarathonTime;
-        }
-    } elseif ($goalType === 'weight_loss') {
-        $planDate = $weightGoalDate ?: $targetMarathonDate;
-        $planTime = null;
-    } elseif ($goalType === 'health') {
-        $planDate = $targetMarathonDate;
-        $planTime = $targetMarathonTime;
-    }
-    
-    $planStmt = $db->prepare('
-        INSERT INTO user_training_plans (user_id, start_date, marathon_date, target_time, is_active)
-        VALUES (?, CURDATE(), ?, ?, FALSE)
-    ');
-    if ($planStmt) {
-        $planStmt->bind_param('iss', $userId, $planDate, $planTime);
-        $planStmt->execute();
-        $planStmt->close();
-    }
-    
-    // Генерируем план в зависимости от режима
-    $planGenerationMessage = null;
-    if ($trainingMode === 'self') {
-        // Для «самостоятельно» не создаём недели/дни — календарь остаётся пустым, тренировки навешиваются на даты
-        $planGenerationMessage = 'Календарь готов. Добавляйте тренировки на любую дату.';
-    } elseif ($trainingMode === 'ai' || $trainingMode === 'both') {
-        require_once __DIR__ . '/planrun_ai/planrun_ai_config.php';
-        if (isPlanRunAIAvailable()) {
-            try {
-                $scriptPath = __DIR__ . '/planrun_ai/generate_plan_async.php';
-                $logDir = __DIR__ . '/logs';
-                if (!is_dir($logDir)) {
-                    @mkdir($logDir, 0777, true);
-                }
-                $logFile = is_dir($logDir) && is_writable($logDir) 
-                    ? $logDir . '/plan_generation_' . $userId . '_' . time() . '.log'
-                    : '/tmp/plan_generation_' . $userId . '_' . time() . '.log';
-                
-                $phpPath = '/usr/bin/php';
-                if (!file_exists($phpPath)) {
-                    $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-                }
-                
-                $command = "cd " . escapeshellarg(__DIR__) . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-                exec($command, $output, $returnVar);
-                
-                $planGenerationMessage = 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.';
-            } catch (Exception $e) {
-                error_log("Ошибка запуска генерации плана: " . $e->getMessage());
-                $planGenerationMessage = 'План будет сгенерирован автоматически.';
-            }
-        } else {
-            $planGenerationMessage = 'PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000.';
-        }
-    }
-    
-    // Автологин
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-    $_SESSION['authenticated'] = true;
-    $_SESSION['user_id'] = $userId;
-    $_SESSION['username'] = $username;
-    $_SESSION['login_time'] = time();
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Регистрация успешна',
-        'plan_message' => $planGenerationMessage,
-        'user' => ['id' => $userId, 'username' => $username, 'email' => $email]
-    ], JSON_UNESCAPED_UNICODE);
+    planrunAutoLoginRegisteredUser($result, $username);
+    planrunRespondJson($result);
     } catch (Throwable $e) {
         error_log('register_api.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         $detail = $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')';
-        echo json_encode([
+        planrunRespondJson([
             'success' => false,
             'error' => $detail
-        ], JSON_UNESCAPED_UNICODE);
+        ]);
     }
 } else {
-    echo json_encode(['success' => false, 'error' => 'Метод не поддерживается'], JSON_UNESCAPED_UNICODE);
+    planrunRespondJson(['success' => false, 'error' => 'Метод не поддерживается']);
 }

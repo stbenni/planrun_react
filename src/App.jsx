@@ -3,7 +3,7 @@
  * Использует Zustand для управления состоянием
  */
 
-import React, { useEffect, useState, lazy, Suspense } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
 import { isNativeCapacitor } from './services/TokenStorageService';
@@ -13,20 +13,32 @@ import AppLayout from './components/AppLayout';
 import LockScreen from './components/common/LockScreen';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import LogoLoading from './components/common/LogoLoading';
-import { preloadAllModulesImmediate, preloadScreenModulesDelayed } from './utils/modulePreloader';
+import AppErrorBoundary from './components/common/AppErrorBoundary';
+import { preloadAuthenticatedModules, preloadScreenModulesDelayed } from './utils/modulePreloader';
+import { lazyWithRetry } from './utils/lazyWithRetry';
+import { startAppUpdatePolling } from './utils/appUpdate';
 import './App.css';
 
 // Lazy для страниц вне основных вкладок
-const UserProfileScreen = lazy(() => import('./screens/UserProfileScreen'));
-const ForgotPasswordScreen = lazy(() => import('./screens/ForgotPasswordScreen'));
-const ResetPasswordScreen = lazy(() => import('./screens/ResetPasswordScreen'));
+const UserProfileScreen = lazyWithRetry(() => import('./screens/UserProfileScreen'), 'UserProfileScreen');
+const ForgotPasswordScreen = lazyWithRetry(() => import('./screens/ForgotPasswordScreen'), 'ForgotPasswordScreen');
+const ResetPasswordScreen = lazyWithRetry(() => import('./screens/ResetPasswordScreen'), 'ResetPasswordScreen');
 
 function ScrollToTop() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [pathname]);
+  }, [pathname, search]);
   return null;
+}
+
+function RoutedErrorBoundary({ children }) {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary resetKey={`${location.pathname}${location.search}`}>
+      {children}
+    </AppErrorBoundary>
+  );
 }
 
 function App() {
@@ -36,8 +48,11 @@ function App() {
 
   useEffect(() => {
     initialize();
-    preloadAllModulesImmediate();
   }, [initialize]);
+
+  useEffect(() => {
+    return startAppUpdatePolling();
+  }, []);
 
   useEffect(() => {
     if (!api) return;
@@ -52,10 +67,10 @@ function App() {
   // Предзагружаем модули после авторизации
   useEffect(() => {
     if (isAuthenticated && !loading) {
-      // Небольшая задержка, чтобы не мешать первоначальной загрузке
+      preloadAuthenticatedModules(user?.role || 'user');
       preloadScreenModulesDelayed(500);
     }
-  }, [isAuthenticated, loading]);
+  }, [isAuthenticated, loading, user?.role]);
 
   // Push-уведомления — только в Android/iOS приложении (Capacitor), не на вебе
   useEffect(() => {
@@ -131,6 +146,7 @@ function App() {
           <SkeletonScreen type="dashboard" />
         </div>
       }>
+      <RoutedErrorBoundary>
       <Routes>
         <Route
           path="/landing"
@@ -180,6 +196,10 @@ function App() {
             )
           }
         />
+        <Route
+          path="/dashboard"
+          element={<Navigate to={isAuthenticated ? '/' : '/landing'} replace />}
+        />
         {/* Авторизованная зона: вкладки (все экраны смонтированы, переключение без перезагрузки) */}
         <Route
           element={isAuthenticated ? <AppLayout onLogout={handleLogout} /> : <Navigate to="/landing" replace />}
@@ -206,7 +226,12 @@ function App() {
             </Suspense>
           }
         />
+        <Route
+          path="*"
+          element={<Navigate to={isAuthenticated ? '/' : '/landing'} replace />}
+        />
       </Routes>
+      </RoutedErrorBoundary>
       </Suspense>
       </>
       )}

@@ -14,16 +14,13 @@ if (!$db) {
     exit(1);
 }
 
-$sql = "CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id INT UNSIGNED NOT NULL,
-    token VARCHAR(64) NOT NULL,
-    expires_at DATETIME NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_token (token),
-    INDEX idx_user_id (user_id),
-    INDEX idx_expires_at (expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+$sqlPath = $baseDir . '/migrations/create_password_reset_tokens.sql';
+$sql = is_file($sqlPath) ? trim((string) file_get_contents($sqlPath)) : '';
+
+if ($sql === '') {
+    fwrite(STDERR, "Migration SQL not found: $sqlPath\n");
+    exit(1);
+}
 
 if ($db->query($sql)) {
     echo "OK: Table password_reset_tokens exists or was created.\n";

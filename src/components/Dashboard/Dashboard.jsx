@@ -13,204 +13,25 @@ import {
   PointerSensor,
   TouchSensor,
   KeyboardSensor,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
 import useAuthStore from '../../stores/useAuthStore';
-import usePlanStore from '../../stores/usePlanStore';
-import usePreloadStore from '../../stores/usePreloadStore';
-import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
-import { processStatsData } from '../Stats/StatsUtils';
-import { getPlanDayForDate, getDayCompletionStatus, planTypeToCategory, workoutTypeToCategory } from '../../utils/calendarHelpers';
+import { DASHBOARD_MODULE_IDS, DASHBOARD_MODULE_LABELS } from './dashboardConfig';
+import { toLocalDateString } from './dashboardDateUtils';
+import { expandLayoutForMobile, getDefaultLayout, getStoredLayout, layoutExpandSlot, layoutInsertRow, layoutMergeIntoRow, layoutRemoveId, layoutToOrder, orderToLayout, saveLayout } from './dashboardLayout';
+import { useDashboardPullToRefresh } from './useDashboardPullToRefresh';
+import { useDashboardData } from './useDashboardData';
 import SkeletonScreen from '../common/SkeletonScreen';
-import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon } from '../common/Icons';
+import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import './Dashboard.css';
-
-const DASHBOARD_MODULE_IDS = ['today_workout', 'quick_metrics', 'next_workout', 'race_prediction', 'calendar', 'stats'];
-const DASHBOARD_MODULE_LABELS = {
-  today_workout: 'Сегодняшняя тренировка',
-  quick_metrics: 'Быстрые метрики',
-  next_workout: 'Следующая тренировка',
-  race_prediction: 'Прогноз на забег',
-  calendar: 'Календарь',
-  stats: 'Статистика',
-};
-const STORAGE_KEY = 'planrun_dashboard_modules';
-
-/** Layout: массив строк; каждая строка — 1 или 2 id (на всю ширину или в одну линию) */
-function getStoredLayout() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return getDefaultLayout();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return getDefaultLayout();
-    const first = parsed[0];
-    if (typeof first === 'string') {
-      return orderToLayout(parsed.filter((id) => DASHBOARD_MODULE_IDS.includes(id)));
-    }
-    const layout = parsed.filter((row) => Array.isArray(row) && row.length >= 1 && row.length <= 2);
-    const valid = layout.flat().filter((id) => DASHBOARD_MODULE_IDS.includes(id));
-    const seen = new Set();
-    const deduped = valid.filter((id) => !seen.has(id) && seen.add(id));
-    const missing = DASHBOARD_MODULE_IDS.filter((id) => !deduped.includes(id));
-    const fixed = layout
-      .map((row) => row.filter((id) => DASHBOARD_MODULE_IDS.includes(id)).slice(0, 2))
-      .filter((row) => row.length > 0);
-    if (fixed.length === 0) return getDefaultLayout();
-    const used = new Set(fixed.flat());
-    for (const id of missing) {
-      if (!used.has(id)) fixed.push([id]);
-    }
-    return fixed;
-  } catch {
-    return getDefaultLayout();
-  }
-}
-
-const PAIRABLE_MODULE_IDS = new Set(['today_workout', 'next_workout', 'stats']);
-
-/** API возвращает week.days[dayKey] как массив { type, text, id } или один объект. Нормализуем в массив. */
-function getDayItems(dayData) {
-  if (!dayData) return [];
-  const arr = Array.isArray(dayData) ? dayData : [dayData];
-  return arr.filter((d) => d && d.type !== 'rest' && d.type !== 'free');
-}
-
-/** Дата в формате YYYY-MM-DD по локальной таймзоне (не UTC). */
-function toLocalDateString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-/** Сегодня в формате YYYY-MM-DD в заданной IANA-таймзоне (Europe/Moscow и т.д.). */
-function getTodayInTimezone(ianaTimezone) {
-  try {
-    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: ianaTimezone, year: 'numeric', month: '2-digit', day: '2-digit' });
-    const parts = formatter.formatToParts(new Date());
-    const y = parts.find((p) => p.type === 'year').value;
-    const m = parts.find((p) => p.type === 'month').value;
-    const d = parts.find((p) => p.type === 'day').value;
-    return `${y}-${m}-${d}`;
-  } catch {
-    return toLocalDateString(new Date());
-  }
-}
-
-/** Добавить дни к строке даты YYYY-MM-DD (без сдвига по таймзоне). */
-function addDaysToDateStr(dateStr, days) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d + days));
-  return date.toISOString().split('T')[0];
-}
-
-/** Из массива дня плана: первый элемент для workout, все — для planDays в WorkoutCard. */
-function dayItemsToWorkoutAndPlanDays(items, date, weekNumber, dayKey) {
-  if (!items || items.length === 0) return null;
-  const first = items[0];
-  const workout = {
-    type: first.type,
-    text: first.text,
-    date,
-    weekNumber,
-    dayKey,
-  };
-  const planDays = items.map((d) => ({
-    id: d.id,
-    type: d.type,
-    description: d.text || '',
-  }));
-  return { workout, planDays };
-}
-
-function orderToLayout(order) {
-  const rows = [];
-  let i = 0;
-  while (i < order.length) {
-    const id = order[i];
-    const nextId = order[i + 1];
-    const canPair = PAIRABLE_MODULE_IDS.has(id) && nextId != null && PAIRABLE_MODULE_IDS.has(nextId);
-    if (canPair) {
-      rows.push([id, nextId]);
-      i += 2;
-      continue;
-    }
-    rows.push([id]);
-    i += 1;
-  }
-  return rows;
-}
-
-function getDefaultLayout() {
-  /* По умолчанию на десктопе: сегодня + следующая в одну строку, календарь и статистика во всю ширину; быстрые метрики только если пользователь добавит через «Виджеты». */
-  return [
-    ['today_workout', 'next_workout'],
-    ['calendar'],
-    ['stats'],
-  ];
-}
-
-function layoutToOrder(layout) {
-  return layout.flat();
-}
-
-function saveLayout(layout) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-  } catch (e) {
-    console.warn('Dashboard: could not save layout', e);
-  }
-}
-
-/** Удалить блок id из layout и вернуть новый layout */
-function layoutRemoveId(layout, id) {
-  const next = [];
-  for (const row of layout) {
-    const filtered = row.filter((x) => x !== id);
-    if (filtered.length > 0) next.push(filtered);
-  }
-  return next;
-}
-
-/** Вставить новую строку [id] перед rowIndex; id уже должен быть удалён из layout */
-function layoutInsertRow(layout, rowIndex, id) {
-  const out = layout.slice(0, rowIndex).concat([[id]], layout.slice(rowIndex));
-  return out;
-}
-
-/** Добавить id в строку targetRowIndex (строка должна быть из одного блока); id уже удалён из layout */
-function layoutMergeIntoRow(layout, targetRowIndex, id) {
-  const row = layout[targetRowIndex];
-  if (!row || row.length !== 1) return layout;
-  const out = layout.slice();
-  out[targetRowIndex] = [row[0], id];
-  return out;
-}
-
-/** Развернуть один слот в отдельную строку: [a,b] -> [a], [b] при slotIndex 1 */
-function layoutExpandSlot(layout, rowIndex, slotIndex) {
-  const row = layout[rowIndex];
-  if (!row || row.length !== 2) return layout;
-  const id = row[slotIndex];
-  const other = row[1 - slotIndex];
-  const out = layout.slice(0, rowIndex).concat([[other], [id]], layout.slice(rowIndex + 1));
-  return out;
-}
-
-/** На мобильных: развернуть все строки в по одному блоку — [[a,b],[c]] → [[a],[b],[c]] */
-function expandLayoutForMobile(layout) {
-  const result = [];
-  for (const row of layout) {
-    for (const id of row) result.push([id]);
-  }
-  return result;
-}
 
 /** Полоска-зона сброса «вставить перед строкой N» (для @dnd-kit) */
 function CustomizerStripZone({ rowIndex, children }) {
@@ -246,13 +67,13 @@ function CustomizerMergeZone({ active }) {
 }
 
 /** Элемент списка — перетаскиваемый блок (для @dnd-kit). Тянуть можно за всю карточку, кнопка «Убрать» не запускает drag. */
-function CustomizerDraggableItem({ rowIndex, slotIndex, moduleId, onRemove }) {
+function CustomizerDraggableItem({ rowIndex, slotIndex, moduleId, onRemove, mergeActive = false }) {
   const id = `slot-${rowIndex}-${slotIndex}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
   return (
     <div
       ref={setNodeRef}
-      className={`dashboard-customizer-item ${isDragging ? 'dragging' : ''}`}
+      className={`dashboard-customizer-item ${isDragging ? 'dragging' : ''} ${mergeActive ? 'dashboard-customizer-merge-active' : ''}`}
       {...attributes}
       {...listeners}
     >
@@ -265,7 +86,7 @@ function CustomizerDraggableItem({ rowIndex, slotIndex, moduleId, onRemove }) {
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           aria-label="Убрать"
         >
-          ✕
+          <CloseIcon className="modal-close-icon" />
         </button>
       </div>
     </div>
@@ -290,6 +111,7 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
             rowIndex={rowIndex}
             slotIndex={slotIndex}
             moduleId={id}
+            mergeActive={showMerge}
             onRemove={() => {
               const next = layoutRemoveId(layout, id);
               setLayout(next);
@@ -305,37 +127,19 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
   );
 }
 
+function isAiPlanMode(trainingMode) {
+  return trainingMode === 'ai' || trainingMode === 'both';
+}
+
 const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMessage, isNewRegistration }) => {
   const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
   const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
   const needsOnboarding = !!(user && !user.onboarding_completed);
 
-  const planStatusFromStore = usePlanStore((s) => s.planStatus);
-
   const clearPlanMessage = useCallback(() => {
     setPlanGenerationMessage(null);
   }, [setPlanGenerationMessage]);
 
-  const [todayWorkout, setTodayWorkout] = useState(null);
-  const [weekProgress, setWeekProgress] = useState({ completed: 0, total: 0 });
-  const [metrics, setMetrics] = useState({
-    distance: 0,
-    workouts: 0,
-    time: 0
-  });
-  const [loading, setLoading] = useState(true);
-  const [nextWorkout, setNextWorkout] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [progressDataMap, setProgressDataMap] = useState({});
-  const [planExists, setPlanExists] = useState(false);
-  const [plan, setPlan] = useState(null);
-  const [hasAnyPlannedWorkout, setHasAnyPlannedWorkout] = useState(false);
-  const [showPlanMessage, setShowPlanMessage] = useState(false);
-  const [planError, setPlanError] = useState(null);
-  const [regenerating, setRegenerating] = useState(false);
-  /** Идёт генерация плана AI (is_active=false) — скрываем виджеты для пользователей с режимом ai/both */
-  const [planGenerating, setPlanGenerating] = useState(false);
   const [layout, setLayout] = useState(getStoredLayout);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [activeDragId, setActiveDragId] = useState(null); // id перетаскиваемого слота для DragOverlay
@@ -378,6 +182,12 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     useSensor(KeyboardSensor)
   );
 
+  const customizerCollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return rectIntersection(args);
+  }, []);
+
   const handleDndDragEnd = useCallback((event) => {
     const { active, over } = event;
     if (!over?.id || typeof active.id !== 'string') return;
@@ -401,7 +211,8 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       const targetRow = parseInt(overId.slice(6), 10);
       if (currentLayout[targetRow]?.length === 1 && targetRow !== fromRow) {
         const without = layoutRemoveId(currentLayout, id);
-        const next = layoutMergeIntoRow(without, targetRow, id);
+        const mergeAt = fromRow < targetRow && currentLayout[fromRow]?.length === 1 ? targetRow - 1 : targetRow;
+        const next = layoutMergeIntoRow(without, mergeAt, id);
         setLayout(next);
         saveLayout(next);
       }
@@ -424,6 +235,11 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     return () => document.body.classList.remove('dashboard-customizer-dragging');
   }, [activeDragId]);
 
+  useEffect(() => {
+    if (customizerOpen) return;
+    setActiveDragId(null);
+  }, [customizerOpen]);
+
   const draggedModuleId = useMemo(() => {
     if (!activeDragId || typeof activeDragId !== 'string') return null;
     const m = activeDragId.match(/^slot-(\d+)-(\d+)$/);
@@ -439,409 +255,45 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     setLayout(next);
     saveLayout(next);
   };
-  const pullStartY = useRef(0);
-  const isPulling = useRef(false);
-
-  const loadDashboardData = useCallback(async (options = {}) => {
-    const silent = options.silent === true;
-    if (!api) {
-      setLoading(false);
-      return;
-    }
-    try {
-      if (!silent) setLoading(true);
-
-      const storePlan = usePlanStore.getState().plan;
-      const storePlanStatus = usePlanStore.getState().planStatus;
-      const storeHasPlan = usePlanStore.getState().hasPlan;
-
-      let planStatus;
-      let plan;
-
-      if (storePlanStatus != null && storeHasPlan && storePlan != null && !storePlanStatus?.generating) {
-        planStatus = storePlanStatus;
-        plan = storePlan;
-      }
-
-      const [planStatusRes, planRes, allResults, workoutsSummaryRes, workoutsListRes] = await Promise.all([
-        planStatus != null ? Promise.resolve(planStatus) : api.checkPlanStatus().catch((e) => { console.error('Error checking plan status:', e); return null; }),
-        plan != null ? Promise.resolve(plan) : api.getPlan().catch((e) => { console.error('Error loading plan:', e); return null; }),
-        api.getAllResults().catch(() => ({ results: [] })),
-        api.getAllWorkoutsSummary().catch(() => ({})),
-        api.getAllWorkoutsList(null, 500).catch(() => ({ workouts: [] })),
-      ]);
-
-      planStatus = planStatus ?? planStatusRes;
-      plan = plan ?? planRes;
-
-      if (planStatus && (planStatus.error || (!planStatus.has_plan && planStatus.error))) {
-        setPlanError(planStatus.error);
-        setPlanExists(false);
-        setShowPlanMessage(false);
-        setPlanGenerating(false);
-        setLoading(false);
-        return;
-      }
-
-      const isAiTrainer = user?.training_mode === 'ai' || user?.training_mode === 'both';
-      const generating = !!(planStatus?.generating && isAiTrainer);
-      setPlanGenerating(generating);
-
-      const weeksData = plan?.weeks_data;
-      const hasNoPlan = !plan || !Array.isArray(weeksData) || weeksData.length === 0;
-      if (hasNoPlan) {
-        setPlanExists(false);
-        setPlan(null);
-        setHasAnyPlannedWorkout(false);
-        setPlanError(null);
-        setProgressDataMap({});
-        const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
-        const workoutsData = { workouts: summaryObj };
-        const processed = processStatsData(workoutsData, allResults, null, 'last7days');
-        setMetrics({
-          distance: processed.totalDistance ?? 0,
-          workouts: processed.totalWorkouts ?? 0,
-          time: Math.round((processed.totalTime ?? 0) / 60)
-        });
-        setLoading(false);
-        if (isNewRegistration || registrationMessage) {
-          setShowPlanMessage(true);
-        }
-        return;
-      }
-
-      setPlanExists(true);
-      setPlanError(null);
-      setShowPlanMessage(false);
-      setPlanGenerating(false);
-      clearPlanMessage();
-      setPlan(plan);
-
-      // Есть ли в плане хотя бы одна запланированная тренировка (дни могут быть массивом)
-      let anyWorkout = false;
-      for (const week of weeksData) {
-        if (!week.days) continue;
-        for (const dayData of Object.values(week.days)) {
-          if (getDayItems(dayData).length > 0) {
-            anyWorkout = true;
-            break;
-          }
-        }
-        if (anyWorkout) break;
-      }
-      setHasAnyPlannedWorkout(anyWorkout);
-
-      // Прогресс с учётом соответствия типа тренировки плану (getDayCompletionStatus)
-      const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
-      const workoutsList = workoutsListRes?.data?.workouts ?? workoutsListRes?.workouts ?? [];
-      const resultsData = {};
-      (allResults?.results || []).forEach((r) => {
-        if (r?.training_date) {
-          if (!resultsData[r.training_date]) resultsData[r.training_date] = [];
-          resultsData[r.training_date].push(r);
-        }
-      });
-      const workoutsListByDate = {};
-      workoutsList.forEach((w) => {
-        const d = w.date ?? w.start_time?.split?.('T')?.[0];
-        if (d) {
-          if (!workoutsListByDate[d]) workoutsListByDate[d] = [];
-          workoutsListByDate[d].push(w);
-        }
-      });
-      const allDates = new Set([
-        ...Object.keys(resultsData),
-        ...Object.keys(workoutsListByDate),
-        ...Object.keys(summaryObj || {})
-      ]);
-      const progressDataMap = {};
-      allDates.forEach((dateStr) => {
-        const planDay = getPlanDayForDate(dateStr, plan);
-        const status = getDayCompletionStatus(dateStr, planDay, summaryObj, resultsData, workoutsListByDate);
-        if (status.status === 'completed') progressDataMap[dateStr] = true;
-      });
-      setProgressDataMap(progressDataMap);
-
-      // Сегодня в таймзоне пользователя: профиль (Europe/Moscow) → браузер (Intl) → по умолчанию Europe/Moscow
-      const ianaTimezone = (user && user.timezone) || (typeof Intl !== 'undefined' && Intl.DateTimeFormat && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Europe/Moscow';
-      const todayStr = getTodayInTimezone(ianaTimezone);
-
-      // Находим тренировку на сегодня и следующую после сегодня
-      let foundTodayWorkout = null;
-      let foundTodayPlanDays = null;
-      let foundNextWorkout = null;
-      let foundNextPlanDays = null;
-      let weekStart = null;
-      let weekEnd = null;
-      let currentWeek = null;
-      const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-      for (const week of weeksData) {
-        if (!week.start_date || !week.days) continue;
-        const endDateStr = addDaysToDateStr(week.start_date, 6);
-        const inThisWeek = todayStr >= week.start_date && todayStr <= endDateStr;
-        if (inThisWeek) {
-          currentWeek = week;
-          const startDate = new Date(week.start_date + 'T12:00:00');
-          const todayDate = new Date(todayStr + 'T12:00:00');
-          weekStart = new Date(week.start_date + 'T00:00:00');
-          weekEnd = new Date(endDateStr + 'T23:59:59');
-          const dayIndex = Math.round((todayDate - startDate) / (24 * 60 * 60 * 1000));
-          const dayKey = dayKeys[dayIndex >= 0 && dayIndex <= 6 ? dayIndex : 0];
-          const items = getDayItems(week.days && week.days[dayKey]);
-          const todayPayload = dayItemsToWorkoutAndPlanDays(items, todayStr, week.number, dayKey);
-          if (todayPayload) {
-            foundTodayWorkout = todayPayload.workout;
-            foundTodayPlanDays = todayPayload.planDays;
-          }
-        }
-      }
-
-      // Следующая тренировка — первый день с тренировкой строго после сегодня (текущая неделя и дальше)
-      if (!foundNextWorkout) {
-        for (const week of weeksData) {
-          if (!week.start_date || !week.days) continue;
-          for (let i = 0; i < 7; i++) {
-            const workoutDateStr = addDaysToDateStr(week.start_date, i);
-            if (workoutDateStr <= todayStr) continue;
-            const dayKey = dayKeys[i];
-            const items = getDayItems(week.days && week.days[dayKey]);
-            const nextPayload = dayItemsToWorkoutAndPlanDays(items, workoutDateStr, week.number, dayKey);
-            if (nextPayload) {
-              foundNextWorkout = nextPayload.workout;
-              foundNextPlanDays = nextPayload.planDays;
-              break;
-            }
-          }
-          if (foundNextWorkout) break;
-        }
-      }
-
-      setTodayWorkout(foundTodayWorkout ? { ...foundTodayWorkout, planDays: foundTodayPlanDays } : null);
-      setNextWorkout(foundNextWorkout ? { ...foundNextWorkout, planDays: foundNextPlanDays } : null);
-
-      // Прогресс недели: для каждой запланированной тренировки проверяем, есть ли выполненная с подходящим типом
-      if (weekStart && weekEnd && currentWeek) {
-        const weekStartStr = currentWeek.start_date;
-        const endDateStr = addDaysToDateStr(weekStartStr, 6);
-        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        const plannedDays = [];
-        for (let i = 0; i < 7; i++) {
-          const dateStr = addDaysToDateStr(weekStartStr, i);
-          const raw = currentWeek.days?.[dayKeys[i]];
-          const items = getDayItems(raw);
-          items.forEach((item) => {
-            const cat = planTypeToCategory(item?.type);
-            if (cat) plannedDays.push({ date: dateStr, plannedCategory: cat });
-          });
-        }
-        const summaryObj = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
-        const workoutsList = workoutsListRes?.data?.workouts ?? workoutsListRes?.workouts ?? [];
-        const hasWorkout = (dateStr, category) => {
-          const listOnDate = workoutsList.filter((w) => (w.date ?? w.start_time?.split?.('T')?.[0]) === dateStr);
-          for (const w of listOnDate) {
-            const cat = workoutTypeToCategory(w.activity_type ?? w.activity_type_name ?? 'running');
-            if (cat === category) return true;
-          }
-          const r = (allResults?.results || []).find((x) => x?.training_date === dateStr);
-          if (r) {
-            const cat = workoutTypeToCategory(r.activity_type ?? r.activity_type_name ?? 'running');
-            if (cat === category) return true;
-          }
-          const w = summaryObj?.[dateStr];
-          if (w && (w.count > 0 || w.distance || w.duration || w.duration_seconds)) {
-            const cat = workoutTypeToCategory(w.activity_type ?? 'running');
-            if (cat === category) return true;
-          }
-          return false;
-        };
-        const completed = plannedDays.filter((p) => hasWorkout(p.date, p.plannedCategory)).length;
-        setWeekProgress({ completed, total: plannedDays.length });
-      }
-
-      // Загружаем метрики из getAllWorkoutsSummary (workouts + workout_log — Strava, ручные записи)
-      const summaryForMetrics = workoutsSummaryRes?.workouts ?? (workoutsSummaryRes && typeof workoutsSummaryRes === 'object' && !Array.isArray(workoutsSummaryRes) ? workoutsSummaryRes : {});
-      const processed = processStatsData({ workouts: summaryForMetrics }, allResults, plan, 'last7days');
-      setMetrics({
-        distance: processed.totalDistance ?? 0,
-        workouts: processed.totalWorkouts ?? 0,
-        time: Math.round((processed.totalTime ?? 0) / 60) // в часах
-      });
-
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-      // Если план не загрузился и это новая регистрация, показываем сообщение
-      if (isNewRegistration || registrationMessage) {
-        setShowPlanMessage(true);
-        setPlanExists(false);
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      // Native app: предзагрузка Calendar и Stats для мгновенного переключения вкладок
-      if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
-        usePreloadStore.getState().triggerPreload();
-      }
-    }
-  }, [api, user, user?.training_mode, isNewRegistration, registrationMessage]);
-
-  const noPlanChecked = planStatusFromStore != null && planStatusFromStore.has_plan === false;
-
-  // Загружаем данные при монтировании и при появлении timezone (после getCurrentUser)
-  useEffect(() => {
-    if (!api) return;
-    if (user && !user.onboarding_completed) {
-      setLoading(false);
-      return;
-    }
-    loadDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, user?.onboarding_completed, user?.timezone]);
-
-  // Обновление при возврате на вкладку (тихо, без спиннера)
-  useEffect(() => {
-    if (!isTabActive) return;
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && api) {
-        loadDashboardData({ silent: true });
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [api, isTabActive, loadDashboardData]);
-
-  // Глобальное обновление при сохранении/синхронизации тренировок (debounce — без дерганья)
-  const workoutRefreshVersion = useWorkoutRefreshStore((s) => s.version);
-  useEffect(() => {
-    if (workoutRefreshVersion <= 0 || !api) return;
-    const t = setTimeout(() => loadDashboardData({ silent: true }), 250);
-    return () => clearTimeout(t);
-  }, [workoutRefreshVersion, api, loadDashboardData]);
-  
-  // Показываем сообщение о генерации плана при новой регистрации
-  useEffect(() => {
-    if (isNewRegistration || registrationMessage) {
-      setShowPlanMessage(true);
-    }
-  }, [isNewRegistration, registrationMessage]);
-
-  // Периодическая проверка готовности плана, пока идёт генерация (AI)
-  useEffect(() => {
-    if (!planGenerating || !isTabActive || !api) return;
-    const interval = setInterval(() => {
-      loadDashboardData({ silent: true });
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [planGenerating, isTabActive, api, loadDashboardData]);
-
-  // Pull-to-refresh обработчики
-  useEffect(() => {
-    const dashboard = dashboardRef.current;
-    if (!dashboard) return;
-
-    const handleTouchStart = (e) => {
-      // Проверяем, что скролл в самом верху
-      if (dashboard.scrollTop === 0) {
-        pullStartY.current = e.touches[0].clientY;
-        isPulling.current = true;
-      }
-    };
-
-    const handleTouchMove = (e) => {
-      if (!isPulling.current || !pullStartY.current) return;
-      
-      const currentY = e.touches[0].clientY;
-      const deltaY = currentY - pullStartY.current;
-      
-      if (deltaY > 0 && dashboard.scrollTop === 0) {
-        // Ограничиваем максимальное расстояние
-        const maxPull = 100;
-        const distance = Math.min(deltaY, maxPull);
-        setPullDistance(distance);
-        
-        // Предотвращаем скролл страницы при pull-to-refresh
-        if (distance > 10) {
-          e.preventDefault();
-        }
-      } else {
-        setPullDistance(0);
-        isPulling.current = false;
-      }
-    };
-
-    const handleTouchEnd = async () => {
-      if (pullDistance > 50) {
-        // Запускаем обновление
-        setRefreshing(true);
-        try {
-          await loadDashboardData();
-          useWorkoutRefreshStore.getState().triggerRefresh();
-        } finally {
-          setRefreshing(false);
-          setPullDistance(0);
-        }
-      } else {
-        setPullDistance(0);
-      }
-      
-      pullStartY.current = 0;
-      isPulling.current = false;
-    };
-
-    dashboard.addEventListener('touchstart', handleTouchStart, { passive: true });
-    dashboard.addEventListener('touchmove', handleTouchMove, { passive: false });
-    dashboard.addEventListener('touchend', handleTouchEnd, { passive: true });
-
-    return () => {
-      dashboard.removeEventListener('touchstart', handleTouchStart);
-      dashboard.removeEventListener('touchmove', handleTouchMove);
-      dashboard.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [pullDistance, loadDashboardData]);
+  const {
+    hasAnyPlannedWorkout,
+    handleRegeneratePlan,
+    isAiTrainingMode,
+    loadDashboardData,
+    loading,
+    metrics,
+    nextWorkout,
+    noPlanChecked,
+    plan,
+    planError,
+    planExists,
+    planGenerating,
+    progressDataMap,
+    progressPercentage,
+    regenerating,
+    showPlanMessage,
+    todayWorkout,
+    weekProgress,
+  } = useDashboardData({
+    api,
+    clearPlanMessage,
+    isNewRegistration,
+    isTabActive,
+    registrationMessage,
+    user,
+  });
+  const { refreshing, pullDistance } = useDashboardPullToRefresh(dashboardRef, loadDashboardData);
+  const supportsAiPlan = isAiTrainingMode || isAiPlanMode(user?.training_mode);
+  const hasPendingPlanNotice = Boolean((showPlanMessage || registrationMessage) && !planExists && !planError);
+  const showAiEmptyState = supportsAiPlan && noPlanChecked && !planGenerating && !planError && !planExists;
+  const showAiGenerationNotice = supportsAiPlan && (planGenerating || hasPendingPlanNotice);
+  const showManualModeNotice = !supportsAiPlan && hasPendingPlanNotice;
 
   const handleWorkoutPress = useCallback((workout) => {
     if (onNavigate) {
       onNavigate('calendar', { date: workout.date, week: workout.weekNumber, day: workout.dayKey });
     }
   }, [onNavigate]);
-
-  const handleRegeneratePlan = useCallback(async () => {
-    if (!api || regenerating) return;
-    
-    setRegenerating(true);
-    setPlanError(null);
-    setShowPlanMessage(true);
-    setPlanExists(false);
-    setPlanGenerating(true);
-    usePlanStore.getState().clearPlan();
-    
-    try {
-      const result = await api.regeneratePlan();
-      if (result && result.success) {
-        setTimeout(() => {
-          loadDashboardData();
-        }, 5000);
-      } else {
-        setPlanError(result?.error || 'Ошибка при запуске генерации плана');
-        setShowPlanMessage(false);
-        setPlanGenerating(false);
-        clearPlanMessage();
-      }
-    } catch (error) {
-      setPlanError(error.message || 'Ошибка при запуске генерации плана');
-      setShowPlanMessage(false);
-      setPlanGenerating(false);
-      clearPlanMessage();
-    } finally {
-      setRegenerating(false);
-    }
-  }, [api, regenerating, loadDashboardData]);
-
-  const progressPercentage = useMemo(() => {
-    return weekProgress.total > 0 
-      ? Math.round((weekProgress.completed / weekProgress.total) * 100) 
-      : 0;
-  }, [weekProgress]);
 
   /** Строки дашборда из displayLayout (на мобильных всегда по одному блоку в строку) */
   const dashboardRows = useMemo(
@@ -883,7 +335,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     );
   }
 
-  if (noPlanChecked && !planGenerating && !planError) {
+  if (showAiEmptyState) {
     return (
       <div className="dashboard dashboard-empty-no-plan">
         <div className="dashboard-empty-onboarding-inner">
@@ -895,9 +347,10 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           <button
             type="button"
             className="btn btn-primary dashboard-empty-onboarding-btn"
-            onClick={() => setShowOnboardingModal(true)}
+            onClick={() => (needsOnboarding ? setShowOnboardingModal(true) : handleRegeneratePlan())}
+            disabled={regenerating}
           >
-            Создать план
+            {regenerating ? 'Генерация...' : 'Создать план'}
           </button>
         </div>
       </div>
@@ -924,7 +377,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
       )}
 
       {/* Уведомление о генерации плана — показываем при planGenerating (AI генерирует) или после регистрации */}
-      {(planGenerating || ((showPlanMessage || registrationMessage) && !planExists)) && !planError && (
+      {showAiGenerationNotice && !planError && (
         <div className="plan-generation-notice plan-generation-notice--generating">
           <div className="plan-generation-notice__icon" aria-hidden><BotIcon size={32} /></div>
           <h3 className="plan-generation-notice__title">План тренировок генерируется</h3>
@@ -942,6 +395,25 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           >
             Проверить готовность
           </button>
+        </div>
+      )}
+
+      {showManualModeNotice && !planError && (
+        <div className="plan-generation-notice plan-generation-notice--info">
+          <div className="plan-generation-notice__icon" aria-hidden><CalendarIcon size={32} /></div>
+          <h3 className="plan-generation-notice__title">Календарь готов</h3>
+          <p className="plan-generation-notice__message">
+            {registrationMessage || 'Добавляйте тренировки на нужные даты, отмечайте выполнение и следите за прогрессом на дашборде.'}
+          </p>
+          {onNavigate && (
+            <button
+              type="button"
+              className="plan-generation-notice__btn"
+              onClick={() => onNavigate('calendar')}
+            >
+              Открыть календарь
+            </button>
+          )}
         </div>
       )}
       
@@ -1266,7 +738,9 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           >
             <div className="dashboard-customizer-header">
               <h3>Блоки дашборда</h3>
-              <button type="button" className="dashboard-customizer-close" onClick={() => setCustomizerOpen(false)} aria-label="Закрыть">×</button>
+              <button type="button" className="dashboard-customizer-close" onClick={() => setCustomizerOpen(false)} aria-label="Закрыть">
+                <CloseIcon className="modal-close-icon" />
+              </button>
             </div>
             <p className="dashboard-customizer-hint">
               {isMobileView
@@ -1274,6 +748,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                 : 'Перетаскивайте для порядка. Бросьте на блок — в одну строку; на полоску — на всю ширину.'}
             </p>
             <DndContext
+              collisionDetection={customizerCollisionDetection}
               sensors={customizerSensors}
               onDragStart={handleDndDragStart}
               onDragEnd={handleDndDragEndWithCleanup}

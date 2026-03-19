@@ -30,11 +30,12 @@
 
 .app-modal-content {
   position: relative;
-  background-color: white;
+  background: var(--card-surface-bg);
   margin: auto;
   padding: 0;
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-2xl);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  box-shadow: var(--card-surface-shadow);
   max-width: 600px;
   width: 90%;
   max-height: 90vh;
@@ -42,6 +43,22 @@
   flex-direction: column;
   overflow: hidden;
   animation: appModalSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.app-modal-content::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.app-modal-content > * {
+  position: relative;
+  z-index: 1;
 }
 
 .app-modal-content.modal-large {
@@ -74,8 +91,8 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--space-6);
-  border-bottom: 1px solid var(--gray-200);
-  background: linear-gradient(135deg, var(--gray-50) 0%, white 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 4%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 1%, var(--card-surface-compact-bg)) 100%);
 }
 
 .app-modal-header-left {
@@ -104,24 +121,39 @@
 }
 
 .app-modal-close {
-  color: var(--gray-400);
-  font-size: 28px;
-  font-weight: var(--font-bold);
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--gray-500);
+  font-size: 24px;
+  font-weight: var(--font-semibold);
   cursor: pointer;
   line-height: 1;
-  transition: color var(--transition-base);
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 22px rgba(15, 23, 42, 0.08);
+  transition: color var(--transition-base), background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+  user-select: none;
 }
 
 .app-modal-close:hover,
 .app-modal-close:focus {
-  color: var(--gray-900);
+  color: var(--primary-600);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 14px 28px rgba(15, 23, 42, 0.1), 0 10px 22px rgba(252, 76, 2, 0.10);
+  transform: translateY(-1px);
 }
 
 .app-modal-close--float {
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
-  z-index: 1;
+  z-index: 3;
 }
 
 .app-modal-body {
@@ -129,13 +161,13 @@
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
-  background: white;
-  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+  background: transparent;
+  border-radius: 0 0 var(--card-surface-radius) var(--card-surface-radius);
 }
 
 /* Скроллбар под закруглённое окно: без стрелок, закруглённый ползунок */
 .app-modal-body::-webkit-scrollbar {
-  width: 8px;
+  width: var(--scrollbar-size);
 }
 
 .app-modal-body::-webkit-scrollbar-button {
@@ -144,23 +176,29 @@
 }
 
 .app-modal-body::-webkit-scrollbar-track {
-  background: var(--gray-100);
-  border-radius: 4px;
+  background: var(--scrollbar-track-bg);
+  border: 1px solid var(--scrollbar-track-border);
+  border-radius: var(--scrollbar-radius);
+  box-shadow: var(--scrollbar-track-shadow);
 }
 
 .app-modal-body::-webkit-scrollbar-thumb {
-  background: var(--gray-400);
-  border-radius: 4px;
+  background: var(--scrollbar-thumb-bg);
+  border: 2px solid transparent;
+  border-radius: var(--scrollbar-radius);
+  background-clip: padding-box;
+  box-shadow: var(--scrollbar-thumb-shadow);
 }
 
 .app-modal-body::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-500);
+  background: var(--scrollbar-thumb-hover-bg);
+  box-shadow: var(--scrollbar-thumb-shadow-hover);
 }
 
 /* Firefox */
 .app-modal-body {
   scrollbar-width: thin;
-  scrollbar-color: var(--gray-400) var(--gray-100);
+  scrollbar-color: var(--scrollbar-thumb-color) var(--scrollbar-track-color);
 }
 
 /* Центрирование контента (окно логина): одинаковые отступы слева и справа */
@@ -192,11 +230,16 @@
 .form-group textarea {
   width: 100%;
   padding: var(--space-3);
-  border: 1.5px solid var(--gray-300);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-md);
   font-size: var(--text-base);
   font-family: inherit;
   transition: all var(--transition-base);
+  background: var(--card-surface-compact-bg);
+  color: var(--text-primary);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .form-group input:focus,
@@ -221,13 +264,32 @@
 }
 
 [data-theme="dark"] .app-modal-content {
-  background-color: var(--card-bg);
-  box-shadow: var(--shadow-2xl);
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+}
+
+[data-theme="dark"] .app-modal-content:has(.register-content--modal) {
+  background: linear-gradient(180deg, rgba(17, 22, 29, 0.98) 0%, rgba(10, 14, 20, 0.99) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 34px 72px rgba(0, 0, 0, 0.56), 0 12px 26px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(252, 76, 2, 0.04);
+}
+
+[data-theme="dark"] .app-modal-content:has(.register-content--modal)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top center, rgba(59, 130, 246, 0.08), transparent 34%),
+    radial-gradient(circle at top right, rgba(252, 76, 2, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 24%);
+  pointer-events: none;
 }
 
 [data-theme="dark"] .app-modal-header {
-  background: linear-gradient(135deg, var(--gray-100) 0%, var(--card-bg) 100%);
-  border-bottom-color: var(--card-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 4%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 1%, var(--card-surface-compact-bg)) 100%);
+  border-bottom-color: color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-border));
 }
 
 [data-theme="dark"] .app-modal-header h2 {
@@ -235,29 +297,27 @@
 }
 
 [data-theme="dark"] .app-modal-close {
-  color: var(--gray-500);
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.28);
 }
 
 [data-theme="dark"] .app-modal-close:hover,
 [data-theme="dark"] .app-modal-close:focus {
-  color: var(--text-primary);
+  color: var(--primary-400);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 30px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 [data-theme="dark"] .app-modal-body {
-  background: var(--card-bg);
+  background: transparent;
   color: var(--text-primary);
 }
 
-[data-theme="dark"] .app-modal-body::-webkit-scrollbar-track {
-  background: var(--gray-100);
-}
-
-[data-theme="dark"] .app-modal-body::-webkit-scrollbar-thumb {
-  background: var(--gray-400);
-}
-
-[data-theme="dark"] .app-modal-body::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-500);
+[data-theme="dark"] .app-modal-body:has(.register-content--modal) {
+  background: transparent;
 }
 
 [data-theme="dark"] .form-group label {
@@ -267,8 +327,8 @@
 [data-theme="dark"] .form-group input,
 [data-theme="dark"] .form-group select,
 [data-theme="dark"] .form-group textarea {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
   color: var(--text-primary);
 }
 
@@ -308,24 +368,28 @@
 .result-modal-add-type-dropdown {
   margin-top: var(--space-2);
   padding: var(--space-2);
-  background: var(--gray-50);
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-lg);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 .result-modal-add-type-option {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  border-radius: var(--card-surface-radius-compact);
+  background: var(--card-surface-compact-bg);
   cursor: pointer;
   font-size: var(--text-sm);
   transition: border-color var(--transition-fast), background var(--transition-fast);
+  box-shadow: var(--card-surface-compact-shadow);
 }
 .result-modal-add-type-option:hover {
   border-color: var(--primary-400);
@@ -344,17 +408,17 @@
 }
 
 [data-theme="dark"] .result-modal-add-type-dropdown {
-  background: var(--bg-tertiary);
-  border-color: var(--gray-600);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 [data-theme="dark"] .result-modal-add-type-option {
-  background: var(--bg-primary);
-  border-color: var(--gray-600);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
   color: var(--text-primary);
 }
 [data-theme="dark"] .result-modal-add-type-option:hover {
   border-color: var(--primary-400);
-  background: var(--bg-tertiary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--card-surface-compact-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-compact-bg)) 100%);
 }
 
 .form-actions {
@@ -381,16 +445,35 @@
 }
 
 .app-modal--modern .app-modal-content--modern {
-  background: var(--card-bg);
-  border-radius: var(--radius-2xl);
+  position: relative;
+  isolation: isolate;
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
   max-width: 600px;
   width: 100%;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--card-surface-shadow);
   animation: appModalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+.app-modal--modern .app-modal-content--modern::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
+}
+
+.app-modal--modern .app-modal-content--modern > * {
+  position: relative;
+  z-index: 1;
 }
 
 .app-modal--modern .app-modal-header--modern {
@@ -416,8 +499,8 @@
 }
 
 .app-modal--modern .app-modal-close--modern {
-  color: white;
-  background: rgba(255, 255, 255, 0.2);
+  color: var(--gray-500);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
   width: 40px;
   height: 40px;
   border-radius: var(--radius-full);
@@ -425,16 +508,19 @@
   align-items: center;
   justify-content: center;
   font-size: 24px;
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
   flex-shrink: 0;
-  transition: background var(--transition-base), transform var(--transition-base);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 22px rgba(15, 23, 42, 0.08);
+  transition: color var(--transition-base), background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
 }
 
 .app-modal--modern .app-modal-close--modern:hover,
 .app-modal--modern .app-modal-close--modern:focus {
-  color: white;
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.05);
+  color: var(--primary-600);
+  background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 14px 28px rgba(15, 23, 42, 0.1), 0 10px 22px rgba(252, 76, 2, 0.10);
+  transform: translateY(-1px);
 }
 
 .app-modal--modern .app-modal-body--modern {
@@ -457,6 +543,21 @@
 [data-theme="dark"] .app-modal--modern .app-modal-body--modern {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+[data-theme="dark"] .app-modal--modern .app-modal-close--modern {
+  color: var(--text-secondary);
+  background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="dark"] .app-modal--modern .app-modal-close--modern:hover,
+[data-theme="dark"] .app-modal--modern .app-modal-close--modern:focus {
+  color: var(--primary-400);
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, rgba(255, 255, 255, 0.08));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 30px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(252, 76, 2, 0.08);
 }
 
 /* Мобильная версия app-modal — прозрачный фон, без блюра, между header и navbar */
@@ -519,14 +620,17 @@
     width: 36px;
     height: 36px;
     font-size: 24px;
-    background: transparent;
-    color: var(--gray-400);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
+    color: var(--gray-500);
+    border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 10px 22px rgba(15, 23, 42, 0.08);
   }
 
   .app-modal--modern .app-modal-close--modern:hover,
   .app-modal--modern .app-modal-close--modern:focus {
-    background: var(--gray-200);
-    color: var(--gray-900);
+    background: linear-gradient(180deg, rgba(255, 247, 243, 0.98) 0%, rgba(255, 238, 230, 0.94) 100%);
+    color: var(--primary-600);
+    border-color: color-mix(in srgb, var(--primary-500) 18%, var(--surface-glass-border));
   }
 
   [data-theme="dark"] .app-modal--modern .app-modal-header--modern {
@@ -543,14 +647,17 @@
   }
 
   [data-theme="dark"] .app-modal--modern .app-modal-close--modern {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
+    background: linear-gradient(180deg, rgba(18, 23, 31, 0.94) 0%, rgba(10, 13, 18, 0.98) 100%);
+    color: var(--text-secondary);
+    border-color: color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.08));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px rgba(0, 0, 0, 0.28);
   }
 
   [data-theme="dark"] .app-modal--modern .app-modal-close--modern:hover,
   [data-theme="dark"] .app-modal--modern .app-modal-close--modern:focus {
-    background: rgba(255, 255, 255, 0.3);
-    color: white;
+    background: linear-gradient(180deg, rgba(22, 28, 36, 0.96) 0%, rgba(11, 15, 21, 0.99) 100%);
+    color: var(--primary-400);
+    border-color: color-mix(in srgb, var(--primary-500) 22%, rgba(255, 255, 255, 0.08));
   }
 
   .app-modal--modern .app-modal-body--modern {

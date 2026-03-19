@@ -10,7 +10,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import useAuthStore from '../../stores/useAuthStore';
 import WorkoutCard from './WorkoutCard';
 import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
-import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon } from '../common/Icons';
+import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon, CloseIcon, PenLineIcon } from '../common/Icons';
 import LogoLoading from '../common/LogoLoading';
 import { getPlanDayForDate, getDayCompletionStatus } from '../../utils/calendarHelpers';
 import './WeekCalendar.css';
@@ -100,7 +100,19 @@ function getVirtualWeekForStartDate(startDateStr) {
 function getWeekForStartDate(plan, startDateStr) {
   const weeksData = plan?.weeks_data;
   if (Array.isArray(weeksData)) {
-    const found = weeksData.find((w) => w.start_date === startDateStr);
+    let found = weeksData.find((w) => w && String(w.start_date) === String(startDateStr));
+    if (found) return { ...found };
+    // Fallback: найти неделю, в которую попадает startDateStr (на случай расхождения формата даты)
+    const start = new Date(startDateStr + 'T00:00:00');
+    start.setHours(0, 0, 0, 0);
+    found = weeksData.find((w) => {
+      if (!w?.start_date) return false;
+      const weekStart = new Date(w.start_date + 'T00:00:00');
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      return start >= weekStart && start <= weekEnd;
+    });
     if (found) return { ...found };
   }
   return getVirtualWeekForStartDate(startDateStr);
@@ -112,7 +124,7 @@ function getVirtualCurrentWeek() {
 
 const MOBILE_BREAKPOINT = '(max-width: 640px)';
 
-const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate }) => {
+const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate, initialDateKey = null }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -146,6 +158,10 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
   const [savingWeekNote, setSavingWeekNote] = useState(false);
   const [editingWeekNoteId, setEditingWeekNoteId] = useState(null);
   const [editingWeekNoteText, setEditingWeekNoteText] = useState('');
+  const canManageWeekNote = useCallback((note) => {
+    if (!currentUser || !note) return false;
+    return note.author_id == currentUser.id || currentUser.role === 'coach' || currentUser.role === 'admin';
+  }, [currentUser]);
 
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
@@ -159,10 +175,19 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
     })();
     const useDate = initialDate || todayStr;
     const mondayStr = useDate === todayStr ? getMondayOfToday() : getMondayForDate(useDate);
-    const week = getWeekForStartDate(plan, mondayStr);
+    let week = getWeekForStartDate(plan, mondayStr);
+    // Если план есть, но начинается в будущем (текущая неделя пустая) — показываем первую неделю плана.
+    const weeksData = plan?.weeks_data;
+    const isEmptyWeek = week?.number === 0 || !Object.values(week?.days ?? {}).some((d) => d && (Array.isArray(d) ? d.length > 0 : true));
+    if (isEmptyWeek && Array.isArray(weeksData) && weeksData.length > 0) {
+      const firstPlanWeek = weeksData.find((w) => w.start_date);
+      if (firstPlanWeek && firstPlanWeek.start_date > mondayStr) {
+        week = { ...firstPlanWeek };
+      }
+    }
     setCurrentWeek(week);
     setSelectedDate(useDate);
-  }, [plan, initialDate]);
+  }, [plan, initialDate, initialDateKey]);
 
   const getWeekDays = (week) => {
     if (!week || !week.start_date) return [];
@@ -184,13 +209,19 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
       const dateStr = `${year}-${month}-${day}`;
       const dayKey = dayKeys[i];
       const rawDay = week.days && week.days[dayKey];
-      const dayActivities = normalizeDayActivities(rawDay);
+      // Используем getPlanDayForDate как основной источник — он ищет по диапазону дат и надёжнее
+      const planDayForDate = plan ? getPlanDayForDate(dateStr, plan) : null;
+      const dayActivities = planDayForDate?.items
+        ? planDayForDate.items
+            .filter((d) => d && typeof d.type === 'string')
+            .map((d) => ({ type: d.type, is_key_workout: !!(d.is_key_workout || d.key) }))
+        : normalizeDayActivities(rawDay);
       const cellType = firstNonRestType(dayActivities);
       const dayData = dayActivities.length
-        ? (Array.isArray(rawDay) ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || rawDay[0] : rawDay)
+        ? (planDayForDate?.items?.find((d) => d && d.type !== 'rest' && d.type !== 'free') || planDayForDate?.items?.[0]
+          || (Array.isArray(rawDay) ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || rawDay[0] : rawDay))
         : null;
       const isToday = date.getTime() === today.getTime();
-      const planDayForDate = getPlanDayForDate(dateStr, plan);
       const completion = getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate);
       const isCompleted = completion.status === 'completed';
       const isRestExtra = completion.status === 'rest_extra';
@@ -456,7 +487,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
                   {copyingWeek ? '...' : 'OK'}
                 </button>
                 <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setShowCopyWeek(false); setCopyWeekTarget(''); }}>
-                  ✕
+                  <CloseIcon className="modal-close-icon" />
                 </button>
               </div>
             )}
@@ -470,46 +501,64 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
           type="button"
           className="week-notes-toggle"
           onClick={() => setShowWeekNotes(v => !v)}
+          aria-expanded={showWeekNotes}
         >
-          <span>Заметки к неделе{weekNotes.length > 0 ? ` (${weekNotes.length})` : ''}</span>
+          <span className="week-notes-toggle-label">Заметки к неделе{weekNotes.length > 0 ? ` (${weekNotes.length})` : ''}</span>
           <span className={`week-notes-arrow ${showWeekNotes ? 'week-notes-arrow--open' : ''}`}>&#9662;</span>
         </button>
-        {showWeekNotes && (
-          <div className="week-notes-list">
-            {weekNotes.length === 0 && <div className="week-notes-empty">Нет заметок</div>}
-            {weekNotes.map(note => (
-              <div key={note.id} className="week-note">
-                <div className="week-note-header">
-                  <span className="week-note-author">{note.author_username}</span>
-                  <span className="week-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                  {currentUser && note.author_id == currentUser.id && (
-                    <span className="week-note-actions">
-                      <button type="button" className="week-note-btn" onClick={() => { setEditingWeekNoteId(note.id); setEditingWeekNoteText(note.content); }} title="Редактировать">&#9998;</button>
-                      <button type="button" className="week-note-btn week-note-btn--del" onClick={() => handleDeleteWeekNote(note.id)} title="Удалить">&times;</button>
-                    </span>
+        <div
+          className={`week-notes-collapse ${showWeekNotes ? 'is-open' : ''}`}
+          aria-hidden={!showWeekNotes}
+        >
+          <div className="week-notes-collapse-inner">
+            <div className="week-notes-list">
+              {weekNotes.length === 0 && <div className="week-notes-empty">Нет заметок</div>}
+              {weekNotes.map(note => (
+                <div key={note.id} className="week-note">
+                  {canManageWeekNote(note) && (
+                    <button
+                      type="button"
+                      className="week-note-remove"
+                      onClick={() => handleDeleteWeekNote(note.id)}
+                      title="Удалить"
+                      aria-label="Удалить заметку"
+                    >
+                      <CloseIcon className="modal-close-icon" />
+                    </button>
+                  )}
+                  <div className="week-note-header">
+                    <span className="week-note-author">{note.author_username}</span>
+                    <span className="week-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                    {canManageWeekNote(note) && (
+                      <span className="week-note-actions">
+                        <button type="button" className="week-note-btn" onClick={() => { setEditingWeekNoteId(note.id); setEditingWeekNoteText(note.content); }} title="Редактировать" aria-label="Редактировать заметку">
+                          <PenLineIcon className="week-note-btn-icon" size={14} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  {editingWeekNoteId === note.id ? (
+                    <div className="week-note-edit">
+                      <textarea className="week-note-textarea" value={editingWeekNoteText} onChange={e => setEditingWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
+                      <div className="week-note-edit-btns">
+                        <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateWeekNote(note.id)} disabled={savingWeekNote}>Сохранить</button>
+                        <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingWeekNoteId(null); setEditingWeekNoteText(''); }}>Отмена</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="week-note-content">{note.content}</div>
                   )}
                 </div>
-                {editingWeekNoteId === note.id ? (
-                  <div className="week-note-edit">
-                    <textarea className="week-note-textarea" value={editingWeekNoteText} onChange={e => setEditingWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
-                    <div className="week-note-edit-btns">
-                      <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateWeekNote(note.id)} disabled={savingWeekNote}>Сохранить</button>
-                      <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingWeekNoteId(null); setEditingWeekNoteText(''); }}>Отмена</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="week-note-content">{note.content}</div>
-                )}
+              ))}
+              <div className="week-note-add">
+                <textarea className="week-note-textarea" placeholder="Добавить заметку к неделе..." value={newWeekNoteText} onChange={e => setNewWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
+                <button type="button" className="btn btn-primary btn--sm" onClick={handleSaveWeekNote} disabled={!newWeekNoteText.trim() || savingWeekNote}>
+                  {savingWeekNote ? 'Сохранение...' : 'Отправить'}
+                </button>
               </div>
-            ))}
-            <div className="week-note-add">
-              <textarea className="week-note-textarea" placeholder="Добавить заметку к неделе..." value={newWeekNoteText} onChange={e => setNewWeekNoteText(e.target.value)} rows={2} maxLength={2000} />
-              <button type="button" className="btn btn-primary btn--sm" onClick={handleSaveWeekNote} disabled={!newWeekNoteText.trim() || savingWeekNote}>
-                {savingWeekNote ? 'Сохранение...' : 'Отправить'}
-              </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       <div className="week-days-grid">
@@ -566,7 +615,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
                         {activity.type !== '_more' && activity.type === 'other' && <OFPIcon className="week-day-svg-icon" aria-hidden />}
                         {activity.type !== '_more' && activity.type === 'sbu' && <SbuIcon className="week-day-svg-icon" aria-hidden />}
                         {activity.type !== '_more' && activity.type !== 'rest' && activity.type !== 'free' && activity.type !== 'other' && activity.type !== 'sbu' && (
-                          <RunIcon className="week-day-svg-icon" aria-hidden />
+                          <ActivityTypeIcon type={activity.type} className="week-day-svg-icon" aria-hidden />
                         )}
                       </div>
                     ))}

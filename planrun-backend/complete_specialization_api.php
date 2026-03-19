@@ -2,7 +2,7 @@
 /**
  * API завершения специализации (второй этап регистрации).
  * Вызывается после минимальной регистрации: обновляет профиль, создаёт план.
- * Требует авторизации (сессия).
+ * Требует авторизации (сессия или JWT).
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -27,17 +27,60 @@ if (!defined('API_CORS_SENT') || !API_CORS_SENT) {
 
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/user_functions.php';
+require_once __DIR__ . '/services/PlanGenerationQueueService.php';
+require_once __DIR__ . '/services/AuthService.php';
+require_once __DIR__ . '/../api/session_init.php';
+
+if (!function_exists('planrunEnsureSessionStarted')) {
+    function planrunEnsureSessionStarted() {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return true;
+        }
+
+        @session_start();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return true;
+        }
+
+        session_save_path(sys_get_temp_dir());
+        @session_start();
+
+        return session_status() === PHP_SESSION_ACTIVE;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'error' => 'Метод не поддерживается'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+planrunEnsureSessionStarted();
+$db = getDBConnection();
+if (!$db) {
+    echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
+    exit;
 }
+
 $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
 $username = $_SESSION['username'] ?? null;
+
+if (!$userId || !$username) {
+    try {
+        $authService = new AuthService($db);
+        $jwtUser = $authService->validateJwtToken();
+        if ($jwtUser) {
+            $userId = (int) ($jwtUser['user_id'] ?? 0);
+            $username = $jwtUser['username'] ?? null;
+            $_SESSION['authenticated'] = true;
+            $_SESSION['user_id'] = $userId;
+            $_SESSION['username'] = $username;
+            $_SESSION['login_time'] = time();
+        }
+    } catch (Throwable $e) {
+        // Если JWT невалиден, ниже вернём стандартную 401.
+    }
+}
+
 if (!$userId || !$username) {
     echo json_encode(['success' => false, 'error' => 'Требуется авторизация'], JSON_UNESCAPED_UNICODE);
     exit;
@@ -226,12 +269,6 @@ try {
     $preferredDaysJson = !empty($preferredDaysJson) && $preferredDaysJson !== '[]' ? $preferredDaysJson : null;
     $preferredOfpDaysJson = !empty($preferredOfpDaysJson) && $preferredOfpDaysJson !== '[]' ? $preferredOfpDaysJson : null;
 
-    $db = getDBConnection();
-    if (!$db) {
-        echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
     $userData = [
         'goal_type' => ['value' => $goalType, 'type' => 's'],
         'race_distance' => ['value' => $raceDistance, 'type' => 's'],
@@ -341,30 +378,13 @@ try {
         // Для «самостоятельно» не создаём недели/дни — календарь остаётся пустым, тренировки навешиваются на даты
         $planGenerationMessage = 'Календарь готов. Добавляйте тренировки на любую дату.';
     } elseif ($trainingMode === 'ai' || $trainingMode === 'both') {
-        require_once __DIR__ . '/planrun_ai/planrun_ai_config.php';
-        if (isPlanRunAIAvailable()) {
-            try {
-                $scriptPath = __DIR__ . '/planrun_ai/generate_plan_async.php';
-                $logDir = __DIR__ . '/logs';
-                if (!is_dir($logDir)) {
-                    @mkdir($logDir, 0777, true);
-                }
-                $logFile = is_dir($logDir) && is_writable($logDir)
-                    ? $logDir . '/plan_generation_' . $userId . '_' . time() . '.log'
-                    : '/tmp/plan_generation_' . $userId . '_' . time() . '.log';
-                $phpPath = '/usr/bin/php';
-                if (!file_exists($phpPath)) {
-                    $phpPath = trim(shell_exec('which php 2>/dev/null') ?: 'php');
-                }
-                $command = "cd " . escapeshellarg(__DIR__) . " && nohup " . escapeshellarg($phpPath) . " " . escapeshellarg($scriptPath) . " " . (int)$userId . " >> " . escapeshellarg($logFile) . " 2>&1 & echo \$!";
-                exec($command, $output, $returnVar);
-                $planGenerationMessage = 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.';
-            } catch (Exception $e) {
-                error_log("Ошибка запуска генерации плана: " . $e->getMessage());
-                $planGenerationMessage = 'План будет сгенерирован автоматически.';
-            }
-        } else {
-            $planGenerationMessage = 'PlanRun AI система недоступна. Проверьте, что сервис запущен на порту 8000.';
+        try {
+            $queueService = new PlanGenerationQueueService($db);
+            $queueService->enqueue((int) $userId, 'generate');
+            $planGenerationMessage = 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.';
+        } catch (Throwable $e) {
+            error_log("Ошибка постановки генерации плана в очередь: " . $e->getMessage());
+            $planGenerationMessage = 'План будет сгенерирован автоматически.';
         }
     }
 

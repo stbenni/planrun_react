@@ -1,44 +1,49 @@
 <?php
 /**
- * Сервис для адаптации плана тренировок
+ * Сервис для адаптации плана тренировок.
+ *
+ * Использует WeeklyAdaptationEngine для анализа план vs факт
+ * и автоматической корректировки оставшихся недель.
  */
 
 require_once __DIR__ . '/BaseService.php';
+require_once __DIR__ . '/../planrun_ai/skeleton/WeeklyAdaptationEngine.php';
 
 class AdaptationService extends BaseService {
-    
+
     /**
-     * Запустить недельную адаптацию
-     * 
+     * Запустить недельную адаптацию для пользователя.
+     *
      * @param int $userId ID пользователя
      * @return array Результат адаптации
      * @throws Exception
      */
-    public function runWeeklyAdaptation($userId) {
-        try {
-            require_once __DIR__ . '/../user_functions.php';
-            require_once __DIR__ . '/../calendar_access.php';
-            
-            // Проверяем права доступа
-            $access = getCalendarAccess();
-            if (isset($access['error'])) {
-                $this->throwException($access['error'], 403);
+    public function runWeeklyAdaptation(int $userId): array {
+        $engine = new WeeklyAdaptationEngine($this->db);
+        $result = $engine->analyze($userId);
+
+        // Отправляем ревью в чат
+        if (!empty($result['review_message'])) {
+            try {
+                require_once __DIR__ . '/ChatService.php';
+                $chatService = new ChatService($this->db);
+                $chatService->addAIMessageToUser($userId, $result['review_message']);
+            } catch (Throwable $e) {
+                $this->logError('Не удалось отправить ревью в чат', [
+                    'user_id' => $userId,
+                    'error' => $e->getMessage(),
+                ]);
             }
-            
-            // Только администратор может запускать адаптацию
-            $currentUser = getCurrentUser();
-            if (!$currentUser || !isset($currentUser['role']) || $currentUser['role'] !== 'admin') {
-                $this->throwException('Только администратор может запускать адаптацию плана', 403);
-            }
-            
-            // TODO: Создать weekly_adaptation через PlanRun AI
-            // Пока возвращаем ошибку, что не реализовано
-            $this->throwException('Еженедельная адаптация пока не реализована через PlanRun AI', 501);
-        } catch (Exception $e) {
-            $this->throwException('Ошибка запуска адаптации: ' . $e->getMessage(), 500, [
-                'user_id' => $userId,
-                'error' => $e->getMessage()
-            ]);
         }
+
+        $this->logInfo('Еженедельная адаптация завершена', [
+            'user_id' => $userId,
+            'adapted' => $result['adapted'],
+            'adaptation_type' => $result['adaptation_type'],
+            'triggers' => $result['triggers'],
+            'week_number' => $result['week_number'] ?? null,
+        ]);
+
+        return $result;
     }
 }

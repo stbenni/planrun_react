@@ -74,6 +74,12 @@
   --bg-primary: #FFFFFF;
   --bg-secondary: #F8FAFC;
   --bg-tertiary: #F1F5F9;
+  --app-background-base: #F4F7FB;
+  --app-background-image:
+    radial-gradient(circle at 12% 18%, rgba(252, 76, 2, 0.10) 0%, rgba(252, 76, 2, 0) 28%),
+    radial-gradient(circle at 84% 12%, rgba(255, 107, 61, 0.06) 0%, rgba(255, 107, 61, 0) 22%),
+    radial-gradient(circle at 72% 82%, rgba(59, 130, 246, 0.07) 0%, rgba(59, 130, 246, 0) 28%),
+    linear-gradient(180deg, #FAFCFF 0%, #F3F7FB 54%, #ECF3F8 100%);
   
   /* ========================================
      TEXT COLORS - Цвета текста для светлой темы (хороший контраст)
@@ -208,12 +214,54 @@
   /* ========================================
      LIQUID GLASS (мобильный UI, Apple-style)
      ======================================== */
-  --glass-bg: rgba(255, 255, 255, 0.22);
-  --glass-bg-strong: rgba(255, 255, 255, 0.35);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.45);
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.84);
+  --glass-border: 1px solid rgba(226, 232, 240, 0.66);
   --glass-blur: 20px;
   --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.68);
+  --surface-glass-bg: rgba(248, 250, 252, 0.74);
+  --surface-glass-bg-strong: rgba(255, 255, 255, 0.9);
+  --surface-glass-control-bg: rgba(247, 250, 252, 0.78);
+  --surface-glass-control-strong: rgba(255, 255, 255, 0.9);
+  --surface-glass-border: rgba(226, 232, 240, 0.78);
+  --surface-glass-shadow: 0 18px 40px rgba(15, 23, 42, 0.08), 0 10px 24px rgba(15, 23, 42, 0.04);
+  --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.72);
+  --surface-glass-blur: 18px;
+
+  --scrollbar-size: 13px;
+  --scrollbar-radius: 999px;
+  --scrollbar-track-color: color-mix(in srgb, var(--surface-glass-control-strong) 90%, transparent);
+  --scrollbar-track-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-glass-bg-strong) 96%, white) 0%,
+    color-mix(in srgb, var(--surface-glass-control-bg) 88%, transparent) 100%
+  );
+  --scrollbar-track-border: color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-border));
+  --scrollbar-track-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 8px 18px rgba(15, 23, 42, 0.05);
+  --scrollbar-thumb-color: color-mix(in srgb, var(--primary-500) 74%, var(--gray-200));
+  --scrollbar-thumb-hover-color: color-mix(in srgb, var(--primary-500) 88%, var(--gray-100));
+  --scrollbar-thumb-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-300) 58%, var(--surface-glass-bg-strong)) 0%,
+    color-mix(in srgb, var(--primary-500) 84%, var(--surface-glass-control-strong)) 100%
+  );
+  --scrollbar-thumb-hover-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-300) 70%, var(--surface-glass-bg-strong)) 0%,
+    color-mix(in srgb, var(--primary-500) 94%, var(--surface-glass-control-strong)) 100%
+  );
+  --scrollbar-thumb-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 12px 22px rgba(252, 76, 2, 0.18),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 24%, transparent);
+  --scrollbar-thumb-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 16px 26px rgba(252, 76, 2, 0.24),
+    0 0 0 1px color-mix(in srgb, var(--primary-500) 32%, transparent);
 }
 
 /* Светлая тема — явные значения для яркого и читаемого интерфейса */
@@ -222,6 +270,12 @@
   --bg-primary: #FFFFFF;
   --bg-secondary: #F8FAFC;
   --bg-tertiary: #F1F5F9;
+  --app-background-base: #F4F7FB;
+  --app-background-image:
+    radial-gradient(circle at 12% 18%, rgba(252, 76, 2, 0.10) 0%, rgba(252, 76, 2, 0) 28%),
+    radial-gradient(circle at 84% 12%, rgba(255, 107, 61, 0.06) 0%, rgba(255, 107, 61, 0) 22%),
+    radial-gradient(circle at 72% 82%, rgba(59, 130, 246, 0.07) 0%, rgba(59, 130, 246, 0) 28%),
+    linear-gradient(180deg, #FAFCFF 0%, #F3F7FB 54%, #ECF3F8 100%);
   --text-primary: #0F172A;
   --text-secondary: #475569;
   --text-tertiary: #64748B;
@@ -245,46 +299,52 @@
 [data-theme="dark"],
 :root[data-theme="dark"] {
   /* Backgrounds - Более светлые, менее контрастные */
-  --bg-primary: #1A1A1A;  /* Вместо #0A0A0A - более светлый */
-  --bg-secondary: #252525;  /* Вместо #141414 - более светлый */
-  --bg-tertiary: #2F2F2F;  /* Вместо #1F1F1F - более светлый */
+  --bg-primary: #0D1014;
+  --bg-secondary: #14181F;
+  --bg-tertiary: #1C222B;
+  --app-background-base: #0B1015;
+  --app-background-image:
+    radial-gradient(circle at 14% 18%, rgba(252, 76, 2, 0.16) 0%, rgba(252, 76, 2, 0) 24%),
+    radial-gradient(circle at 84% 12%, rgba(255, 122, 69, 0.10) 0%, rgba(255, 122, 69, 0) 22%),
+    radial-gradient(circle at 68% 78%, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0) 24%),
+    linear-gradient(180deg, #0A0F14 0%, #10161D 52%, #151D26 100%);
   
   /* Text - Мягче, менее контрастный */
-  --text-primary: #F5F5F5;  /* Вместо #FFFFFF - чуть мягче */
-  --text-secondary: #D4D4D4;  /* Вместо #E5E5E5 - чуть мягче */
-  --text-tertiary: #A3A3A3;
+  --text-primary: #F3F4F6;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
   
   /* Override grays for dark mode - более светлые */
-  --gray-50: #2F2F2F;
-  --gray-100: #3A3A3A;
-  --gray-200: #4A4A4A;
-  --gray-300: #5A5A5A;
-  --gray-400: #737373;
-  --gray-500: #9CA3AF;
-  --gray-600: #C4C4C4;
-  --gray-700: #D4D4D4;
-  --gray-800: #E5E5E5;
-  --gray-900: #F5F5F5;
+  --gray-50: #171B21;
+  --gray-100: #20262E;
+  --gray-200: #2A323D;
+  --gray-300: #38424F;
+  --gray-400: #64748B;
+  --gray-500: #94A3B8;
+  --gray-600: #CBD5E1;
+  --gray-700: #E2E8F0;
+  --gray-800: #F1F5F9;
+  --gray-900: #F8FAFC;
   
   /* Cards - Более светлые */
-  --card-bg: #252525;  /* Вместо #141414 - более светлый */
-  --card-border: #3A3A3A;  /* Вместо #262626 - более светлый */
+  --card-bg: #151A20;
+  --card-border: #29313B;
   
   /* Primary - Более яркие оттенки для темной темы */
-  --primary-50: rgba(255, 107, 61, 0.1);
-  --primary-100: rgba(255, 107, 61, 0.15);
-  --primary-200: rgba(255, 107, 61, 0.25);
-  --primary-300: rgba(255, 107, 61, 0.4);
-  --primary-400: #FF8C5A;  /* Более яркий */
-  --primary-500: #FF6B3D;  /* Более яркий для темной темы */
-  --primary-600: #FF4D1A;  /* Более яркий */
-  --primary-700: #FF3D0A;
-  --primary-800: #E03000;
-  --primary-900: #C02800;
+  --primary-50: rgba(252, 76, 2, 0.1);
+  --primary-100: rgba(252, 76, 2, 0.15);
+  --primary-200: rgba(252, 76, 2, 0.24);
+  --primary-300: rgba(252, 76, 2, 0.38);
+  --primary-400: #FF7A45;
+  --primary-500: #FC4C02;
+  --primary-600: #E03D00;
+  --primary-700: #C73600;
+  --primary-800: #A12A00;
+  --primary-900: #7C2000;
   
   /* Градиенты для темной темы - более яркие */
-  --gradient-primary: linear-gradient(135deg, #FF6B3D 0%, #FF4D1A 100%);
-  --gradient-hero: linear-gradient(135deg, #FF6B3D 0%, #FF8C5A 100%);
+  --gradient-primary: linear-gradient(135deg, #FC4C02 0%, #E03D00 100%);
+  --gradient-hero: linear-gradient(135deg, #FC4C02 0%, #FF7A45 100%);
   
   /* Success - более яркий зеленый для темной темы */
   --success-500: #2ED573;
@@ -314,46 +374,79 @@
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
 
   /* Liquid Glass — тёмная тема */
-  --glass-bg: rgba(28, 28, 28, 0.72);
-  --glass-bg-strong: rgba(38, 38, 38, 0.85);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.12);
-  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(10, 12, 16, 0.78);
+  --glass-bg-strong: rgba(15, 18, 23, 0.9);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.42);
+  --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  --surface-glass-bg: rgba(16, 19, 24, 0.84);
+  --surface-glass-bg-strong: rgba(22, 27, 33, 0.92);
+  --surface-glass-control-bg: rgba(12, 15, 20, 0.9);
+  --surface-glass-control-strong: rgba(17, 21, 27, 0.94);
+  --surface-glass-border: rgba(255, 255, 255, 0.08);
+  --surface-glass-shadow: 0 20px 42px rgba(0, 0, 0, 0.44), 0 10px 22px rgba(0, 0, 0, 0.24);
+  --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  --surface-glass-blur: 22px;
+  --scrollbar-track-color: rgba(10, 14, 19, 0.92);
+  --scrollbar-track-bg: linear-gradient(180deg, rgba(20, 25, 32, 0.94) 0%, rgba(10, 14, 19, 0.98) 100%);
+  --scrollbar-track-border: color-mix(in srgb, var(--primary-500) 18%, rgba(255, 255, 255, 0.08));
+  --scrollbar-track-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 10px 22px rgba(0, 0, 0, 0.26);
+  --scrollbar-thumb-color: color-mix(in srgb, var(--primary-400) 82%, var(--gray-300));
+  --scrollbar-thumb-hover-color: color-mix(in srgb, var(--primary-400) 92%, white);
+  --scrollbar-thumb-bg: linear-gradient(180deg, rgba(255, 131, 84, 0.9) 0%, rgba(252, 76, 2, 0.98) 100%);
+  --scrollbar-thumb-hover-bg: linear-gradient(180deg, rgba(255, 147, 106, 0.96) 0%, rgba(252, 76, 2, 1) 100%);
+  --scrollbar-thumb-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 24px rgba(252, 76, 2, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  --scrollbar-thumb-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 18px 28px rgba(252, 76, 2, 0.26),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 /* Автоматическое определение системной темы */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg-primary: #1A1A1A;
-    --bg-secondary: #252525;
-    --bg-tertiary: #2F2F2F;
-    --text-primary: #F5F5F5;
-    --text-secondary: #D4D4D4;
-    --text-tertiary: #A3A3A3;
-    --gray-50: #2F2F2F;
-    --gray-100: #3A3A3A;
-    --gray-200: #4A4A4A;
-    --gray-300: #5A5A5A;
-    --gray-400: #737373;
-    --gray-500: #9CA3AF;
-    --gray-600: #C4C4C4;
-    --gray-700: #D4D4D4;
-    --gray-800: #E5E5E5;
-    --gray-900: #F5F5F5;
-    --card-bg: #252525;
-    --card-border: #3A3A3A;
-    --primary-50: rgba(255, 107, 61, 0.1);
-    --primary-100: rgba(255, 107, 61, 0.15);
-    --primary-200: rgba(255, 107, 61, 0.25);
-    --primary-300: rgba(255, 107, 61, 0.4);
-    --primary-400: #FF8C5A;
-    --primary-500: #FF6B3D;
-    --primary-600: #FF4D1A;
-    --primary-700: #FF3D0A;
-    --primary-800: #E03000;
-    --primary-900: #C02800;
-    --gradient-primary: linear-gradient(135deg, #FF6B3D 0%, #FF4D1A 100%);
-    --gradient-hero: linear-gradient(135deg, #FF6B3D 0%, #FF8C5A 100%);
+    --bg-primary: #0D1014;
+    --bg-secondary: #14181F;
+    --bg-tertiary: #1C222B;
+    --app-background-base: #0B1015;
+    --app-background-image:
+      radial-gradient(circle at 14% 18%, rgba(252, 76, 2, 0.16) 0%, rgba(252, 76, 2, 0) 24%),
+      radial-gradient(circle at 84% 12%, rgba(255, 122, 69, 0.10) 0%, rgba(255, 122, 69, 0) 22%),
+      radial-gradient(circle at 68% 78%, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0) 24%),
+      linear-gradient(180deg, #0A0F14 0%, #10161D 52%, #151D26 100%);
+    --text-primary: #F3F4F6;
+    --text-secondary: #CBD5E1;
+    --text-tertiary: #94A3B8;
+    --gray-50: #171B21;
+    --gray-100: #20262E;
+    --gray-200: #2A323D;
+    --gray-300: #38424F;
+    --gray-400: #64748B;
+    --gray-500: #94A3B8;
+    --gray-600: #CBD5E1;
+    --gray-700: #E2E8F0;
+    --gray-800: #F1F5F9;
+    --gray-900: #F8FAFC;
+    --card-bg: #151A20;
+    --card-border: #29313B;
+    --primary-50: rgba(252, 76, 2, 0.1);
+    --primary-100: rgba(252, 76, 2, 0.15);
+    --primary-200: rgba(252, 76, 2, 0.24);
+    --primary-300: rgba(252, 76, 2, 0.38);
+    --primary-400: #FF7A45;
+    --primary-500: #FC4C02;
+    --primary-600: #E03D00;
+    --primary-700: #C73600;
+    --primary-800: #A12A00;
+    --primary-900: #7C2000;
+    --gradient-primary: linear-gradient(135deg, #FC4C02 0%, #E03D00 100%);
+    --gradient-hero: linear-gradient(135deg, #FC4C02 0%, #FF7A45 100%);
     --success-500: #2ED573;
     --success-600: #22C55E;
     --accent-500: #FF5252;
@@ -361,11 +454,38 @@
     --danger-50: rgba(239, 68, 68, 0.15);
     --danger-500: #FF5252;
     --danger-600: #EF4444;
-    --glass-bg: rgba(28, 28, 28, 0.72);
-    --glass-bg-strong: rgba(38, 38, 38, 0.85);
-    --glass-border: 1px solid rgba(255, 255, 255, 0.12);
-    --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-    --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    --glass-bg: rgba(10, 12, 16, 0.78);
+    --glass-bg-strong: rgba(15, 18, 23, 0.9);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.06);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.42);
+    --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    --surface-glass-bg: rgba(16, 19, 24, 0.84);
+    --surface-glass-bg-strong: rgba(22, 27, 33, 0.92);
+    --surface-glass-control-bg: rgba(12, 15, 20, 0.9);
+    --surface-glass-control-strong: rgba(17, 21, 27, 0.94);
+    --surface-glass-border: rgba(255, 255, 255, 0.08);
+    --surface-glass-shadow: 0 20px 42px rgba(0, 0, 0, 0.44), 0 10px 22px rgba(0, 0, 0, 0.24);
+    --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    --surface-glass-blur: 22px;
+    --scrollbar-track-color: rgba(10, 14, 19, 0.92);
+    --scrollbar-track-bg: linear-gradient(180deg, rgba(20, 25, 32, 0.94) 0%, rgba(10, 14, 19, 0.98) 100%);
+    --scrollbar-track-border: color-mix(in srgb, var(--primary-500) 18%, rgba(255, 255, 255, 0.08));
+    --scrollbar-track-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 10px 22px rgba(0, 0, 0, 0.26);
+    --scrollbar-thumb-color: color-mix(in srgb, var(--primary-400) 82%, var(--gray-300));
+    --scrollbar-thumb-hover-color: color-mix(in srgb, var(--primary-400) 92%, white);
+    --scrollbar-thumb-bg: linear-gradient(180deg, rgba(255, 131, 84, 0.9) 0%, rgba(252, 76, 2, 0.98) 100%);
+    --scrollbar-thumb-hover-bg: linear-gradient(180deg, rgba(255, 147, 106, 0.96) 0%, rgba(252, 76, 2, 1) 100%);
+    --scrollbar-thumb-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 14px 24px rgba(252, 76, 2, 0.18),
+      0 0 0 1px rgba(255, 255, 255, 0.06);
+    --scrollbar-thumb-shadow-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 18px 28px rgba(252, 76, 2, 0.26),
+      0 0 0 1px rgba(255, 255, 255, 0.08);
   }
 }
 

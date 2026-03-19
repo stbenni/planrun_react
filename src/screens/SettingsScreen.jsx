@@ -3,39 +3,81 @@
  * Полная реализация с вкладками и всеми полями профиля
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
+import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import BiometricService from '../services/BiometricService';
 import PinAuthService from '../services/PinAuthService';
 import { isNativeCapacitor } from '../services/TokenStorageService';
 import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon } from '../components/common/Icons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon } from '../components/common/Icons';
+import { useMyCoaches } from './settings/useMyCoaches';
+import { useCoachPricing } from './settings/useCoachPricing';
+import { createInitialFormData, daysOfWeek } from './settings/profileForm';
+import { useSettingsActions } from './settings/useSettingsActions';
+import { useSettingsProfile } from './settings/useSettingsProfile';
+import { applyTheme, getSystemTheme, getThemePreference, VALID_TABS } from './settings/settingsUtils';
 import './SettingsScreen.css';
 
-function getSystemTheme() {
-  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+const TELEGRAM_LINK_PENDING_STORAGE_KEY = 'planrun.telegramLinkPendingAt';
+const TELEGRAM_LINK_PENDING_MAX_AGE_MS = 30 * 60 * 1000;
+
+function getTelegramLinkPendingTimestamp() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(TELEGRAM_LINK_PENDING_STORAGE_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const timestamp = Number(rawValue);
+    if (!Number.isFinite(timestamp)) {
+      window.localStorage.removeItem(TELEGRAM_LINK_PENDING_STORAGE_KEY);
+      return null;
+    }
+
+    if ((Date.now() - timestamp) > TELEGRAM_LINK_PENDING_MAX_AGE_MS) {
+      window.localStorage.removeItem(TELEGRAM_LINK_PENDING_STORAGE_KEY);
+      return null;
+    }
+
+    return timestamp;
+  } catch (_) {
+    return null;
+  }
 }
 
-function getThemePreference() {
-  const saved = localStorage.getItem('theme');
-  return (saved === 'dark' || saved === 'light') ? saved : 'system';
+function markTelegramLinkPending() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(TELEGRAM_LINK_PENDING_STORAGE_KEY, String(Date.now()));
+  } catch (_) {
+    // Ignore storage errors
+  }
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  document.body.setAttribute('data-theme', theme);
-  const meta = document.getElementById('theme-color-meta');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1A1A' : '#FFFFFF');
-  const manifestLink = document.querySelector('link[rel="manifest"]');
-  if (manifestLink) manifestLink.href = theme === 'dark' ? '/site.webmanifest.dark' : '/site.webmanifest';
-}
+function clearTelegramLinkPending() {
+  if (typeof window === 'undefined') {
+    return;
+  }
 
-const VALID_TABS = ['profile', 'training', 'social', 'integrations'];
+  try {
+    window.localStorage.removeItem(TELEGRAM_LINK_PENDING_STORAGE_KEY);
+  } catch (_) {
+    // Ignore storage errors
+  }
+}
 
 const SettingsScreen = ({ onLogout }) => {
   const isTabActive = useIsTabActive('/settings');
@@ -43,10 +85,12 @@ const SettingsScreen = ({ onLogout }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { api, updateUser, user: currentUser } = useAuthStore();
   const tabFromUrl = searchParams.get('tab');
-  const initialTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'profile';
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const activeTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'profile';
+  const settingsTabsRef = useRef(null);
+  const settingsPanelsRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [csrfToken, setCsrfToken] = useState('');
   const skipNextAutoSaveRef = useRef(true); // не сохранять при первой установке formData из loadProfile
@@ -59,121 +103,149 @@ const SettingsScreen = ({ onLogout }) => {
   const [pinDisabling, setPinDisabling] = useState(false);
   const [showPinSetupModal, setShowPinSetupModal] = useState(false);
   const [pinSetupTokens, setPinSetupTokens] = useState(null);
-  // Мои тренеры
-  const [myCoaches, setMyCoaches] = useState([]);
-  const [myCoachesLoading, setMyCoachesLoading] = useState(false);
-  const [removingCoachId, setRemovingCoachId] = useState(null);
-  // Стоимость услуг (для тренеров)
-  const [coachPricing, setCoachPricing] = useState([]);
-  const [coachPricingLoading, setCoachPricingLoading] = useState(false);
-  const [savingPricing, setSavingPricing] = useState(false);
-
   const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false });
   const [huaweiSyncing, setHuaweiSyncing] = useState(false);
   const [stravaSyncing, setStravaSyncing] = useState(false);
   const [polarSyncing, setPolarSyncing] = useState(false);
   const [stravaDebug, setStravaDebug] = useState(null);
-
-  // Вспомогательная функция для нормализации значений
-  const normalizeValue = (value) => {
-    if (value === null || value === undefined || value === '' || value === 'null') {
-      return null;
-    }
-    return value;
-  };
+  const [settingsTabPillStyle, setSettingsTabPillStyle] = useState({ left: 0, width: 0 });
+  const [telegramLinkCode, setTelegramLinkCode] = useState(null);
+  const [telegramLinkCodeLoading, setTelegramLinkCodeLoading] = useState(false);
+  const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
+  const telegramLoginPollRef = useRef(null);
+  const telegramLoginTimeoutRef = useRef(null);
+  const telegramLoginPollInFlightRef = useRef(false);
 
   // Состояние формы со всеми полями
   // ВАЖНО: Все поля должны быть инициализированы как строки/массивы, а не null
   // чтобы React правильно обрабатывал контролируемые компоненты
-  const [formData, setFormData] = useState({
-    // Профиль
-    username: '',
-    email: '',
-    gender: '',
-    birth_year: '',
-    height_cm: '',
-    weight_kg: '',
-    timezone: 'Europe/Moscow',
-    
-    // Цель
-    goal_type: 'health',
-    race_distance: '',
-    race_date: '',
-    race_target_time: '',
-    target_marathon_date: '',
-    target_marathon_time: '',
-    weight_goal_kg: '',
-    weight_goal_date: '',
-    
-    // Тренировки
-    experience_level: 'novice',
-    weekly_base_km: '',
-    sessions_per_week: '',
-    preferred_days: [],
-    preferred_ofp_days: [],
-    has_treadmill: false,
-    training_time_pref: '',
-    ofp_preference: '',
-    training_mode: 'ai',
-    training_start_date: '',
-    
-    // Здоровье
-    health_notes: '',
-    health_program: '',
-    health_plan_weeks: '',
-    easy_pace_min: '', // формат MM:SS
-    easy_pace_sec: '', // для совместимости с бэкендом
-    is_first_race_at_distance: false,
-    last_race_distance: '',
-    last_race_distance_km: '',
-    last_race_time: '',
-    last_race_date: '',
-    
-    // Аватар
-    avatar_path: '',
-    
-    // Приватность
-    privacy_level: 'public',
-    privacy_show_email: true,
-    privacy_show_trainer: true,
-    privacy_show_calendar: true,
-    privacy_show_metrics: true,
-    privacy_show_workouts: true,
-    
-    // Telegram
-    telegram_id: '',
-
-    // Push-уведомления
-    push_workouts_enabled: 1,
-    push_chat_enabled: 1,
-    push_workout_hour: 20,
-    push_workout_minute: 0,
+  const [formData, setFormData] = useState(createInitialFormData);
+  const { myCoaches, myCoachesLoading, removingCoachId, loadMyCoaches, handleRemoveCoach } = useMyCoaches(api, setMessage);
+  const {
+    coachPricing,
+    coachPricingLoading,
+    savingPricing,
+    loadCoachPricing,
+    handleAddPricingItem,
+    handlePricingChange,
+    handleRemovePricingItem,
+    handleSavePricing,
+  } = useCoachPricing(api, setMessage);
+  const { loadProfile, handleInputChange, handleSave } = useSettingsProfile({
+    api,
+    formData,
+    setFormData,
+    setHasUnsavedChanges,
+    csrfToken,
+    setCsrfToken,
+    setLoading,
+    setSaving,
+    setMessage,
+    skipNextAutoSaveRef,
+  });
+  const {
+    handleAddFingerprint,
+    handleAvatarUpload,
+    handleDisableLock,
+    handleEnableLock,
+    handleGenerateTelegramLinkCode,
+    handlePinSetupSuccess,
+    handleRemoveAvatar,
+    handleStartTelegramLogin,
+    handleUnlinkTelegram,
+    runStravaSync,
+  } = useSettingsActions({
+    api,
+    csrfToken,
+    setBiometricAvailable,
+    setBiometricEnabled,
+    setBiometricEnabling,
+    setCsrfToken,
+    setFormData,
+    setMessage,
+    setPinDisabling,
+    setPinEnabled,
+    setPinSetupTokens,
+    setShowPinSetupModal,
+    setStravaSyncing,
+    updateUser,
   });
 
-  // Общая функция синхронизации Strava (используется в OAuth callback, кнопке "Синхр." и connect handler)
-  const runStravaSync = async (apiClient) => {
-    setMessage({ type: 'success', text: 'Strava успешно подключен. Синхронизация...' });
-    setStravaSyncing(true);
-    try {
-      const res = await apiClient.syncWorkouts('strava');
-      const imported = res?.data?.imported ?? res?.imported ?? 0;
-      setMessage({ type: 'success', text: `Strava подключен. Синхронизировано: ${imported} тренировок` });
-      useWorkoutRefreshStore.getState().triggerRefresh();
-      setTimeout(() => setMessage({ type: '', text: '' }), 4000);
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Strava подключен, но ошибка синхронизации: ' + (err?.message || '') });
-    } finally {
-      setStravaSyncing(false);
+  const stopTelegramLoginPolling = useCallback(() => {
+    if (telegramLoginPollRef.current) {
+      window.clearInterval(telegramLoginPollRef.current);
+      telegramLoginPollRef.current = null;
     }
-  };
+    if (telegramLoginTimeoutRef.current) {
+      window.clearTimeout(telegramLoginTimeoutRef.current);
+      telegramLoginTimeoutRef.current = null;
+    }
+    telegramLoginPollInFlightRef.current = false;
+  }, []);
 
-  // Синхронизация вкладки с URL (при переходе по ссылке с ?tab=)
-  useEffect(() => {
-    const tabFromUrl = searchParams.get('tab');
-    if (tabFromUrl && VALID_TABS.includes(tabFromUrl)) setActiveTab(tabFromUrl);
-  }, [searchParams]);
+  const refreshTelegramConnection = useCallback(async () => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) {
+      return false;
+    }
 
-  // Обработка OAuth callback (connected=huawei|strava, error=...)
+    const nextFormData = await loadProfile(currentApi, { silent: true });
+    const linked = Boolean(nextFormData?.telegram_id);
+
+    if (linked && typeof updateUser === 'function') {
+      const authStore = useAuthStore.getState();
+      updateUser({
+        ...(authStore.user || currentUser || {}),
+        telegram_id: nextFormData.telegram_id,
+      });
+    }
+
+    return linked;
+  }, [api, currentUser, loadProfile, updateUser]);
+
+  const showTelegramConnectedMessage = useCallback(() => {
+    setMessage({ type: 'success', text: 'Telegram успешно подключен' });
+    window.setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+  }, [setMessage]);
+
+  const handleTelegramConnected = useCallback(async () => {
+    const linked = await refreshTelegramConnection();
+    if (!linked) {
+      return false;
+    }
+
+    stopTelegramLoginPolling();
+    setTelegramLoginLoading(false);
+    clearTelegramLinkPending();
+    showTelegramConnectedMessage();
+    return true;
+  }, [refreshTelegramConnection, showTelegramConnectedMessage, stopTelegramLoginPolling]);
+
+  const startTelegramLoginPolling = useCallback(() => {
+    stopTelegramLoginPolling();
+
+    const pollOnce = async () => {
+      if (telegramLoginPollInFlightRef.current) {
+        return;
+      }
+
+      telegramLoginPollInFlightRef.current = true;
+      try {
+        await handleTelegramConnected();
+      } finally {
+        telegramLoginPollInFlightRef.current = false;
+      }
+    };
+
+    pollOnce();
+    telegramLoginPollRef.current = window.setInterval(pollOnce, 3000);
+    telegramLoginTimeoutRef.current = window.setTimeout(() => {
+      stopTelegramLoginPolling();
+      setTelegramLoginLoading(false);
+    }, 180000);
+  }, [handleTelegramConnected, stopTelegramLoginPolling]);
+
+  // Обработка OAuth callback (connected=huawei|strava|telegram, error=...)
   useEffect(() => {
     const connected = searchParams.get('connected');
     const errorParam = searchParams.get('error');
@@ -200,7 +272,12 @@ const SettingsScreen = ({ onLogout }) => {
       setMessage({ type: 'success', text: 'Polar успешно подключен' });
       setSearchParams({ tab: 'integrations' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (connected === 'telegram') {
+      setSearchParams({ tab: 'integrations' });
+      handleTelegramConnected();
     } else if (errorParam) {
+      stopTelegramLoginPolling();
+      setTelegramLoginLoading(false);
       setMessage({ type: 'error', text: errorParam === 'not_authenticated' ? 'Требуется авторизация' : decodeURIComponent(errorParam) });
       setSearchParams({ tab: 'integrations' });
       const currentApi = api || useAuthStore.getState().api;
@@ -212,7 +289,7 @@ const SettingsScreen = ({ onLogout }) => {
         }).catch(() => {});
       }
     }
-  }, [searchParams]);
+  }, [api, handleTelegramConnected, searchParams, stopTelegramLoginPolling]);
 
   useEffect(() => {
     if (activeTab !== 'integrations') return;
@@ -225,6 +302,71 @@ const SettingsScreen = ({ onLogout }) => {
       })
       .catch(() => {});
   }, [activeTab, api]);
+
+  useEffect(() => {
+    const onTelegramLoginMessage = async (event) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data;
+      if (!data || data.type !== 'planrun:telegram-login') {
+        return;
+      }
+
+      if (data.status === 'connected') {
+        const linked = await handleTelegramConnected();
+        if (!linked) {
+          startTelegramLoginPolling();
+        }
+        return;
+      }
+
+      if (data.status === 'error') {
+        stopTelegramLoginPolling();
+        setTelegramLoginLoading(false);
+        setMessage({ type: 'error', text: data.message || 'Ошибка подключения Telegram' });
+      }
+    };
+
+    window.addEventListener('message', onTelegramLoginMessage);
+    return () => window.removeEventListener('message', onTelegramLoginMessage);
+  }, [handleTelegramConnected, setMessage, startTelegramLoginPolling, stopTelegramLoginPolling]);
+
+  useEffect(() => () => stopTelegramLoginPolling(), [stopTelegramLoginPolling]);
+
+  useEffect(() => {
+    if (formData.telegram_id) {
+      return undefined;
+    }
+
+    if (!getTelegramLinkPendingTimestamp()) {
+      return undefined;
+    }
+
+    const resumeTelegramCheck = () => {
+      if (!formData.telegram_id && getTelegramLinkPendingTimestamp()) {
+        startTelegramLoginPolling();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resumeTelegramCheck();
+      }
+    };
+
+    resumeTelegramCheck();
+    window.addEventListener('focus', resumeTelegramCheck);
+    window.addEventListener('pageshow', resumeTelegramCheck);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', resumeTelegramCheck);
+      window.removeEventListener('pageshow', resumeTelegramCheck);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [formData.telegram_id, startTelegramLoginPolling]);
 
   // Статус биометрии и PIN (только на Android/iOS; используем isNativeCapacitor для надёжной проверки)
   useEffect(() => {
@@ -305,195 +447,163 @@ const SettingsScreen = ({ onLogout }) => {
       formData.ofp_preference, formData.training_time_pref, formData.health_program,
       formData.last_race_distance]);
 
-  const loadProfile = async (apiClient = null, options = {}) => {
-    const currentApi = apiClient || api || useAuthStore.getState().api;
-    const silent = options.silent === true;
+  const updateSettingsTabPill = useCallback(() => {
+    const tabs = settingsTabsRef.current;
+    if (!tabs) return;
 
-    if (!currentApi) {
-      console.error('API client not initialized');
-      setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
-      setLoading(false);
+    const activeButton = tabs.querySelector('.settings-tab.active');
+    if (!activeButton) {
+      setSettingsTabPillStyle({ left: 0, width: 0 });
       return;
     }
 
-    try {
-      if (!silent) setLoading(true);
+    setSettingsTabPillStyle({
+      left: activeButton.offsetLeft,
+      width: activeButton.offsetWidth,
+    });
+  }, []);
 
-      // Получаем CSRF токен
-      const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
-      if (csrfResponse && csrfResponse.csrf_token) {
-        setCsrfToken(csrfResponse.csrf_token);
-      }
-      
-      // Получаем профиль
-      const userData = await currentApi.request('get_profile', {}, 'GET');
-      if (userData && typeof userData === 'object') {
-        // Парсим preferred_days - может быть объект {run: [...], ofp: [...]} или массив
-        let preferredDays = [];
-        if (userData.preferred_days) {
-          if (typeof userData.preferred_days === 'string') {
-            try {
-              const parsed = JSON.parse(userData.preferred_days);
-              preferredDays = Array.isArray(parsed) ? parsed : (parsed?.run || []);
-            } catch (e) {
-              console.warn('Failed to parse preferred_days:', e);
-            }
-          } else if (Array.isArray(userData.preferred_days)) {
-            preferredDays = userData.preferred_days;
-          } else if (userData.preferred_days.run) {
-            preferredDays = Array.isArray(userData.preferred_days.run) ? userData.preferred_days.run : [];
-          }
-        }
-        
-        let preferredOfpDays = [];
-        if (userData.preferred_ofp_days) {
-          if (typeof userData.preferred_ofp_days === 'string') {
-            try {
-              const parsed = JSON.parse(userData.preferred_ofp_days);
-              preferredOfpDays = Array.isArray(parsed) ? parsed : (parsed?.ofp || []);
-            } catch (e) {
-              console.warn('Failed to parse preferred_ofp_days:', e);
-            }
-          } else if (Array.isArray(userData.preferred_ofp_days)) {
-            preferredOfpDays = userData.preferred_ofp_days;
-          } else if (userData.preferred_ofp_days.ofp) {
-            preferredOfpDays = Array.isArray(userData.preferred_ofp_days.ofp) ? userData.preferred_ofp_days.ofp : [];
-          }
-        }
-        
-        // Форматирование времени HH:MM:SS -> HH:MM
-        const formatTime = (time) => {
-          if (!time) return '';
-          const str = String(time);
-          return str.length >= 5 ? str.substring(0, 5) : str;
-        };
-        
-        // Форматирование даты
-        const formatDate = (date) => {
-          if (!date) return '';
-          const str = String(date);
-          return str.match(/^\d{4}-\d{2}-\d{2}$/) ? str : '';
-        };
-        
-        // Нормализация race_distance
-        const normalizeRaceDistance = (dist) => {
-          if (!dist) return '';
-          const d = String(dist).toLowerCase().trim();
-          // Проверяем точные совпадения сначала
-          if (d === 'marathon' || d === '5k' || d === '10k' || d === 'half') return d;
-          // Затем проверяем по содержимому (сначала более специфичные)
-          if (d.includes('марафон') || d.includes('42.2') || d.includes('42')) return 'marathon';
-          if (d.includes('полумарафон') || d.includes('21.1') || d.includes('21')) return 'half';
-          if (d.includes('10') && !d.includes('5') && !d.includes('42')) return '10k';
-          if (d.includes('5') && !d.includes('10') && !d.includes('42')) return '5k';
-          console.warn('Could not normalize race_distance:', dist);
-          return '';
-        };
-        
-        // Простое преобразование данных в формат формы
-        const newFormData = {
-          username: String(userData.username || ''),
-          email: String(userData.email || ''),
-          gender: String(userData.gender || ''),
-          birth_year: userData.birth_year ? String(userData.birth_year) : '',
-          height_cm: userData.height_cm ? String(userData.height_cm) : '',
-          weight_kg: userData.weight_kg ? String(userData.weight_kg) : '',
-          timezone: String(userData.timezone || 'Europe/Moscow'),
-          goal_type: String(userData.goal_type || 'health'),
-          race_distance: normalizeRaceDistance(userData.race_distance),
-          race_date: formatDate(userData.race_date),
-          race_target_time: formatTime(userData.race_target_time),
-          target_marathon_date: formatDate(userData.target_marathon_date),
-          target_marathon_time: formatTime(userData.target_marathon_time),
-          weight_goal_kg: userData.weight_goal_kg ? String(userData.weight_goal_kg) : '',
-          weight_goal_date: formatDate(userData.weight_goal_date),
-          // Маппинг старых значений experience_level на новые
-          experience_level: (() => {
-            const oldLevel = String(userData.experience_level || 'beginner');
-            
-            // Маппинг старых значений на новые детальные
-            if (oldLevel === 'beginner') return 'beginner';
-            if (oldLevel === 'intermediate') return 'intermediate';
-            if (oldLevel === 'advanced') return 'advanced';
-            
-            // Если значение уже новое (novice, expert), оставляем как есть
-            if (['novice', 'expert'].includes(oldLevel)) return oldLevel;
-            
-            return 'novice'; // по умолчанию для новых пользователей
-          })(),
-          weekly_base_km: userData.weekly_base_km ? String(userData.weekly_base_km) : '',
-          sessions_per_week: userData.sessions_per_week ? String(userData.sessions_per_week) : '',
-          preferred_days: preferredDays,
-          preferred_ofp_days: preferredOfpDays,
-          has_treadmill: Boolean(userData.has_treadmill === 1 || userData.has_treadmill === true),
-          training_time_pref: String(userData.training_time_pref || ''),
-          ofp_preference: String(userData.ofp_preference || ''),
-          training_mode: String(userData.training_mode || 'ai'),
-          training_start_date: formatDate(userData.training_start_date),
-          health_notes: String(userData.health_notes || ''),
-          health_program: String(userData.health_program || ''),
-          health_plan_weeks: userData.health_plan_weeks ? String(userData.health_plan_weeks) : '',
-          // Конвертируем секунды в формат MM:SS для отображения
-          easy_pace_sec: (userData.easy_pace_sec !== null && userData.easy_pace_sec !== undefined && userData.easy_pace_sec !== '') ? String(userData.easy_pace_sec) : '',
-          easy_pace_min: (() => {
-            if (userData.easy_pace_sec !== null && userData.easy_pace_sec !== undefined && userData.easy_pace_sec !== '') {
-              const sec = parseInt(userData.easy_pace_sec);
-              if (!isNaN(sec)) {
-                const minutes = Math.floor(sec / 60);
-                const seconds = sec % 60;
-                return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-              }
-            }
-            return '';
-          })(),
-          is_first_race_at_distance: Boolean(userData.is_first_race_at_distance === 1 || userData.is_first_race_at_distance === true),
-          last_race_distance: String(userData.last_race_distance || ''),
-          last_race_distance_km: userData.last_race_distance_km ? String(userData.last_race_distance_km) : '',
-          last_race_time: formatTime(userData.last_race_time),
-          last_race_date: formatDate(userData.last_race_date),
-          avatar_path: String(userData.avatar_path || ''),
-          privacy_level: String(userData.privacy_level || 'public'),
-          privacy_show_email: Boolean(userData.privacy_show_email !== 0 && userData.privacy_show_email !== '0'),
-          privacy_show_trainer: Boolean(userData.privacy_show_trainer !== 0 && userData.privacy_show_trainer !== '0'),
-          privacy_show_calendar: Boolean(userData.privacy_show_calendar !== 0 && userData.privacy_show_calendar !== '0'),
-          privacy_show_metrics: Boolean(userData.privacy_show_metrics !== 0 && userData.privacy_show_metrics !== '0'),
-          privacy_show_workouts: Boolean(userData.privacy_show_workouts !== 0 && userData.privacy_show_workouts !== '0'),
-          username_slug: String(userData.username_slug || userData.username || ''),
-          public_token: String(userData.public_token || ''),
-          telegram_id: userData.telegram_id ? String(userData.telegram_id) : '',
-          push_workouts_enabled: userData.push_workouts_enabled !== 0 && userData.push_workouts_enabled !== '0' ? 1 : 0,
-          push_chat_enabled: userData.push_chat_enabled !== 0 && userData.push_chat_enabled !== '0' ? 1 : 0,
-          push_workout_hour: Math.min(23, Math.max(0, parseInt(userData.push_workout_hour, 10) || 20)),
-          push_workout_minute: Math.min(59, Math.max(0, parseInt(userData.push_workout_minute, 10) || 0)),
-        };
-        skipNextAutoSaveRef.current = true;
-        setFormData(newFormData);
-      } else {
-        console.error('Invalid user data:', userData);
-        setMessage({ type: 'error', text: 'Неверный формат данных профиля' });
-      }
-    } catch (error) {
-      console.error('Error loading profile:', error);
-      if (!silent) setMessage({ type: 'error', text: 'Ошибка загрузки профиля: ' + (error.message || 'Неизвестная ошибка') });
-    } finally {
-      if (!silent) setLoading(false);
+  useLayoutEffect(() => {
+    if (loading) return;
+    updateSettingsTabPill();
+  }, [activeTab, loading, updateSettingsTabPill]);
+
+  useLayoutEffect(() => {
+    if (loading) return undefined;
+    let frameId = 0;
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateSettingsTabPill);
+    };
+
+    const tabs = settingsTabsRef.current;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && tabs
+      ? new ResizeObserver(scheduleUpdate)
+      : null;
+
+    if (tabs && resizeObserver) {
+      resizeObserver.observe(tabs);
+      tabs.querySelectorAll('.settings-tab').forEach((item) => resizeObserver.observe(item));
     }
-  };
 
-  const handleInputChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value === null || value === undefined ? '' : value
-    }));
-  };
+    window.addEventListener('resize', scheduleUpdate);
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(scheduleUpdate).catch(() => {});
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', scheduleUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [loading, updateSettingsTabPill]);
 
   const handleTabChange = (tab) => {
-    setActiveTab(tab);
     setSearchParams({ tab });
     if (window.innerWidth <= 768) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
+
+  const handleTelegramLoginConnect = useCallback(async () => {
+    setTelegramLoginLoading(true);
+
+    const result = await handleStartTelegramLogin({ fromApp: isNativeCapacitor() });
+    if (!result?.authUrl) {
+      setTelegramLoginLoading(false);
+      return;
+    }
+
+    if (isNativeCapacitor()) {
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: result.authUrl });
+        startTelegramLoginPolling();
+        return;
+      } catch (_) {
+        // Fallback ниже
+      }
+    }
+
+    const popup = window.open(result.authUrl, 'planrunTelegramLogin', 'width=480,height=720');
+    if (!popup) {
+      window.location.href = result.authUrl;
+      return;
+    }
+
+    try {
+      popup.focus();
+    } catch (_) {
+      // Ignore focus errors
+    }
+
+    startTelegramLoginPolling();
+  }, [handleStartTelegramLogin, startTelegramLoginPolling]);
+
+  const openTelegramBot = useCallback(async () => {
+    if (telegramLinkCodeLoading || telegramLoginLoading) {
+      return;
+    }
+
+    const fallbackUrl = 'https://t.me/running_cal_bot';
+    const currentCode = telegramLinkCode?.code;
+    const expiresAt = telegramLinkCode?.expiresAt ? new Date(telegramLinkCode.expiresAt).getTime() : 0;
+    const hasFreshCode = Boolean(currentCode && expiresAt > Date.now() + 60_000);
+    const popup = isNativeCapacitor() ? null : window.open('', '_blank');
+
+    const navigateToTelegram = async (url) => {
+      if (isNativeCapacitor()) {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url });
+        return;
+      }
+
+      if (popup && !popup.closed) {
+        popup.location.replace(url);
+        return;
+      }
+
+      window.location.href = url;
+    };
+
+    setTelegramLinkCodeLoading(true);
+    setTelegramLoginLoading(true);
+    markTelegramLinkPending();
+
+    try {
+      let code = currentCode;
+
+      if (!hasFreshCode) {
+        const result = await handleGenerateTelegramLinkCode();
+        if (result?.code) {
+          setTelegramLinkCode(result);
+          code = result.code;
+        }
+      }
+
+      const deepLink = code
+        ? `${fallbackUrl}?start=link_${code}`
+        : fallbackUrl;
+
+      startTelegramLoginPolling();
+      await navigateToTelegram(deepLink);
+    } catch (_) {
+      startTelegramLoginPolling();
+      await navigateToTelegram(fallbackUrl);
+    } finally {
+      setTelegramLinkCodeLoading(false);
+    }
+  }, [handleGenerateTelegramLinkCode, startTelegramLoginPolling, telegramLinkCode, telegramLinkCodeLoading, telegramLoginLoading]);
+
+  const isTelegramConnecting = telegramLinkCodeLoading || telegramLoginLoading;
+
+  useSwipeableTabs({
+    containerRef: settingsPanelsRef,
+    tabs: VALID_TABS,
+    activeTab,
+    onTabChange: handleTabChange,
+    enabled: !loading,
+  });
 
   // Автосохранение при изменении полей (debounce 800 ms), без сохранения при загрузке профиля
   useEffect(() => {
@@ -504,122 +614,20 @@ const SettingsScreen = ({ onLogout }) => {
     if (loading) return;
     const timerId = setTimeout(() => {
       handleSave();
-    }, 800);
+    }, 350);
     return () => clearTimeout(timerId);
   }, [formData]);
 
-  const handleSave = async () => {
-    const currentApi = api || useAuthStore.getState().api;
-    
-    if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
-      return;
-    }
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!hasUnsavedChanges && !saving) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
 
-    const emailVal = String(formData.email || '').trim();
-    if (!emailVal) {
-      setMessage({ type: 'error', text: 'Email обязателен' });
-      return;
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(emailVal)) {
-      setMessage({ type: 'error', text: 'Некорректный формат email' });
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setMessage({ type: '', text: '' });
-      
-      // Получаем CSRF токен если его нет
-      if (!csrfToken) {
-        const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
-        if (csrfResponse && csrfResponse.csrf_token) {
-          setCsrfToken(csrfResponse.csrf_token);
-        }
-      }
-      
-      // Подготавливаем данные для отправки
-      // ВАЖНО: Отправляем все поля, включая null, чтобы сервер мог их обработать
-      const dataToSend = {
-        csrf_token: csrfToken,
-        username: formData.username,
-        email: normalizeValue(formData.email),
-        gender: normalizeValue(formData.gender),
-        birth_year: normalizeValue(formData.birth_year),
-        height_cm: normalizeValue(formData.height_cm),
-        weight_kg: normalizeValue(formData.weight_kg),
-        timezone: formData.timezone,
-        goal_type: formData.goal_type,
-        race_distance: normalizeValue(formData.race_distance),
-        race_date: normalizeValue(formData.race_date),
-        race_target_time: normalizeValue(formData.race_target_time),
-        target_marathon_date: normalizeValue(formData.target_marathon_date),
-        target_marathon_time: normalizeValue(formData.target_marathon_time),
-        weight_goal_kg: normalizeValue(formData.weight_goal_kg),
-        weight_goal_date: normalizeValue(formData.weight_goal_date),
-        experience_level: formData.experience_level,
-        weekly_base_km: normalizeValue(formData.weekly_base_km),
-        sessions_per_week: normalizeValue(formData.sessions_per_week),
-        preferred_days: Array.isArray(formData.preferred_days) ? formData.preferred_days : [],
-        preferred_ofp_days: Array.isArray(formData.preferred_ofp_days) ? formData.preferred_ofp_days : [],
-        has_treadmill: formData.has_treadmill,
-        training_time_pref: normalizeValue(formData.training_time_pref),
-        ofp_preference: normalizeValue(formData.ofp_preference),
-        training_mode: formData.training_mode,
-        training_start_date: normalizeValue(formData.training_start_date),
-        health_notes: normalizeValue(formData.health_notes),
-        health_program: normalizeValue(formData.health_program),
-        health_plan_weeks: normalizeValue(formData.health_plan_weeks),
-        easy_pace_sec: normalizeValue(formData.easy_pace_sec),
-        is_first_race_at_distance: formData.is_first_race_at_distance,
-        last_race_distance: normalizeValue(formData.last_race_distance),
-        last_race_distance_km: normalizeValue(formData.last_race_distance_km),
-        last_race_time: normalizeValue(formData.last_race_time),
-        last_race_date: normalizeValue(formData.last_race_date),
-        avatar_path: normalizeValue(formData.avatar_path),
-        privacy_level: formData.privacy_level,
-        privacy_show_email: formData.privacy_show_email ? 1 : 0,
-        privacy_show_trainer: formData.privacy_show_trainer ? 1 : 0,
-        privacy_show_calendar: formData.privacy_show_calendar ? 1 : 0,
-        privacy_show_metrics: formData.privacy_show_metrics ? 1 : 0,
-        privacy_show_workouts: formData.privacy_show_workouts ? 1 : 0,
-        push_workouts_enabled: formData.push_workouts_enabled ? 1 : 0,
-        push_chat_enabled: formData.push_chat_enabled ? 1 : 0,
-        push_workout_hour: Math.min(23, Math.max(0, parseInt(formData.push_workout_hour, 10) || 20)),
-        push_workout_minute: Math.min(59, Math.max(0, parseInt(formData.push_workout_minute, 10) || 0)),
-      };
-      
-      console.log('=== SAVING PROFILE ===');
-      console.log('Data to send:', {
-        race_distance: dataToSend.race_distance,
-        experience_level: dataToSend.experience_level,
-        training_mode: dataToSend.training_mode,
-        ofp_preference: dataToSend.ofp_preference,
-        training_time_pref: dataToSend.training_time_pref,
-        health_program: dataToSend.health_program,
-        last_race_distance: dataToSend.last_race_distance,
-        training_start_date: dataToSend.training_start_date,
-      });
-      
-      const response = await currentApi.request('update_profile', dataToSend, 'POST');
-      
-      console.log('=== SAVE RESPONSE ===');
-      console.log('Response:', response);
-      
-      if (response && response.success !== false) {
-        skipNextAutoSaveRef.current = true;
-        await loadProfile(currentApi, { silent: true });
-      } else {
-        throw new Error(response?.error || 'Ошибка обновления профиля');
-      }
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      setMessage({ type: 'error', text: 'Ошибка обновления настроек: ' + (error.message || 'Неизвестная ошибка') });
-    } finally {
-      setSaving(false);
-    }
-  };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsavedChanges, saving]);
 
   const handleLogout = async () => {
     await onLogout();
@@ -630,234 +638,6 @@ const SettingsScreen = ({ onLogout }) => {
     }
   };
 
-  const handleEnableLock = async () => {
-    const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) {
-      setMessage({ type: 'error', text: 'Войдите в аккаунт, затем включите блокировку' });
-      return;
-    }
-    const pinAvailable = await PinAuthService.isAvailable();
-    if (!pinAvailable) {
-      setMessage({ type: 'error', text: 'Блокировка доступна только в мобильном приложении (Android/iOS)' });
-      return;
-    }
-    const accessToken = await currentApi.getToken();
-    const refreshToken = await currentApi.getRefreshToken();
-    if (!accessToken || !refreshToken) {
-      setMessage({ type: 'error', text: 'Нет сохранённой сессии. Войдите по паролю.' });
-      return;
-    }
-    setPinSetupTokens({ accessToken, refreshToken });
-    setShowPinSetupModal(true);
-  };
-
-  const handlePinSetupSuccess = () => {
-    setPinEnabled(true);
-    setShowPinSetupModal(false);
-    setPinSetupTokens(null);
-    setMessage({ type: 'success', text: 'Блокировка включена. При желании добавьте отпечаток для быстрого входа.' });
-  };
-
-  const handleAddFingerprint = async () => {
-    if (!isNativeCapacitor()) return;
-    const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) return;
-    setBiometricEnabling(true);
-    setMessage({ type: '', text: '' });
-    try {
-      const availability = await BiometricService.checkAvailability();
-      if (!availability.available) {
-        setMessage({ type: 'error', text: availability.reason || availability.error || 'Добавьте отпечаток в настройках устройства' });
-        return;
-      }
-      const authResult = await Promise.race([
-        BiometricService.authenticate('Подтвердите отпечаток для входа в PlanRun'),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут')), 15000))
-      ]);
-      if (!authResult?.success) {
-        const err = authResult?.error || '';
-        if (err.includes('cancel') || err.includes('Cancel')) {
-          setMessage({ type: 'error', text: 'Проверка отпечатка отменена' });
-        } else {
-          setMessage({ type: 'error', text: err || 'Не удалось проверить отпечаток' });
-        }
-        return;
-      }
-      const accessToken = await currentApi.getToken();
-      const refreshToken = await currentApi.getRefreshToken();
-      if (!accessToken || !refreshToken) {
-        setMessage({ type: 'error', text: 'Нет сохранённой сессии.' });
-        return;
-      }
-      const saved = await BiometricService.saveTokens(accessToken, refreshToken);
-      if (!saved) {
-        setMessage({ type: 'error', text: 'Не удалось сохранить. Попробуйте снова.' });
-        return;
-      }
-      setBiometricEnabled(true);
-      setBiometricAvailable(true);
-      setMessage({ type: 'success', text: 'Вход по отпечатку добавлен' });
-    } catch (e) {
-      setMessage({ type: 'error', text: e?.message || 'Не удалось добавить отпечаток' });
-    } finally {
-      setBiometricEnabling(false);
-    }
-  };
-
-  const handleDisableLock = async () => {
-    setPinDisabling(true);
-    try {
-      await PinAuthService.clearPin();
-      await BiometricService.clearTokens();
-      setPinEnabled(false);
-      setBiometricEnabled(false);
-      setMessage({ type: 'success', text: 'Блокировка отключена' });
-    } catch (e) {
-      setMessage({ type: 'error', text: 'Не удалось отключить блокировку' });
-    } finally {
-      setPinDisabling(false);
-    }
-  };
-
-  const handleAvatarUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
-      return;
-    }
-
-    try {
-      // Получаем CSRF токен если его нет
-      if (!csrfToken) {
-        const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
-        if (csrfResponse && csrfResponse.csrf_token) {
-          setCsrfToken(csrfResponse.csrf_token);
-        }
-      }
-
-      // Формируем FormData для загрузки файла
-      const formData = new FormData();
-      formData.append('avatar', file);
-      if (csrfToken) {
-        formData.append('csrf_token', csrfToken);
-      }
-
-      // Получаем токен авторизации
-      const token = await currentApi.getToken();
-      // Тот же endpoint, что и у остального API (api_wrapper → api_v2), иначе 405 и HTML вместо JSON
-      const uploadUrl = `${currentApi.baseUrl}/api_wrapper.php?action=upload_avatar`;
-
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        credentials: 'include',
-        body: formData,
-      });
-
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(response.status === 405 ? 'Метод не разрешён. Проверьте настройки сервера.' : (text.slice(0, 100) || 'Ошибка загрузки аватара'));
-      }
-      
-      if (data.success && data.data) {
-        const userData = data.data.user || data.data;
-        const newAvatarPath = userData.avatar_path || data.data.avatar_path;
-        setFormData(prev => ({ ...prev, avatar_path: newAvatarPath }));
-        const currentUser = useAuthStore.getState().user;
-        if (currentUser && typeof updateUser === 'function') {
-          updateUser({ ...currentUser, avatar_path: newAvatarPath });
-        }
-        setMessage({ type: 'success', text: 'Аватар успешно загружен' });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-      } else {
-        throw new Error(data.error || 'Ошибка загрузки аватара');
-      }
-    } catch (error) {
-      console.error('Error uploading avatar:', error);
-      setMessage({ type: 'error', text: 'Ошибка загрузки аватара: ' + (error.message || 'Неизвестная ошибка') });
-    }
-  };
-
-  const handleRemoveAvatar = async () => {
-    const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
-      return;
-    }
-
-    try {
-      // Получаем CSRF токен если его нет
-      if (!csrfToken) {
-        const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
-        if (csrfResponse && csrfResponse.csrf_token) {
-          setCsrfToken(csrfResponse.csrf_token);
-        }
-      }
-
-      const response = await currentApi.request('remove_avatar', { csrf_token: csrfToken }, 'POST');
-      
-      if (response && response.success !== false) {
-        setFormData(prev => ({ ...prev, avatar_path: null }));
-        const currentUser = useAuthStore.getState().user;
-        if (currentUser && typeof updateUser === 'function') {
-          updateUser({ ...currentUser, avatar_path: null });
-        }
-        setMessage({ type: 'success', text: 'Аватар успешно удален' });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-      } else {
-        throw new Error(response?.error || 'Ошибка удаления аватара');
-      }
-    } catch (error) {
-      console.error('Error removing avatar:', error);
-      setMessage({ type: 'error', text: 'Ошибка удаления аватара: ' + (error.message || 'Неизвестная ошибка') });
-    }
-  };
-
-  const handleUnlinkTelegram = async () => {
-    const currentApi = api || useAuthStore.getState().api;
-    if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
-      return;
-    }
-
-    if (!window.confirm('Вы уверены, что хотите отвязать Telegram?')) {
-      return;
-    }
-
-    try {
-      // Получаем CSRF токен если его нет
-      if (!csrfToken) {
-        const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
-        if (csrfResponse && csrfResponse.csrf_token) {
-          setCsrfToken(csrfResponse.csrf_token);
-        }
-      }
-
-      const response = await currentApi.request('unlink_telegram', { csrf_token: csrfToken }, 'POST');
-      
-      if (response && response.success !== false) {
-        setFormData(prev => ({
-          ...prev,
-          telegram_id: null
-        }));
-        setMessage({ type: 'success', text: 'Telegram успешно отвязан' });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-      } else {
-        throw new Error(response?.error || 'Ошибка отвязки Telegram');
-      }
-    } catch (error) {
-      console.error('Error unlinking Telegram:', error);
-      setMessage({ type: 'error', text: 'Ошибка отвязки Telegram: ' + (error.message || 'Неизвестная ошибка') });
-    }
-  };
 
   const toggleDay = (field, day) => {
     setFormData(prev => {
@@ -876,64 +656,19 @@ const SettingsScreen = ({ onLogout }) => {
     });
   };
 
-  // Загрузка моих тренеров
-  const loadMyCoaches = async () => {
-    if (!api) return;
-    setMyCoachesLoading(true);
-    try {
-      const res = await api.getMyCoaches();
-      const data = res?.data ?? res;
-      setMyCoaches(Array.isArray(data?.coaches) ? data.coaches : []);
-    } catch {} finally { setMyCoachesLoading(false); }
-  };
+  const avatarDisplayName = (
+    formData.username?.trim()
+    || currentUser?.username?.trim()
+    || currentUser?.email?.split('@')[0]
+    || 'Ваш профиль'
+  );
 
-  const handleRemoveCoach = async (coachId) => {
-    if (!api || !window.confirm('Отвязать тренера?')) return;
-    setRemovingCoachId(coachId);
-    try {
-      await api.removeCoach({ coachId });
-      setMyCoaches(prev => prev.filter(c => c.id !== coachId));
-    } catch (e) {
-      setMessage({ type: 'error', text: e.message || 'Ошибка' });
-    } finally { setRemovingCoachId(null); }
-  };
-
-  // Загрузка стоимости для тренеров
-  const loadCoachPricing = async () => {
-    if (!api) return;
-    setCoachPricingLoading(true);
-    try {
-      const res = await api.getCoachPricing();
-      const data = res?.data ?? res;
-      setCoachPricing(Array.isArray(data?.pricing) ? data.pricing : []);
-    } catch {} finally { setCoachPricingLoading(false); }
-  };
-
-  const handleAddPricingItem = () => {
-    setCoachPricing(prev => [...prev, { id: `new_${Date.now()}`, type: 'individual', label: '', price: '', currency: 'RUB', period: 'month' }]);
-  };
-
-  const handlePricingChange = (idx, field, value) => {
-    setCoachPricing(prev => prev.map((p, i) => i === idx ? { ...p, [field]: value } : p));
-  };
-
-  const handleRemovePricingItem = (idx) => {
-    setCoachPricing(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleSavePricing = async () => {
-    if (!api) return;
-    setSavingPricing(true);
-    try {
-      await api.updateCoachPricing(coachPricing.map(p => ({
-        type: p.type, label: p.label, price: p.price || null, currency: p.currency, period: p.period,
-      })));
-      setMessage({ type: 'success', text: 'Стоимость сохранена' });
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    } catch (e) {
-      setMessage({ type: 'error', text: e.message || 'Ошибка сохранения' });
-    } finally { setSavingPricing(false); }
-  };
+  const avatarInitials = avatarDisplayName
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
 
   // Загрузка тренеров/цен при переходе на вкладку social
   useEffect(() => {
@@ -944,15 +679,14 @@ const SettingsScreen = ({ onLogout }) => {
     }
   }, [activeTab, api]);
 
-  const daysOfWeek = [
-    { value: 'mon', label: 'Пн' },
-    { value: 'tue', label: 'Вт' },
-    { value: 'wed', label: 'Ср' },
-    { value: 'thu', label: 'Чт' },
-    { value: 'fri', label: 'Пт' },
-    { value: 'sat', label: 'Сб' },
-    { value: 'sun', label: 'Вс' },
-  ];
+  useEffect(() => {
+    if (formData.telegram_id) {
+      stopTelegramLoginPolling();
+      setTelegramLoginLoading(false);
+      setTelegramLinkCode(null);
+      clearTelegramLinkPending();
+    }
+  }, [formData.telegram_id, stopTelegramLoginPolling]);
 
   if (loading) {
     return (
@@ -976,7 +710,7 @@ const SettingsScreen = ({ onLogout }) => {
               onClick={() => { setMessage({ type: '', text: '' }); setStravaDebug(null); }}
               aria-label="Закрыть"
             >
-              ×
+              <CloseIcon className="modal-close-icon" />
             </button>
           </div>
         )}
@@ -996,33 +730,46 @@ const SettingsScreen = ({ onLogout }) => {
             <button type="button" className="btn btn-secondary btn-sm settings-strava-debug-btn" onClick={() => setStravaDebug(null)}>Скрыть</button>
           </div>
         )}
-        <div className="settings-tabs">
+        <div
+          ref={settingsTabsRef}
+          className="settings-tabs"
+          style={{
+            '--settings-tabs-pill-left': `${settingsTabPillStyle.left}px`,
+            '--settings-tabs-pill-width': `${settingsTabPillStyle.width}px`,
+          }}
+        >
+          <span className="settings-tabs-pill" aria-hidden="true" />
           <button
-            className={`tab-button ${activeTab === 'profile' ? 'active' : ''}`}
+            className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
+            type="button"
             onClick={() => handleTabChange('profile')}
           >
-            <UserIcon size={18} className="tab-icon" aria-hidden /> Профиль
+            <UserIcon size={18} className="settings-tab-icon" aria-hidden /> Профиль
           </button>
           <button
-            className={`tab-button ${activeTab === 'training' ? 'active' : ''}`}
+            className={`settings-tab ${activeTab === 'training' ? 'active' : ''}`}
+            type="button"
             onClick={() => handleTabChange('training')}
           >
-            <RunningIcon size={18} className="tab-icon" aria-hidden /> Тренировки
+            <RunningIcon size={18} className="settings-tab-icon" aria-hidden /> Тренировки
           </button>
           <button
-            className={`tab-button ${activeTab === 'social' ? 'active' : ''}`}
+            className={`settings-tab ${activeTab === 'social' ? 'active' : ''}`}
+            type="button"
             onClick={() => handleTabChange('social')}
           >
-            <LockIcon size={18} className="tab-icon" aria-hidden /> Конфиденциальность
+            <LockIcon size={18} className="settings-tab-icon" aria-hidden /> Конфиденциальность
           </button>
           <button
-            className={`tab-button ${activeTab === 'integrations' ? 'active' : ''}`}
+            className={`settings-tab ${activeTab === 'integrations' ? 'active' : ''}`}
+            type="button"
             onClick={() => handleTabChange('integrations')}
           >
-            <LinkIcon size={18} className="tab-icon" aria-hidden /> Интеграции
+            <LinkIcon size={18} className="settings-tab-icon" aria-hidden /> Интеграции
           </button>
         </div>
 
+        <div ref={settingsPanelsRef} className="settings-tab-panels">
         {/* Вкладка Профиль */}
         {activeTab === 'profile' && (
           <div className="tab-content active">
@@ -1033,38 +780,56 @@ const SettingsScreen = ({ onLogout }) => {
               {/* Аватар */}
               <div className="form-group">
                 <label>Аватар</label>
-                <div className="avatar-upload-section">
-                  {formData.avatar_path ? (
-                    <div className="avatar-preview-container">
-                        <img
-                        src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api')}
+                <div className="avatar-upload-shell">
+                  <input
+                    type="file"
+                    id="avatar-upload"
+                    className="avatar-upload-input"
+                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    onChange={handleAvatarUpload}
+                  />
+
+                  <div className="avatar-preview-container">
+                    {formData.avatar_path ? (
+                      <img
+                        src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api', 'md')}
                         alt="Аватар"
                         className="avatar-preview avatar-preview--current"
                       />
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm avatar-remove-btn"
-                        onClick={handleRemoveAvatar}
-                      >
-                        Удалить аватар
-                      </button>
+                    ) : (
+                      <div className="avatar-placeholder avatar-placeholder--profile" aria-hidden>
+                        {avatarInitials || <UserIcon size={44} />}
+                      </div>
+                    )}
+
+                    <div className="avatar-preview-meta">
+                      <div className="avatar-preview-copy">
+                        <span className={`avatar-preview-badge ${formData.avatar_path ? 'avatar-preview-badge--ready' : ''}`}>
+                          {formData.avatar_path ? 'Текущий аватар' : 'Фото профиля'}
+                        </span>
+                        <div className="avatar-preview-title">{avatarDisplayName}</div>
+                      </div>
+
+                      <div className="avatar-actions-panel">
+                        <div className="avatar-actions">
+                          <label htmlFor="avatar-upload" className="avatar-upload-label avatar-upload-label--inline">
+                            <ImageIcon size={18} className="avatar-upload-icon" aria-hidden />
+                            <span>{formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}</span>
+                          </label>
+
+                          {formData.avatar_path && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm avatar-remove-btn"
+                              onClick={handleRemoveAvatar}
+                            >
+                              Удалить
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="avatar-upload-area">
-                      <input
-                        type="file"
-                        id="avatar-upload"
-                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                        onChange={handleAvatarUpload}
-                        style={{ display: 'none' }}
-                      />
-                      <label htmlFor="avatar-upload" className="avatar-upload-label">
-                        <ImageIcon size={32} className="avatar-upload-icon" aria-hidden />
-                        <span>Загрузить аватар</span>
-                        <small>JPEG, PNG, GIF, WebP (макс. 5MB)</small>
-                      </label>
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -1269,6 +1034,7 @@ const SettingsScreen = ({ onLogout }) => {
                         }));
                       }}
                     />
+                    <p className="settings-biometric-hint">Это же время используется для напоминаний о тренировках в Telegram-боте.</p>
                   </div>
                 )}
                 <div className="form-group">
@@ -2273,11 +2039,28 @@ const SettingsScreen = ({ onLogout }) => {
               )}
               <div className="integrations-logos">
                 {!formData.telegram_id && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={() => window.open('https://t.me/PlanRunBot', '_blank')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') window.open('https://t.me/PlanRunBot', '_blank'); }}>
+                  <div
+                    className="integration-logo-btn"
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={isTelegramConnecting}
+                    onClick={() => {
+                      if (!isTelegramConnecting) {
+                        openTelegramBot();
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (isTelegramConnecting) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openTelegramBot();
+                      }
+                    }}
+                  >
                     <div className="integration-logo-btn__icon">
                       <img src="/integrations/telegram.svg" alt="Telegram" />
                     </div>
-                    <span>Telegram</span>
+                    <span>{isTelegramConnecting ? 'Открываем...' : 'Telegram'}</span>
                   </div>
                 )}
                 {!integrationsStatus.huawei && (
@@ -2360,12 +2143,14 @@ const SettingsScreen = ({ onLogout }) => {
                   </div>
                 )}
               </div>
+
               </>
               )}
             </div>
           </div>
         )}
 
+        </div>
       </div>
 
       <PinSetupModal

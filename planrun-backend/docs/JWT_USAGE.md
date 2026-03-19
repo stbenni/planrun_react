@@ -203,9 +203,11 @@ ApiClient автоматически обновляет access token при по
 ### Backend (.env)
 
 ```env
-JWT_SECRET_KEY=your-secret-key-change-in-production
-JWT_EXPIRATION_TIME=3600
-JWT_REFRESH_EXPIRATION_TIME=604800
+JWT_SECRET_KEY=replace-with-a-random-secret-at-least-32-characters-long
+JWT_ACCESS_EXPIRATION_DAYS=1
+JWT_REFRESH_INITIAL_DAYS=30
+JWT_REFRESH_SLIDING_DAYS=30
+JWT_REFRESH_MAX_AGE_DAYS=90
 ```
 
 ### База данных

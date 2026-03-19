@@ -310,41 +310,18 @@ class WorkoutController extends BaseController {
                 return;
             }
 
-            // Парсим время
-            $timeSec = 0;
-            $parts = explode(':', $resultTime);
-            if (count($parts) === 3) {
-                $timeSec = (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2];
-            } elseif (count($parts) === 2) {
-                $timeSec = (int)$parts[0] * 60 + (int)$parts[1];
-            }
+            $timeSec = $this->parseResultTimeSec($resultTime);
             if ($timeSec <= 0) return;
 
-            require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+            require_once __DIR__ . '/../services/TrainingStateBuilder.php';
+            require_once __DIR__ . '/../services/WorkoutPlanRecalculationService.php';
+
+            $builder = new TrainingStateBuilder($this->db);
+            $oldState = $builder->buildForUserId($userId);
+            $oldVdot = isset($oldState['vdot']) ? (float) $oldState['vdot'] : null;
 
             $newVdot = estimateVDOT($distanceKm, $timeSec);
             if ($newVdot < 20 || $newVdot > 85) return;
-
-            // Читаем текущий VDOT пользователя (если хранится)
-            $stmt = $this->db->prepare("SELECT last_race_distance_km, last_race_time, easy_pace_sec FROM users WHERE id = ?");
-            $stmt->bind_param('i', $userId);
-            $stmt->execute();
-            $user = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-
-            $oldVdot = null;
-            if (!empty($user['last_race_distance_km']) && !empty($user['last_race_time'])) {
-                $oldTimeParts = explode(':', $user['last_race_time']);
-                $oldTimeSec = 0;
-                if (count($oldTimeParts) === 3) {
-                    $oldTimeSec = (int)$oldTimeParts[0] * 3600 + (int)$oldTimeParts[1] * 60 + (int)$oldTimeParts[2];
-                } elseif (count($oldTimeParts) === 2) {
-                    $oldTimeSec = (int)$oldTimeParts[0] * 60 + (int)$oldTimeParts[1];
-                }
-                if ($oldTimeSec > 0) {
-                    $oldVdot = estimateVDOT((float)$user['last_race_distance_km'], $oldTimeSec);
-                }
-            }
 
             // Обновляем last_race в профиле
             $updateStmt = $this->db->prepare("
@@ -355,26 +332,48 @@ class WorkoutController extends BaseController {
             $updateStmt->execute();
             $updateStmt->close();
 
-            // Формируем уведомление в чат
-            $newVdotR = round($newVdot, 1);
-            $paces = getTrainingPaces($newVdot);
-            $predictions = predictAllRaceTimes($newVdot);
+            $newState = $builder->buildForUserId($userId);
+            $newVdotR = !empty($newState['vdot']) ? round((float) $newState['vdot'], 1) : round($newVdot, 1);
+            $formattedPaces = $newState['formatted_training_paces'] ?? null;
+            $predictions = !empty($newState['vdot']) ? predictAllRaceTimes((float) $newState['vdot']) : predictAllRaceTimes($newVdot);
+            $autoRecalc = (new WorkoutPlanRecalculationService($this->db))->maybeQueueAfterPerformanceUpdate(
+                $userId,
+                $type,
+                $date,
+                $oldVdot,
+                isset($newState['vdot']) ? (float) $newState['vdot'] : $newVdot
+            );
 
+            // Формируем уведомление в чат
             $typeLabel = $type === 'control' ? 'контрольной тренировки' : 'забега';
             $msg = "Результат {$typeLabel}: {$distanceKm} км за {$resultTime}.\n";
             $msg .= "Ваш VDOT: **{$newVdotR}**";
             if ($oldVdot) {
-                $diff = round($newVdot - $oldVdot, 1);
+                $diff = round($newVdotR - $oldVdot, 1);
                 $arrow = $diff > 0 ? '+' : '';
                 $msg .= " ({$arrow}{$diff})";
             }
             $msg .= "\n\n";
+            if (!empty($newState['vdot_source_label'])) {
+                $msg .= "Источник формы: {$newState['vdot_source_label']}";
+                if (!empty($newState['vdot_confidence'])) {
+                    $msg .= " ({$newState['vdot_confidence']})";
+                }
+                $msg .= "\n\n";
+            }
 
             // Тренировочные зоны
             $msg .= "Обновлённые зоны:\n";
-            $msg .= "- Лёгкий: " . formatPaceSec($paces['easy'][0]) . " – " . formatPaceSec($paces['easy'][1]) . "/км\n";
-            $msg .= "- Пороговый: " . formatPaceSec($paces['threshold']) . "/км\n";
-            $msg .= "- Интервальный: " . formatPaceSec($paces['interval']) . "/км\n\n";
+            if ($formattedPaces) {
+                $msg .= "- Лёгкий: {$formattedPaces['easy']}/км\n";
+                $msg .= "- Пороговый: {$formattedPaces['threshold']}/км\n";
+                $msg .= "- Интервальный: {$formattedPaces['interval']}/км\n\n";
+            } else {
+                $paces = getTrainingPaces($newVdot);
+                $msg .= "- Лёгкий: " . formatPaceSec($paces['easy'][0]) . " – " . formatPaceSec($paces['easy'][1]) . "/км\n";
+                $msg .= "- Пороговый: " . formatPaceSec($paces['threshold']) . "/км\n";
+                $msg .= "- Интервальный: " . formatPaceSec($paces['interval']) . "/км\n\n";
+            }
 
             // Прогнозы
             $msg .= "Прогнозы: ";
@@ -385,6 +384,12 @@ class WorkoutController extends BaseController {
             }
             $msg .= implode(' | ', $parts);
 
+            if ($autoRecalc['queued']) {
+                $msg .= "\n\nПлан автоматически поставлен на пересчёт с учётом нового результата.";
+            } elseif (!empty($autoRecalc['skipped_reason'])) {
+                $msg .= "\n\nАвтопересчёт плана не запускался: {$autoRecalc['skipped_reason']}.";
+            }
+
             require_once __DIR__ . '/../services/ChatService.php';
             $chatService = new ChatService($this->db);
             $chatService->addAIMessageToUser($userId, $msg);
@@ -393,6 +398,17 @@ class WorkoutController extends BaseController {
             // Не ломаем основной flow при ошибке VDOT-обновления
             error_log("checkVdotUpdate error for user $userId: " . $e->getMessage());
         }
+    }
+
+    private function parseResultTimeSec(string $resultTime): int {
+        $timeSec = 0;
+        $parts = explode(':', $resultTime);
+        if (count($parts) === 3) {
+            $timeSec = (int) $parts[0] * 3600 + (int) $parts[1] * 60 + (int) $parts[2];
+        } elseif (count($parts) === 2) {
+            $timeSec = (int) $parts[0] * 60 + (int) $parts[1];
+        }
+        return $timeSec;
     }
 
     /**

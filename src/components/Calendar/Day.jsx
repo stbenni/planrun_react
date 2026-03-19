@@ -3,7 +3,6 @@
  * Адаптирован из оригинального календаря с полной функциональностью
  */
 
-import React from 'react';
 import { getDateForDay, getTrainingClass, getShortDescription, formatDateShort, getDayName } from '../../utils/calendarHelpers';
 import { DistanceIcon, TimeIcon, PaceIcon } from '../common/Icons';
 import '../../assets/css/calendar_v2.css';
@@ -11,8 +10,16 @@ import '../../assets/css/short-desc.css';
 
 const Day = ({ dayData, dayKey, weekNumber, weekStartDate, progressData, workoutsData, resultsData, onPress }) => {
   const date = getDateForDay(weekStartDate, dayKey);
-  const isRest = !dayData || dayData.type === 'rest' || dayData.type === 'free';
-  const dayClass = isRest ? 'rest-day' : getTrainingClass(dayData.type, dayData.key);
+  const dayItems = Array.isArray(dayData)
+    ? dayData.filter((item) => item && typeof item.type === 'string')
+    : (dayData && typeof dayData.type === 'string' ? [dayData] : []);
+  const primaryDayData =
+    dayItems.find((item) => item.type !== 'rest' && item.type !== 'free') ||
+    dayItems[0] ||
+    null;
+  const descriptionText = dayItems.map((item) => item.text).filter(Boolean).join('\n');
+  const isRest = !primaryDayData || primaryDayData.type === 'rest' || primaryDayData.type === 'free';
+  const dayClass = isRest ? 'rest-day' : getTrainingClass(primaryDayData.type, primaryDayData.key);
   const isCompleted = progressData[date] || false;
 
   const handleClick = () => {
@@ -22,8 +29,8 @@ const Day = ({ dayData, dayKey, weekNumber, weekStartDate, progressData, workout
   };
 
   const shortDescription = getShortDescription(
-    dayData?.text || '',
-    dayData?.type || 'rest'
+    descriptionText || primaryDayData?.text || '',
+    primaryDayData?.type || 'rest'
   );
 
   const dayName = getDayName(dayKey);
@@ -47,7 +54,7 @@ const Day = ({ dayData, dayKey, weekNumber, weekStartDate, progressData, workout
         className="training-content"
         dangerouslySetInnerHTML={{ __html: shortDescription }}
       />
-      {shortDescription && dayData?.text && dayData.text.trim() && (
+      {shortDescription && descriptionText.trim() && (
         <div className="more-info">подробнее...</div>
       )}
       <div className="result-display" id={`result-${date}-${weekNumber}-${dayKey}`}>

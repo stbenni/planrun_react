@@ -42,6 +42,7 @@ class TrainingPlanServiceTest extends TestCase {
         $this->assertIsArray($result);
         $this->assertArrayHasKey('has_plan', $result);
         $this->assertFalse($result['has_plan']);
+        $this->assertArrayHasKey('latest_generation', $result);
         $this->assertArrayHasKey('user_id', $result);
     }
     

@@ -14,16 +14,13 @@ if (!$db) {
     exit(1);
 }
 
-$sql = "CREATE TABLE IF NOT EXISTS email_verification_codes (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
-    code CHAR(6) NOT NULL,
-    attempts_left TINYINT UNSIGNED NOT NULL DEFAULT 3,
-    expires_at DATETIME NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY idx_email (email),
-    INDEX idx_expires_at (expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+$sqlPath = $baseDir . '/migrations/create_email_verification_codes.sql';
+$sql = is_file($sqlPath) ? trim((string) file_get_contents($sqlPath)) : '';
+
+if ($sql === '') {
+    fwrite(STDERR, "Migration SQL not found: $sqlPath\n");
+    exit(1);
+}
 
 if ($db->query($sql)) {
     echo "OK: Table email_verification_codes exists or was created.\n";

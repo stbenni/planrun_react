@@ -4,7 +4,7 @@
  * Еженедельное AI-ревью тренировок.
  * Запуск по cron: воскресенье вечером (20:00 по часовому поясу пользователя).
  * Cron (каждую минуту, скрипт сам фильтрует по таймзоне):
- *   * * * * php /var/www/vladimirov/planrun-backend/scripts/weekly_ai_review.php
+ *   * * * * php /var/www/planrun/planrun-backend/scripts/weekly_ai_review.php
  *
  * Логика:
  * 1. Находим пользователей, у которых сейчас воскресенье 20:00 в их таймзоне
@@ -18,6 +18,7 @@ require_once $baseDir . '/config/env_loader.php';
 require_once $baseDir . '/db_config.php';
 require_once $baseDir . '/prepare_weekly_analysis.php';
 require_once $baseDir . '/services/ChatService.php';
+require_once $baseDir . '/services/AdaptationService.php';
 
 $db = getDBConnection();
 if (!$db) {
@@ -25,12 +26,13 @@ if (!$db) {
     exit(1);
 }
 
+$useAdaptationEngine = (bool) (env('USE_SKELETON_GENERATOR', '0'));
+
 $reviewHour = 20;
 $reviewMinute = 0;
 $reviewDayOfWeek = 7; // воскресенье (ISO-8601: 1=Пн, 7=Вс)
 
-// Находим пользователей с активным планом и push-уведомлениями
-// Пользователи с активным планом (есть неделя, покрывающая последние 7 дней)
+// Находим пользователей с активным планом
 $stmt = $db->query("
     SELECT u.id, COALESCE(u.timezone, 'Europe/Moscow') AS timezone
     FROM users u
@@ -46,6 +48,7 @@ if (!$stmt) {
 
 $result = $stmt->get_result();
 $sent = 0;
+$adapted = 0;
 $errors = 0;
 
 while ($row = $result->fetch_assoc()) {
@@ -67,26 +70,29 @@ while ($row = $result->fetch_assoc()) {
     }
 
     try {
-        // Собираем данные текущей недели
-        $weekNumber = getCurrentWeekNumber($userId, $db);
-        $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
-
-        // Формируем текст для LLM
-        $reviewText = buildWeeklyReviewPromptData($analysis);
-
-        // Генерируем ревью через LM Studio
-        $review = generateWeeklyReview($reviewText, $analysis['user']['username'] ?? 'спортсмен');
-        if (!$review) {
-            error_log("weekly_ai_review: LLM returned empty for user $userId");
-            $errors++;
-            continue;
+        if ($useAdaptationEngine) {
+            // Новый путь: WeeklyAdaptationEngine (анализ + адаптация + ревью)
+            $adaptationService = new AdaptationService($db);
+            $adaptResult = $adaptationService->runWeeklyAdaptation($userId);
+            $sent++;
+            if (!empty($adaptResult['adapted'])) {
+                $adapted++;
+            }
+        } else {
+            // Старый путь: только ревью без адаптации
+            $weekNumber = getCurrentWeekNumber($userId, $db);
+            $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
+            $reviewText = buildWeeklyReviewPromptData($analysis);
+            $review = generateWeeklyReview($reviewText, $analysis['user']['username'] ?? 'спортсмен');
+            if (!$review) {
+                error_log("weekly_ai_review: LLM returned empty for user $userId");
+                $errors++;
+                continue;
+            }
+            $chatService = new ChatService($db);
+            $chatService->addAIMessageToUser($userId, $review);
+            $sent++;
         }
-
-        // Отправляем в чат
-        $chatService = new ChatService($db);
-        $chatService->addAIMessageToUser($userId, $review);
-        $sent++;
-
     } catch (Throwable $e) {
         error_log("weekly_ai_review: error for user $userId: " . $e->getMessage());
         $errors++;
@@ -94,7 +100,7 @@ while ($row = $result->fetch_assoc()) {
 }
 
 if (php_sapi_name() === 'cli') {
-    echo "Weekly AI review: sent=$sent, errors=$errors\n";
+    echo "Weekly AI review: sent=$sent, adapted=$adapted, errors=$errors\n";
 }
 
 // ── Вспомогательные функции ──
@@ -174,14 +180,14 @@ function buildWeeklyReviewPromptData(array $analysis): string {
 }
 
 /**
- * Генерирует еженедельное ревью через LM Studio.
+ * Генерирует еженедельное ревью через llama-server.
  */
 function generateWeeklyReview(string $weekData, string $username): ?string {
-    $baseUrl = rtrim(env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:1234/v1'), '/');
-    $model = env('LMSTUDIO_CHAT_MODEL', 'openai/gpt-oss-20b');
+    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:8081/v1')), '/');
+    $model = env('LLM_CHAT_MODEL', env('LMSTUDIO_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning'));
 
     if ($baseUrl === '' || $model === '') {
-        error_log('weekly_ai_review: LMSTUDIO_BASE_URL or LMSTUDIO_CHAT_MODEL not set');
+        error_log('weekly_ai_review: LLM_CHAT_BASE_URL or LLM_CHAT_MODEL not set');
         return null;
     }
 

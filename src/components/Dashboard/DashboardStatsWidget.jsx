@@ -3,7 +3,7 @@
  * Внешний вид как у быстрых метрик: те же SVG-иконки и стиль карточек.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from './DashboardMetricIcons';
 import LogoLoading from '../common/LogoLoading';
@@ -14,13 +14,14 @@ const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const isInitialLoad = useRef(true);
   const loadStats = useCallback(async () => {
     if (!api) {
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
+      if (isInitialLoad.current) setLoading(true);
       let workoutsData = { workouts: {} };
       let allResults = { results: [] };
       let plan = null;
@@ -53,6 +54,7 @@ const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
       setStats(null);
     } finally {
       setLoading(false);
+      isInitialLoad.current = false;
     }
   }, [api, timeRange, viewContext]);
 

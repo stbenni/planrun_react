@@ -1,0 +1,20 @@
+[Unit]
+Description=PlanRun llama.cpp server (Ministral 14B Reasoning, port 8081)
+After=network.target
+
+[Service]
+Type=simple
+User=st_benni
+WorkingDirectory=/var/www/ai/planrun_ai_service/llama.cpp/build-cuda/bin
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=PLANRUN_LLAMASERVER_CTX=32768
+Environment=PLANRUN_LLAMASERVER_PORT=8081
+ExecStart=/usr/local/bin/planrun-llama-server-start.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

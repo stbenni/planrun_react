@@ -1,19 +1,95 @@
-/**
- * Лендинг страница PlanRun
- */
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import useAuthStore from '../stores/useAuthStore';
 import LoginModal from '../components/LoginModal';
 import RegisterModal from '../components/RegisterModal';
+import ParticlesBackground from '../components/ParticlesBackground';
 import './LandingScreen.css';
+
+const detectIOSDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+
+  return /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
 
 const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerReturnTo, setRegisterReturnTo] = useState(null);
+  const showcaseRef = useRef(null);
+  const isIOSDevice = useMemo(() => detectIOSDevice(), []);
+  const isDark = useMemo(
+    () => document.documentElement.getAttribute('data-theme') !== 'light',
+    []
+  );
+
+  useEffect(() => {
+    const showcase = showcaseRef.current;
+    if (!showcase || typeof window === 'undefined') return undefined;
+
+    let frameId = 0;
+    const viewport = window.visualViewport;
+
+    const updateViewportHeight = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        const visualHeight = viewport?.height ?? window.innerHeight;
+        const offsetTop = viewport?.offsetTop ?? 0;
+        const offsetLeft = viewport?.offsetLeft ?? 0;
+        const screenHeight = Math.round(visualHeight);
+        const bottomInset = Math.max(0, Math.round(window.innerHeight - (visualHeight + offsetTop)));
+
+        if (screenHeight > 0) {
+          if (isIOSDevice) {
+            showcase.style.removeProperty('--landing-screen-height');
+          } else {
+            showcase.style.setProperty('--landing-screen-height', `${screenHeight}px`);
+          }
+          showcase.style.setProperty('--landing-visual-offset-top', `${Math.round(offsetTop)}px`);
+          showcase.style.setProperty('--landing-visual-offset-left', `${Math.round(offsetLeft)}px`);
+          showcase.style.setProperty('--landing-runtime-bottom-inset', `${bottomInset}px`);
+        }
+      });
+    };
+
+    updateViewportHeight();
+
+    window.addEventListener('resize', updateViewportHeight);
+    window.addEventListener('orientationchange', updateViewportHeight);
+    viewport?.addEventListener('resize', updateViewportHeight);
+    viewport?.addEventListener('scroll', updateViewportHeight);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', updateViewportHeight);
+      window.removeEventListener('orientationchange', updateViewportHeight);
+      viewport?.removeEventListener('resize', updateViewportHeight);
+      viewport?.removeEventListener('scroll', updateViewportHeight);
+      showcase.style.removeProperty('--landing-screen-height');
+      showcase.style.removeProperty('--landing-visual-offset-top');
+      showcase.style.removeProperty('--landing-visual-offset-left');
+      showcase.style.removeProperty('--landing-runtime-bottom-inset');
+    };
+  }, [isIOSDevice]);
+
+  useEffect(() => {
+    const showcase = showcaseRef.current;
+    if (!showcase) return undefined;
+
+    showcase.classList.toggle('landing-showcase--ios', isIOSDevice);
+
+    return () => {
+      showcase.classList.remove('landing-showcase--ios');
+    };
+  }, [isIOSDevice]);
 
   useEffect(() => {
     const fromState = location.state?.openLogin;
@@ -25,187 +101,188 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
     }
   }, [location.state?.openLogin, searchParams, location.pathname, navigate, setSearchParams]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    if (loginOpen) setLoginOpen(false);
+    if (registerOpen) setRegisterOpen(false);
+    if (registerReturnTo) setRegisterReturnTo(null);
+
+    navigate('/', { replace: true });
+  }, [isAuthenticated, loginOpen, navigate, registerOpen, registerReturnTo]);
+
+  const handleLogin = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setTimeout(() => setLoginOpen(true), 0);
+  };
+
+  const handleRegister = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setRegisterReturnTo(null);
+    setTimeout(() => setRegisterOpen(true), 0);
+  };
+
+  const handleCoachIntent = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+
+    if (isAuthenticated) {
+      navigate('/trainers/apply');
+      return;
+    }
+
+    if (!registrationEnabled) {
+      return;
+    }
+
+    setRegisterReturnTo({
+      path: '/trainers/apply',
+      state: { registrationSuccess: true, coachOnboarding: true },
+    });
+    setTimeout(() => setRegisterOpen(true), 0);
+  };
+
+  const handleRegisterModalClose = () => {
+    setRegisterOpen(false);
+    setRegisterReturnTo(null);
+  };
+
   return (
-    <div className="landing-container">
+    <div ref={showcaseRef} className="landing-showcase">
       {!registrationEnabled && (
         <div className="landing-notice" role="alert">
           Регистрация временно отключена администратором.
         </div>
       )}
-      <div className="landing-header">
-        <div className="landing-nav">
-          {registrationEnabled && (
-          <button
-            type="button"
-            className="btn btn-landing-secondary"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setTimeout(() => setRegisterOpen(true), 0);
-            }}
-          >
-            Регистрация
-          </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-landing-secondary"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setTimeout(() => setLoginOpen(true), 0);
-            }}
-          >
-            Вход
-          </button>
+
+      <motion.nav
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, delay: 0.5 }}
+        className="landing-nav"
+      >
+        <div className="landing-nav-inner">
+          <a href="/" className="landing-nav-logo">
+            <span className="logo-text">
+              <span className="logo-plan">plan</span>
+              <span className="logo-run">RUN</span>
+            </span>
+          </a>
+          <div className="landing-nav-actions">
+            <button type="button" className="landing-nav-btn" onClick={handleLogin}>
+              Войти
+            </button>
+            <button type="button" className="landing-nav-btn" onClick={handleCoachIntent}>
+              Стать тренером
+            </button>
+          </div>
         </div>
-      </div>
+      </motion.nav>
 
       <LoginModal isOpen={loginOpen} onClose={() => setLoginOpen(false)} />
       <RegisterModal
         isOpen={registerOpen}
-        onClose={() => setRegisterOpen(false)}
+        onClose={handleRegisterModalClose}
         onRegister={onRegister}
+        returnTo={registerReturnTo}
       />
 
-      <div className="landing-hero">
-        <div className="landing-hero-inner">
-          <div className="hero-grid">
-            <div className="hero-text">
-              <h1>planRUN <br /> найди своего тренера<br />или создай план с AI</h1>
-              <div className="subtitle">
-                Личный беговой тренер с обратной связью — или AI‑план за минуту. 
-                Индивидуальный подход, учёт пульса, темпа, здоровья и доступных дней. От 5 км до марафона.
-              </div>
-              
-              <div className="landing-badges">
-                <span className="badge">AI‑план за 1 минуту</span>
-                <span className="badge">Тренер с правками плана</span>
-                <span className="badge">Импорт GPX/TCX из часов и бота</span>
-                <span className="badge">Пульс, темп, каденс, высота</span>
-              </div>
-              
-              <div className="landing-cta">
-                <button 
-                  className="btn-landing btn-landing-primary"
-                  onClick={() => navigate('/register')}
-                >
-                  🔥 Сгенерировать AI‑план
-                </button>
-                <a
-                  href="/planrun.apk"
-                  className="btn-landing btn-landing-secondary"
-                  style={{ marginLeft: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-                  download="planrun.apk"
-                >
-                  📱 Скачать приложение Android
-                </a>
-              </div>
-              <div className="landing-coach-cta">
-                <button
-                  className="btn-landing btn-landing-outline"
-                  onClick={() => navigate('/trainers/apply')}
-                >
-                  Стать тренером на planRUN
-                </button>
-              </div>
-            </div>
-            
-            <div className="hero-image">
-              <img
-                src="/hero.webp"
-                alt="Бегун на тренировке"
-              />
-            </div>
-          </div>
+      <section className="landing-hero">
+        <div className="landing-hero-bg" />
+        <div className="landing-hero-gradient" />
+        <div className="tw-absolute tw-inset-0 tw-left-0 tw-w-full lg:tw-left-1/2 lg:tw-w-1/2 tw-pointer-events-none">
+          <ParticlesBackground isDark={isDark} />
         </div>
-      </div>
 
-      {/* Две карточки выбора пути */}
-      <div className="feature-section">
-        <div className="features-wrap">
-          <div className="landing-features" style={{ maxWidth: '900px', margin: '0 auto' }}>
-            <div className="feature-card">
-              <div className="feature-icon">🤖</div>
-              <div>
-                <div className="feature-title">AI‑план за 1 минуту</div>
-                <div className="feature-text">
-                  Учитываем дистанцию, цель по времени, доступные дни, пульс и базовый объём. 
-                  Автоадаптация каждую неделю по вашим фактическим тренировкам.
-                </div>
+        <div className="landing-hero-inner">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            className="landing-hero-cta"
+          >
+            <div className="landing-hero-copy-shell">
+              <div className="landing-hero-kicker">Выбирай свой формат подготовки</div>
+
+              <h1 className="landing-hero-title">
+                <span>plan</span>
+                <span className="landing-text-gradient">RUN</span>
+              </h1>
+
+              <p className="landing-hero-subtitle">
+                Тренируйся с AI или выбери тренера.
+                <br />
+                <span className="landing-hero-subtitle-accent">От первых 5 км до марафона</span>
+              </p>
+
+              <div className="landing-features">
+                <span className="landing-feature-pill">
+                  <span className="landing-feature-pill-dot" aria-hidden />
+                  План под цель и расписание
+                </span>
+                <span className="landing-feature-pill">
+                  <span className="landing-feature-pill-dot" aria-hidden />
+                  AI или живой тренер
+                </span>
+                <span className="landing-feature-pill">
+                  <span className="landing-feature-pill-dot" aria-hidden />
+                  Темп, пульс и прогресс
+                </span>
+                <span className="landing-feature-pill">
+                  <span className="landing-feature-pill-dot" aria-hidden />
+                  Импорт тренировок
+                </span>
+              </div>
+
+              <div className="landing-cta-buttons">
+                <motion.button
+                  type="button"
+                  className="landing-cta-button"
+                  onClick={handleRegister}
+                  disabled={!registrationEnabled}
+                >
+                  Начать бесплатно
+                </motion.button>
               </div>
             </div>
-            <div className="feature-card">
-              <div className="feature-icon">🧑‍🏫</div>
-              <div>
-                <div className="feature-title">Тренер с обратной связью</div>
-                <div className="feature-text">
-                  Живое ведение, корректировки плана, ответы на вопросы. 
-                  Совместный разбор прогресса и слабых мест.
-                </div>
-              </div>
-            </div>
-          </div>
+          </motion.div>
+
+          <div className="landing-hero-placeholder" aria-hidden />
         </div>
-      </div>
-      
-      {/* Ключевые преимущества */}
-      <div className="feature-section" style={{ marginTop: '8px' }}>
-        <div className="features-wrap">
-          <div className="landing-features">
-            <div className="feature-card">
-              <div className="feature-icon">📈</div>
-              <div>
-                <div className="feature-title">План vs факт каждую неделю</div>
-                <div className="feature-text">
-                  Сравниваем выполненные тренировки с планом, анализируем пульс, темп, каденс, высоту и калории. 
-                  Рекомендации по нагрузке и ключевым дням.
-                </div>
-              </div>
-            </div>
-            
-            <div className="feature-card">
-              <div className="feature-icon">🎯</div>
-              <div>
-                <div className="feature-title">Планы 12–30 недель</div>
-                <div className="feature-text">
-                  5/10/21/42 км, темповые, интервалы, ОФП, taper перед стартом. 
-                  Подгоняем объём и темп под ваш график и самочувствие.
-                </div>
-              </div>
-            </div>
-            
-            <div className="feature-card">
-              <div className="feature-icon">🫀</div>
-              <div>
-                <div className="feature-title">Глубокие метрики</div>
-                <div className="feature-text">
-                  Пульс, каденс, высота, калории, темп. 
-                  Еженедельные отчёты и готовые данные для AI‑анализа или тренера.
-                </div>
-              </div>
-            </div>
-            
-            <div className="feature-card">
-              <div className="feature-icon">👥</div>
-              <div>
-                <div className="feature-title">Командная работа</div>
-                <div className="feature-text">
-                  Доступ для тренера, совместные корректировки, комментарии к ключевым тренировкам. 
-                  Человечность в паре с данными.
-                </div>
-              </div>
-            </div>
-          </div>
+
+        <motion.div
+          initial={{ opacity: 0, x: 60 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 1.2, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="landing-hero-image-desktop"
+        >
+          <div className="landing-hero-image-desktop-glow" />
+          <img
+            src="/hero-image.png"
+            alt="Тренер и AI-ассистент planRUN"
+            className="landing-hero-image-desktop-img landing-hero-image-shadow"
+          />
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 0.3 }}
+          className="landing-hero-image-mobile"
+        >
+          <img
+            src="/hero-image.png"
+            alt="Тренер и AI-ассистент planRUN"
+            className="landing-hero-image-mobile-img"
+          />
+        </motion.div>
+
+        <div className="landing-copyright">
+          © 2026 planRUN
         </div>
-      </div>
-      
-      <div className="landing-footer">
-        <p>&copy; 2025 PlanRun. Умные тренировки для бегунов.</p>
-        <p style={{ marginTop: '8px', opacity: 0.7 }}>
-          🏃 Бегите умно. Выберите: живой тренер или AI — и достигайте цели.
-        </p>
-      </div>
+      </section>
     </div>
   );
 };

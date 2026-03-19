@@ -80,6 +80,7 @@ class StatsController extends BaseController {
         try {
             require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
             require_once __DIR__ . '/../user_functions.php';
+            require_once __DIR__ . '/../services/TrainingStateBuilder.php';
 
             $userId = $this->calendarUserId;
             $user = getUserData($userId, 'id, goal_type, race_date, race_distance, race_target_time, '
@@ -91,64 +92,12 @@ class StatsController extends BaseController {
                 return;
             }
 
-            $vdot = null;
-            $vdotSource = null;
-            $vdotSourceDetail = null;
-            $lastDistKm = 0;
-            $lastTimeSec = 0;
-
-            // 1. VDOT из последнего забега/контрольной (если не старше 8 недель)
-            $lastRaceDist = $this->parseDistanceKm($user['last_race_distance'] ?? null, $user['last_race_distance_km'] ?? null);
-            $lastRaceTime = $this->parseTimeSec($user['last_race_time'] ?? null);
-            $lastRaceDate = $user['last_race_date'] ?? null;
-            $lastRaceWeeksAgo = $lastRaceDate ? (time() - strtotime($lastRaceDate)) / (7 * 86400) : 999;
-
-            if ($lastRaceDist > 0 && $lastRaceTime > 0 && $lastRaceWeeksAgo <= 8) {
-                $vdot = estimateVDOT($lastRaceDist, $lastRaceTime);
-                $vdotSource = 'last_race';
-                $lastDistKm = $lastRaceDist;
-                $lastTimeSec = $lastRaceTime;
-            }
-
-            // 2. Если last_race устарел или пуст — VDOT из тренировок (взвешенное по давности и близости к цели)
-            if (!$vdot || $lastRaceWeeksAgo > 8) {
-                $targetDistKm = $this->parseDistanceKm($user['race_distance'] ?? null, null);
-                $best = $this->statsService->getBestResultForVdot($userId, 6, $targetDistKm > 0 ? $targetDistKm : null);
-                if ($best) {
-                    $vdot = $best['vdot'];
-                    $lastDistKm = $best['distance_km'];
-                    $lastTimeSec = $best['time_sec'];
-                    $vdotSource = 'best_result';
-                    $vdotSourceDetail = $best['vdot_source_detail'] ?? null;
-                } elseif ($lastRaceDist > 0 && $lastRaceTime > 0) {
-                    // fallback на устаревший last_race, если нет тренировок
-                    $vdot = estimateVDOT($lastRaceDist, $lastRaceTime);
-                    $vdotSource = 'last_race';
-                    $lastDistKm = $lastRaceDist;
-                    $lastTimeSec = $lastRaceTime;
-                }
-            }
-
-            // 3. Если нет — попробуем из easy pace
-            if (!$vdot && !empty($user['easy_pace_sec'])) {
-                $easyPaceSec = (int)$user['easy_pace_sec'];
-                if ($easyPaceSec >= 240 && $easyPaceSec <= 540) {
-                    $easyV = 1000.0 / ($easyPaceSec / 60.0);
-                    $easyVO2 = _vdotOxygenCost($easyV);
-                    $vdot = max(20, min(85, round($easyVO2 / 0.65, 1)));
-                    $vdotSource = 'easy_pace';
-                }
-            }
-
-            // 4. Если нет — попробуем из целевого времени забега
-            if (!$vdot && !empty($user['race_target_time']) && !empty($user['race_distance'])) {
-                $targetDistKm = $this->parseDistanceKm($user['race_distance'], null);
-                $targetTimeSec = $this->parseTimeSec($user['race_target_time']);
-                if ($targetDistKm > 0 && $targetTimeSec > 0) {
-                    $vdot = estimateVDOT($targetDistKm, $targetTimeSec);
-                    $vdotSource = 'target_time';
-                }
-            }
+            $trainingState = (new TrainingStateBuilder($this->db))->buildForUser($user);
+            $vdot = isset($trainingState['vdot']) ? (float) $trainingState['vdot'] : null;
+            $vdotSource = $trainingState['vdot_source'] ?? null;
+            $vdotSourceDetail = $trainingState['vdot_source_detail'] ?? null;
+            $lastDistKm = isset($trainingState['source_distance_km']) ? (float) $trainingState['source_distance_km'] : 0;
+            $lastTimeSec = isset($trainingState['source_time_sec']) ? (int) $trainingState['source_time_sec'] : 0;
 
             if (!$vdot) {
                 $this->returnSuccess([
@@ -159,16 +108,17 @@ class StatsController extends BaseController {
             }
 
             $predictions = predictAllRaceTimes($vdot);
-            $paces = getTrainingPaces($vdot);
-
-            // Форматируем зоны
-            $formattedPaces = [
-                'easy' => formatPaceSec($paces['easy'][0]) . ' – ' . formatPaceSec($paces['easy'][1]),
-                'marathon' => formatPaceSec($paces['marathon']),
-                'threshold' => formatPaceSec($paces['threshold']),
-                'interval' => formatPaceSec($paces['interval']),
-                'repetition' => formatPaceSec($paces['repetition']),
-            ];
+            $formattedPaces = $trainingState['formatted_training_paces'] ?? null;
+            if (!$formattedPaces) {
+                $paces = getTrainingPaces($vdot);
+                $formattedPaces = [
+                    'easy' => formatPaceSec($paces['easy'][0]) . ' – ' . formatPaceSec($paces['easy'][1]),
+                    'marathon' => formatPaceSec($paces['marathon']),
+                    'threshold' => formatPaceSec($paces['threshold']),
+                    'interval' => formatPaceSec($paces['interval']),
+                    'repetition' => formatPaceSec($paces['repetition']),
+                ];
+            }
 
             // Riegel-прогноз (для сравнения)
             $riegelPredictions = null;
@@ -185,7 +135,7 @@ class StatsController extends BaseController {
                     'race_distance' => $user['race_distance'],
                     'race_target_time' => $user['race_target_time'],
                     'days_to_race' => max(0, $daysToRace),
-                    'weeks_to_race' => max(0, (int)ceil($daysToRace / 7)),
+                    'weeks_to_race' => $trainingState['weeks_to_goal'] ?? max(0, (int)ceil($daysToRace / 7)),
                 ];
             }
 
@@ -194,6 +144,7 @@ class StatsController extends BaseController {
                 'vdot' => round($vdot, 1),
                 'vdot_source' => $vdotSource,
                 'vdot_source_detail' => $vdotSourceDetail,
+                'vdot_confidence' => $trainingState['vdot_confidence'] ?? null,
                 'predictions' => $predictions,
                 'riegel_predictions' => $riegelPredictions,
                 'training_paces' => $formattedPaces,
@@ -220,35 +171,4 @@ class StatsController extends BaseController {
         return $results;
     }
 
-    private function parseDistanceKm(?string $distance, ?string $distanceKm): float {
-        if ($distanceKm && (float)$distanceKm > 0) {
-            return (float)$distanceKm;
-        }
-        if (!$distance) return 0;
-        $map = [
-            '1k' => 1, '1500m' => 1.5, '1_mile' => 1.60934,
-            '3k' => 3, '5k' => 5, '10k' => 10,
-            'half' => 21.0975, 'marathon' => 42.195,
-            '50k' => 50, '100k' => 100,
-        ];
-        return $map[$distance] ?? 0;
-    }
-
-    private function parseTimeSec(?string $time): int {
-        if (!$time) return 0;
-        $parts = array_map('intval', explode(':', trim($time)));
-        if (count($parts) === 3) {
-            $asHms = $parts[0] * 3600 + $parts[1] * 60 + $parts[2];
-            // "22:00:00" часто ошибочно означает 22 мин — если часы >20, пробуем MM:SS
-            if ($parts[0] > 20 && $parts[1] < 60 && $parts[2] < 60) {
-                $asMinSec = $parts[0] * 60 + $parts[1];
-                if ($asMinSec < 7200) return $asMinSec; // до 2 ч — разумно для 5–10 км
-            }
-            return $asHms;
-        }
-        if (count($parts) === 2) {
-            return $parts[0] * 60 + $parts[1];
-        }
-        return (int)$time;
-    }
 }

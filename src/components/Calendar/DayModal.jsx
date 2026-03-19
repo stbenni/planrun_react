@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
-import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon } from '../common/Icons';
+import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon, CloseIcon, PenLineIcon } from '../common/Icons';
 import '../../assets/css/calendar_v2.css';
 import './DayModal.modern.css';
 import './AddTrainingModal.css';
@@ -62,6 +62,10 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
   const [editingNoteText, setEditingNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const canManageDayNote = (note) => {
+    if (!currentUser || !note) return false;
+    return note.author_id == currentUser.id || currentUser.role === 'coach' || currentUser.role === 'admin';
+  };
 
   const loadNotes = async () => {
     if (!date || !api?.getDayNotes) return;
@@ -301,7 +305,7 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
             )}
           </div>
           <button className="close close-modern" onClick={onClose} aria-label="Закрыть">
-            &times;
+            <CloseIcon className="modal-close-icon" />
           </button>
         </div>
         <div className="modal-body modal-modern-body" id="dayModalBody" ref={modalBodyRef}>
@@ -430,64 +434,82 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
                 type="button"
                 className="day-modal-notes-toggle"
                 onClick={() => setShowNotes(v => !v)}
+                aria-expanded={showNotes}
               >
-                <span>Заметки{dayNotes.length > 0 ? ` (${dayNotes.length})` : ''}</span>
+                <span className="day-modal-notes-toggle-label">Заметки{dayNotes.length > 0 ? ` (${dayNotes.length})` : ''}</span>
                 <span className={`day-modal-notes-arrow ${showNotes ? 'day-modal-notes-arrow--open' : ''}`}>&#9662;</span>
               </button>
-              {showNotes && (
-                <div className="day-modal-notes-list">
-                  {dayNotes.length === 0 && <div className="day-modal-notes-empty">Нет заметок</div>}
-                  {dayNotes.map(note => (
-                    <div key={note.id} className="day-modal-note">
-                      <div className="day-modal-note-header">
-                        <span className="day-modal-note-author">{note.author_username}</span>
-                        <span className="day-modal-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                        {currentUser && note.author_id == currentUser.id && (
-                          <span className="day-modal-note-actions">
-                            <button type="button" className="day-modal-note-btn" onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.content); }} title="Редактировать">&#9998;</button>
-                            <button type="button" className="day-modal-note-btn day-modal-note-btn--del" onClick={() => handleDeleteNote(note.id)} title="Удалить">&times;</button>
-                          </span>
+              <div
+                className={`day-modal-notes-collapse ${showNotes ? 'is-open' : ''}`}
+                aria-hidden={!showNotes}
+              >
+                <div className="day-modal-notes-collapse-inner">
+                  <div className="day-modal-notes-list">
+                    {dayNotes.length === 0 && <div className="day-modal-notes-empty">Нет заметок</div>}
+                    {dayNotes.map(note => (
+                      <div key={note.id} className="day-modal-note">
+                        {canManageDayNote(note) && (
+                          <button
+                            type="button"
+                            className="day-modal-note-remove"
+                            onClick={() => handleDeleteNote(note.id)}
+                            title="Удалить"
+                            aria-label="Удалить заметку"
+                          >
+                            <CloseIcon className="modal-close-icon" />
+                          </button>
+                        )}
+                        <div className="day-modal-note-header">
+                          <span className="day-modal-note-author">{note.author_username}</span>
+                          <span className="day-modal-note-date">{new Date(note.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          {canManageDayNote(note) && (
+                            <span className="day-modal-note-actions">
+                              <button type="button" className="day-modal-note-btn" onClick={() => { setEditingNoteId(note.id); setEditingNoteText(note.content); }} title="Редактировать" aria-label="Редактировать заметку">
+                                <PenLineIcon className="day-modal-note-btn-icon" size={14} />
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                        {editingNoteId === note.id ? (
+                          <div className="day-modal-note-edit">
+                            <textarea
+                              className="day-modal-note-textarea"
+                              value={editingNoteText}
+                              onChange={e => setEditingNoteText(e.target.value)}
+                              rows={2}
+                              maxLength={2000}
+                            />
+                            <div className="day-modal-note-edit-btns">
+                              <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateNote(note.id)} disabled={savingNote}>Сохранить</button>
+                              <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingNoteId(null); setEditingNoteText(''); }}>Отмена</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="day-modal-note-content">{note.content}</div>
                         )}
                       </div>
-                      {editingNoteId === note.id ? (
-                        <div className="day-modal-note-edit">
-                          <textarea
-                            className="day-modal-note-textarea"
-                            value={editingNoteText}
-                            onChange={e => setEditingNoteText(e.target.value)}
-                            rows={2}
-                            maxLength={2000}
-                          />
-                          <div className="day-modal-note-edit-btns">
-                            <button type="button" className="btn btn-primary btn--sm" onClick={() => handleUpdateNote(note.id)} disabled={savingNote}>Сохранить</button>
-                            <button type="button" className="btn btn-ghost btn--sm" onClick={() => { setEditingNoteId(null); setEditingNoteText(''); }}>Отмена</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="day-modal-note-content">{note.content}</div>
-                      )}
+                    ))}
+                    <div className="day-modal-note-add">
+                      <textarea
+                        className="day-modal-note-textarea"
+                        placeholder="Добавить заметку..."
+                        value={newNoteText}
+                        onChange={e => setNewNoteText(e.target.value)}
+                        rows={2}
+                        maxLength={2000}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary btn--sm"
+                        onClick={handleSaveNote}
+                        disabled={!newNoteText.trim() || savingNote}
+                      >
+                        {savingNote ? 'Сохранение...' : 'Отправить'}
+                      </button>
                     </div>
-                  ))}
-                  <div className="day-modal-note-add">
-                    <textarea
-                      className="day-modal-note-textarea"
-                      placeholder="Добавить заметку..."
-                      value={newNoteText}
-                      onChange={e => setNewNoteText(e.target.value)}
-                      rows={2}
-                      maxLength={2000}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-primary btn--sm"
-                      onClick={handleSaveNote}
-                      disabled={!newNoteText.trim() || savingNote}
-                    >
-                      {savingNote ? 'Сохранение...' : 'Отправить'}
-                    </button>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           )}
           {canEdit && !loading && !error && date && (
@@ -582,4 +604,3 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
 };
 
 export default DayModal;
-

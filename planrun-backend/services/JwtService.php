@@ -16,18 +16,43 @@ class JwtService extends BaseService {
     
     public function __construct($db) {
         parent::__construct($db);
-        // Получаем секретный ключ из .env или используем дефолтный
-        $this->secretKey = env('JWT_SECRET_KEY', 'your-secret-key-change-in-production-' . md5(__DIR__));
-        // Access token: по умолчанию 1 год (365 дней)
-        $accessDays = (int) env('JWT_ACCESS_EXPIRATION_DAYS', 365);
+        $this->secretKey = $this->resolveSecretKey();
+        // Access token: по умолчанию 1 день
+        $accessDays = (int) env('JWT_ACCESS_EXPIRATION_DAYS', 1);
         $this->expirationTime = $accessDays * 86400;
-        // Базовый срок жизни refresh при создании (логин): по умолчанию 10 лет
-        $initialDays = (int) env('JWT_REFRESH_INITIAL_DAYS', 3650);
+        // Базовый срок жизни refresh при создании (логин): по умолчанию 30 дней
+        $initialDays = (int) env('JWT_REFRESH_INITIAL_DAYS', 30);
         $this->refreshExpirationTime = $initialDays * 86400;
-        // Sliding: продление при каждом refresh (по умолчанию 365 дней)
-        $slidingDays = (int) env('JWT_REFRESH_SLIDING_DAYS', 365);
-        $maxAgeDays = (int) env('JWT_REFRESH_MAX_AGE_DAYS', 3650);
+        // Sliding: продление при каждом refresh (по умолчанию 30 дней, максимум 90 дней)
+        $slidingDays = (int) env('JWT_REFRESH_SLIDING_DAYS', 30);
+        $maxAgeDays = (int) env('JWT_REFRESH_MAX_AGE_DAYS', 90);
         $this->refreshSlidingSeconds = min($slidingDays, $maxAgeDays) * 86400;
+    }
+
+    private function resolveSecretKey() {
+        $secret = trim((string) env('JWT_SECRET_KEY', env('JWT_SECRET', '')));
+        if ($secret !== '') {
+            if (strlen($secret) < 32) {
+                throw new RuntimeException('JWT secret key must be at least 32 characters long');
+            }
+            return $secret;
+        }
+
+        $appEnv = strtolower((string) env('APP_ENV', 'production'));
+        $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+        $isLocalHost = in_array($host, ['localhost', '127.0.0.1'], true)
+            || str_starts_with($host, '192.168.')
+            || str_starts_with($host, '10.')
+            || str_ends_with($host, '.local');
+        $isDevEnv = in_array($appEnv, ['dev', 'development', 'local', 'test', 'testing'], true)
+            || php_sapi_name() === 'cli'
+            || $isLocalHost;
+
+        if ($isDevEnv) {
+            return 'local-dev-jwt-secret-change-me-before-production-2026';
+        }
+
+        throw new RuntimeException('JWT secret key is not configured. Set JWT_SECRET_KEY in .env');
     }
     
     /**
@@ -77,12 +102,15 @@ class JwtService extends BaseService {
         $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, $this->secretKey, true);
         $base64UrlSignatureCheck = $this->base64UrlEncode($signature);
         
-        if ($base64UrlSignature !== $base64UrlSignatureCheck) {
+        if (!hash_equals($base64UrlSignatureCheck, $base64UrlSignature)) {
             return null;
         }
         
         // Декодируем payload
         $payload = json_decode($this->base64UrlDecode($base64UrlPayload), true);
+        if (!is_array($payload)) {
+            return null;
+        }
         
         // Проверяем срок действия
         if (isset($payload['exp']) && $payload['exp'] < time()) {

@@ -21,12 +21,11 @@ if (!$db) {
 $restTypes = ['rest', 'free'];
 
 // Пользователи с включёнными напоминаниями и их настройки
-$stmt = $db->query("SELECT DISTINCT p.user_id, COALESCE(u.timezone, 'Europe/Moscow') AS timezone,
+$result = $db->query("SELECT DISTINCT p.user_id, COALESCE(u.timezone, 'Europe/Moscow') AS timezone,
     COALESCE(u.push_workout_hour, 20) AS push_hour, COALESCE(u.push_workout_minute, 0) AS push_minute
     FROM push_tokens p
     INNER JOIN users u ON u.id = p.user_id
     WHERE COALESCE(u.push_workouts_enabled, 1) = 1");
-$result = $stmt ? $stmt->get_result() : null;
 if (!$result) {
     exit(0);
 }

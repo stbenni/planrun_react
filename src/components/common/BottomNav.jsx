@@ -40,7 +40,7 @@ const BottomNav = () => {
     return path && location.pathname.startsWith(path);
   };
 
-  const MIN_PILL_WIDTH = 72;
+  const MIN_PILL_WIDTH = 64;
 
   const updatePill = () => {
     const nav = navRef.current;
@@ -51,14 +51,14 @@ const BottomNav = () => {
     const itemRect = active.getBoundingClientRect();
     const w = Math.max(MIN_PILL_WIDTH, itemRect.width);
     setPillStyle({
-      left: itemRect.left - navRect.left,
+      left: itemRect.left - navRect.left + ((itemRect.width - w) / 2),
       width: w
     });
   };
 
   useLayoutEffect(() => {
     updatePill();
-  }, [location.pathname]);
+  }, [location.pathname, tabs.length]);
 
   useLayoutEffect(() => {
     window.addEventListener('resize', updatePill);

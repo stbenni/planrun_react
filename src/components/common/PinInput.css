@@ -75,8 +75,8 @@
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
-  background: var(--card-bg);
-  border: 2px solid var(--gray-300);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
@@ -84,10 +84,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .pin-input__keypad-btn:hover:not(:disabled) {
-  background: var(--gray-100);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 7%, transparent) 0%,
+      color-mix(in srgb, var(--primary-500) 2.5%, transparent) 100%
+    ),
+    var(--card-surface-compact-bg);
   border-color: var(--primary-500);
 }
 
@@ -105,12 +114,18 @@
 }
 
 [data-theme="dark"] .pin-input__keypad-btn {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 [data-theme="dark"] .pin-input__keypad-btn:hover:not(:disabled) {
-  background: var(--gray-100);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 8%, transparent) 0%,
+      color-mix(in srgb, var(--primary-500) 3%, transparent) 100%
+    ),
+    var(--card-surface-compact-bg);
 }
 
 .pin-input__keypad-spacer {
@@ -123,18 +138,27 @@
   min-height: 56px;
   padding: 0;
   color: var(--primary-500);
-  background: var(--card-bg);
-  border: 2px solid var(--gray-300);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .pin-input__keypad-btn--biometric:hover:not(:disabled) {
-  background: var(--primary-50);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 10%, transparent) 0%,
+      color-mix(in srgb, var(--primary-500) 4%, transparent) 100%
+    ),
+    var(--card-surface-compact-bg);
   border-color: var(--primary-500);
 }
 
@@ -143,12 +167,18 @@
 }
 
 [data-theme="dark"] .pin-input__keypad-btn--biometric {
-  background: var(--bg-tertiary);
-  border-color: var(--card-border);
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
 }
 
 [data-theme="dark"] .pin-input__keypad-btn--biometric:hover:not(:disabled) {
-  background: var(--primary-50);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 12%, transparent) 0%,
+      color-mix(in srgb, var(--primary-500) 5%, transparent) 100%
+    ),
+    var(--card-surface-compact-bg);
 }
 
 .pin-input__keypad-loading {

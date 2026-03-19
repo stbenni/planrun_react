@@ -127,7 +127,7 @@ body {
     font-weight: 400;
     line-height: 1.6;
     color: var(--gray-900);
-    background: var(--gray-50);
+    background: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -139,7 +139,7 @@ body {
     max-width: 1800px;
     width: 100%;
     margin: 0 auto;
-    background: white;
+    background: transparent;
     min-height: 100vh;
     overflow-x: hidden;
     box-sizing: border-box;
@@ -941,14 +941,16 @@ h1 {
 .form-group textarea,
 .form-group select {
     width: 100%;
+    min-height: 52px;
     padding: var(--space-3) var(--space-4);
-    border: 1.5px solid var(--gray-300);
+    border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
     border-radius: var(--radius-lg);
     font-size: var(--text-base);
-    transition: all var(--transition-base);
+    transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
     font-family: inherit;
-    background: white;
-    color: var(--gray-900);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 28%, var(--card-bg)) 0%, var(--card-bg) 100%);
+    color: var(--text-primary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
 .form-group input:focus,
@@ -956,7 +958,7 @@ h1 {
 .form-group select:focus {
     outline: none;
     border-color: var(--primary-500);
-    box-shadow: 0 0 0 3px var(--primary-100);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-500) 14%, transparent), 0 14px 28px rgba(252, 76, 2, 0.12);
 }
 
 .form-group select {
@@ -1556,26 +1558,27 @@ h1 {
     align-items: center;
     justify-content: center;
     padding: var(--space-4) var(--space-3);
-    border: 2px solid var(--gray-300);
+    border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
     border-radius: var(--radius-lg);
-    background: white;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 24%, var(--card-bg)) 0%, var(--card-bg) 100%);
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base), transform var(--transition-base);
     text-align: center;
     position: relative;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06), 0 10px 24px rgba(252, 76, 2, 0.08);
 }
 
 .activity-type-card:hover {
-    border-color: var(--primary-400);
-    background: var(--primary-50);
+    border-color: color-mix(in srgb, var(--primary-500) 22%, var(--gray-300));
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.12), rgba(255, 107, 61, 0.04));
     transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08), 0 14px 28px rgba(252, 76, 2, 0.12);
 }
 
 .activity-type-card.selected {
     border-color: var(--primary-500);
-    background: var(--primary-100);
-    box-shadow: 0 0 0 3px var(--primary-200);
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.18), rgba(255, 107, 61, 0.08));
+    box-shadow: 0 16px 34px rgba(252, 76, 2, 0.16), 0 0 0 1px rgba(252, 76, 2, 0.12);
 }
 
 .activity-type-card input[type="radio"] {
@@ -1607,16 +1610,19 @@ h1 {
     display: flex;
     align-items: center;
     padding: var(--space-3) var(--space-4);
-    border: 2px solid var(--gray-300);
+    border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
     border-radius: var(--radius-lg);
-    background: white;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 24%, var(--card-bg)) 0%, var(--card-bg) 100%);
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base), transform var(--transition-base);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06), 0 10px 24px rgba(252, 76, 2, 0.08);
 }
 
 .radio-option:hover {
-    border-color: var(--primary-400);
-    background: var(--gray-50);
+    border-color: color-mix(in srgb, var(--primary-500) 22%, var(--gray-300));
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.12), rgba(255, 107, 61, 0.04));
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08), 0 14px 28px rgba(252, 76, 2, 0.12);
+    transform: translateY(-1px);
 }
 
 .radio-option input[type="radio"] {
@@ -1631,7 +1637,8 @@ h1 {
 
 .radio-option:has(input[type="radio"]:checked) {
     border-color: var(--primary-500);
-    background: var(--primary-50);
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.18), rgba(255, 107, 61, 0.08));
+    box-shadow: 0 16px 34px rgba(252, 76, 2, 0.16), 0 0 0 1px rgba(252, 76, 2, 0.12);
 }
 
 /* Мобильная версия выбора типов */
@@ -1871,31 +1878,32 @@ h1 {
    TRAINING CATEGORY CARDS - Карточки выбора категории тренировки
    ======================================== */
 .training-category-card {
-    background: white;
-    border: 2px solid var(--gray-200);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary-50) 24%, var(--card-bg)) 0%, var(--card-bg) 100%);
+    border: 1.5px solid color-mix(in srgb, var(--primary-500) 10%, var(--gray-300));
     border-radius: var(--radius-xl);
     padding: var(--space-6);
     text-align: center;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease, transform 0.3s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 180px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06), 0 10px 24px rgba(252, 76, 2, 0.08);
 }
 
 .training-category-card:hover {
     border-color: var(--primary-500);
-    background: var(--primary-50);
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.12), rgba(255, 107, 61, 0.04));
     transform: translateY(-4px);
-    box-shadow: 0 8px 16px rgba(252, 76, 2, 0.15);
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08), 0 16px 32px rgba(252, 76, 2, 0.14);
 }
 
 .training-category-card.selected {
     border-color: var(--primary-500);
-    background: var(--primary-50);
-    box-shadow: 0 4px 12px rgba(252, 76, 2, 0.2);
+    background: linear-gradient(180deg, rgba(255, 107, 61, 0.18), rgba(255, 107, 61, 0.08));
+    box-shadow: 0 16px 34px rgba(252, 76, 2, 0.16), 0 0 0 1px rgba(252, 76, 2, 0.12);
 }
 
 .training-category-card[data-category="running"]:hover {

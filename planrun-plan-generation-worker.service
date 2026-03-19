@@ -1,0 +1,17 @@
+[Unit]
+Description=PlanRun AI plan generation worker
+After=network.target mariadb.service mysql.service
+
+[Service]
+Type=simple
+User=st_benni
+Group=www-data
+WorkingDirectory={{PROJECT_ROOT}}/planrun-backend
+ExecStart=/usr/bin/php {{PROJECT_ROOT}}/planrun-backend/scripts/plan_generation_worker.php --daemon --sleep=10
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -14,6 +14,8 @@
 | [04-FILES-REFERENCE.md](04-FILES-REFERENCE.md) | Справочник по каждому файлу проекта |
 | [05-CALL-GRAPH.md](05-CALL-GRAPH.md) | Граф вызовов: где функция используется и с чем взаимодействует |
 | [06-ON-CREATE-UPDATE-DOCS.md](06-ON-CREATE-UPDATE-DOCS.md) | При создании нового — что обновлять в документации |
+| [07-AUTH-SECURITY.md](07-AUTH-SECURITY.md) | Политика авторизации, JWT, PIN, biometric recovery, anti-abuse лимиты |
+| [08-AI-SERVING-STACK.md](08-AI-SERVING-STACK.md) | Production-архитектура локальной LLM: llama-server, LM Studio embeddings, planrun-ai |
 | [HUAWEI_HEALTH_INTEGRATION.md](HUAWEI_HEALTH_INTEGRATION.md) | Интеграция Huawei Health Kit |
 
 **Будущие доработки:**

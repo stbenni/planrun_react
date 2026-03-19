@@ -337,7 +337,7 @@ export function workoutTypeToCategory(type) {
  * @returns {{ items: Array, type?: string, weekNumber?: number } | null}
  */
 export function getPlanDayForDate(dateStr, planData) {
-  const weeksData = planData?.weeks_data;
+  const weeksData = planData?.weeks_data ?? planData?.phases?.[0]?.weeks_data;
   if (!planData || !Array.isArray(weeksData)) return null;
   const date = new Date(dateStr + 'T00:00:00');
   date.setHours(0, 0, 0, 0);
