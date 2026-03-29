@@ -317,21 +317,35 @@ class StatsService extends BaseService {
         }
         $autoStmt->close();
 
+        // Дедупликация: если workout_log и workouts содержат одну тренировку,
+        // оставляем только одну (с лучшим VDOT) для каждой даты+дистанции
+        $seen = [];
+        $deduplicated = [];
+        foreach ($candidates as $c) {
+            $roundedDist = round($c['distance_km'], 1);
+            $roundedWeeks = round($c['weeks_ago'], 2);
+            $key = $roundedDist . '_' . $roundedWeeks;
+            if (!isset($seen[$key]) || $c['vdot'] > $seen[$key]['vdot']) {
+                $seen[$key] = $c;
+            }
+        }
+        $candidates = array_values($seen);
+
         if (empty($candidates)) {
             return null;
         }
 
-        // Сортируем по VDOT (лучшие сверху)
+        // Лучший единичный результат (для возврата distance_km/time_sec)
         usort($candidates, fn($a, $b) => $b['vdot'] <=> $a['vdot']);
         $bestSingle = $candidates[0];
 
         // Отсекаем easy/recovery: оставляем только тренировки с VDOT ≥ 85% от лучшего
-        // Это убирает лёгкие пробежки, разминки, прогулки записанные как running
         $vdotThreshold = $bestSingle['vdot'] * 0.85;
         $hardEfforts = array_filter($candidates, fn($c) => $c['vdot'] >= $vdotThreshold);
         $hardEfforts = array_values($hardEfforts);
 
-        // Берём топ-5 из quality efforts
+        // Сортируем quality efforts по свежести (недавние первые), берём топ-5
+        usort($hardEfforts, fn($a, $b) => $a['weeks_ago'] <=> $b['weeks_ago']);
         $top = array_slice($hardEfforts, 0, 5);
 
         // Recency weight: 0.85^weeks_ago — недавние важнее

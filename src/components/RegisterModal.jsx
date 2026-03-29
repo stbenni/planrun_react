@@ -3,7 +3,6 @@
  * Минимальная регистрация: только логин, email, пароль. После успеха — дашборд и попап специализации.
  */
 
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import Modal from './common/Modal';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -29,6 +28,8 @@ const RegisterModal = ({ isOpen, onClose, onRegister, returnTo }) => {
       size="small"
       hideHeader
       centerBody
+      contentClassName="app-modal-content--register"
+      bodyClassName="app-modal-body--register"
     >
       <RegisterScreen
         embedInModal

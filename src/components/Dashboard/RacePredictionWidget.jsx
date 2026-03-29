@@ -105,11 +105,13 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
     );
   }
 
-  const { vdot, vdot_source, vdot_source_detail, predictions, riegel_predictions, training_paces, goal } = data;
+  const { vdot, vdot_source, vdot_source_detail, vdot_confidence, predictions, riegel_predictions, training_paces, goal } = data;
 
   const vdotSourceLabel = {
+    benchmark_override: 'по ориентиру формы',
     last_race: 'по результату забега',
     best_result: vdot_source_detail || 'по тренировкам',
+    last_race_stale: 'по устаревшему забегу',
     easy_pace: 'по легкому темпу',
     target_time: 'по целевому времени',
   }[vdot_source] || '';
@@ -152,7 +154,11 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
         <div className="race-prediction__vdot-value">{vdot}</div>
         <div className="race-prediction__vdot-label">
           VDOT
-          {vdotSourceLabel && <span className="race-prediction__vdot-source">{vdotSourceLabel}</span>}
+          {vdotSourceLabel && (
+            <span className={`race-prediction__vdot-source${vdot_confidence === 'low' ? ' race-prediction__vdot-source--low' : ''}`}>
+              {vdotSourceLabel}
+            </span>
+          )}
         </div>
       </div>
       {goal && goal.days_to_race > 0 && (
@@ -306,7 +312,11 @@ const RacePredictionWidget = ({ api, viewContext = null, compact = false }) => {
             <div className="race-prediction__vdot-value">{vdot}</div>
             <div className="race-prediction__vdot-label">
               VDOT
-              {vdotSourceLabel && <span className="race-prediction__vdot-source">{vdotSourceLabel}</span>}
+              {vdotSourceLabel && (
+                <span className={`race-prediction__vdot-source${vdot_confidence === 'low' ? ' race-prediction__vdot-source--low' : ''}`}>
+                  {vdotSourceLabel}
+                </span>
+              )}
             </div>
           </div>
         </div>

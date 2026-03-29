@@ -43,7 +43,15 @@ if (empty($rows)) {
 
 $athleteIdFixed = 0;
 $tokenRefreshed = 0;
+$webhookChanged = false;
 $errors = [];
+
+$webhookResult = $provider->ensureWebhookSubscription();
+if (!$webhookResult['ok']) {
+    $errors[] = 'webhook: ' . ($webhookResult['error'] ?? 'unknown error');
+} else {
+    $webhookChanged = !empty($webhookResult['changed']);
+}
 
 foreach ($rows as $row) {
     $userId = (int)$row['user_id'];
@@ -60,9 +68,10 @@ foreach ($rows as $row) {
     usleep(300000);
 }
 
-if ($athleteIdFixed > 0 || $tokenRefreshed > 0 || !empty($errors)) {
+if ($athleteIdFixed > 0 || $tokenRefreshed > 0 || $webhookChanged || !empty($errors)) {
     $msg = sprintf(
-        "Strava daily check: athlete_id fixed=%d, tokens refreshed=%d, errors=%d",
+        "Strava daily check: webhook changed=%s, athlete_id fixed=%d, tokens refreshed=%d, errors=%d",
+        $webhookChanged ? 'yes' : 'no',
         $athleteIdFixed,
         $tokenRefreshed,
         count($errors)
@@ -79,6 +88,9 @@ if ($athleteIdFixed > 0 || $tokenRefreshed > 0 || !empty($errors)) {
     if (file_exists($baseDir . '/config/Logger.php')) {
         require_once $baseDir . '/config/Logger.php';
         \Logger::info('Strava daily health check', [
+            'webhook_changed' => $webhookChanged,
+            'webhook_subscription_id' => $webhookResult['subscription_id'] ?? null,
+            'webhook_callback_url' => $webhookResult['callback_url'] ?? null,
             'athlete_id_fixed' => $athleteIdFixed,
             'tokens_refreshed' => $tokenRefreshed,
             'errors' => $errors,

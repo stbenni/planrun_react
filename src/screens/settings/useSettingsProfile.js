@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import useAuthStore from '../../stores/useAuthStore';
 import { mapProfileToFormData, normalizeValue } from './profileForm';
+import { ensureNotificationChannelsEnabled, normalizeNotificationSettings } from './notificationSettings';
 
 export function useSettingsProfile({
   api,
@@ -28,14 +29,23 @@ export function useSettingsProfile({
     try {
       if (!silent) setLoading(true);
 
-      const csrfResponse = await currentApi.request('get_csrf_token', {}, 'GET');
+      const [csrfResponse, userData, notificationData] = await Promise.all([
+        currentApi.request('get_csrf_token', {}, 'GET'),
+        currentApi.request('get_profile', {}, 'GET'),
+        currentApi.request('get_notification_settings', {}, 'GET').catch(() => null),
+      ]);
       if (csrfResponse && csrfResponse.csrf_token) {
         setCsrfToken(csrfResponse.csrf_token);
       }
 
-      const userData = await currentApi.request('get_profile', {}, 'GET');
       if (userData && typeof userData === 'object') {
-        const newFormData = mapProfileToFormData(userData);
+        const mappedProfile = mapProfileToFormData(userData);
+        const newFormData = {
+          ...mappedProfile,
+          notification_settings: ensureNotificationChannelsEnabled(
+            normalizeNotificationSettings(notificationData, mappedProfile.timezone)
+          ),
+        };
         skipNextAutoSaveRef.current = true;
         setFormData(newFormData);
         if (typeof setHasUnsavedChanges === 'function') {
@@ -145,18 +155,53 @@ export function useSettingsProfile({
         privacy_show_calendar: formData.privacy_show_calendar ? 1 : 0,
         privacy_show_metrics: formData.privacy_show_metrics ? 1 : 0,
         privacy_show_workouts: formData.privacy_show_workouts ? 1 : 0,
-        push_workouts_enabled: formData.push_workouts_enabled ? 1 : 0,
-        push_chat_enabled: formData.push_chat_enabled ? 1 : 0,
-        push_workout_hour: Math.min(23, Math.max(0, parseInt(formData.push_workout_hour, 10) || 20)),
-        push_workout_minute: Math.min(59, Math.max(0, parseInt(formData.push_workout_minute, 10) || 0)),
       };
 
       const response = await currentApi.request('update_profile', dataToSend, 'POST');
+      let notificationResponse = null;
+      try {
+        notificationResponse = await currentApi.request('update_notification_settings', {
+          csrf_token: activeCsrfToken,
+          ...(ensureNotificationChannelsEnabled(formData.notification_settings || {})),
+        }, 'POST');
+      } catch (notificationError) {
+        const authStore = useAuthStore.getState();
+        if (response?.user && typeof response.user === 'object' && typeof authStore.updateUser === 'function') {
+          authStore.updateUser({
+            ...(authStore.user || {}),
+            ...response.user,
+            authenticated: authStore.user?.authenticated ?? true,
+          });
+        }
+        const mergedPartialFormData = {
+          ...(response?.user ? mapProfileToFormData(response.user) : formData),
+          notification_settings: ensureNotificationChannelsEnabled(
+            normalizeNotificationSettings(formData.notification_settings, response?.user?.timezone || formData.timezone)
+          ),
+        };
+        setFormData((currentFormData) => {
+          if (JSON.stringify(currentFormData) !== saveSnapshot) {
+            return currentFormData;
+          }
+          skipNextAutoSaveRef.current = true;
+          return mergedPartialFormData;
+        });
+        if (typeof setHasUnsavedChanges === 'function') {
+          setHasUnsavedChanges(false);
+        }
+        setMessage({ type: 'error', text: 'Профиль сохранен, но настройки уведомлений не обновились: ' + (notificationError.message || 'Неизвестная ошибка') });
+        return;
+      }
 
       if (response && response.success !== false) {
         const authStore = useAuthStore.getState();
         if (response.user && typeof response.user === 'object' && typeof authStore.updateUser === 'function') {
-          const normalizedFormData = mapProfileToFormData(response.user);
+          const normalizedFormData = {
+            ...mapProfileToFormData(response.user),
+            notification_settings: ensureNotificationChannelsEnabled(
+              normalizeNotificationSettings(notificationResponse, response.user.timezone || formData.timezone)
+            ),
+          };
           setFormData((currentFormData) => {
             if (JSON.stringify(currentFormData) !== saveSnapshot) {
               return currentFormData;

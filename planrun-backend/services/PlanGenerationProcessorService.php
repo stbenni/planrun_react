@@ -401,7 +401,21 @@ class PlanGenerationProcessorService extends BaseService {
             }
 
             $chatService = new ChatService($this->db);
-            $chatService->addAIMessageToUser($userId, $review);
+            $eventKey = match ($mode) {
+                'ПЕРЕСЧЁТ' => 'plan.recalculated',
+                'НОВЫЙ ПЛАН' => 'plan.next_generated',
+                default => 'plan.generated',
+            };
+            $title = match ($mode) {
+                'ПЕРЕСЧЁТ' => 'План пересчитан',
+                'НОВЫЙ ПЛАН' => 'Следующий план готов',
+                default => 'План сгенерирован',
+            };
+            $chatService->addAIMessageToUser($userId, $review, [
+                'event_key' => $eventKey,
+                'title' => $title,
+                'link' => '/chat',
+            ]);
         } catch (Throwable $reviewEx) {
             $this->logError('Рецензия плана не добавлена', [
                 'user_id' => $userId,

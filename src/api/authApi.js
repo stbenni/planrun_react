@@ -51,7 +51,7 @@ function getAuthWrapperUrl(baseUrl, action) {
 }
 
 async function login(client, username, password, useJwt = false) {
-  if (useJwt || (typeof window !== 'undefined' && window.Capacitor)) {
+  if (useJwt || isNativeCapacitor()) {
     return loginWithJwt(client, username, password);
   }
 

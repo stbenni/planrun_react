@@ -1,4 +1,5 @@
 import { ApiError } from './apiError';
+import { isNativeCapacitor } from '../services/TokenStorageService';
 
 async function getCsrfToken(client, message = 'Не удалось получить токен безопасности. Обновите страницу.') {
   const csrfRes = await client.request('get_csrf_token', {}, 'GET');
@@ -50,7 +51,7 @@ export async function uploadWorkout(client, file, opts = {}) {
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    credentials: typeof window !== 'undefined' && !window.Capacitor ? 'include' : 'omit',
+    credentials: isNativeCapacitor() ? 'omit' : 'include',
     body: formData,
   });
   const data = await response.json().catch(() => ({}));

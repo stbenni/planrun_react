@@ -1,866 +1,241 @@
 <?php
 /**
- * Контроллер для работы с пользователями
+ * UserController — API для работы с пользователями
+ *
+ * Тонкий контроллер: auth/permissions + делегация в UserProfileService и другие сервисы.
  */
 
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../services/AvatarService.php';
+require_once __DIR__ . '/../services/NotificationSettingsService.php';
+require_once __DIR__ . '/../services/WebPushNotificationService.php';
+require_once __DIR__ . '/../services/UserProfileService.php';
 
 class UserController extends BaseController {
-    
+
+    private ?UserProfileService $profileService = null;
+
+    private function profile(): UserProfileService {
+        if (!$this->profileService) {
+            $this->profileService = new UserProfileService($this->db);
+        }
+        return $this->profileService;
+    }
+
     /**
-     * Получить профиль текущего пользователя
-     * GET /api_v2.php?action=get_profile
+     * GET get_profile
      */
     public function getProfile() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         try {
-            require_once __DIR__ . '/../user_functions.php';
-            // Настройки должны показывать актуальное состояние интеграций и профиля,
-            // поэтому здесь читаем пользователя напрямую из БД без кеша.
-            $userData = getUserData($this->currentUserId, null, false);
-            
-            if (!$userData) {
-                $this->returnError('Профиль не найден', 404);
-                return;
-            }
-            
-            // Парсим JSON поля
-            if (isset($userData['preferred_days']) && is_string($userData['preferred_days'])) {
-                $userData['preferred_days'] = json_decode($userData['preferred_days'], true) ?? [];
-            }
-            if (isset($userData['preferred_ofp_days']) && is_string($userData['preferred_ofp_days'])) {
-                $userData['preferred_ofp_days'] = json_decode($userData['preferred_ofp_days'], true) ?? [];
-            }
-            
-            // Убираем чувствительные данные
-            unset($userData['password']);
-            
-            // Возвращаем данные в формате, ожидаемом фронтендом
-            $this->returnSuccess($userData);
+            $this->returnSuccess($this->profile()->getProfile($this->currentUserId));
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
-    
+
     /**
-     * Обновить профиль пользователя
-     * POST /api_v2.php?action=update_profile
+     * POST update_profile
      */
     public function updateProfile() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-        
         try {
             $data = $this->getJsonBody();
-            
-            // Вспомогательная функция для нормализации null значений
-            $normalizeNull = function($value) {
-                if ($value === null || $value === 'null' || $value === '') {
-                    return null;
-                }
-                return $value;
-            };
-            
-            // Подготовка данных для обновления
-            $updateFields = [];
-            $updateValues = [];
-            $types = '';
-            
-            // Базовые поля
-            if (isset($data['username'])) {
-                $username = trim($data['username']);
-                if (strlen($username) < 3 || strlen($username) > 50) {
-                    $this->returnError('Имя пользователя должно быть от 3 до 50 символов', 400);
-                    return;
-                }
-                $updateFields[] = 'username = ?';
-                $updateValues[] = $username;
-                $types .= 's';
-            }
-            
-            if (isset($data['email'])) {
-                $email = $normalizeNull($data['email']);
-                if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $this->returnError('Некорректный формат email', 400);
-                    return;
-                }
-                $updateFields[] = 'email = ?';
-                $updateValues[] = $email;
-                $types .= 's';
-            }
-            
-            if (isset($data['timezone'])) {
-                $updateFields[] = 'timezone = ?';
-                $updateValues[] = $normalizeNull($data['timezone']);
-                $types .= 's';
-            }
-            
-            // Профиль
-            if (isset($data['gender'])) {
-                $gender = $normalizeNull($data['gender']);
-                if ($gender !== null && !in_array($gender, ['male', 'female'], true)) {
-                    $gender = null;
-                }
-                $updateFields[] = 'gender = ?';
-                $updateValues[] = $gender;
-                $types .= 's';
-            }
-            
-            if (isset($data['birth_year'])) {
-                $birthYear = $normalizeNull($data['birth_year']);
-                if ($birthYear !== null) {
-                    $birthYear = (int)$birthYear;
-                    if ($birthYear < 1900 || $birthYear > date('Y')) {
-                        $this->returnError('Некорректный год рождения', 400);
-                        return;
-                    }
-                }
-                $updateFields[] = 'birth_year = ?';
-                $updateValues[] = $birthYear;
-                $types .= 'i';
-            }
-            
-            if (isset($data['height_cm'])) {
-                $heightCm = $normalizeNull($data['height_cm']);
-                if ($heightCm !== null) {
-                    $heightCm = (int)$heightCm;
-                    if ($heightCm < 50 || $heightCm > 250) {
-                        $this->returnError('Некорректный рост (50-250 см)', 400);
-                        return;
-                    }
-                }
-                $updateFields[] = 'height_cm = ?';
-                $updateValues[] = $heightCm;
-                $types .= 'i';
-            }
-            
-            if (isset($data['weight_kg'])) {
-                $weightKg = $normalizeNull($data['weight_kg']);
-                if ($weightKg !== null) {
-                    $weightKg = (float)$weightKg;
-                    if ($weightKg < 20 || $weightKg > 300) {
-                        $this->returnError('Некорректный вес (20-300 кг)', 400);
-                        return;
-                    }
-                }
-                $updateFields[] = 'weight_kg = ?';
-                $updateValues[] = $weightKg;
-                $types .= 'd';
-            }
-            
-            // Цель и забег
-            if (isset($data['goal_type'])) {
-                $goalType = $data['goal_type'];
-                if (!in_array($goalType, ['health', 'race', 'weight_loss', 'time_improvement'], true)) {
-                    $goalType = 'health';
-                }
-                $updateFields[] = 'goal_type = ?';
-                $updateValues[] = $goalType;
-                $types .= 's';
-            }
-            
-            if (isset($data['race_distance'])) {
-                $updateFields[] = 'race_distance = ?';
-                $updateValues[] = $normalizeNull($data['race_distance']);
-                $types .= 's';
-            }
-            
-            if (isset($data['race_date'])) {
-                $updateFields[] = 'race_date = ?';
-                $updateValues[] = $normalizeNull($data['race_date']);
-                $types .= 's';
-            }
-            
-            if (isset($data['race_target_time'])) {
-                $updateFields[] = 'race_target_time = ?';
-                $updateValues[] = $normalizeNull($data['race_target_time']);
-                $types .= 's';
-            }
-            
-            if (isset($data['target_marathon_date'])) {
-                $updateFields[] = 'target_marathon_date = ?';
-                $updateValues[] = $normalizeNull($data['target_marathon_date']);
-                $types .= 's';
-            }
-            
-            if (isset($data['target_marathon_time'])) {
-                $updateFields[] = 'target_marathon_time = ?';
-                $updateValues[] = $normalizeNull($data['target_marathon_time']);
-                $types .= 's';
-            }
-            
-            // Опыт и тренировки
-            if (isset($data['experience_level'])) {
-                $expLevel = $data['experience_level'];
-                // Поддержка новых значений: novice, beginner, intermediate, advanced, expert
-                // И обратная совместимость со старыми значениями
-                if (!in_array($expLevel, ['novice', 'beginner', 'intermediate', 'advanced', 'expert'], true)) {
-                    // Маппинг старых значений для обратной совместимости
-                    if ($expLevel === 'zero' || $expLevel === '') {
-                        $expLevel = 'novice';
-                    } else {
-                        $expLevel = 'beginner'; // по умолчанию
-                    }
-                }
-                $updateFields[] = 'experience_level = ?';
-                $updateValues[] = $expLevel;
-                $types .= 's';
-            }
-            
-            if (isset($data['weekly_base_km'])) {
-                $weeklyBaseKm = $normalizeNull($data['weekly_base_km']);
-                if ($weeklyBaseKm !== null) {
-                    $weeklyBaseKm = (float)$weeklyBaseKm;
-                }
-                $updateFields[] = 'weekly_base_km = ?';
-                $updateValues[] = $weeklyBaseKm;
-                $types .= 'd';
-            }
-            
-            if (isset($data['sessions_per_week'])) {
-                $sessionsPerWeek = $normalizeNull($data['sessions_per_week']);
-                if ($sessionsPerWeek !== null) {
-                    $sessionsPerWeek = (int)$sessionsPerWeek;
-                }
-                $updateFields[] = 'sessions_per_week = ?';
-                $updateValues[] = $sessionsPerWeek;
-                $types .= 'i';
-            }
-            
-            if (isset($data['preferred_days'])) {
-                $preferredDays = is_array($data['preferred_days']) ? $data['preferred_days'] : [];
-                $preferredDaysJson = !empty($preferredDays) ? json_encode(array_values($preferredDays), JSON_UNESCAPED_UNICODE) : null;
-                $updateFields[] = 'preferred_days = ?';
-                $updateValues[] = $preferredDaysJson;
-                $types .= 's';
-            }
-            
-            if (isset($data['preferred_ofp_days'])) {
-                $preferredOfpDays = is_array($data['preferred_ofp_days']) ? $data['preferred_ofp_days'] : [];
-                $preferredOfpDaysJson = !empty($preferredOfpDays) ? json_encode(array_values($preferredOfpDays), JSON_UNESCAPED_UNICODE) : null;
-                $updateFields[] = 'preferred_ofp_days = ?';
-                $updateValues[] = $preferredOfpDaysJson;
-                $types .= 's';
-            }
-            
-            if (isset($data['has_treadmill'])) {
-                $hasTreadmill = isset($data['has_treadmill']) && ($data['has_treadmill'] === true || $data['has_treadmill'] === 1 || $data['has_treadmill'] === '1') ? 1 : 0;
-                $updateFields[] = 'has_treadmill = ?';
-                $updateValues[] = $hasTreadmill;
-                $types .= 'i';
-            }
-            
-            if (isset($data['training_time_pref'])) {
-                $trainingTimePref = $normalizeNull($data['training_time_pref']);
-                if ($trainingTimePref !== null && !in_array($trainingTimePref, ['morning', 'day', 'evening'], true)) {
-                    $trainingTimePref = null;
-                }
-                $updateFields[] = 'training_time_pref = ?';
-                $updateValues[] = $trainingTimePref;
-                $types .= 's';
-            }
-            
-            if (isset($data['ofp_preference'])) {
-                $ofpPreference = $normalizeNull($data['ofp_preference']);
-                if ($ofpPreference !== null && !in_array($ofpPreference, ['gym', 'home', 'both', 'group_classes', 'online'], true)) {
-                    $ofpPreference = null;
-                }
-                $updateFields[] = 'ofp_preference = ?';
-                $updateValues[] = $ofpPreference;
-                $types .= 's';
-            }
-            
-            if (isset($data['training_mode'])) {
-                $trainingMode = $data['training_mode'];
-                if (!in_array($trainingMode, ['ai', 'coach', 'both', 'self'], true)) {
-                    $trainingMode = 'ai';
-                }
-                $updateFields[] = 'training_mode = ?';
-                $updateValues[] = $trainingMode;
-                $types .= 's';
-            }
-            
-            if (isset($data['training_start_date'])) {
-                $updateFields[] = 'training_start_date = ?';
-                $updateValues[] = $normalizeNull($data['training_start_date']);
-                $types .= 's';
-            }
-            
-            // Здоровье
-            if (isset($data['health_notes'])) {
-                $updateFields[] = 'health_notes = ?';
-                $updateValues[] = $normalizeNull($data['health_notes']);
-                $types .= 's';
-            }
-            
-            if (isset($data['device_type'])) {
-                $updateFields[] = 'device_type = ?';
-                $updateValues[] = $normalizeNull($data['device_type']);
-                $types .= 's';
-            }
-            
-            if (isset($data['weight_goal_kg'])) {
-                $weightGoalKg = $normalizeNull($data['weight_goal_kg']);
-                if ($weightGoalKg !== null) {
-                    $weightGoalKg = (float)$weightGoalKg;
-                }
-                $updateFields[] = 'weight_goal_kg = ?';
-                $updateValues[] = $weightGoalKg;
-                $types .= 'd';
-            }
-            
-            if (isset($data['weight_goal_date'])) {
-                $updateFields[] = 'weight_goal_date = ?';
-                $updateValues[] = $normalizeNull($data['weight_goal_date']);
-                $types .= 's';
-            }
-            
-            if (isset($data['health_program'])) {
-                $healthProgram = $normalizeNull($data['health_program']);
-                if ($healthProgram !== null && !in_array($healthProgram, ['start_running', 'couch_to_5k', 'regular_running', 'custom'], true)) {
-                    $healthProgram = null;
-                }
-                $updateFields[] = 'health_program = ?';
-                $updateValues[] = $healthProgram;
-                $types .= 's';
-            }
-            
-            if (isset($data['health_plan_weeks'])) {
-                $healthPlanWeeks = $normalizeNull($data['health_plan_weeks']);
-                if ($healthPlanWeeks !== null) {
-                    $healthPlanWeeks = (int)$healthPlanWeeks;
-                }
-                $updateFields[] = 'health_plan_weeks = ?';
-                $updateValues[] = $healthPlanWeeks;
-                $types .= 'i';
-            }
-            
-            if (isset($data['current_running_level'])) {
-                $currentRunningLevel = $normalizeNull($data['current_running_level']);
-                if ($currentRunningLevel !== null && !in_array($currentRunningLevel, ['zero', 'basic', 'comfortable'], true)) {
-                    $currentRunningLevel = null;
-                }
-                $updateFields[] = 'current_running_level = ?';
-                $updateValues[] = $currentRunningLevel;
-                $types .= 's';
-            }
-            
-            // Расширенный профиль бегуна
-            if (isset($data['running_experience'])) {
-                $runningExperience = $normalizeNull($data['running_experience']);
-                if ($runningExperience !== null && !in_array($runningExperience, ['less_3m', '3_6m', '6_12m', '1_2y', 'more_2y'], true)) {
-                    $runningExperience = null;
-                }
-                $updateFields[] = 'running_experience = ?';
-                $updateValues[] = $runningExperience;
-                $types .= 's';
-            }
-            
-            if (isset($data['easy_pace_sec'])) {
-                $easyPaceSec = $normalizeNull($data['easy_pace_sec']);
-                if ($easyPaceSec !== null) {
-                    $easyPaceSec = (int)$easyPaceSec;
-                }
-                $updateFields[] = 'easy_pace_sec = ?';
-                $updateValues[] = $easyPaceSec;
-                $types .= 'i';
-            }
-            
-            if (isset($data['is_first_race_at_distance'])) {
-                $isFirstRace = $normalizeNull($data['is_first_race_at_distance']);
-                if ($isFirstRace !== null) {
-                    $isFirstRace = ($isFirstRace === true || $isFirstRace === 1 || $isFirstRace === '1') ? 1 : 0;
-                }
-                $updateFields[] = 'is_first_race_at_distance = ?';
-                $updateValues[] = $isFirstRace;
-                $types .= 'i';
-            }
-            
-            if (isset($data['last_race_distance'])) {
-                $lastRaceDistance = $normalizeNull($data['last_race_distance']);
-                if ($lastRaceDistance !== null && !in_array($lastRaceDistance, ['5k', '10k', 'half', 'marathon', 'other'], true)) {
-                    $lastRaceDistance = null;
-                }
-                $updateFields[] = 'last_race_distance = ?';
-                $updateValues[] = $lastRaceDistance;
-                $types .= 's';
-            }
-            
-            if (isset($data['last_race_distance_km'])) {
-                $lastRaceDistanceKm = $normalizeNull($data['last_race_distance_km']);
-                if ($lastRaceDistanceKm !== null) {
-                    $lastRaceDistanceKm = (float)$lastRaceDistanceKm;
-                }
-                $updateFields[] = 'last_race_distance_km = ?';
-                $updateValues[] = $lastRaceDistanceKm;
-                $types .= 'd';
-            }
-            
-            if (isset($data['last_race_time'])) {
-                $updateFields[] = 'last_race_time = ?';
-                $updateValues[] = $normalizeNull($data['last_race_time']);
-                $types .= 's';
-            }
-            
-            if (isset($data['last_race_date'])) {
-                $updateFields[] = 'last_race_date = ?';
-                $updateValues[] = $normalizeNull($data['last_race_date']);
-                $types .= 's';
-            }
-            
-            // Аватар и приватность
-            if (isset($data['avatar_path'])) {
-                $normalizedAvatar = AvatarService::normalizeStoredAvatarPath($data['avatar_path']);
-                if (!$normalizedAvatar['valid']) {
-                    $this->returnError('Некорректный avatar_path', 400);
-                    return;
-                }
-                $updateFields[] = 'avatar_path = ?';
-                $updateValues[] = $normalizedAvatar['value'];
-                $types .= 's';
-            }
-            
-            if (isset($data['privacy_show_email'])) {
-                $v = (int)($data['privacy_show_email']);
-                $updateFields[] = 'privacy_show_email = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['privacy_show_trainer'])) {
-                $v = (int)($data['privacy_show_trainer']);
-                $updateFields[] = 'privacy_show_trainer = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['privacy_show_calendar'])) {
-                $v = (int)($data['privacy_show_calendar']);
-                $updateFields[] = 'privacy_show_calendar = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['privacy_show_metrics'])) {
-                $v = (int)($data['privacy_show_metrics']);
-                $updateFields[] = 'privacy_show_metrics = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['privacy_show_workouts'])) {
-                $v = (int)($data['privacy_show_workouts']);
-                $updateFields[] = 'privacy_show_workouts = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['push_workouts_enabled'])) {
-                $v = (int)($data['push_workouts_enabled']);
-                $updateFields[] = 'push_workouts_enabled = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['push_chat_enabled'])) {
-                $v = (int)($data['push_chat_enabled']);
-                $updateFields[] = 'push_chat_enabled = ?';
-                $updateValues[] = $v ? 1 : 0;
-                $types .= 'i';
-            }
-            if (isset($data['push_workout_hour'])) {
-                $h = (int)($data['push_workout_hour']);
-                if ($h >= 0 && $h <= 23) {
-                    $updateFields[] = 'push_workout_hour = ?';
-                    $updateValues[] = $h;
-                    $types .= 'i';
-                }
-            }
-            if (isset($data['push_workout_minute'])) {
-                $m = (int)($data['push_workout_minute']);
-                if ($m >= 0 && $m <= 59) {
-                    $updateFields[] = 'push_workout_minute = ?';
-                    $updateValues[] = $m;
-                    $types .= 'i';
-                }
-            }
-            if (isset($data['privacy_level'])) {
-                $privacyLevel = $data['privacy_level'];
-                if (!in_array($privacyLevel, ['public', 'private', 'link'], true)) {
-                    $privacyLevel = 'public';
-                }
-                $updateFields[] = 'privacy_level = ?';
-                $updateValues[] = $privacyLevel;
-                $types .= 's';
-                if ($privacyLevel === 'link') {
-                    $tokenStmt = $this->db->prepare("SELECT public_token FROM users WHERE id = ?");
-                    $tokenStmt->bind_param("i", $this->currentUserId);
-                    $tokenStmt->execute();
-                    $tokenRow = $tokenStmt->get_result()->fetch_assoc();
-                    $tokenStmt->close();
-                    if (empty($tokenRow['public_token'])) {
-                        $newToken = bin2hex(random_bytes(16));
-                        $updateFields[] = 'public_token = ?';
-                        $updateValues[] = $newToken;
-                        $types .= 's';
-                    }
-                }
-            }
-            
-            // Обновляем username_slug если изменился username
-            if (isset($data['username'])) {
-                require_once __DIR__ . '/../user_functions.php';
-                $usernameSlug = generateUsernameSlug($data['username'], $this->currentUserId);
-                $updateFields[] = 'username_slug = ?';
-                $updateValues[] = $usernameSlug;
-                $types .= 's';
-            }
-            
-            if (empty($updateFields)) {
-                $this->returnError('Нет данных для обновления', 400);
+            $updatedUser = $this->profile()->updateProfile($this->currentUserId, $data);
+            $this->returnSuccess(['message' => 'Профиль успешно обновлен', 'user' => $updatedUser]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * GET get_notification_settings
+     */
+    public function getNotificationSettings() {
+        if (!$this->requireAuth()) return;
+        try {
+            $service = new NotificationSettingsService($this->db);
+            $this->returnSuccess($service->getSettings($this->currentUserId));
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * GET get_notification_delivery_log
+     */
+    public function getNotificationDeliveryLog() {
+        if (!$this->requireAuth()) return;
+        try {
+            $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 12;
+            $service = new NotificationSettingsService($this->db);
+            $this->returnSuccess(['items' => $service->getDeliveryLog($this->currentUserId, $limit)]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST update_notification_settings
+     */
+    public function updateNotificationSettings() {
+        if (!$this->requireAuth()) return;
+        $this->checkCsrfToken();
+        try {
+            $payload = $this->getJsonBody();
+            if (!is_array($payload)) {
+                $this->returnError('Некорректное тело запроса', 400);
                 return;
             }
-            
-            // Добавляем updated_at
-            $updateFields[] = 'updated_at = NOW()';
-            
-            // Выполняем обновление
-            $sql = "UPDATE users SET " . implode(', ', $updateFields) . " WHERE id = ?";
-            $updateValues[] = $this->currentUserId;
-            $types .= 'i';
-            
-            $stmt = $this->db->prepare($sql);
-            if (!$stmt) {
-                $this->returnError('Ошибка подготовки запроса: ' . $this->db->error, 500);
-                return;
-            }
-            
-            $stmt->bind_param($types, ...$updateValues);
-            $stmt->execute();
-            
-            if ($stmt->error) {
-                $stmt->close();
-                $this->returnError('Ошибка обновления профиля: ' . $stmt->error, 500);
-                return;
-            }
-            
-            $stmt->close();
-            
-            // Очищаем кеш пользователя
+            $service = new NotificationSettingsService($this->db);
+            $settings = $service->saveSettings($this->currentUserId, $payload);
             require_once __DIR__ . '/../user_functions.php';
             clearUserCache($this->currentUserId);
-            
-            // Возвращаем обновленные данные
-            $updatedUser = getUserData($this->currentUserId, null, false);
-            if (isset($updatedUser['preferred_days']) && is_string($updatedUser['preferred_days'])) {
-                $updatedUser['preferred_days'] = json_decode($updatedUser['preferred_days'], true) ?? [];
+            $this->returnSuccess($settings);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST register_web_push_subscription
+     */
+    public function registerWebPushSubscription() {
+        if (!$this->requireAuth()) return;
+        $this->checkCsrfToken();
+        try {
+            $payload = $this->getJsonBody();
+            $subscription = is_array($payload['subscription'] ?? null) ? $payload['subscription'] : [];
+            $userAgent = isset($payload['user_agent']) ? (string)$payload['user_agent'] : null;
+
+            $service = new WebPushNotificationService($this->db);
+            if (!$service->isConfigured()) {
+                $this->returnError('Web push не настроен на сервере', 503);
+                return;
             }
-            if (isset($updatedUser['preferred_ofp_days']) && is_string($updatedUser['preferred_ofp_days'])) {
-                $updatedUser['preferred_ofp_days'] = json_decode($updatedUser['preferred_ofp_days'], true) ?? [];
+            if (!$service->registerSubscription($this->currentUserId, $subscription, $userAgent)) {
+                $this->returnError('Не удалось сохранить web push подписку', 400);
+                return;
             }
-            unset($updatedUser['password']);
-            
-            require_once __DIR__ . '/../config/Logger.php';
-            Logger::info("Профиль пользователя обновлен", ['user_id' => $this->currentUserId]);
-            
+
+            $settingsService = new NotificationSettingsService($this->db);
+            $this->returnSuccess(['registered' => true, 'settings' => $settingsService->getSettings($this->currentUserId)]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST unregister_web_push_subscription
+     */
+    public function unregisterWebPushSubscription() {
+        if (!$this->requireAuth()) return;
+        $this->checkCsrfToken();
+        try {
+            $payload = $this->getJsonBody();
+            $endpoint = isset($payload['endpoint']) ? (string)$payload['endpoint'] : null;
+
+            $service = new WebPushNotificationService($this->db);
+            $deleted = $service->unregisterSubscription($this->currentUserId, $endpoint);
+
+            $settingsService = new NotificationSettingsService($this->db);
+            $this->returnSuccess(['deleted' => $deleted, 'settings' => $settingsService->getSettings($this->currentUserId)]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST send_test_notification
+     */
+    public function sendTestNotification() {
+        if (!$this->requireAuth()) return;
+        $this->checkCsrfToken();
+        try {
+            $payload = $this->getJsonBody();
+            $channel = trim((string)($payload['channel'] ?? ''));
+            $endpoint = trim((string)($payload['endpoint'] ?? ''));
+
+            $result = $this->profile()->sendTestNotification($this->currentUserId, $channel, $endpoint);
+
+            if (!$result['success']) {
+                $this->returnError($result['error'] ?: 'Не удалось отправить тестовое уведомление', 400);
+                return;
+            }
+
             $this->returnSuccess([
-                'message' => 'Профиль успешно обновлен',
-                'user' => $updatedUser
+                'channel' => $result['channel'],
+                'sent' => true,
+                'message' => 'Тестовое уведомление отправлено',
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
-    
+
     /**
-     * Удалить пользователя
-     * POST /api_v2.php?action=delete_user
+     * POST delete_user (admin only)
      */
     public function deleteUser() {
-        if (!$this->requireAuth() || !$this->requireEdit()) {
-            return;
-        }
-        
+        if (!$this->requireAuth() || !$this->requireEdit()) return;
         $this->checkCsrfToken();
-        
         try {
-            // Проверяем, что текущий пользователь - администратор
             require_once __DIR__ . '/../user_functions.php';
             $currentUser = getCurrentUser();
             if (!$currentUser || $currentUser['role'] !== 'admin') {
                 $this->returnError('Доступ запрещен. Требуется роль администратора.', 403);
                 return;
             }
-            
+
             $data = $this->getJsonBody();
-            $targetUserId = isset($data['user_id']) ? (int)$data['user_id'] : null;
-            
+            $targetUserId = isset($data['user_id']) ? (int)$data['user_id'] : 0;
             if (!$targetUserId || $targetUserId <= 0) {
                 $this->returnError('Не указан ID пользователя', 400);
                 return;
             }
-            
-            // Нельзя удалить самого себя
-            if ($targetUserId === $this->currentUserId) {
-                $this->returnError('Нельзя удалить самого себя', 400);
-                return;
-            }
-            
-            // Проверяем, что пользователь существует (заодно берём avatar_path для удаления файла)
-            $checkStmt = $this->db->prepare("SELECT id, username, avatar_path FROM users WHERE id = ?");
-            $checkStmt->bind_param("i", $targetUserId);
-            $checkStmt->execute();
-            $userResult = $checkStmt->get_result();
-            $user = $userResult->fetch_assoc();
-            $checkStmt->close();
-            
-            if (!$user) {
-                $this->returnError('Пользователь не найден', 404);
-                return;
-            }
-            
-            // Начинаем транзакцию для каскадного удаления
-            $this->db->begin_transaction();
-            
-            try {
-                // 1. Удаляем упражнения дней тренировок
-                $deleteExercisesStmt = $this->db->prepare("DELETE tde FROM training_day_exercises tde INNER JOIN training_plan_days tpd ON tde.plan_day_id = tpd.id WHERE tpd.user_id = ?");
-                $deleteExercisesStmt->bind_param("i", $targetUserId);
-                $deleteExercisesStmt->execute();
-                $deleteExercisesStmt->close();
-                
-                // 2. Удаляем дни тренировок
-                $deleteDaysStmt = $this->db->prepare("DELETE FROM training_plan_days WHERE user_id = ?");
-                $deleteDaysStmt->bind_param("i", $targetUserId);
-                $deleteDaysStmt->execute();
-                $deleteDaysStmt->close();
-                
-                // 3. Удаляем недели тренировок
-                $deleteWeeksStmt = $this->db->prepare("DELETE FROM training_plan_weeks WHERE user_id = ?");
-                $deleteWeeksStmt->bind_param("i", $targetUserId);
-                $deleteWeeksStmt->execute();
-                $deleteWeeksStmt->close();
-                
-                // 4. Удаляем фазы тренировок (если таблица существует)
-                $deletePhasesStmt = $this->db->prepare("DELETE FROM training_plan_phases WHERE user_id = ?");
-                $deletePhasesStmt->bind_param("i", $targetUserId);
-                $deletePhasesStmt->execute();
-                $deletePhasesStmt->close();
-                
-                // 5. Удаляем планы тренировок
-                $deletePlansStmt = $this->db->prepare("DELETE FROM user_training_plans WHERE user_id = ?");
-                $deletePlansStmt->bind_param("i", $targetUserId);
-                $deletePlansStmt->execute();
-                $deletePlansStmt->close();
-                
-                // 6. Удаляем прогресс тренировок
-                $deleteProgressStmt = $this->db->prepare("DELETE FROM training_progress WHERE user_id = ?");
-                $deleteProgressStmt->bind_param("i", $targetUserId);
-                $deleteProgressStmt->execute();
-                $deleteProgressStmt->close();
-                
-                // 7. Удаляем ручные тренировки (workout_log)
-                $deleteWorkoutLogStmt = $this->db->prepare("DELETE FROM workout_log WHERE user_id = ?");
-                $deleteWorkoutLogStmt->bind_param("i", $targetUserId);
-                $deleteWorkoutLogStmt->execute();
-                $deleteWorkoutLogStmt->close();
-                
-                // 8. Удаляем timeline автоматических тренировок (до удаления workouts; таблица может отсутствовать)
-                $timelineTable = $this->db->query("SHOW TABLES LIKE 'workout_timeline'");
-                if ($timelineTable && $timelineTable->num_rows > 0) {
-                    $deleteTimelineStmt = $this->db->prepare("DELETE wt FROM workout_timeline wt INNER JOIN workouts w ON wt.workout_id = w.id WHERE w.user_id = ?");
-                    if ($deleteTimelineStmt) {
-                        $deleteTimelineStmt->bind_param("i", $targetUserId);
-                        $deleteTimelineStmt->execute();
-                        $deleteTimelineStmt->close();
-                    }
-                }
-                
-                // 9. Удаляем автоматические тренировки (workouts)
-                $deleteWorkoutsStmt = $this->db->prepare("DELETE FROM workouts WHERE user_id = ?");
-                $deleteWorkoutsStmt->bind_param("i", $targetUserId);
-                $deleteWorkoutsStmt->execute();
-                $deleteWorkoutsStmt->close();
-                
-                // 10. Токены сброса пароля (таблица может отсутствовать)
-                $tblReset = $this->db->query("SHOW TABLES LIKE 'password_reset_tokens'");
-                if ($tblReset && $tblReset->num_rows > 0) {
-                    $deleteResetStmt = $this->db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ?");
-                    if ($deleteResetStmt) {
-                        $deleteResetStmt->bind_param("i", $targetUserId);
-                        $deleteResetStmt->execute();
-                        $deleteResetStmt->close();
-                    }
-                }
-                
-                // 11. JWT refresh-токены (таблица может отсутствовать)
-                $tblRefresh = $this->db->query("SHOW TABLES LIKE 'refresh_tokens'");
-                if ($tblRefresh && $tblRefresh->num_rows > 0) {
-                    $deleteRefreshStmt = $this->db->prepare("DELETE FROM refresh_tokens WHERE user_id = ?");
-                    if ($deleteRefreshStmt) {
-                        $deleteRefreshStmt->bind_param("i", $targetUserId);
-                        $deleteRefreshStmt->execute();
-                        $deleteRefreshStmt->close();
-                    }
-                }
-                
-                // 11b. Закрытые уведомления (notification_dismissals)
-                $tblNotif = $this->db->query("SHOW TABLES LIKE 'notification_dismissals'");
-                if ($tblNotif && $tblNotif->num_rows > 0) {
-                    $deleteNotifStmt = $this->db->prepare("DELETE FROM notification_dismissals WHERE user_id = ?");
-                    if ($deleteNotifStmt) {
-                        $deleteNotifStmt->bind_param("i", $targetUserId);
-                        $deleteNotifStmt->execute();
-                        $deleteNotifStmt->close();
-                    }
-                }
-                
-                // 12. Связи тренер–ученик (если таблица есть)
-                $tableCheck = $this->db->query("SHOW TABLES LIKE 'user_coaches'");
-                if ($tableCheck && $tableCheck->num_rows > 0) {
-                    $deleteCoachesStmt = $this->db->prepare("DELETE FROM user_coaches WHERE user_id = ? OR coach_id = ?");
-                    if ($deleteCoachesStmt) {
-                        $deleteCoachesStmt->bind_param("ii", $targetUserId, $targetUserId);
-                        $deleteCoachesStmt->execute();
-                        $deleteCoachesStmt->close();
-                    }
-                }
-                
-                // 12b. Токены интеграций (Strava, Huawei и др.)
-                $deleteIntegrationStmt = $this->db->prepare("DELETE FROM integration_tokens WHERE user_id = ?");
-                $deleteIntegrationStmt->bind_param("i", $targetUserId);
-                $deleteIntegrationStmt->execute();
-                $deleteIntegrationStmt->close();
-                
-                // 12c. Push-токены устройств
-                $tblPush = $this->db->query("SHOW TABLES LIKE 'push_tokens'");
-                if ($tblPush && $tblPush->num_rows > 0) {
-                    $deletePushStmt = $this->db->prepare("DELETE FROM push_tokens WHERE user_id = ?");
-                    if ($deletePushStmt) {
-                        $deletePushStmt->bind_param("i", $targetUserId);
-                        $deletePushStmt->execute();
-                        $deletePushStmt->close();
-                    }
-                }
-                
-                // 13. Удаляем самого пользователя
-                $deleteUserStmt = $this->db->prepare("DELETE FROM users WHERE id = ?");
-                $deleteUserStmt->bind_param("i", $targetUserId);
-                $deleteUserStmt->execute();
-                
-                if ($deleteUserStmt->error) {
-                    throw new Exception('Ошибка удаления пользователя: ' . $deleteUserStmt->error);
-                }
-                
-                $deleteUserStmt->close();
-                
-                // Подтверждаем транзакцию
-                $this->db->commit();
-                
-                // Удаляем файл аватара с диска (вне транзакции — БД уже закоммичена)
-                if (!empty($user['avatar_path'])) {
-                    AvatarService::deleteAvatarByPath($user['avatar_path']);
-                }
-                
-                clearUserCache($targetUserId);
-                
-                require_once __DIR__ . '/../config/Logger.php';
-                Logger::info("Пользователь удален", [
-                    'username' => $user['username'],
-                    'target_user_id' => $targetUserId,
-                    'admin_user_id' => $this->currentUserId
-                ]);
-                
-                $this->returnSuccess([
-                    'message' => 'Пользователь и все его данные успешно удалены',
-                    'username' => $user['username']
-                ]);
-            } catch (Exception $e) {
-                $this->db->rollback();
-                throw $e;
-            }
+
+            $result = $this->profile()->deleteUser($targetUserId, $this->currentUserId);
+            $this->returnSuccess([
+                'message' => 'Пользователь и все его данные успешно удалены',
+                'username' => $result['username'],
+            ]);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
-    
+
     /**
-     * Загрузить аватар
-     * POST /api_v2.php?action=upload_avatar
+     * POST upload_avatar
      */
     public function uploadAvatar() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-        
         try {
             if (!isset($_FILES['avatar']) || $_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
                 $this->returnError('Файл не загружен или произошла ошибка', 400);
                 return;
             }
-            
-            $oldAvatarStmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
-            $oldAvatarStmt->bind_param("i", $this->currentUserId);
-            $oldAvatarStmt->execute();
-            $oldAvatar = $oldAvatarStmt->get_result()->fetch_assoc();
-            $oldAvatarStmt->close();
 
-            $storedAvatar = AvatarService::storeUploadedAvatar($_FILES['avatar'], (int) $this->currentUserId);
-            $relativePath = $storedAvatar['avatar_path'];
-
-            try {
-                $updateStmt = $this->db->prepare("UPDATE users SET avatar_path = ? WHERE id = ?");
-                $updateStmt->bind_param("si", $relativePath, $this->currentUserId);
-                if (!$updateStmt->execute()) {
-                    throw new RuntimeException('Не удалось сохранить путь аватара в БД');
-                }
-                $updateStmt->close();
-            } catch (Throwable $e) {
-                AvatarService::deleteAvatarByPath($relativePath);
-                throw $e;
-            }
-
-            if ($oldAvatar && !empty($oldAvatar['avatar_path']) && $oldAvatar['avatar_path'] !== $relativePath) {
-                AvatarService::deleteAvatarByPath($oldAvatar['avatar_path']);
-            }
-
-            require_once __DIR__ . '/../user_functions.php';
-            clearUserCache($this->currentUserId);
-
-            require_once __DIR__ . '/../config/Logger.php';
-            Logger::info("Аватар загружен", [
-                'user_id' => $this->currentUserId,
-                'avatar_path' => $relativePath,
-            ]);
-
-            $updatedUser = getUserData($this->currentUserId, null, false);
-            unset($updatedUser['password']);
-
+            $result = $this->profile()->uploadAvatar($this->currentUserId, $_FILES['avatar']);
             $this->returnSuccess([
                 'message' => 'Аватар успешно загружен',
-                'avatar_path' => $relativePath,
-                'user' => $updatedUser
+                'avatar_path' => $result['avatar_path'],
+                'user' => $result['user'],
             ]);
         } catch (InvalidArgumentException $e) {
             $this->returnError($e->getMessage(), 400);
         } catch (RuntimeException $e) {
             require_once __DIR__ . '/../config/Logger.php';
-            Logger::error('Ошибка загрузки аватара', [
-                'user_id' => $this->currentUserId,
-                'error' => $e->getMessage(),
-            ]);
+            Logger::error('Ошибка загрузки аватара', ['user_id' => $this->currentUserId, 'error' => $e->getMessage()]);
             $this->returnError('Ошибка обработки аватара. Проверьте формат изображения и права на uploads/avatars.', 500);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
-    
+
     /**
-     * Раздать файл аватара (GET, без авторизации)
-     * GET /api_v2.php?action=get_avatar&file=avatar_123_456.jpg&variant=sm
+     * GET get_avatar (без авторизации)
      */
     public function getAvatar() {
         $file = $_GET['file'] ?? '';
@@ -872,138 +247,53 @@ class UserController extends BaseController {
     }
 
     /**
-     * Удалить аватар
-     * POST /api_v2.php?action=remove_avatar
+     * POST remove_avatar
      */
     public function removeAvatar() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-        
         try {
-            $stmt = $this->db->prepare("SELECT avatar_path FROM users WHERE id = ?");
-            $stmt->bind_param("i", $this->currentUserId);
-            $stmt->execute();
-            $result = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            
-            $updateStmt = $this->db->prepare("UPDATE users SET avatar_path = NULL WHERE id = ?");
-            $updateStmt->bind_param("i", $this->currentUserId);
-            if (!$updateStmt->execute()) {
-                throw new RuntimeException('Не удалось обновить профиль пользователя');
-            }
-            $updateStmt->close();
-
-            if ($result && !empty($result['avatar_path'])) {
-                AvatarService::deleteAvatarByPath($result['avatar_path']);
-            }
-            
-            // Очищаем кеш пользователя
-            require_once __DIR__ . '/../user_functions.php';
-            clearUserCache($this->currentUserId);
-            
-            require_once __DIR__ . '/../config/Logger.php';
-            Logger::info("Аватар удален", ['user_id' => $this->currentUserId]);
-            
+            $this->profile()->removeAvatar($this->currentUserId);
             $this->returnSuccess(['message' => 'Аватар успешно удален']);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
-    
+
     /**
-     * Обновить настройки приватности
-     * POST /api_v2.php?action=update_privacy
+     * POST update_privacy
      */
     public function updatePrivacy() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-        
         try {
             $data = $this->getJsonBody();
-            $privacyLevel = $data['privacy_level'] ?? 'public';
-            
-            if (!in_array($privacyLevel, ['public', 'private', 'link'], true)) {
-                $privacyLevel = 'public';
-            }
-            
-            $publicToken = null;
-            if ($privacyLevel === 'link') {
-                $tokenStmt = $this->db->prepare("SELECT public_token FROM users WHERE id = ?");
-                $tokenStmt->bind_param("i", $this->currentUserId);
-                $tokenStmt->execute();
-                $tokenResult = $tokenStmt->get_result()->fetch_assoc();
-                $tokenStmt->close();
-                
-                if (empty($tokenResult['public_token'])) {
-                    $publicToken = bin2hex(random_bytes(16));
-                    $updateTokenStmt = $this->db->prepare("UPDATE users SET public_token = ? WHERE id = ?");
-                    $updateTokenStmt->bind_param("si", $publicToken, $this->currentUserId);
-                    $updateTokenStmt->execute();
-                    $updateTokenStmt->close();
-                } else {
-                    $publicToken = $tokenResult['public_token'];
-                }
-            }
-            
-            $stmt = $this->db->prepare("UPDATE users SET privacy_level = ? WHERE id = ?");
-            $stmt->bind_param("si", $privacyLevel, $this->currentUserId);
-            $stmt->execute();
-            $stmt->close();
-            
-            require_once __DIR__ . '/../user_functions.php';
-            clearUserCache($this->currentUserId);
-            
-            require_once __DIR__ . '/../config/Logger.php';
-            Logger::info("Настройки приватности обновлены", [
-                'user_id' => $this->currentUserId,
-                'privacy_level' => $privacyLevel
-            ]);
-            
-            $response = [
-                'message' => 'Настройки приватности обновлены',
-                'privacy_level' => $privacyLevel
-            ];
-            if ($privacyLevel === 'link' && $publicToken) {
-                $response['public_token'] = $publicToken;
-            }
-            $this->returnSuccess($response);
-        } catch (Exception $e) {
-            $this->handleException($e);
-        }
-    }
-    
-    /**
-     * Получить список закрытых уведомлений (синхронизация между устройствами)
-     * GET /api_v2.php?action=notifications_dismissed
-     */
-    public function getNotificationsDismissed() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        try {
-            require_once __DIR__ . '/../repositories/NotificationRepository.php';
-            $repo = new NotificationRepository($this->db);
-            $ids = $repo->getDismissedIds($this->currentUserId);
-            $this->returnSuccess(['dismissed' => $ids]);
+            $result = $this->profile()->updatePrivacy($this->currentUserId, $data['privacy_level'] ?? 'public');
+            $this->returnSuccess(array_merge(['message' => 'Настройки приватности обновлены'], $result));
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
 
     /**
-     * Закрыть уведомление
-     * POST /api_v2.php?action=notifications_dismiss { "notification_id": "chat_123" }
+     * GET notifications_dismissed
+     */
+    public function getNotificationsDismissed() {
+        if (!$this->requireAuth()) return;
+        try {
+            require_once __DIR__ . '/../repositories/NotificationRepository.php';
+            $repo = new NotificationRepository($this->db);
+            $this->returnSuccess(['dismissed' => $repo->getDismissedIds($this->currentUserId)]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST notifications_dismiss
      */
     public function dismissNotification() {
-        if (!$this->requireAuth()) {
-            return;
-        }
+        if (!$this->requireAuth()) return;
         try {
             $data = $this->getJsonBody();
             $notificationId = trim($data['notification_id'] ?? $data['id'] ?? '');
@@ -1021,96 +311,42 @@ class UserController extends BaseController {
     }
 
     /**
-     * Получить URL для Telegram Login
-     * GET /api_v2.php?action=telegram_login_url
+     * GET telegram_login_url
      */
     public function getTelegramLoginUrl() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-
+        if (!$this->requireAuth()) return;
         try {
             require_once __DIR__ . '/../services/TelegramLoginService.php';
-
-            $fromApp = (string) ($this->getParam('from_app', '0')) === '1';
+            $fromApp = (string)($this->getParam('from_app', '0')) === '1';
             $service = new TelegramLoginService($this->db);
-            $authUrl = $service->createAuthorizationUrl((int) $this->currentUserId, $fromApp);
-
-            $this->returnSuccess([
-                'auth_url' => $authUrl,
-            ]);
+            $this->returnSuccess(['auth_url' => $service->createAuthorizationUrl((int)$this->currentUserId, $fromApp)]);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
 
     /**
-     * Сгенерировать код привязки Telegram
-     * POST /api_v2.php?action=generate_telegram_link_code
+     * POST generate_telegram_link_code
      */
     public function generateTelegramLinkCode() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-
         try {
-            $linkCode = bin2hex(random_bytes(8));
-            $expiresAt = date('Y-m-d H:i:s', time() + 10 * 60);
-
-            $stmt = $this->db->prepare("
-                UPDATE users
-                SET telegram_link_code = ?, telegram_link_code_expires = ?
-                WHERE id = ?
-            ");
-            $stmt->bind_param('ssi', $linkCode, $expiresAt, $this->currentUserId);
-            $stmt->execute();
-            $stmt->close();
-
-            require_once __DIR__ . '/../user_functions.php';
-            clearUserCache($this->currentUserId);
-
-            $this->returnSuccess([
-                'code' => $linkCode,
-                'expires_at' => $expiresAt,
-            ]);
+            $result = $this->profile()->generateTelegramLinkCode($this->currentUserId);
+            $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
         }
     }
 
     /**
-     * Отвязать Telegram ID
-     * POST /api_v2.php?action=unlink_telegram
+     * POST unlink_telegram
      */
     public function unlinkTelegram() {
-        if (!$this->requireAuth()) {
-            return;
-        }
-        
+        if (!$this->requireAuth()) return;
         $this->checkCsrfToken();
-        
         try {
-            // Обновляем БД
-            $stmt = $this->db->prepare("
-                UPDATE users
-                SET telegram_id = NULL,
-                    telegram_link_code = NULL,
-                    telegram_link_code_expires = NULL
-                WHERE id = ?
-            ");
-            $stmt->bind_param("i", $this->currentUserId);
-            $stmt->execute();
-            $stmt->close();
-            
-            // Очищаем кеш пользователя
-            require_once __DIR__ . '/../user_functions.php';
-            clearUserCache($this->currentUserId);
-            
-            require_once __DIR__ . '/../config/Logger.php';
-            Logger::info("Telegram отвязан", ['user_id' => $this->currentUserId]);
-            
+            $this->profile()->unlinkTelegram($this->currentUserId);
             $this->returnSuccess(['message' => 'Telegram успешно отвязан']);
         } catch (Exception $e) {
             $this->handleException($e);

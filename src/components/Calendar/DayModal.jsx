@@ -130,13 +130,6 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
         return;
       }
       
-      console.log('Day data loaded:', {
-        hasPlanHtml: !!data?.planHtml,
-        hasDayExercises: !!data?.dayExercises && data.dayExercises.length > 0,
-        exercisesCount: data?.dayExercises?.length || 0,
-        workoutsCount: data?.workouts?.length || 0
-      });
-      
       setDayData(data);
     } catch (error) {
       console.error('Error loading day:', error);

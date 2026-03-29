@@ -24,7 +24,6 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
         $cacheKey = "training_plan_{$userId}";
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
-            Logger::debug("Training plan loaded from cache", ['user_id' => $userId]);
             return $cached;
         }
     }
@@ -107,11 +106,16 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
         }
         $dayStmt->close();
         
-        // Объём: вычисленный или из БД
-        if ($calculatedVolume > 0) {
-            $finalVolume = round($calculatedVolume, 1) . ' км';
-        } elseif (!empty($week['total_volume']) && trim($week['total_volume']) !== '') {
-            $finalVolume = $week['total_volume'];
+        // Объём: максимум из вычисленного (по exercises) и хранимого в БД.
+        // Exercises могут не содержать полную дистанцию (напр. длительный бег 28 км
+        // может иметь exercise 6.8 км если генератор не создал полный exercise).
+        $dbVolume = 0;
+        if (!empty($week['total_volume']) && trim($week['total_volume']) !== '') {
+            $dbVolume = (float) preg_replace('/[^\d.]/', '', $week['total_volume']);
+        }
+        $bestVolume = max($calculatedVolume, $dbVolume);
+        if ($bestVolume > 0) {
+            $finalVolume = round($bestVolume, 1) . ' км';
         } else {
             $finalVolume = '';
         }
@@ -134,11 +138,12 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
     // Кешируем результат (15 минут - план может изменяться)
     if ($useCache) {
         $cacheKey = "training_plan_{$userId}";
-        Cache::set($cacheKey, $result, 900);
-        Logger::debug("Training plan loaded from DB and cached", [
-            'user_id' => $userId,
-            'weeks_count' => count($weeks_data)
-        ]);
+        if (Cache::set($cacheKey, $result, 900)) {
+            Logger::debug("Training plan cached", [
+                'user_id' => $userId,
+                'weeks_count' => count($weeks_data)
+            ]);
+        }
     }
     
     return $result;

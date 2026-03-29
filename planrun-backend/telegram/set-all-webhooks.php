@@ -5,20 +5,10 @@
  *
  * Требует: curl, доступ к api.telegram.org (через прокси если в РФ)
  */
-$envPath = __DIR__ . '/../.env';
-if (is_file($envPath)) {
-    foreach (file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        $line = trim($line);
-        if ($line === '' || strpos($line, '#') === 0) continue;
-        if (strpos($line, '=') !== false) {
-            [$k, $v] = explode('=', $line, 2);
-            $k = trim($k);
-            if ($k === 'TELEGRAM_PROXY') {
-                putenv("TELEGRAM_PROXY=" . trim(trim($v), " \t\"'"));
-                break;
-            }
-        }
-    }
+require_once __DIR__ . '/../config/env_loader.php';
+$proxy = trim((string) env('TELEGRAM_PROXY', ''));
+if ($proxy !== '') {
+    putenv('TELEGRAM_PROXY=' . $proxy);
 }
 $bots = [
     'planrun'   => '8550141676:AAHoKDDlbItZ6_r16VKrdFvTAYchnRYFoeQ',
@@ -39,7 +29,6 @@ if (is_array($gpuConfig) && !empty($gpuConfig['telegram']['bot_token'])) {
     $bots['gpu-alert'] = $gpuConfig['telegram']['bot_token'];
 }
 
-$proxy = getenv('TELEGRAM_PROXY') ?: '';
 $curlOpts = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15];
 if ($proxy !== '') {
     $curlOpts[CURLOPT_PROXY] = $proxy;

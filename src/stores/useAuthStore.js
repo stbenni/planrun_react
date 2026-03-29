@@ -145,7 +145,9 @@ const useAuthStore = create(
               }
             }
           } catch (error) {
-            console.log('User not authenticated:', error.message);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('User not authenticated:', error.message);
+            }
           }
         } catch (error) {
           console.error('Error initializing app:', error);

@@ -1,7 +1,7 @@
 /**
  * TopHeader - Верхняя навигация для десктопов
  * В стиле спортивного приложения (Strava/Nike Run Club)
- * Справа: аватар с выпадающим меню (Профиль, Настройки тренировок, Конфиденциальность, Интеграции, Выйти)
+ * Справа: аватар с выпадающим меню (Профиль, Настройки тренировок, Уведомления, Конфиденциальность, Интеграции, Выйти)
  */
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
@@ -11,7 +11,7 @@ import { isNativeCapacitor } from '../../services/TokenStorageService';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
 import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon, CloseIcon } from './Icons';
+import { UserIcon, RunningIcon, BellIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon, CloseIcon } from './Icons';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -172,6 +172,7 @@ const TopHeader = () => {
     setDrawerOpen(false);
     if (action === 'profile') return navigateToSettingsTab('profile');
     if (action === 'training') return navigateToSettingsTab('training');
+    if (action === 'notifications') return navigateToSettingsTab('notifications');
     if (action === 'privacy') return navigateToSettingsTab('social');
     if (action === 'integrations') return navigateToSettingsTab('integrations');
     if (action === 'logout') {
@@ -264,6 +265,10 @@ const TopHeader = () => {
                     <span className="header-dropdown-icon" aria-hidden><RunningIcon size={18} /></span>
                     Настройки тренировок
                   </button>
+                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('notifications')}>
+                    <span className="header-dropdown-icon" aria-hidden><BellIcon size={18} /></span>
+                    Уведомления
+                  </button>
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('privacy')}>
                     <span className="header-dropdown-icon" aria-hidden><LockIcon size={18} /></span>
                     Конфиденциальность
@@ -317,6 +322,10 @@ const TopHeader = () => {
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('training')}>
                       <span className="app-drawer-icon" aria-hidden><RunningIcon size={20} /></span>
                       <span className="app-drawer-label">Настройки тренировок</span>
+                    </button>
+                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('notifications')}>
+                      <span className="app-drawer-icon" aria-hidden><BellIcon size={20} /></span>
+                      <span className="app-drawer-label">Уведомления</span>
                     </button>
                     <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('privacy')}>
                       <span className="app-drawer-icon" aria-hidden><LockIcon size={20} /></span>

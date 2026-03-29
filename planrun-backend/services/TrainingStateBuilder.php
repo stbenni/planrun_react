@@ -94,7 +94,7 @@ class TrainingStateBuilder {
             $sourceTimeSec = $lastRaceTimeSec;
         }
 
-        if ((!$vdot || ($vdotSource === 'last_race' && $lastRaceWeeksOld !== null && $lastRaceWeeksOld > 8)) && $userId > 0) {
+        if (!$vdot && $userId > 0) {
             $best = $this->statsService->getBestResultForVdot($userId, 6, $targetDistKm > 0 ? $targetDistKm : null);
             if ($best) {
                 $vdot = (float) $best['vdot'];
@@ -124,9 +124,11 @@ class TrainingStateBuilder {
         }
 
         if (!$vdot && $targetDistKm > 0 && $targetTimeSec > 0) {
-            $vdot = estimateVDOT($targetDistKm, $targetTimeSec);
+            $rawVdot = estimateVDOT($targetDistKm, $targetTimeSec);
+            $vdot = round($rawVdot * 0.92, 1);
+            $vdot = max(20.0, min(85.0, $vdot));
             $vdotSource = 'target_time';
-            $vdotSourceDetail = 'слабый fallback по целевому времени';
+            $vdotSourceDetail = 'слабый fallback по целевому времени (×0.92 — цель ещё не достигнута)';
             $sourceDistanceKm = $targetDistKm;
             $sourceTimeSec = $targetTimeSec;
         }

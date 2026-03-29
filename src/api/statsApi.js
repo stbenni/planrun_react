@@ -47,6 +47,30 @@ export function getWorkoutTimeline(client, workoutId) {
   return client.request('get_workout_timeline', { workout_id: workoutId }, 'GET');
 }
 
+export function getWorkoutShareMap(client, workoutId, options = {}) {
+  return client.requestBlob('get_workout_share_map', { workout_id: workoutId, ...options }, 'GET');
+}
+
+export function getWorkoutShareCard(client, workoutId, options = {}) {
+  return client.requestBlob('generate_workout_share_card', { workout_id: workoutId, ...options }, 'GET');
+}
+
+export async function storeWorkoutShareCard(client, workoutId, payload = {}) {
+  const csrfRes = await client.request('get_csrf_token', {}, 'GET');
+  const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+  return client.request('store_workout_share_card', {
+    workout_id: workoutId,
+    csrf_token: csrfToken,
+    ...payload,
+  }, 'POST');
+}
+
+export function getTrainingLoad(client, viewContext = null, days = 90) {
+  const params = viewContext ? client._viewParams(viewContext) : {};
+  if (days) params.days = days;
+  return client.request('training_load', params, 'GET');
+}
+
 export function runAdaptation(client) {
   return client.request('run_weekly_adaptation', {}, 'GET');
 }

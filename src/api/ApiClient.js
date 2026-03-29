@@ -60,12 +60,16 @@ import {
   getAllWorkoutsSummary as performGetAllWorkoutsSummary,
   getAllWorkoutsList as performGetAllWorkoutsList,
   getRacePrediction as performGetRacePrediction,
+  getTrainingLoad as performGetTrainingLoad,
   getIntegrationOAuthUrl as performGetIntegrationOAuthUrl,
   syncWorkouts as performSyncWorkouts,
   getIntegrationsStatus as performGetIntegrationsStatus,
   unlinkIntegration as performUnlinkIntegration,
   getStravaTokenError as performGetStravaTokenError,
   getWorkoutTimeline as performGetWorkoutTimeline,
+  getWorkoutShareMap as performGetWorkoutShareMap,
+  getWorkoutShareCard as performGetWorkoutShareCard,
+  storeWorkoutShareCard as performStoreWorkoutShareCard,
   runAdaptation as performRunAdaptation,
 } from './statsApi';
 import {
@@ -74,8 +78,11 @@ import {
   updateAdminUser as performUpdateAdminUser,
   deleteUser as performDeleteUser,
   getAdminSettings as performGetAdminSettings,
+  getAdminNotificationTemplates as performGetAdminNotificationTemplates,
   updateAdminSettings as performUpdateAdminSettings,
+  resetAdminNotificationTemplate as performResetAdminNotificationTemplate,
   getSiteSettings as performGetSiteSettings,
+  updateAdminNotificationTemplate as performUpdateAdminNotificationTemplate,
 } from './adminApi';
 import {
   chatGetMessages as performChatGetMessages,
@@ -352,7 +359,7 @@ class ApiClient {
         this.refreshToken = stored;
         return stored;
       }
-      if (typeof window !== 'undefined' && window.Capacitor) {
+      if (isNativeCapacitor()) {
         try {
           const tokens = await BiometricService.getTokens();
           if (tokens?.accessToken && tokens?.refreshToken) {
@@ -519,8 +526,8 @@ class ApiClient {
     }
 
     // Настройки для разных платформ
-    if (typeof window !== 'undefined' && window.Capacitor) {
-      // Capacitor - НЕ используем credentials (cookies не работают надежно)
+    if (isNativeCapacitor()) {
+      // Native - НЕ используем credentials (cookies не работают надежно)
       // Вместо этого передаем токен в заголовках
     } else {
       // Веб - CORS режим с cookies
@@ -739,6 +746,130 @@ class ApiClient {
         code: isAbort ? 'TIMEOUT' : 'NETWORK_ERROR',
         message
       });
+    }
+  }
+
+  /**
+   * Запрос бинарного ответа (например, изображения).
+   */
+  async requestBlob(action, params = {}, method = 'GET', extraUrlParams = {}) {
+    const token = await this.getToken();
+    const urlParams = new URLSearchParams({ action, ...extraUrlParams });
+    const url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
+    const headers = {};
+    const options = { method, headers };
+
+    if (isNativeCapacitor()) {
+      // Native - токен передаём через Authorization
+    } else {
+      options.credentials = 'include';
+      options.mode = 'cors';
+    }
+
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    if (method === 'POST' && Object.keys(params).length > 0) {
+      options.body = JSON.stringify(params);
+      headers['Content-Type'] = 'application/json';
+    } else if (method === 'GET' && Object.keys(params).length > 0) {
+      Object.keys(params).forEach((key) => {
+        if (params[key] !== undefined && params[key] !== null) {
+          if (typeof params[key] === 'object') {
+            urlParams.append(key, JSON.stringify(params[key]));
+          } else {
+            urlParams.append(key, String(params[key]));
+          }
+        }
+      });
+      options.url = `${this.baseUrl}/api_wrapper.php?${urlParams.toString()}`;
+    }
+
+    const finalUrl = method === 'GET' && options.url ? options.url : url;
+    const doFetch = async (requestHeaders) => {
+      const controller = new AbortController();
+      const timeoutMs = action === 'generate_workout_share_card' ? 30000 : REQUEST_TIMEOUT_MS;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const { url: _ignoredUrl, ...requestOptions } = options;
+        return await fetch(finalUrl, { ...requestOptions, headers: requestHeaders, signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    const buildBlobError = async (response, fallbackMessage) => {
+      const contentType = response.headers.get('content-type') || '';
+      let message = fallbackMessage;
+      if (contentType.includes('application/json')) {
+        const errorData = await response.json().catch(() => ({}));
+        message = errorData.error || errorData.message || fallbackMessage;
+      } else {
+        const text = await response.text().catch(() => '');
+        if (text && !text.includes('<html')) {
+          message = text.substring(0, 200);
+        }
+      }
+      return new ApiError({
+        code: response.status === 401 ? 'UNAUTHORIZED' : response.status === 403 ? 'FORBIDDEN' : `HTTP_${response.status}`,
+        message,
+      });
+    };
+
+    try {
+      let response = await doFetch(headers);
+
+      if (response.status === 401) {
+        const refreshToken = await this.getRefreshToken();
+        if (refreshToken) {
+          try {
+            const newToken = await this.refreshAccessToken();
+            const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
+            response = await doFetch(retryHeaders);
+          } catch (refreshError) {
+            if (refreshError?.isNetworkError) {
+              throw new ApiError({ code: 'NETWORK_ERROR', message: 'Нет соединения. Проверьте интернет и попробуйте снова.' });
+            }
+          }
+        }
+      }
+
+      if (!response.ok) {
+        throw await buildBlobError(response, 'Не удалось загрузить файл.');
+      }
+
+      if (response.status === 204) {
+        return {
+          blob: null,
+          contentType: '',
+          provider: null,
+          empty: true,
+        };
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = await response.json().catch(() => ({}));
+        throw new ApiError({
+          code: 'INVALID_RESPONSE',
+          message: payload.error || payload.message || 'Сервер не вернул изображение.',
+        });
+      }
+
+      return {
+        blob: await response.blob(),
+        contentType,
+        provider: response.headers.get('x-planrun-map-provider') || null,
+      };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      const message = error?.name === 'AbortError'
+        ? 'Запрос превысил время ожидания.'
+        : 'Нет соединения. Проверьте интернет и попробуйте снова.';
+      throw new ApiError({ code: 'NETWORK_ERROR', message });
     }
   }
 
@@ -963,7 +1094,11 @@ class ApiClient {
     return performGetRacePrediction(this, viewContext);
   }
 
-  // ========== ИНТЕГРАЦИИ (Huawei, Garmin, Strava) ==========
+  async getTrainingLoad(viewContext = null, days = 90) {
+    return performGetTrainingLoad(this, viewContext, days);
+  }
+
+  // ========== ИНТЕГРАЦИИ (Huawei, Strava, Polar, Garmin) ==========
 
   async getIntegrationOAuthUrl(provider, extra = {}) {
     return performGetIntegrationOAuthUrl(this, provider, extra);
@@ -994,6 +1129,18 @@ class ApiClient {
     return performGetWorkoutTimeline(this, workoutId);
   }
 
+  async getWorkoutShareMap(workoutId, options = {}) {
+    return performGetWorkoutShareMap(this, workoutId, options);
+  }
+
+  async getWorkoutShareCard(workoutId, options = {}) {
+    return performGetWorkoutShareCard(this, workoutId, options);
+  }
+
+  async storeWorkoutShareCard(workoutId, payload = {}) {
+    return performStoreWorkoutShareCard(this, workoutId, payload);
+  }
+
   // ========== АДАПТАЦИЯ ==========
 
   async runAdaptation() {
@@ -1017,6 +1164,14 @@ class ApiClient {
    */
   async checkPlanStatus(userId = null) {
     return performCheckPlanStatus(this, userId);
+  }
+
+  /**
+   * Лёгкая проверка версии данных (для polling).
+   * Возвращает { version, workout_version, plan_version }
+   */
+  async getDataVersion() {
+    return this.request('data_version', {}, 'GET');
   }
 
   /**
@@ -1153,6 +1308,21 @@ class ApiClient {
   /** Сохранить настройки сайта. В payload включить csrf_token и settings. */
   async updateAdminSettings(payload) {
     return performUpdateAdminSettings(this, payload);
+  }
+
+  /** Шаблоны уведомлений для админки. */
+  async getAdminNotificationTemplates() {
+    return performGetAdminNotificationTemplates(this);
+  }
+
+  /** Сохранить override шаблона уведомления. */
+  async updateAdminNotificationTemplate(payload) {
+    return performUpdateAdminNotificationTemplate(this, payload);
+  }
+
+  /** Сбросить override шаблона уведомления. */
+  async resetAdminNotificationTemplate(payload) {
+    return performResetAdminNotificationTemplate(this, payload);
   }
 
   /**

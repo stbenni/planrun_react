@@ -1,3 +1,5 @@
+import { createInitialNotificationSettings } from './notificationSettings';
+
 export function normalizeValue(value) {
   if (value === null || value === undefined || value === '' || value === 'null') {
     return null;
@@ -54,6 +56,7 @@ export function createInitialFormData() {
     push_chat_enabled: 1,
     push_workout_hour: 20,
     push_workout_minute: 0,
+    notification_settings: createInitialNotificationSettings(),
   };
 }
 
@@ -221,6 +224,7 @@ export function mapProfileToFormData(userData = {}) {
     push_chat_enabled: userData.push_chat_enabled !== 0 && userData.push_chat_enabled !== '0' ? 1 : 0,
     push_workout_hour: Math.min(23, Math.max(0, parseInt(userData.push_workout_hour, 10) || 20)),
     push_workout_minute: Math.min(59, Math.max(0, parseInt(userData.push_workout_minute, 10) || 0)),
+    notification_settings: createInitialNotificationSettings(String(userData.timezone || 'Europe/Moscow')),
   };
 }
 

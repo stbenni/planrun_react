@@ -33,6 +33,8 @@ class PolarProvider implements WorkoutImportProvider {
             'client_id' => $this->clientId,
             'redirect_uri' => $this->redirectUri,
             'state' => $state,
+            // Явный scope из документации AccessLink (иначе часть клиентов в админке ломается на экране согласия)
+            'scope' => 'accesslink.read_all',
         ];
         return 'https://flow.polar.com/oauth2/authorization?' . http_build_query($params);
     }
@@ -64,8 +66,18 @@ class PolarProvider implements WorkoutImportProvider {
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
         $data = json_decode($response, true);
-        if ($httpCode !== 200 || !isset($data['access_token'])) {
-            $msg = $data['error'] ?? 'Ошибка получения токена Polar';
+        if ($httpCode !== 200 || !is_array($data) || !isset($data['access_token'])) {
+            $msg = 'Ошибка получения токена Polar';
+            if ($httpCode) {
+                $msg .= " (HTTP $httpCode)";
+            }
+            if (is_array($data) && !empty($data['error'])) {
+                $err = (string) $data['error'];
+                $desc = isset($data['error_description']) ? trim((string) $data['error_description']) : '';
+                $msg = $desc !== '' ? ($err . ': ' . $desc) : $err;
+            } elseif (is_string($response) && $response !== '' && strlen($response) < 500) {
+                $msg .= ': ' . $response;
+            }
             throw new Exception($msg);
         }
         $accessToken = $data['access_token'];
@@ -228,6 +240,8 @@ class PolarProvider implements WorkoutImportProvider {
         $route = $ex['route'] ?? [];
         $hrBySec = [];
         $altBySec = [];
+        $latBySec = [];
+        $lngBySec = [];
         foreach ($samples as $s) {
             $rate = (int)($s['recording-rate'] ?? 1);
             $type = (string)($s['sample-type'] ?? '');
@@ -244,8 +258,12 @@ class PolarProvider implements WorkoutImportProvider {
             if (isset($r['altitude'])) {
                 $altBySec[$sec] = (float)$r['altitude'];
             }
+            if (isset($r['latitude']) && isset($r['longitude'])) {
+                $latBySec[$sec] = (float)$r['latitude'];
+                $lngBySec[$sec] = (float)$r['longitude'];
+            }
         }
-        $allSec = array_unique(array_merge(array_keys($hrBySec), array_keys($altBySec)));
+        $allSec = array_unique(array_merge(array_keys($hrBySec), array_keys($altBySec), array_keys($latBySec)));
         if (empty($allSec)) return null;
         sort($allSec);
         $total = count($allSec);
@@ -267,6 +285,8 @@ class PolarProvider implements WorkoutImportProvider {
                 'altitude' => $altBySec[$sec] ?? null,
                 'distance' => null,
                 'cadence' => null,
+                'latitude' => $latBySec[$sec] ?? null,
+                'longitude' => $lngBySec[$sec] ?? null,
             ];
         }
         return $points;
@@ -312,5 +332,265 @@ class PolarProvider implements WorkoutImportProvider {
         $stmt->bind_param("isss", $userId, $this->getProviderId(), $polarUserId, $accessToken);
         $stmt->execute();
         $stmt->close();
+    }
+
+    // --- Partner webhook (AccessLink Basic auth: client_id + client_secret) ---
+
+    private function getWebhookSecretStoragePath(): string {
+        return dirname(__DIR__) . '/storage/polar_webhook_secret.txt';
+    }
+
+    /**
+     * Секрет подписи webhook (из ответа create). Сначала .env, затем файл storage (после первого create).
+     */
+    public function loadWebhookSignatureSecret(): string {
+        $fromEnv = trim((string)((function_exists('env') ? env('POLAR_WEBHOOK_SIGNATURE_SECRET', '') : '') ?: ''));
+        if ($fromEnv !== '') {
+            return $fromEnv;
+        }
+        $path = $this->getWebhookSecretStoragePath();
+        if (is_readable($path)) {
+            $v = trim((string)file_get_contents($path));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return '';
+    }
+
+    public function saveWebhookSignatureSecret(string $secret): bool {
+        $secret = trim($secret);
+        if ($secret === '') {
+            return false;
+        }
+        $dir = dirname($this->getWebhookSecretStoragePath());
+        if (!is_dir($dir)) {
+            if (!@mkdir($dir, 0750, true)) {
+                return false;
+            }
+        }
+        $path = $this->getWebhookSecretStoragePath();
+        return @file_put_contents($path, $secret, LOCK_EX) !== false;
+    }
+
+    /**
+     * Проверка Polar-Webhook-Signature (HMAC-SHA256 тела, hex в заголовке).
+     */
+    public function verifyWebhookSignature(string $rawBody, ?string $signatureHex): bool {
+        $secret = $this->loadWebhookSignatureSecret();
+        if ($secret === '' || $signatureHex === null || $signatureHex === '') {
+            return false;
+        }
+        $expected = hash_hmac('sha256', $rawBody, $secret);
+        $signatureHex = strtolower(preg_replace('/\s+/', '', $signatureHex));
+        return hash_equals($expected, $signatureHex);
+    }
+
+    /**
+     * @return array{ok:bool,httpCode:int,body:?string,error:?string}
+     */
+    private function partnerApiRequest(string $method, string $path, ?string $jsonBody = null): array {
+        $out = ['ok' => false, 'httpCode' => 0, 'body' => null, 'error' => null];
+        if ($this->clientId === '' || $this->clientSecret === '') {
+            $out['error'] = 'POLAR_CLIENT_ID / POLAR_CLIENT_SECRET required';
+            return $out;
+        }
+        $url = $this->baseUrl . $path;
+        $headers = [
+            'Accept: application/json',
+            'Authorization: Basic ' . base64_encode($this->clientId . ':' . $this->clientSecret),
+        ];
+        $opts = [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        ];
+        if ($jsonBody !== null) {
+            $opts[CURLOPT_POSTFIELDS] = $jsonBody;
+            $headers[] = 'Content-Type: application/json';
+        }
+        $opts[CURLOPT_HTTPHEADER] = $headers;
+        $ch = curl_init();
+        curl_setopt_array($ch, $opts);
+        $body = curl_exec($ch);
+        $out['httpCode'] = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($err !== '') {
+            $out['error'] = $err;
+            return $out;
+        }
+        $out['body'] = $body === false ? null : (string)$body;
+        $out['ok'] = $out['httpCode'] >= 200 && $out['httpCode'] < 300;
+        return $out;
+    }
+
+    /**
+     * @return ?array{id?:string,url?:string,events?:mixed}
+     */
+    public function getPartnerWebhookData(): ?array {
+        $resp = $this->partnerApiRequest('GET', '/v3/webhooks');
+        if ($resp['httpCode'] === 404 || $resp['httpCode'] === 204) {
+            return null;
+        }
+        if ($resp['httpCode'] !== 200 || $resp['body'] === null || $resp['body'] === '') {
+            return null;
+        }
+        $j = json_decode($resp['body'], true);
+        if (!is_array($j)) {
+            return null;
+        }
+        $data = $j['data'] ?? $j;
+        if (!is_array($data)) {
+            return null;
+        }
+        // Polar может вернуть один объект или массив объектов
+        if (isset($data['url'])) {
+            return $data;
+        }
+        if (isset($data[0]) && is_array($data[0]) && isset($data[0]['url'])) {
+            return $data[0];
+        }
+        return null;
+    }
+
+    public function deletePartnerWebhook(string $webhookId): bool {
+        $webhookId = trim($webhookId);
+        if ($webhookId === '') {
+            return false;
+        }
+        $path = '/v3/webhooks/' . rawurlencode($webhookId);
+        $resp = $this->partnerApiRequest('DELETE', $path);
+        return $resp['httpCode'] === 200 || $resp['httpCode'] === 204;
+    }
+
+    /**
+     * @return array{ok:bool,id?:string,signature_secret_key?:string,error?:string,httpCode?:int,body?:?string}
+     */
+    public function createPartnerWebhook(string $callbackUrl): array {
+        $payload = json_encode([
+            'url' => $callbackUrl,
+            'events' => ['EXERCISE'],
+        ]);
+        $resp = $this->partnerApiRequest('POST', '/v3/webhooks', $payload);
+        $result = ['ok' => false, 'httpCode' => $resp['httpCode'], 'body' => $resp['body']];
+        if (!$resp['ok']) {
+            $result['error'] = $resp['error'] ?? ('HTTP ' . $resp['httpCode']);
+            if (is_string($resp['body']) && strlen($resp['body']) < 400) {
+                $result['error'] .= ': ' . $resp['body'];
+            }
+            return $result;
+        }
+        $j = json_decode((string)$resp['body'], true);
+        $data = is_array($j) && isset($j['data']) && is_array($j['data']) ? $j['data'] : (is_array($j) ? $j : []);
+        $result['ok'] = true;
+        $result['id'] = isset($data['id']) ? (string)$data['id'] : null;
+        $result['signature_secret_key'] = isset($data['signature_secret_key']) ? (string)$data['signature_secret_key'] : '';
+        return $result;
+    }
+
+    /**
+     * Нормализует список событий webhook в массив строк.
+     */
+    private static function normalizeWebhookEvents($events): array {
+        if ($events === null) {
+            return [];
+        }
+        if (is_string($events)) {
+            return [strtoupper($events)];
+        }
+        if (!is_array($events)) {
+            return [];
+        }
+        $flat = [];
+        foreach ($events as $e) {
+            if (is_string($e)) {
+                $flat[] = strtoupper($e);
+            }
+        }
+        return $flat;
+    }
+
+    /**
+     * Создать/восстановить webhook EXERCISE на POLAR_WEBHOOK_CALLBACK_URL (один на приложение AccessLink).
+     *
+     * @return array{ok:bool,changed?:bool,webhook_id?:?string,error?:string,signature_saved?:bool}
+     */
+    public function ensureWebhookSubscription(): array {
+        $callbackUrl = trim((string)((function_exists('env') ? env('POLAR_WEBHOOK_CALLBACK_URL', '') : '') ?: ''));
+        if ($callbackUrl === '') {
+            return ['ok' => false, 'error' => 'POLAR_WEBHOOK_CALLBACK_URL is required for Polar webhooks'];
+        }
+
+        $existing = $this->getPartnerWebhookData();
+        if (is_array($existing) && !empty($existing['url'])) {
+            $url = trim((string)$existing['url']);
+            $ev = self::normalizeWebhookEvents($existing['events'] ?? []);
+            if ($url === $callbackUrl && in_array('EXERCISE', $ev, true)) {
+                return ['ok' => true, 'changed' => false, 'webhook_id' => isset($existing['id']) ? (string)$existing['id'] : null];
+            }
+            $wid = isset($existing['id']) ? (string)$existing['id'] : '';
+            if ($wid !== '' && !$this->deletePartnerWebhook($wid)) {
+                return ['ok' => false, 'error' => 'Failed to delete existing Polar webhook before recreate'];
+            }
+        }
+
+        $created = $this->createPartnerWebhook($callbackUrl);
+        if (!$created['ok']) {
+            $http = (int)($created['httpCode'] ?? 0);
+            $body = (string)($created['body'] ?? '');
+            if ($http === 409 || stripos($body, 'WebhookExistException') !== false || stripos($body, 'already exists') !== false) {
+                // Webhook уже зарегистрирован (GET мог не распарситься или гонка)
+                return ['ok' => true, 'changed' => false, 'webhook_id' => null];
+            }
+            return ['ok' => false, 'error' => $created['error'] ?? 'create failed'];
+        }
+        $secret = $created['signature_secret_key'] ?? '';
+        $saved = false;
+        if ($secret !== '') {
+            $saved = $this->saveWebhookSignatureSecret($secret);
+        }
+        return [
+            'ok' => true,
+            'changed' => true,
+            'webhook_id' => $created['id'] ?? null,
+            'signature_saved' => $saved,
+        ];
+    }
+
+    /**
+     * Загрузить одну тренировку по URL из webhook (GET с токеном пользователя).
+     */
+    public function fetchSingleExerciseByUrl(int $userId, string $exerciseUrl): ?array {
+        $row = $this->getTokenRow($userId);
+        if (!$row || empty($row['access_token'])) {
+            return null;
+        }
+        $url = trim($exerciseUrl);
+        if ($url === '') {
+            return null;
+        }
+        $url .= (strpos($url, '?') === false ? '?' : '&') . 'route=true&samples=true';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $row['access_token'],
+            ],
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($httpCode !== 200 || !is_string($response)) {
+            return null;
+        }
+        $ex = json_decode($response, true);
+        if (!is_array($ex)) {
+            return null;
+        }
+        return $this->mapExerciseToWorkout($ex);
     }
 }

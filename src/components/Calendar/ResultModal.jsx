@@ -610,7 +610,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Отметить тренировку" size="medium" variant="modern">
+    <Modal isOpen={isOpen} onClose={onClose} title="Отметить тренировку" size="medium" variant="modern" mobilePresentation="fullscreen">
       <p className="add-training-date">{dateLabel}</p>
 
       <form onSubmit={handleSubmit} className="add-training-form">

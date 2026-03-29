@@ -138,6 +138,18 @@ if ($aspectType === 'create' || $aspectType === 'update') {
         $service = new WorkoutService($db);
         $service->importWorkouts($userId, [$workout], 'strava');
         $log('imported activity_id=' . $objectId . ' user_id=' . $userId);
+
+        // Silent push — мобилка обновит данные без ожидания resume
+        try {
+            require_once __DIR__ . '/../planrun-backend/services/PushNotificationService.php';
+            $pushService = new PushNotificationService($db);
+            $pushService->sendDataPush($userId, [
+                'type' => 'workout_sync',
+                'source' => 'strava',
+            ]);
+        } catch (Throwable $pushErr) {
+            $log('push failed user_id=' . $userId . ' err=' . substr($pushErr->getMessage(), 0, 100));
+        }
     } else {
         $log('fetchSingleActivity failed activity_id=' . $objectId . ' user_id=' . $userId);
     }

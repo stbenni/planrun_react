@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import {
   ClipboardListIcon,
@@ -925,6 +925,10 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       : verificationStep === 'code' ? 'Подтвердить' : 'Далее'}
                 </button>
               </div>
+              <p className="register-privacy-note">
+                Регистрируясь, вы соглашаетесь с{' '}
+                <Link to="/privacy">политикой конфиденциальности</Link>.
+              </p>
             </div>
           )}
 

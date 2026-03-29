@@ -7,7 +7,7 @@ import React from 'react';
 import Week from './Week';
 import '../../assets/css/calendar_v2.css';
 
-const Calendar = ({ plan, progressData, workoutsData, resultsData, api, onDayPress, canEdit = false, isOwner = false }) => {
+const Calendar = ({ plan, progressData, workoutsData, resultsData, api, onDayPress, onRefresh, canEdit = false, isOwner = false }) => {
   const weeksData = plan?.weeks_data;
   if (!plan || !Array.isArray(weeksData) || weeksData.length === 0) {
     return (
@@ -23,7 +23,8 @@ const Calendar = ({ plan, progressData, workoutsData, resultsData, api, onDayPre
     if (!api) return;
     try {
       await api.deleteWeek(weekNumber);
-      window.location.reload();
+      if (onRefresh) onRefresh();
+
     } catch (error) {
       console.error('Error deleting week:', error);
       alert('Ошибка при удалении недели: ' + (error.message || 'Неизвестная ошибка'));
@@ -66,7 +67,7 @@ function getCurrentWeekNumber(plan) {
     startDate.setHours(0, 0, 0, 0);
 
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 7);
+    endDate.setDate(endDate.getDate() + 6);
     endDate.setHours(23, 59, 59, 999);
 
     if (today >= startDate && today <= endDate) {

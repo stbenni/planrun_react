@@ -1,6 +1,8 @@
 /**
- * Утилита для предзагрузки модулей экранов
- * Ускоряет навигацию между страницами
+ * Утилита для предзагрузки модулей экранов.
+ *
+ * Основные вкладки предзагружаются непосредственно в AppTabsContent при монтировании.
+ * Здесь остаётся только legacy-API для обратной совместимости.
  */
 
 function runWhenIdle(callback, timeout = 1200) {
@@ -17,23 +19,18 @@ function runWhenIdle(callback, timeout = 1200) {
 }
 
 /**
- * Предзагружает только вторичные экраны, а не весь основной shell.
+ * Предзагружает вспомогательные экраны.
+ * Основные вкладки уже предзагружены в AppTabsContent.
  */
 export const preloadScreenModules = () => {
+  // Основные экраны уже предзагружаются в AppTabsContent — здесь только вспомогательные
   runWhenIdle(() => {
-    Promise.all([
-      import('../screens/CalendarScreen'),
-      import('../screens/StatsScreen'),
-      import('../screens/ChatScreen'),
-    ]).catch((err) => {
-      console.warn('Module preload failed:', err);
-    });
+    import('../screens/UserProfileScreen').catch(() => {});
   });
 };
 
 /**
  * Предзагружает модули с небольшой задержкой
- * Используется чтобы не мешать первоначальной загрузке
  */
 export const preloadScreenModulesDelayed = (delay = 300) => {
   if (typeof window === 'undefined') {
@@ -46,24 +43,12 @@ export const preloadScreenModulesDelayed = (delay = 300) => {
 };
 
 /**
- * Предзагружает модули для авторизованного пользователя в фоне без давления на initial load.
+ * Предзагружает модули для авторизованного пользователя.
+ * Основные вкладки уже предзагружены в AppTabsContent.
  */
 export const preloadAuthenticatedModules = (role = 'user') => {
   runWhenIdle(() => {
-    const imports = [
-      import('../screens/CalendarScreen'),
-      import('../screens/StatsScreen'),
-    ];
-
-    if (role === 'coach') {
-      imports.push(import('../screens/TrainersScreen'));
-    } else {
-      imports.push(import('../screens/ChatScreen'));
-      imports.push(import('../screens/SettingsScreen'));
-    }
-
-    Promise.all(imports).catch((err) => {
-      console.warn('Authenticated module preload failed:', err);
-    });
+    // Только вспомогательные модули — основные уже предзагружены
+    import('../screens/UserProfileScreen').catch(() => {});
   }, 1800);
 };

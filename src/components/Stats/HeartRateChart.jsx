@@ -6,7 +6,7 @@ import React, { useMemo, useState, useRef } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { HeartIcon } from '../common/Icons';
 
-const HeartRateChart = ({ timeline, hideTitle = false }) => {
+const HeartRateChart = ({ timeline, hideTitle = false, onHoverIndex }) => {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [tooltip, setTooltip] = useState(null);
   const svgRef = useRef(null);
@@ -145,10 +145,12 @@ const HeartRateChart = ({ timeline, hideTitle = false }) => {
       time: `${hours}:${minutes}:${seconds}`,
       point: point
     });
+    if (onHoverIndex) onHoverIndex(point.index);
   };
 
   const handleMouseLeave = () => {
     setTooltip(null);
+    if (onHoverIndex) onHoverIndex(null);
   };
 
   // Формируем путь для графика (линия продлевается до правого края, чтобы не было пустого отступа)
@@ -230,6 +232,8 @@ const HeartRateChart = ({ timeline, hideTitle = false }) => {
           preserveAspectRatio={isMobile ? 'none' : 'xMidYMid meet'}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
+          onTouchMove={(e) => { e.preventDefault(); handleMouseMove(e.touches[0]); }}
+          onTouchEnd={handleMouseLeave}
         >
           {/* Сетка */}
           {yAxisLabels.map((label, i) => (

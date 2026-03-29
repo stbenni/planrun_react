@@ -14,6 +14,7 @@ export async function chatSendMessageStream(client, content, onChunk, opts = {})
     onPlanUpdated,
     onPlanRecalculating,
     onPlanGeneratingNext,
+    onToolExecuting,
     timeoutMs = 180000,
     signal: externalSignal,
   } = opts;
@@ -83,6 +84,7 @@ export async function chatSendMessageStream(client, content, onChunk, opts = {})
                 onChunk(obj.chunk);
               }
             }
+            if (obj.tool_executing && typeof onToolExecuting === 'function') onToolExecuting(obj.tool_executing);
             if (obj.plan_updated && typeof onPlanUpdated === 'function') onPlanUpdated();
             if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') onPlanRecalculating();
             if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') onPlanGeneratingNext();
@@ -102,6 +104,7 @@ export async function chatSendMessageStream(client, content, onChunk, opts = {})
             onChunk(obj.chunk);
           }
         }
+        if (obj.tool_executing && typeof onToolExecuting === 'function') onToolExecuting(obj.tool_executing);
         if (obj.plan_updated && typeof onPlanUpdated === 'function') onPlanUpdated();
         if (obj.plan_recalculating && typeof onPlanRecalculating === 'function') onPlanRecalculating();
         if (obj.plan_generating_next && typeof onPlanGeneratingNext === 'function') onPlanGeneratingNext();

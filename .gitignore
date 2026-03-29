@@ -45,6 +45,10 @@ dist/
 # Logs (каталог logs/ создаётся в репо, чтобы на сервере был после деплоя; *.log не коммитим)
 planrun-backend/logs/*
 !planrun-backend/logs/.gitkeep
+
+# Polar webhook HMAC secret (создаётся при первом register; можно дублировать в .env)
+planrun-backend/storage/polar_webhook_secret.txt
+planrun-backend/storage/share-cards/
 *.log
 
 # Cache
@@ -96,3 +100,4 @@ your-digital-showcase/
 # Secrets (Firebase, Google Cloud)
 planrun-backend/config/firebase-credentials.json
 android/app/google-services.json
+planrun-backend/.env.bak.webhook-direct

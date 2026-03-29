@@ -1,6 +1,6 @@
 <?php
 /**
- * Генерация рецензии плана через LM Studio.
+ * Генерация рецензии плана через LLM (llama.cpp).
  * После сохранения плана — добавляет в чат пользователя краткое описание:
  * что и почему расставлено в плане.
  */
@@ -48,7 +48,7 @@ function buildPlanSummaryForReview(array $planData, string $startDate): string {
 }
 
 /**
- * Генерирует рецензию плана через LM Studio.
+ * Генерирует рецензию плана через LLM.
  *
  * @param array $planData Сырой план
  * @param string $startDate Дата начала
@@ -56,8 +56,8 @@ function buildPlanSummaryForReview(array $planData, string $startDate): string {
  * @return string|null Текст рецензии или null при ошибке
  */
 function generatePlanReview(array $planData, string $startDate, string $mode = 'ГЕНЕРАЦИЯ'): ?string {
-    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:8081/v1')), '/');
-    $model = env('LLM_CHAT_MODEL', env('LMSTUDIO_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning'));
+    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
+    $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
 
     if ($baseUrl === '' || $model === '') {
         error_log('plan_review_generator: LLM_CHAT_BASE_URL или LLM_CHAT_MODEL не заданы');
@@ -101,7 +101,7 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
     curl_close($ch);
 
     if ($httpCode !== 200 || $response === false) {
-        error_log("plan_review_generator: LM Studio HTTP {$httpCode} или пустой ответ");
+        error_log("plan_review_generator: LLM HTTP {$httpCode} или пустой ответ");
         return null;
     }
 

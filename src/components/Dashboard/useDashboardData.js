@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import usePlanStore from '../../stores/usePlanStore';
 import usePreloadStore from '../../stores/usePreloadStore';
 import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
-import { processStatsData } from '../Stats/StatsUtils';
+
 import { getDayCompletionStatus, getPlanDayForDate, planTypeToCategory, workoutTypeToCategory } from '../../utils/calendarHelpers';
 import { addDaysToDateStr, dayItemsToWorkoutAndPlanDays, getDayItems, getTodayInTimezone } from './dashboardDateUtils';
+import { isNativeCapacitor } from '../../services/TokenStorageService';
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -195,12 +196,88 @@ function calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj
   return { completed, total: plannedDays.length };
 }
 
-function buildMetrics(summaryObj, allResults, plan) {
-  const processed = processStatsData({ workouts: summaryObj }, allResults, plan, 'last7days');
+/**
+ * Собирает множество категорий активностей из плана.
+ */
+function getPlanCategories(plan) {
+  const categories = new Set();
+  if (!plan?.weeks_data) return categories;
+  for (const week of plan.weeks_data) {
+    if (!week?.days) continue;
+    for (const key of DAY_KEYS) {
+      const dayData = week.days[key];
+      if (!dayData) continue;
+      // dayData может быть массивом элементов или одним объектом
+      const items = Array.isArray(dayData) ? dayData : [dayData];
+      for (const item of items) {
+        const cat = planTypeToCategory(item?.type);
+        if (cat) categories.add(cat);
+      }
+    }
+  }
+  return categories;
+}
+
+/**
+ * Считает метрики за текущую календарную неделю (пн–вс).
+ * Если план есть — считает только тренировки с типами из плана.
+ * Если плана нет — считает всё.
+ */
+function buildMetrics(summaryObj, allResults, plan, workoutsList) {
+  const planCats = getPlanCategories(plan);
+  const hasWalking = planCats.has('walking');
+
+  // Определяем границы текущей недели (пн–вс)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  // Фильтруем workoutsList по дате текущей недели и типу активности
+  const filtered = (workoutsList || []).filter((w) => {
+    const dateStr = w.date ?? w.start_time?.split?.('T')?.[0];
+    if (!dateStr) return false;
+    const d = new Date(dateStr + 'T00:00:00');
+    if (d < monday || d > sunday) return false;
+
+    // Если план есть — фильтруем по категориям из плана
+    if (planCats.size > 0) {
+      const cat = workoutTypeToCategory(w.activity_type ?? w.activity_type_name ?? 'running');
+      return planCats.has(cat);
+    }
+    return true;
+  });
+
+  const distance = filtered.reduce((s, w) => s + (parseFloat(w.distance_km ?? w.distance ?? 0) || 0), 0);
+  const workouts = filtered.length;
+  const timeMin = filtered.reduce((s, w) => s + (parseFloat(w.duration_minutes ?? w.duration ?? 0) || 0), 0);
+
+  console.log('[buildMetrics]', {
+    planCats: [...planCats],
+    hasWalking,
+    mondayStr: monday.toISOString().slice(0, 10),
+    totalWorkoutsList: (workoutsList || []).length,
+    filteredCount: filtered.length,
+    filtered: filtered.map(w => ({
+      date: w.date ?? w.start_time?.split?.('T')?.[0],
+      type: w.activity_type ?? w.activity_type_name,
+      dist: w.distance_km ?? w.distance,
+      dur: w.duration_minutes ?? w.duration,
+    })),
+    distance: Math.round(distance * 10) / 10,
+    workouts,
+    timeHrs: Math.round(timeMin / 60),
+  });
+
   return {
-    distance: processed.totalDistance ?? 0,
-    workouts: processed.totalWorkouts ?? 0,
-    time: Math.round((processed.totalTime ?? 0) / 60),
+    distance: Math.round(distance * 10) / 10,
+    workouts,
+    time: Math.round(timeMin / 60),
+    hasWalking,
   };
 }
 
@@ -228,7 +305,7 @@ export function useDashboardData({
   const [showPlanMessage, setShowPlanMessage] = useState(false);
   const [planError, setPlanError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
-  const [planGenerating, setPlanGenerating] = useState(false);
+  const planGenerating = usePlanStore((state) => state.isGenerating);
 
   const loadDashboardData = useCallback(async (options = {}) => {
     const silent = options.silent === true;
@@ -247,17 +324,20 @@ export function useDashboardData({
       let planData;
       const shouldCheckPlanStatus = isAiPlanMode(user?.training_mode);
 
-      if (store.planStatus != null && store.hasPlan && store.plan != null && !store.planStatus?.generating) {
+      // Используем данные из store если они уже есть (от initPlanStatus или предыдущей загрузки)
+      if (store.planStatus != null) {
         planStatus = store.planStatus;
+      }
+      if (store.hasPlan && store.plan != null && !store.planStatus?.generating) {
         planData = store.plan;
       }
 
       const [planStatusRes, planRes, allResults, workoutsSummaryRes, workoutsListRes] = await Promise.all([
         shouldCheckPlanStatus
-          ? (planStatus != null ? Promise.resolve(planStatus) : api.checkPlanStatus().catch((error) => {
-            console.error('Error checking plan status:', error);
-            return null;
-          }))
+          ? (planStatus != null
+            ? Promise.resolve(planStatus)
+            // Ждём initPlanStatus если он уже запущен, иначе вызываем checkPlanStatus
+            : (store._initPromise || usePlanStore.getState().checkPlanStatus()).catch(() => null))
           : Promise.resolve(null),
         planData != null ? Promise.resolve(planData) : api.getPlan().catch((error) => {
           console.error('Error loading plan:', error);
@@ -275,13 +355,11 @@ export function useDashboardData({
         setPlanError(planStatus.error);
         setPlanExists(false);
         setShowPlanMessage(false);
-        setPlanGenerating(false);
         setLoading(false);
         return;
       }
 
-      const generating = Boolean(planStatus?.generating && shouldCheckPlanStatus);
-      setPlanGenerating(generating);
+      // planStatus уже обновлён в store через checkPlanStatus() выше
 
       const weeksData = planData?.weeks_data;
       const summaryObj = getSummaryObject(workoutsSummaryRes);
@@ -293,7 +371,7 @@ export function useDashboardData({
         setHasAnyPlannedWorkout(false);
         setPlanError(null);
         setProgressDataMap({});
-        setMetrics(buildMetrics(summaryObj, allResults, null));
+        setMetrics(buildMetrics(summaryObj, allResults, null, workoutsList));
         if (isNewRegistration || registrationMessage) {
           setShowPlanMessage(true);
         }
@@ -303,7 +381,6 @@ export function useDashboardData({
       setPlanExists(true);
       setPlanError(null);
       setShowPlanMessage(false);
-      setPlanGenerating(false);
       clearPlanMessage();
       setPlan(planData);
       setHasAnyPlannedWorkout(hasAnyPlannedWorkout(weeksData));
@@ -316,7 +393,7 @@ export function useDashboardData({
       setTodayWorkout(currentWorkout);
       setNextWorkout(upcomingWorkout);
       setWeekProgress(calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj));
-      setMetrics(buildMetrics(summaryObj, allResults, planData));
+      setMetrics(buildMetrics(summaryObj, allResults, planData, workoutsList));
     } catch (error) {
       console.error('Error loading dashboard:', error);
       if (isNewRegistration || registrationMessage) {
@@ -325,7 +402,7 @@ export function useDashboardData({
       }
     } finally {
       setLoading(false);
-      if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+      if (isNativeCapacitor()) {
         usePreloadStore.getState().triggerPreload();
       }
     }
@@ -378,26 +455,20 @@ export function useDashboardData({
     setPlanError(null);
     setShowPlanMessage(true);
     setPlanExists(false);
-    setPlanGenerating(true);
-    usePlanStore.getState().clearPlan();
 
     try {
-      const result = await api.regeneratePlan();
-      if (result?.success) {
-        useWorkoutRefreshStore.getState().triggerRefresh();
-        setTimeout(() => {
-          loadDashboardData();
-        }, 5000);
+      const ok = await usePlanStore.getState().regeneratePlan();
+      if (ok) {
+        loadDashboardData({ silent: true });
       } else {
-        setPlanError(result?.error || 'Ошибка при запуске генерации плана');
+        const storeError = usePlanStore.getState().error;
+        setPlanError(storeError || 'Ошибка при запуске генерации плана');
         setShowPlanMessage(false);
-        setPlanGenerating(false);
         clearPlanMessage();
       }
     } catch (error) {
       setPlanError(error.message || 'Ошибка при запуске генерации плана');
       setShowPlanMessage(false);
-      setPlanGenerating(false);
       clearPlanMessage();
     } finally {
       setRegenerating(false);
@@ -418,7 +489,7 @@ export function useDashboardData({
     loading,
     metrics,
     nextWorkout,
-    noPlanChecked: isAiTrainingMode && planStatusFromStore != null && planStatusFromStore.has_plan === false,
+    noPlanChecked: isAiTrainingMode && planStatusFromStore != null && planStatusFromStore.has_plan === false && !planStatusFromStore.generating,
     plan,
     planError,
     planExists,

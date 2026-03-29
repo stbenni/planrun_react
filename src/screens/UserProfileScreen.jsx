@@ -98,7 +98,6 @@ const UserProfileScreen = () => {
   const [coachRequestError, setCoachRequestError] = useState('');
 
   useEffect(() => {
-    let intervalId = null;
     let cancelled = false;
 
     const loadUserProfile = async () => {
@@ -107,33 +106,11 @@ const UserProfileScreen = () => {
         return;
       }
 
-      let currentApi = api;
-      if (!currentApi) {
-        currentApi = useAuthStore.getState().api;
-      }
-
-      if (!currentApi) {
-        let attempts = 0;
-        const maxAttempts = 50;
-
-        intervalId = setInterval(() => {
-          if (cancelled) { clearInterval(intervalId); return; }
-          attempts++;
-          const storeApi = useAuthStore.getState().api;
-          if (storeApi) {
-            clearInterval(intervalId);
-            loadUserProfile();
-          } else if (attempts >= maxAttempts) {
-            clearInterval(intervalId);
-            if (!cancelled) {
-              setError('API не инициализирован. Попробуйте обновить страницу.');
-              setLoading(false);
-            }
-          }
-        }, 100);
-
+      if (!api) {
+        // api ещё не готов — useEffect перезапустится когда api появится в сторе
         return;
       }
+      const currentApi = api;
 
       try {
         const slug = username.startsWith('@') ? username.slice(1) : username;
@@ -161,7 +138,6 @@ const UserProfileScreen = () => {
     loadUserProfile();
     return () => {
       cancelled = true;
-      if (intervalId) clearInterval(intervalId);
     };
   }, [api, username, token]);
 

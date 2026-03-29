@@ -508,7 +508,8 @@
 @media (max-width: 1023px) {
   .trainers-screen {
     padding: var(--page-padding-mobile);
-    padding-bottom: var(--mobile-content-padding-bottom);
+    padding-bottom: var(--page-mobile-end-spacing);
+    min-height: 0;
   }
 
   .trainers-title {

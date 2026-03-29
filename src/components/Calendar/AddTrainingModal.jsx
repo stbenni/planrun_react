@@ -3,14 +3,15 @@
  * Два шага: выбор категории (Бег/ОФП/СБУ) → форма с типом и конструктором/калькулятором.
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Modal from '../common/Modal';
 import LogoLoading from '../common/LogoLoading';
 import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
+import './AddTrainingModal.css';
 import {
   parseTime, formatTime, parsePace, formatPace,
   maskTimeInput, maskPaceInput,
-  RUN_TYPES, SIMPLE_RUN_TYPES, TYPE_LABELS,
+  RUN_TYPES, SIMPLE_RUN_TYPES,
 } from '../../utils/workoutFormUtils';
 
 const CATEGORIES = [
@@ -430,7 +431,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
   const generateFartlekDescription = useCallback(() => {
     const parts = [];
     if (fartlekWarmupKm) parts.push('Разминка: ' + fartlekWarmupKm + ' км');
-    fartlekSegments.forEach((seg, i) => {
+    fartlekSegments.forEach((seg) => {
       if (!seg.reps) return;
       let s = seg.reps + '×' + (seg.accelDistM ? seg.accelDistM + 'м' : '');
       if (seg.accelPace) s += ' в темпе ' + seg.accelPace;
@@ -653,7 +654,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
   const showLibrary = (category === 'ofp' || category === 'sbu') && step === 2;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEditResult ? 'Редактировать результат' : (isEdit ? 'Редактировать тренировку' : 'Добавить тренировку')} size="medium" variant="modern">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditResult ? 'Редактировать результат' : (isEdit ? 'Редактировать тренировку' : 'Добавить тренировку')} size="medium" variant="modern" mobilePresentation="fullscreen">
       <p className="add-training-date">{dateLabel}</p>
 
       {step === 1 && !isEdit && !isEditResult && (

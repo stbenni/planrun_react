@@ -120,7 +120,10 @@ export const SOURCE_LABELS = {
   strava: 'Strava',
   huawei: 'Huawei Health',
   polar: 'Polar',
+  garmin: 'Garmin',
+  coros: 'COROS',
   gpx: 'GPX-файл',
+  fit: 'FIT-файл',
 };
 
 export function getActivityTypeLabel(activityType) {

@@ -54,7 +54,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
     setLoading(true);
     setError('');
     try {
-      const useJwt = typeof window !== 'undefined' && window.Capacitor;
+      const useJwt = isNativeCapacitor();
       const loginFn = onLogin || login;
       const result = await loginFn(username, password, useJwt);
       if (result?.success) {

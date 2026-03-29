@@ -26,6 +26,44 @@ class PlanNotificationService {
         $stmt->bind_param('isss', $userId, $type, $message, $metaJson);
         $stmt->execute();
         $stmt->close();
+
+        $eventKey = $this->mapTypeToEventKey((string) $type, is_array($metadata) ? $metadata : []);
+        if ($eventKey === null) {
+            return;
+        }
+
+        try {
+            require_once __DIR__ . '/NotificationDispatcher.php';
+            $dispatcher = new NotificationDispatcher($this->db);
+            $metadata = is_array($metadata) ? $metadata : [];
+            $link = '/calendar';
+            if ($eventKey === 'coach.athlete_result_logged' && !empty($metadata['athlete_slug'])) {
+                $params = [
+                    'athlete' => (string) $metadata['athlete_slug'],
+                ];
+                if (!empty($metadata['date'])) {
+                    $params['date'] = (string) $metadata['date'];
+                }
+                $link .= '?' . http_build_query($params);
+            } elseif (!empty($metadata['date'])) {
+                $link .= '?date=' . rawurlencode((string) $metadata['date']);
+            } elseif (!empty($metadata['athlete_slug'])) {
+                $link = '/calendar?athlete=' . rawurlencode((string) $metadata['athlete_slug']);
+            }
+            $dispatcher->dispatchToUser((int) $userId, $eventKey, 'Обновление плана', (string) $message, [
+                'link' => $link,
+                'plan_action' => (string) ($metadata['action'] ?? ''),
+                'plan_date' => (string) ($metadata['date'] ?? ''),
+                'athlete_slug' => (string) ($metadata['athlete_slug'] ?? ''),
+                'athlete_name' => !empty($metadata['athlete_id']) ? $this->getUsername((int) $metadata['athlete_id']) : '',
+                'push_data' => [
+                    'type' => 'plan',
+                    'link' => $link,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            // Внешняя доставка не должна ломать in-app уведомление.
+        }
     }
 
     /**
@@ -159,5 +197,17 @@ class PlanNotificationService {
         }
         $stmt->close();
         return $coaches;
+    }
+
+    private function mapTypeToEventKey(string $type, array $metadata): ?string {
+        if ($type === 'athlete_result_logged') {
+            return 'coach.athlete_result_logged';
+        }
+        if ($type === 'coach_plan_updated') {
+            return ($metadata['action'] ?? null) === 'note'
+                ? 'plan.coach_note_added'
+                : 'plan.coach_updated';
+        }
+        return null;
     }
 }

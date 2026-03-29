@@ -19,7 +19,7 @@
 
 @media (max-width: 1023px) {
   .dashboard {
-    padding-bottom: var(--mobile-content-padding-bottom);
+    padding-bottom: var(--page-mobile-end-spacing);
   }
 }
 
@@ -102,38 +102,43 @@
   text-align: center;
 }
 
-.plan-generation-notice--generating {
-  background: var(--primary-50);
-  border: 2px solid var(--primary-500);
-}
-
-.plan-generation-notice--generating .plan-generation-notice__title {
-  color: var(--primary-700);
-}
-
-.plan-generation-notice--generating .plan-generation-notice__message,
-.plan-generation-notice--generating .plan-generation-notice__spinner-row {
+/* Компактная плашка генерации (как в календаре) */
+.dashboard .plan-generating-banner {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
+  border-radius: var(--card-surface-radius);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
+  box-shadow: var(--card-surface-shadow);
+  overflow: hidden;
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
 }
 
-.plan-generation-notice--generating .plan-generation-notice__btn {
-  background: var(--primary-500);
-  color: #fff;
-  border: none;
+.dashboard .plan-generating-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--card-surface-overlay);
+  pointer-events: none;
 }
 
-.plan-generation-notice--generating .spinner-dash {
-  border-color: var(--gray-200);
-  border-top-color: var(--primary-500);
+.dashboard .plan-generating-banner > * {
+  position: relative;
+  z-index: 1;
 }
 
-[data-theme="dark"] .plan-generation-notice--generating {
-  background: var(--bg-tertiary);
-  border-color: var(--primary-500);
-}
-
-[data-theme="dark"] .plan-generation-notice--generating .plan-generation-notice__title {
-  color: var(--primary-400);
+[data-theme="dark"] .dashboard .plan-generating-banner {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-surface-bg)) 0%, color-mix(in srgb, var(--primary-500) 2%, var(--card-surface-bg)) 100%);
+  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-border));
 }
 
 .plan-generation-notice--error {
@@ -915,13 +920,14 @@ body.dashboard-customizer-dragging {
 .dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid),
 .dashboard-row-two .dashboard-module-card:has(.race-prediction),
+.dashboard-row-two .dashboard-module-card:has(.training-load),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-module-link-card),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-module-link-btn) {
   overflow: visible;
 }
 
 /* Hover только у «обычных» карточек без оформления — не трогаем виджеты с контейнером */
-.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):not(:has(.race-prediction)):hover {
+.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):not(:has(.race-prediction)):not(:has(.training-load)):hover {
   box-shadow: none;
 }
 
@@ -931,7 +937,8 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-module-card:has(.dashboard-metrics-grid),
-.dashboard-module-card:has(.race-prediction) {
+.dashboard-module-card:has(.race-prediction),
+.dashboard-module-card:has(.training-load) {
   position: relative;
   isolation: isolate;
   transition: box-shadow 0.25s ease, transform 0.25s ease;
@@ -941,7 +948,8 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip)::before,
 .dashboard-module-card:has(.dashboard-stats-widget)::before,
 .dashboard-module-card:has(.dashboard-metrics-grid)::before,
-.dashboard-module-card:has(.race-prediction)::before {
+.dashboard-module-card:has(.race-prediction)::before,
+.dashboard-module-card:has(.training-load)::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -954,7 +962,8 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card--week-progress::before,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget)::before,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid)::before,
-[data-theme="dark"] .dashboard-module-card:has(.race-prediction)::before {
+[data-theme="dark"] .dashboard-module-card:has(.race-prediction)::before,
+[data-theme="dark"] .dashboard-module-card:has(.training-load)::before {
   background: var(--card-surface-overlay);
 }
 
@@ -972,7 +981,8 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip):hover,
 .dashboard-module-card:has(.dashboard-stats-widget):hover,
 .dashboard-module-card:has(.dashboard-metrics-grid):hover,
-.dashboard-module-card:has(.race-prediction):hover {
+.dashboard-module-card:has(.race-prediction):hover,
+.dashboard-module-card:has(.training-load):hover {
   transform: translateY(-4px);
   box-shadow: var(--card-surface-shadow-hover);
 }
@@ -982,7 +992,8 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip):hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget):hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid):hover,
-[data-theme="dark"] .dashboard-module-card:has(.race-prediction):hover {
+[data-theme="dark"] .dashboard-module-card:has(.race-prediction):hover,
+[data-theme="dark"] .dashboard-module-card:has(.training-load):hover {
   transform: translateY(-4px);
   box-shadow: var(--card-surface-shadow-hover);
 }
@@ -1737,6 +1748,23 @@ body.dashboard-customizer-dragging {
   box-shadow: var(--card-surface-shadow);
 }
 
+/* Виджет тренировочной нагрузки — контейнер (как у прогноза и статистики) */
+.dashboard-module-card:has(.training-load) {
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  padding: var(--dashboard-card-padding);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.training-load) {
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+}
+
 /* Виджет статистики — контейнер (transition и hover — в общем блоке) */
 .dashboard-module-card:has(.dashboard-stats-widget) {
   background: var(--card-surface-bg);
@@ -1773,7 +1801,8 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-module-card:has(.dashboard-metrics-grid),
-.dashboard-module-card:has(.race-prediction) {
+.dashboard-module-card:has(.race-prediction),
+.dashboard-module-card:has(.training-load) {
   background: var(--card-surface-bg);
   border-color: var(--card-surface-border);
   box-shadow: var(--card-surface-shadow);
@@ -1784,7 +1813,8 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card--week-progress,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget),
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid),
-[data-theme="dark"] .dashboard-module-card:has(.race-prediction) {
+[data-theme="dark"] .dashboard-module-card:has(.race-prediction),
+[data-theme="dark"] .dashboard-module-card:has(.training-load) {
   background: var(--card-surface-bg);
   border-color: var(--card-surface-border) !important;
   box-shadow: var(--card-surface-shadow) !important;
@@ -2281,6 +2311,81 @@ body.dashboard-customizer-dragging {
   box-sizing: border-box;
   max-width: 100%;
 }
+/* Компактные размеры виджета тренировочной нагрузки в ряду с другим виджетом */
+.dashboard-row-two .dashboard-module-card:has(.training-load) {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.dashboard-row-two .training-load {
+  gap: var(--space-2);
+  height: 100%;
+  justify-content: space-between;
+}
+.dashboard-row-two .training-load__header {
+  gap: var(--space-2);
+}
+.dashboard-row-two .training-load__tsb-badge {
+  padding: 3px 8px;
+  font-size: var(--text-xs);
+  border-radius: 10px;
+}
+.dashboard-row-two .training-load__tsb-value {
+  font-size: 10px;
+}
+.dashboard-row-two .training-load__metrics {
+  gap: var(--space-3);
+}
+.dashboard-row-two .training-load__metric-value {
+  font-size: var(--text-base);
+  line-height: 1;
+}
+.dashboard-row-two .training-load__metric-label {
+  font-size: 9px;
+}
+.dashboard-row-two .training-load__chart-col {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.dashboard-row-two .training-load__chart-wrap {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius-lg);
+  max-height: 160px;
+}
+.dashboard-row-two .training-load__chart {
+  height: 100%;
+  max-height: 160px;
+}
+.dashboard-row-two .training-load__legend {
+  gap: var(--space-1) var(--space-2);
+  font-size: 9px;
+  flex-shrink: 0;
+  padding-top: var(--space-1);
+}
+.dashboard-row-two .training-load__legend-item {
+  gap: 3px;
+}
+.dashboard-row-two .training-load__legend-line {
+  width: 10px;
+  height: 2px;
+}
+.dashboard-row-two .training-load__legend-zone {
+  width: 10px;
+  height: 7px;
+}
+/* Скрываем рекомендации и убираем row-layout в компактном режиме */
+.dashboard-row-two .training-load__recs {
+  display: none;
+}
+.dashboard-row-two .training-load__body {
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget) .metric-card {
   padding: 10px 12px;
   gap: 6px;
@@ -2843,7 +2948,7 @@ body.dashboard-customizer-dragging {
 @media (max-width: 640px) {
   .dashboard {
     padding: var(--page-padding-mobile);
-    padding-bottom: var(--mobile-content-padding-bottom);
+    padding-bottom: var(--page-mobile-end-spacing);
   }
 
   [data-theme="dark"] .dashboard {

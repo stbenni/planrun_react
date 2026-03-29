@@ -1,4 +1,455 @@
 /**
- * WorkoutDetailsModal — только специфичные стили контента.
- * Оболочка модального окна обеспечивается Modal.css (.app-modal--modern).
+ * WorkoutDetailsModal — Garmin-style tabbed layout.
+ * Оболочка модального окна — Modal.css (.app-modal--modern).
  */
+
+/* ═══════ Layout ═══════ */
+
+.wd-map .leaflet-route-map-wrap {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.2));
+  box-shadow: none;
+}
+
+.wd-map .leaflet-route-map {
+  height: 300px;
+}
+
+/* ── Header ── */
+
+.wd-header {
+  padding: 16px 0 0;
+}
+
+.wd-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.wd-header-activity {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  text-transform: capitalize;
+}
+
+.wd-header-date {
+  font-size: 0.85rem;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.56));
+  white-space: nowrap;
+}
+
+.wd-header-source {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.45));
+}
+
+/* ── Tabs ── */
+
+.wd-tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 16px;
+  border-bottom: 2px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.18));
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wd-tabs::-webkit-scrollbar { display: none; }
+
+.wd-tab {
+  position: relative;
+  padding: 10px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.52));
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.wd-tab:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.wd-tab.is-active {
+  color: var(--primary-500, #fc4c02);
+}
+
+.wd-tab.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-500, #fc4c02);
+  border-radius: 1px 1px 0 0;
+}
+
+/* ── Tab content ── */
+
+.wd-tab-content {
+  padding: 20px 0 0;
+}
+
+/* ── Overview cards ── */
+
+.wd-overview-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wd-card-row {
+  display: flex;
+  gap: 10px;
+}
+
+.wd-card-row > .wd-card {
+  flex: 1;
+}
+
+.wd-card {
+  padding: 16px 18px;
+  border-radius: var(--card-surface-radius-compact, 18px);
+  border: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.2));
+  background: var(--card-surface-compact-bg, rgba(255, 255, 255, 0.72));
+  box-shadow: var(--card-surface-compact-shadow, 0 4px 12px rgba(15, 23, 42, 0.06));
+  backdrop-filter: var(--card-surface-compact-backdrop, blur(12px));
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit, blur(12px));
+}
+
+.wd-card--hero {
+  text-align: center;
+  padding: 22px 18px;
+}
+
+.wd-card-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-primary, #0f172a);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.wd-card--hero .wd-card-value {
+  font-size: 2.2rem;
+}
+
+.wd-card-unit {
+  font-size: 0.7em;
+  font-weight: 600;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.5));
+}
+
+.wd-card-sub {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.45));
+  margin-top: 4px;
+}
+
+/* ── Details list (tab Данные) ── */
+
+.wd-details-list {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--card-surface-radius-compact, 18px);
+  border: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.2));
+  background: var(--card-surface-compact-bg, rgba(255, 255, 255, 0.72));
+  box-shadow: var(--card-surface-compact-shadow, 0 4px 12px rgba(15, 23, 42, 0.06));
+  backdrop-filter: var(--card-surface-compact-backdrop, blur(12px));
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit, blur(12px));
+  overflow: hidden;
+}
+
+.wd-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.12));
+}
+
+.wd-detail-row:last-child {
+  border-bottom: none;
+}
+
+.wd-detail-label {
+  font-size: 0.88rem;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.56));
+}
+
+.wd-detail-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Notes ── */
+
+.wd-notes {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--card-surface-compact-bg, rgba(255, 255, 255, 0.72));
+  border-radius: 12px;
+  border: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.2));
+}
+
+.wd-notes-text {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-secondary, rgba(15, 23, 42, 0.72));
+}
+
+/* ── Actions row ── */
+
+.wd-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.wd-action-btn {
+  font-size: 0.82rem;
+  padding: 8px 16px;
+}
+
+/* ═══════ Laps table ═══════ */
+
+.workout-details-laps {
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+.workout-details-laps-grid {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workout-details-laps-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.workout-details-laps-col--lap { width: 14%; }
+.workout-details-laps-col--distance { width: 24%; }
+.workout-details-laps-col--time { width: 17%; }
+.workout-details-laps-col--pace { width: 25%; }
+.workout-details-laps-col--pulse { width: 20%; }
+
+.workout-details-laps-head-cell {
+  padding: 0 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.58));
+}
+
+.workout-details-laps-head-cell--lap,
+.workout-details-lap-cell--name {
+  padding-left: 0;
+  text-align: left;
+}
+
+.workout-details-laps-head-cell--distance,
+.workout-details-laps-head-cell--time,
+.workout-details-laps-head-cell--pace,
+.workout-details-laps-head-cell--pulse,
+.workout-details-lap-cell--distance,
+.workout-details-lap-cell--time,
+.workout-details-lap-cell--pace,
+.workout-details-lap-cell--pulse {
+  text-align: right;
+}
+
+.workout-details-laps-head-cell--pulse,
+.workout-details-lap-cell--pulse { padding-right: 0; }
+
+.workout-details-lap-row { background: transparent; }
+.workout-details-lap-row.is-work { background: color-mix(in srgb, var(--primary-500, #fc4c02) 4%, transparent); }
+.workout-details-lap-row.is-recovery { background: color-mix(in srgb, #38bdf8 5%, transparent); }
+
+.workout-details-lap-cell {
+  padding: 11px 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  font-size: 0.9rem;
+  color: var(--text-secondary, rgba(15, 23, 42, 0.78));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workout-details-lap-row:last-child .workout-details-lap-cell { border-bottom: none; }
+.workout-details-lap-cell--name { font-weight: 700; color: var(--text-primary, #0f172a); }
+.workout-details-lap-cell--pulse { font-weight: 600; }
+
+/* ═══════ Route Map (Leaflet) ═══════ */
+
+.leaflet-route-map-wrap {
+  position: relative;
+  margin-top: 20px;
+  border-radius: var(--card-surface-radius-compact, 18px);
+  overflow: hidden;
+  border: 1px solid var(--card-surface-compact-border, rgba(148, 163, 184, 0.2));
+  box-shadow: var(--card-surface-compact-shadow, 0 12px 24px rgba(15, 23, 42, 0.08));
+}
+
+.leaflet-route-map {
+  position: relative;
+  height: 250px;
+  width: 100%;
+  z-index: 0;
+  transition: opacity 0.3s ease;
+}
+
+.leaflet-route-map-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--card-surface-compact-bg, rgba(241, 245, 249, 0.8));
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.4));
+  z-index: 1;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.leaflet-route-map-skeleton svg {
+  opacity: 0.45;
+}
+
+.leaflet-route-map-skeleton span {
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.route-marker div {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.route-marker-start div { background: #22c55e; }
+.route-marker-end div { background: #ef4444; }
+
+.route-marker-hover div {
+  background: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35), 0 1px 4px rgba(0, 0, 0, 0.3);
+  animation: pulse-marker 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-marker {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+}
+
+/* ═══════ Dark theme ═══════ */
+
+[data-theme="dark"] .wd-header-activity { color: var(--text-primary); }
+[data-theme="dark"] .wd-header-date,
+[data-theme="dark"] .wd-header-source { color: var(--text-tertiary); }
+
+[data-theme="dark"] .wd-tabs { border-bottom-color: rgba(148, 163, 184, 0.12); }
+[data-theme="dark"] .wd-tab { color: rgba(226, 232, 240, 0.5); }
+[data-theme="dark"] .wd-tab:hover { color: var(--text-primary); }
+[data-theme="dark"] .wd-tab.is-active { color: var(--primary-400); }
+[data-theme="dark"] .wd-tab.is-active::after { background: var(--primary-400); }
+
+[data-theme="dark"] .wd-card {
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+}
+[data-theme="dark"] .wd-card-value { color: var(--text-primary); }
+[data-theme="dark"] .wd-card-unit,
+[data-theme="dark"] .wd-card-sub { color: var(--text-tertiary); }
+
+[data-theme="dark"] .wd-details-list {
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+}
+[data-theme="dark"] .wd-detail-row { border-bottom-color: rgba(148, 163, 184, 0.1); }
+[data-theme="dark"] .wd-detail-label { color: var(--text-tertiary); }
+[data-theme="dark"] .wd-detail-value { color: var(--text-primary); }
+
+[data-theme="dark"] .wd-notes {
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+}
+[data-theme="dark"] .wd-notes-text { color: var(--text-secondary); }
+
+[data-theme="dark"] .workout-details-lap-cell--name { color: rgba(248, 250, 252, 0.96); }
+[data-theme="dark"] .workout-details-laps-head-cell,
+[data-theme="dark"] .workout-details-lap-cell { color: rgba(226, 232, 240, 0.8); }
+[data-theme="dark"] .workout-details-laps-head-cell { border-bottom-color: rgba(148, 163, 184, 0.18); }
+[data-theme="dark"] .workout-details-lap-row.is-work { background: color-mix(in srgb, var(--primary-500, #fc4c02) 8%, rgba(15, 23, 42, 0.24)); }
+[data-theme="dark"] .workout-details-lap-row.is-recovery { background: color-mix(in srgb, #38bdf8 9%, rgba(15, 23, 42, 0.24)); }
+[data-theme="dark"] .workout-details-lap-cell { border-bottom-color: rgba(148, 163, 184, 0.14); }
+
+[data-theme="dark"] .leaflet-route-map-wrap { border-color: rgba(148, 163, 184, 0.15); }
+[data-theme="dark"] .leaflet-route-map-skeleton {
+  background: var(--card-surface-compact-bg, rgba(15, 23, 42, 0.7));
+  color: var(--text-tertiary, rgba(226, 232, 240, 0.4));
+}
+
+/* ═══════ Mobile ═══════ */
+
+@media (max-width: 640px) {
+  .wd-map .leaflet-route-map { height: 240px; }
+
+  .wd-header { padding: 12px 0 0; }
+  .wd-header-top { flex-direction: column; gap: 2px; }
+  .wd-header-activity { font-size: 1rem; }
+
+  .wd-tabs { margin-top: 12px; }
+  .wd-tab { padding: 8px 14px; font-size: 0.78rem; }
+
+  .wd-tab-content { padding: 14px 0 0; }
+
+  .wd-card { padding: 14px 14px; }
+  .wd-card--hero { padding: 18px 14px; }
+  .wd-card-value { font-size: 1.3rem; }
+  .wd-card--hero .wd-card-value { font-size: 1.8rem; }
+
+  .wd-detail-row { padding: 11px 14px; }
+  .wd-detail-label { font-size: 0.82rem; }
+  .wd-detail-value { font-size: 0.88rem; }
+
+  .workout-details-laps-head-cell { padding-bottom: 8px; font-size: 0.64rem; }
+  .workout-details-lap-cell { padding: 10px 6px; font-size: 0.81rem; }
+  .workout-details-laps-col--lap { width: 13%; }
+  .workout-details-laps-col--distance { width: 25%; }
+}

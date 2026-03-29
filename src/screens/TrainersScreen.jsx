@@ -1,8 +1,8 @@
 /**
  * TrainersScreen — раздел «Тренеры»
  * role=user → заглушка + кнопка «Стать тренером»
- * role=coach → табы «Мои ученики» + «Запросы»
- * role=admin → табы «Каталог» + «Мои ученики»
+ * role=coach → таб «Запросы» (ученики — в AthletesOverviewScreen)
+ * role=admin → табы «Каталог» + «Мои ученики» + «Запросы»
  */
 
 import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
@@ -72,7 +72,6 @@ export default function TrainersScreen() {
       loadAthletes();
       loadRequests();
     } else if (role === 'coach') {
-      loadAthletes();
       loadRequests();
     }
   }, [role, loadCoaches, loadAthletes, loadRequests]);
@@ -140,7 +139,6 @@ export default function TrainersScreen() {
     try {
       await api.acceptCoachRequest(requestId);
       loadRequests();
-      loadAthletes();
     } catch (e) { alert(e.message); }
   };
 

@@ -680,7 +680,7 @@
 @media (max-width: 1023px) {
   .athletes-overview {
     padding: var(--page-padding-mobile);
-    padding-bottom: var(--mobile-content-padding-bottom);
+    padding-bottom: var(--page-mobile-end-spacing);
   }
 
   .athletes-overview-title {

@@ -9,7 +9,7 @@
  * Логика:
  * 1. Находим пользователей, у которых сейчас воскресенье 20:00 в их таймзоне
  * 2. Собираем данные прошедшей недели (prepareWeeklyAnalysis)
- * 3. Генерируем короткое ревью через LM Studio
+ * 3. Генерируем короткое ревью через LLM (llama.cpp)
  * 4. Отправляем в чат через ChatService->addAIMessageToUser()
  */
 
@@ -82,7 +82,8 @@ while ($row = $result->fetch_assoc()) {
             // Старый путь: только ревью без адаптации
             $weekNumber = getCurrentWeekNumber($userId, $db);
             $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
-            $reviewText = buildWeeklyReviewPromptData($analysis);
+            $enrichment = collectReviewEnrichment($userId, $db);
+            $reviewText = buildWeeklyReviewPromptData($analysis, $enrichment);
             $review = generateWeeklyReview($reviewText, $analysis['user']['username'] ?? 'спортсмен');
             if (!$review) {
                 error_log("weekly_ai_review: LLM returned empty for user $userId");
@@ -90,7 +91,11 @@ while ($row = $result->fetch_assoc()) {
                 continue;
             }
             $chatService = new ChatService($db);
-            $chatService->addAIMessageToUser($userId, $review);
+            $chatService->addAIMessageToUser($userId, $review, [
+                'event_key' => 'plan.weekly_review',
+                'title' => 'Еженедельный обзор готов',
+                'link' => '/chat',
+            ]);
             $sent++;
         }
     } catch (Throwable $e) {
@@ -107,8 +112,9 @@ if (php_sapi_name() === 'cli') {
 
 /**
  * Формирует структурированный текст для промпта LLM из данных недели.
+ * Enhanced: 4-week trends, ACWR, goal progress.
  */
-function buildWeeklyReviewPromptData(array $analysis): string {
+function buildWeeklyReviewPromptData(array $analysis, ?array $enrichment = null): string {
     $stats = $analysis['statistics'] ?? [];
     $days = $analysis['days'] ?? [];
     $user = $analysis['user'] ?? [];
@@ -164,7 +170,26 @@ function buildWeeklyReviewPromptData(array $analysis): string {
         }
     }
 
-    // Цель пользователя
+    // 4-week volume trend
+    if (!empty($enrichment['weekly_volumes'])) {
+        $lines[] = "";
+        $lines[] = "ТРЕНД ОБЪЁМОВ (4 недели):";
+        foreach ($enrichment['weekly_volumes'] as $wk => $km) {
+            $lines[] = "  {$wk}: {$km} км";
+        }
+    }
+
+    // ACWR
+    if (!empty($enrichment['acwr'])) {
+        $acwr = $enrichment['acwr'];
+        $zoneRu = ['low' => 'недогрузка', 'optimal' => 'оптимально', 'caution' => 'осторожно', 'danger' => 'ОПАСНО'];
+        $lines[] = "";
+        $lines[] = "НАГРУЗКА:";
+        $lines[] = "  ACWR: {$acwr['acwr']} (" . ($zoneRu[$acwr['zone']] ?? $acwr['zone']) . ")";
+        $lines[] = "  Острая (7 дн): {$acwr['acute']}, Хроническая (28 дн): {$acwr['chronic']}";
+    }
+
+    // Goal progress
     $lines[] = "";
     $goalType = $user['goal_type'] ?? '';
     $raceDate = $user['race_date'] ?? $user['target_marathon_date'] ?? '';
@@ -172,19 +197,114 @@ function buildWeeklyReviewPromptData(array $analysis): string {
     $raceDist = $user['race_distance'] ?? '';
     if ($goalType === 'race' && $raceDate) {
         $lines[] = "Цель: забег {$raceDist}, дата {$raceDate}, целевое время {$raceTime}";
+        try {
+            $daysUntil = (int) (new DateTime())->diff(new DateTime($raceDate))->days;
+            if ($daysUntil > 0) $lines[] = "До забега: {$daysUntil} дней";
+        } catch (Exception $e) {}
     } elseif ($goalType) {
         $lines[] = "Цель: {$goalType}";
+    }
+
+    // VDOT progress
+    if (!empty($enrichment['vdot'])) {
+        $vdotLine = "Текущий VDOT: {$enrichment['vdot']}";
+        if (isset($enrichment['vdot_trend']) && $enrichment['vdot_trend'] != 0) {
+            $sign = $enrichment['vdot_trend'] > 0 ? '+' : '';
+            $vdotLine .= " ({$sign}{$enrichment['vdot_trend']} за неделю)";
+        }
+        $lines[] = $vdotLine;
+    }
+
+    // Goal progress (predicted vs target time)
+    if (!empty($enrichment['goal_progress'])) {
+        $gp = $enrichment['goal_progress'];
+        $lines[] = "";
+        $lines[] = "ПРОГРЕСС К ЦЕЛИ:";
+        $lines[] = "  Прогноз: " . gmdate('H:i:s', $gp['predicted_sec']);
+        $lines[] = "  Цель: " . gmdate('H:i:s', $gp['target_sec']);
+        $lines[] = "  Статус: " . ($gp['on_track'] ? 'НА ПУТИ (прогноз быстрее цели)' : 'Нужно улучшение');
+        if (($gp['consistency_streak'] ?? 0) >= 3) {
+            $lines[] = "  Стабильность: {$gp['consistency_streak']} недель подряд";
+        }
     }
 
     return implode("\n", $lines);
 }
 
 /**
+ * Собирает дополнительные данные для ревью: тренд объёмов, ACWR, VDOT.
+ */
+function collectReviewEnrichment(int $userId, $db): array {
+    require_once dirname(__DIR__) . '/services/ChatContextBuilder.php';
+    $ctx = new ChatContextBuilder($db);
+
+    $enrichment = [];
+
+    // 4-week volume trend
+    $volumes = [];
+    for ($i = 3; $i >= 0; $i--) {
+        $monday = (new DateTime())->modify("-{$i} weeks monday")->format('Y-m-d');
+        $sunday = (new DateTime($monday))->modify('+6 days')->format('Y-m-d');
+        $km = 0.0;
+        $stmt = $db->prepare("SELECT COALESCE(SUM(distance_km), 0) as km FROM workout_log WHERE user_id = ? AND is_completed = 1 AND training_date >= ? AND training_date <= ?");
+        if ($stmt) {
+            $stmt->bind_param('iss', $userId, $monday, $sunday);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $km += (float) ($row['km'] ?? 0);
+            $stmt->close();
+        }
+        $stmt2 = $db->prepare("SELECT COALESCE(SUM(distance_km), 0) as km FROM workouts WHERE user_id = ? AND DATE(start_time) >= ? AND DATE(start_time) <= ? AND NOT EXISTS (SELECT 1 FROM workout_log wl WHERE wl.user_id = workouts.user_id AND wl.training_date = DATE(workouts.start_time) AND wl.is_completed = 1)");
+        if ($stmt2) {
+            $stmt2->bind_param('iss', $userId, $monday, $sunday);
+            $stmt2->execute();
+            $row2 = $stmt2->get_result()->fetch_assoc();
+            $km += (float) ($row2['km'] ?? 0);
+            $stmt2->close();
+        }
+        $label = (new DateTime($monday))->format('d.m') . '-' . (new DateTime($sunday))->format('d.m');
+        $volumes[$label] = round($km, 1);
+    }
+    $enrichment['weekly_volumes'] = $volumes;
+
+    // ACWR
+    $acwr = $ctx->calculateACWR($userId);
+    if ($acwr['acwr'] !== null) $enrichment['acwr'] = $acwr;
+
+    // VDOT + goal progress from GoalProgressService
+    try {
+        require_once dirname(__DIR__) . '/services/GoalProgressService.php';
+        $gps = new GoalProgressService($db);
+        $progress = $gps->getProgressSummary($userId);
+        if ($progress) {
+            if (!empty($progress['current_vdot'])) $enrichment['vdot'] = $progress['current_vdot'];
+            if ($progress['vdot_trend'] !== null) $enrichment['vdot_trend'] = $progress['vdot_trend'];
+            if ($progress['predicted_time_sec'] && $progress['race_target_time_sec']) {
+                $enrichment['goal_progress'] = [
+                    'predicted_sec' => $progress['predicted_time_sec'],
+                    'target_sec' => $progress['race_target_time_sec'],
+                    'on_track' => $progress['on_track'] ?? false,
+                    'consistency_streak' => $progress['consistency_streak'] ?? 0,
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+        try {
+            require_once dirname(__DIR__) . '/services/StatsService.php';
+            $vdotData = (new StatsService($db))->getBestResultForVdot($userId);
+            if (!empty($vdotData['vdot'])) $enrichment['vdot'] = round((float) $vdotData['vdot'], 1);
+        } catch (Throwable $e2) {}
+    }
+
+    return $enrichment;
+}
+
+/**
  * Генерирует еженедельное ревью через llama-server.
  */
 function generateWeeklyReview(string $weekData, string $username): ?string {
-    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:8081/v1')), '/');
-    $model = env('LLM_CHAT_MODEL', env('LMSTUDIO_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning'));
+    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
+    $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
 
     if ($baseUrl === '' || $model === '') {
         error_log('weekly_ai_review: LLM_CHAT_BASE_URL or LLM_CHAT_MODEL not set');
@@ -192,18 +312,18 @@ function generateWeeklyReview(string $weekData, string $username): ?string {
     }
 
     $systemPrompt = <<<PROMPT
-Ты — AI-тренер PlanRun. Напиши краткое еженедельное ревью тренировок для спортсмена.
+Ты — AI-тренер PlanRun. Напиши еженедельное ревью тренировок.
 
 Правила:
-- 3-5 предложений, дружелюбный тон
-- Отметь что было хорошо (конкретно: темп, объём, ключевые тренировки)
-- Если были пропуски — мягко упомяни, без давления
-- Дай 1 конкретный совет на следующую неделю
-- Если % выполнения > 80% — похвали
-- Если < 50% — поддержи, предложи облегчить нагрузку
-- Только русский язык
-- Не начинай с "Привет" или обращения по имени — сразу по делу
-- Используй emoji умеренно (1-2 штуки максимум)
+- 4-6 предложений, дружелюбный профессиональный тон.
+- Конкретика: упомяни объём, ключевые тренировки, темп/пульс если есть.
+- Если есть тренд объёмов (4 недели) — оцени динамику (рост/стабильность/снижение).
+- Если есть ACWR — прокомментируй: оптимально → «нагрузка в норме»; осторожно/опасно → «рекомендую снизить/отдохнуть».
+- Если забег близко (<14 дней) — напомни о тейпере и восстановлении.
+- При пропусках — мягко, без укоров. При >80% — конкретная похвала.
+- 1-2 совета на следующую неделю (конкретно, не общие фразы).
+- СТРОГО русский язык. Без «Привет» — сразу по делу.
+- Без emoji.
 PROMPT;
 
     $payload = [
@@ -232,7 +352,7 @@ PROMPT;
     curl_close($ch);
 
     if ($httpCode !== 200 || $response === false) {
-        error_log("weekly_ai_review: LM Studio HTTP {$httpCode}");
+        error_log("weekly_ai_review: LLM HTTP {$httpCode}");
         return null;
     }
 

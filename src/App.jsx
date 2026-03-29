@@ -23,6 +23,7 @@ import './App.css';
 const UserProfileScreen = lazyWithRetry(() => import('./screens/UserProfileScreen'), 'UserProfileScreen');
 const ForgotPasswordScreen = lazyWithRetry(() => import('./screens/ForgotPasswordScreen'), 'ForgotPasswordScreen');
 const ResetPasswordScreen = lazyWithRetry(() => import('./screens/ResetPasswordScreen'), 'ResetPasswordScreen');
+const PrivacyPolicyScreen = lazyWithRetry(() => import('./screens/PrivacyPolicyScreen'), 'PrivacyPolicyScreen');
 
 function ScrollToTop() {
   const { pathname, search } = useLocation();
@@ -81,7 +82,7 @@ function App() {
     });
   }, [isAuthenticated, api, loading]);
 
-  // Deep link: OAuth callback из In-App Browser (planrun://oauth-callback?connected=strava)
+  // Deep link: OAuth callback из In-App Browser (planrun://oauth-callback?connected=huawei|strava|...)
   useEffect(() => {
     if (!isNativeCapacitor()) return;
     let listenerHandle;
@@ -195,6 +196,10 @@ function App() {
               <Navigate to="/" replace />
             )
           }
+        />
+        <Route
+          path="/privacy"
+          element={<PrivacyPolicyScreen />}
         />
         <Route
           path="/dashboard"

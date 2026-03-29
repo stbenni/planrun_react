@@ -1,0 +1,433 @@
+/**
+ * TrainingLoadWidget — стили в едином дизайне дашборда
+ * Токены из sports-colors.css, cards.css
+ */
+
+/* ── Loading / Empty states ── */
+
+.training-load-loading,
+.training-load-empty {
+  padding: var(--dashboard-card-padding);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.training-load-loading {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Root container ── */
+
+.training-load {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Header: TSB badge + ATL/CTL metrics ── */
+
+.training-load__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.training-load__tsb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.training-load__tsb-badge--recovered {
+  background: color-mix(in srgb, var(--primary-500) 12%, var(--card-surface-compact-bg));
+  color: var(--primary-500);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 20%, transparent);
+}
+
+.training-load__tsb-badge--fresh {
+  background: color-mix(in srgb, var(--success-500, #22c55e) 12%, var(--card-surface-compact-bg));
+  color: var(--success-600, #16a34a);
+  border: 1px solid color-mix(in srgb, var(--success-500, #22c55e) 20%, transparent);
+}
+
+.training-load__tsb-badge--loaded {
+  background: color-mix(in srgb, var(--warning-500, #f59e0b) 12%, var(--card-surface-compact-bg));
+  color: var(--warning-600, #d97706);
+  border: 1px solid color-mix(in srgb, var(--warning-500, #f59e0b) 20%, transparent);
+}
+
+.training-load__tsb-badge--overloaded {
+  background: color-mix(in srgb, var(--danger-500, #ef4444) 12%, var(--card-surface-compact-bg));
+  color: var(--danger-600, #dc2626);
+  border: 1px solid color-mix(in srgb, var(--danger-500, #ef4444) 20%, transparent);
+}
+
+[data-theme="dark"] .training-load__tsb-badge--recovered {
+  background: color-mix(in srgb, var(--primary-500) 15%, rgba(0, 0, 0, 0.3));
+  color: var(--primary-400, var(--primary-500));
+}
+
+[data-theme="dark"] .training-load__tsb-badge--fresh {
+  background: color-mix(in srgb, var(--success-500, #22c55e) 15%, rgba(0, 0, 0, 0.3));
+  color: var(--success-400, #4ade80);
+}
+
+[data-theme="dark"] .training-load__tsb-badge--loaded {
+  background: color-mix(in srgb, var(--warning-500, #f59e0b) 15%, rgba(0, 0, 0, 0.3));
+  color: var(--warning-400, #fbbf24);
+}
+
+[data-theme="dark"] .training-load__tsb-badge--overloaded {
+  background: color-mix(in srgb, var(--danger-500, #ef4444) 15%, rgba(0, 0, 0, 0.3));
+  color: var(--danger-400, #f87171);
+}
+
+.training-load__tsb-value {
+  font-size: var(--text-xs);
+  opacity: 0.7;
+  font-weight: var(--font-normal);
+}
+
+.training-load__metrics {
+  display: flex;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+.training-load__metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.training-load__metric-value {
+  font-family: var(--font-stats);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.training-load__metric-value--opt {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.training-load__metric-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: var(--font-medium);
+}
+
+/* ── Body: chart + workouts side by side on desktop ── */
+
+.training-load__body {
+  display: flex;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.training-load__chart-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: relative;
+  z-index: 2;
+}
+
+.training-load__recs {
+  flex: 0 0 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 768px) {
+  .training-load__body {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .training-load__recs {
+    flex: none;
+  }
+}
+
+/* ── SVG chart ── */
+
+.training-load__chart-wrap {
+  position: relative;
+  width: 100%;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.training-load__chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.training-load__chart text {
+  font-family: inherit;
+}
+
+.training-load__axis-label {
+  fill: var(--text-secondary);
+  font-size: 10px;
+}
+
+.training-load__grid-line {
+  stroke: var(--card-surface-compact-border);
+  stroke-width: 0.5;
+}
+
+[data-theme="dark"] .training-load__grid-line {
+  stroke: color-mix(in srgb, var(--primary-500) 6%, rgba(255, 255, 255, 0.08));
+}
+
+/* Optimal load zone corridor (0.8×CTL – 1.3×CTL) */
+.training-load__opt-zone {
+  fill: #38bdf8;
+  opacity: 0.18;
+}
+
+.training-load__opt-zone-border {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 1.5;
+  opacity: 0.45;
+  stroke-dasharray: 6 3;
+}
+
+[data-theme="dark"] .training-load__opt-zone {
+  opacity: 0.22;
+}
+
+[data-theme="dark"] .training-load__opt-zone-border {
+  opacity: 0.55;
+}
+
+/* CTL line (chronic / base fitness) — синий */
+.training-load__line-ctl {
+  stroke: #3b82f6;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ATL line (acute / recent load) — красный */
+.training-load__line-atl {
+  stroke: #ef4444;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* TSB line (training stress balance) */
+.training-load__line-tsb {
+  stroke: var(--success-500, #22c55e);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 5 3;
+}
+
+/* Zero reference line */
+.training-load__zero-line {
+  stroke: var(--text-secondary);
+  stroke-width: 0.7;
+  stroke-dasharray: 3 3;
+  opacity: 0.4;
+}
+
+/* Hover overlay */
+.training-load__hover-zone {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.training-load__tooltip-line {
+  stroke: var(--text-secondary);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* HTML tooltip (positioned over chart-wrap) */
+.training-load__html-tooltip {
+  position: absolute;
+  top: 8px;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-secondary, #e2e8f0);
+  border-radius: 8px;
+  padding: 8px 10px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+  line-height: 1.5;
+  z-index: 10;
+  max-width: min(220px, calc(100% - 16px));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.training-load__html-tooltip--hidden {
+  opacity: 0;
+}
+
+.training-load__html-tooltip--right {
+  transform-origin: top left;
+}
+
+.training-load__html-tooltip--left {
+  transform-origin: top right;
+}
+
+[data-theme="dark"] .training-load__html-tooltip {
+  background: var(--bg-primary, #1a202c);
+  border-color: var(--border-secondary, #2d3748);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.training-load__html-tooltip-date {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.training-load__html-tooltip-row {
+  font-size: 12px;
+}
+
+.training-load__html-tooltip-row--atl { color: #ef4444; }
+.training-load__html-tooltip-row--ctl { color: #3b82f6; }
+.training-load__html-tooltip-row--tsb { color: #22c55e; }
+
+[data-theme="dark"] .training-load__html-tooltip-row--atl { color: #f87171; }
+[data-theme="dark"] .training-load__html-tooltip-row--ctl { color: #60a5fa; }
+[data-theme="dark"] .training-load__html-tooltip-row--tsb { color: #4ade80; }
+
+/* ── Legend ── */
+
+.training-load__legend {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.training-load__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.training-load__legend-line {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.training-load__legend-zone {
+  width: 16px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: #38bdf8;
+  opacity: 0.35;
+}
+
+/* ── Recommendations ── */
+
+.training-load__recs-title {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.training-load__rec-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 6px 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 6%, transparent);
+}
+
+.training-load__rec-row:last-child {
+  border-bottom: none;
+}
+
+.training-load__rec-icon {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.training-load__rec-text {
+  line-height: 1.4;
+}
+
+/* ── Compact mode ── */
+
+.training-load--compact .training-load__recs {
+  display: none;
+}
+
+.training-load--compact .training-load__body {
+  flex-direction: column;
+}
+
+.training-load--compact .training-load__header {
+  flex-wrap: nowrap;
+}
+
+.training-load--compact .training-load__legend {
+  gap: var(--space-2);
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 480px) {
+  .training-load__metrics {
+    margin-left: 0;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}

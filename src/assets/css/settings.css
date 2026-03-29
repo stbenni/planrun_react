@@ -97,11 +97,11 @@
     line-height: 1.6;
 }
 
-.form-group {
+.settings-page .form-group {
     margin-bottom: var(--space-5);
 }
 
-.form-group label {
+.settings-page .form-group label {
     display: block;
     margin-bottom: var(--space-2);
     font-weight: var(--font-semibold);
@@ -109,8 +109,8 @@
     font-size: var(--text-sm);
 }
 
-.form-group input,
-.form-group select {
+.settings-page .form-group input,
+.settings-page .form-group select {
     width: 100%;
     min-height: 52px;
     padding: var(--space-3) var(--space-4);
@@ -125,16 +125,16 @@
     -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.68)) saturate(1.18);
 }
 
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
+.settings-page .form-group input:focus,
+.settings-page .form-group select:focus,
+.settings-page .form-group textarea:focus {
     outline: none;
     border-color: var(--primary-500);
     background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 6%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-strong) 100%);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-500) 14%, transparent), var(--surface-glass-inset), 0 14px 28px rgba(252, 76, 2, 0.12);
 }
 
-.form-group small {
+.settings-page .form-group small {
     display: block;
     margin-top: var(--space-2);
     color: var(--text-tertiary);
@@ -177,7 +177,7 @@
     border-color: var(--gray-600);
 }
 
-.alert {
+.settings-page .alert {
     padding: var(--space-4) var(--space-5);
     border-radius: var(--radius-lg);
     margin-bottom: var(--space-6);
@@ -186,13 +186,13 @@
     border: 1px solid;
 }
 
-.alert-success {
+.settings-page .alert-success {
     background: var(--success-50);
     color: var(--success-700);
     border-color: var(--success-100);
 }
 
-.alert-error {
+.settings-page .alert-error {
     background: var(--accent-50);
     color: var(--accent-600);
     border-color: var(--accent-100);
@@ -466,7 +466,7 @@
     max-width: 500px;
 }
 
-.password-form .form-group {
+.settings-page .password-form .form-group {
     margin-bottom: var(--space-4);
 }
 
@@ -799,20 +799,20 @@
 }
 
 /* Формы в две колонки */
-.form-row {
+.settings-page .form-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-4);
     margin-bottom: var(--space-5);
 }
 
-.form-row .form-group {
+.settings-page .form-row .form-group {
     margin-bottom: 0;
 }
 
 /* Адаптивность для мобильных устройств */
 @media (max-width: 768px) {
-    .form-row {
+    .settings-page .form-row {
         grid-template-columns: 1fr;
         gap: var(--space-3);
     }
@@ -1083,7 +1083,7 @@
 .radio-label input[type="radio"],
 .radio-label input[type="checkbox"],
 .checkbox-label input[type="checkbox"],
-.form-group > label > input[type="checkbox"] {
+.settings-page .form-group > label > input[type="checkbox"] {
     appearance: auto;
     -webkit-appearance: auto;
     width: auto;
@@ -1104,14 +1104,14 @@
 }
 
 /* Form actions */
-.form-actions {
+.settings-page .form-actions {
     display: flex;
     justify-content: flex-end;
     padding-top: var(--space-4);
     border-top: 1px solid var(--gray-200);
 }
 
-.btn-primary {
+.settings-page .btn-primary {
     background: var(--primary-500);
     color: white;
     border: none;
@@ -1122,7 +1122,7 @@
     transition: all var(--transition-base);
 }
 
-.btn-primary:hover {
+.settings-page .btn-primary:hover {
     background: var(--primary-600);
     transform: translateY(-1px);
     box-shadow: var(--shadow-md);
@@ -1185,7 +1185,7 @@
 }
 
 .checkbox-label,
-.form-group > label:has(> input[type="checkbox"]) {
+.settings-page .form-group > label:has(> input[type="checkbox"]) {
     display: inline-flex;
     align-items: center;
     gap: var(--space-3);
@@ -1590,7 +1590,7 @@
 }
 
 /* Стили для textarea в настройках */
-.form-group textarea {
+.settings-page .form-group textarea {
     width: 100%;
     min-height: 80px;
     padding: var(--space-3) var(--space-4);
@@ -1659,49 +1659,49 @@
     color: var(--text-secondary);
 }
 
-[data-theme="dark"] .form-group label {
+[data-theme="dark"] .settings-page .form-group label {
     color: var(--text-primary);
 }
 
-[data-theme="dark"] .form-group input,
-[data-theme="dark"] .form-group select,
-[data-theme="dark"] .form-group textarea {
+[data-theme="dark"] .settings-page .form-group input,
+[data-theme="dark"] .settings-page .form-group select,
+[data-theme="dark"] .settings-page .form-group textarea {
     background: var(--settings-dark-control-bg) !important;
     border-color: var(--settings-dark-control-border) !important;
     color: var(--text-primary) !important;
     box-shadow: var(--settings-dark-control-shadow) !important;
 }
 
-[data-theme="dark"] .form-group input:focus,
-[data-theme="dark"] .form-group select:focus,
-[data-theme="dark"] .form-group textarea:focus {
+[data-theme="dark"] .settings-page .form-group input:focus,
+[data-theme="dark"] .settings-page .form-group select:focus,
+[data-theme="dark"] .settings-page .form-group textarea:focus {
     border-color: var(--primary-500) !important;
     box-shadow: var(--settings-dark-control-focus-shadow) !important;
     background: var(--settings-dark-control-focus-bg) !important;
 }
 
-[data-theme="dark"] .form-group small {
+[data-theme="dark"] .settings-page .form-group small {
     color: var(--text-tertiary);
 }
 
-[data-theme="dark"] .form-group select,
-[data-theme="dark"] .form-group input[type="date"],
-[data-theme="dark"] .form-group input[type="time"],
-[data-theme="dark"] .form-group input[type="datetime-local"],
-[data-theme="dark"] .form-group input[type="month"],
-[data-theme="dark"] .form-group input[type="week"] {
+[data-theme="dark"] .settings-page .form-group select,
+[data-theme="dark"] .settings-page .form-group input[type="date"],
+[data-theme="dark"] .settings-page .form-group input[type="time"],
+[data-theme="dark"] .settings-page .form-group input[type="datetime-local"],
+[data-theme="dark"] .settings-page .form-group input[type="month"],
+[data-theme="dark"] .settings-page .form-group input[type="week"] {
     color-scheme: dark;
 }
 
-[data-theme="dark"] .form-group select option,
-[data-theme="dark"] .form-group select optgroup {
+[data-theme="dark"] .settings-page .form-group select option,
+[data-theme="dark"] .settings-page .form-group select optgroup {
     background: var(--bg-secondary);
     color: var(--text-primary);
 }
 
-[data-theme="dark"] .form-group input[type="date"]::-webkit-calendar-picker-indicator,
-[data-theme="dark"] .form-group input[type="time"]::-webkit-calendar-picker-indicator,
-[data-theme="dark"] .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+[data-theme="dark"] .settings-page .form-group input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] .settings-page .form-group input[type="time"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] .settings-page .form-group input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(0.86) sepia(0.04) saturate(0.3) brightness(1.05);
     opacity: 0.82;
 }
@@ -1857,7 +1857,7 @@
 [data-theme="dark"] .radio-label input[type="radio"],
 [data-theme="dark"] .radio-label input[type="checkbox"],
 [data-theme="dark"] .checkbox-label input[type="checkbox"],
-[data-theme="dark"] .form-group > label > input[type="checkbox"],
+[data-theme="dark"] .settings-page .form-group > label > input[type="checkbox"],
 [data-theme="dark"] .privacy-option input[type="radio"],
 [data-theme="dark"] .privacy-option input[type="checkbox"] {
     appearance: auto !important;
@@ -2136,15 +2136,15 @@
     background: var(--danger-600) !important;
 }
 
-[data-theme="dark"] .btn-primary {
+[data-theme="dark"] .settings-page .btn-primary {
     background: var(--primary-500) !important;
     color: white !important;
 }
 
-[data-theme="dark"] .btn-primary:hover {
+[data-theme="dark"] .settings-page .btn-primary:hover {
     background: var(--primary-600) !important;
 }
 
-[data-theme="dark"] .form-actions {
+[data-theme="dark"] .settings-page .form-actions {
     border-top-color: var(--gray-400);
 }

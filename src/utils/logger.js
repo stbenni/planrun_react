@@ -5,7 +5,8 @@
 
 const LOG_FILE = 'planrun.log';
 const MAX_LOG_BYTES = 200 * 1024; // ~200 KB, потом обрезка
-const IS_CAPACITOR = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+// Inline check — нельзя импортировать isNativeCapacitor (logger загружается первым)
+const IS_CAPACITOR = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
 
 let Filesystem = null;
 let Directory = null;

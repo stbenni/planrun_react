@@ -210,6 +210,10 @@
   --bottom-nav-floating-gap: 12px;
   /* Отступ контента снизу: ровно чтобы последний блок не уходил под парящий навбар (без лишнего зазора) */
   --mobile-content-padding-bottom: calc(var(--bottom-nav-floating-gap) + var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  /* Веб-shell на мобиле: реальный clearance под сайтoвый bottom-nav без лишнего запаса */
+  --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px);
+  /* Финальный зазор внутри самой страницы на мобиле: без повторного резерва места под навбар */
+  --page-mobile-end-spacing: var(--space-4);
 
   /* ========================================
      LIQUID GLASS (мобильный UI, Apple-style)
@@ -493,6 +497,7 @@
 html.native-app {
   --bottom-nav-height: 78px;
   --bottom-nav-floating-gap: 8px;
+  --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ========================================

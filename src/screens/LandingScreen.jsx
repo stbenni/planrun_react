@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import useAuthStore from '../stores/useAuthStore';
 import LoginModal from '../components/LoginModal';
@@ -26,10 +26,17 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
   const [registerReturnTo, setRegisterReturnTo] = useState(null);
   const showcaseRef = useRef(null);
   const isIOSDevice = useMemo(() => detectIOSDevice(), []);
-  const isDark = useMemo(
-    () => document.documentElement.getAttribute('data-theme') !== 'light',
-    []
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.getAttribute('data-theme') !== 'light'
   );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const showcase = showcaseRef.current;
@@ -279,8 +286,11 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
           />
         </motion.div>
 
-        <div className="landing-copyright">
-          © 2026 planRUN
+        <div className="landing-footer-bar">
+          <Link to="/privacy" className="landing-privacy-link">
+            Политика конфиденциальности
+          </Link>
+          <div className="landing-copyright">© 2026 planRUN</div>
         </div>
       </section>
     </div>

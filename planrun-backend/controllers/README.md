@@ -1,88 +1,35 @@
 # Контроллеры API
 
-Структура контроллеров для рефакторинга монолитного `api.php`.
+Контроллеры в `planrun-backend/controllers/` принимают запрос из `api_v2.php`, валидируют доступ и делегируют бизнес-логику сервисам. Здесь не должна жить тяжёлая доменная логика или SQL.
 
-## Структура
+## Текущий состав
 
-```
-controllers/
-├── BaseController.php           # Базовый класс с общей логикой
-├── TrainingPlanController.php   # Планы тренировок
-├── WorkoutController.php        # Тренировки и результаты
-├── StatsController.php          # Статистика
-├── ExerciseController.php       # Упражнения
-├── WeekController.php           # Недели плана
-└── AdaptationController.php     # Адаптация плана
-```
+- `BaseController.php` - общий JSON-response, доступ, параметры запроса, CSRF и обработка ошибок.
+- `AuthController.php` - login/logout/refresh/check_auth/password reset.
+- `UserController.php` - профиль, privacy, avatar, Telegram, web push subscription.
+- `TrainingPlanController.php` - load/status/regenerate/recalculate/next plan/clear plan.
+- `WorkoutController.php` - day view, result CRUD, delete/import/timeline/data version.
+- `WeekController.php` - недели и дни плана.
+- `ExerciseController.php` - упражнения дня и библиотека упражнений.
+- `StatsController.php` - stats, workouts summary, race prediction, weekly analysis.
+- `ChatController.php` - AI-chat, streaming, admin chat, direct dialogs.
+- `IntegrationsController.php` - OAuth URL, sync, integration status/unlink.
+- `PushController.php` - регистрация push-токенов устройств.
+- `CoachController.php` - каталог тренеров, заявки, pricing, groups.
+- `NoteController.php` - notes и plan notifications.
+- `AdminController.php` - admin users, site settings, notification templates.
+- `AdaptationController.php` - weekly adaptation.
 
-## Использование
+## Правила для контроллера
 
-### Старый API (api.php)
-```
-GET /api.php?action=load
-GET /api.php?action=get_day&date=2026-01-25
-POST /api.php?action=save_result
-```
+1. Считать параметры и право доступа.
+2. Вызвать сервис.
+3. Вернуть нормализованный JSON.
+4. Не дублировать логику из сервисов и репозиториев.
 
-### Новый API (api_v2.php)
-```
-GET /api_v2.php?action=load
-GET /api_v2.php?action=get_day&date=2026-01-25
-POST /api_v2.php?action=save_result
-```
+## Где смотреть карту action'ов
 
-**ВАЖНО:** Оба API работают параллельно. Старый API продолжает работать для обратной совместимости.
-
-## Контроллеры
-
-### BaseController
-Базовый класс с общей логикой:
-- Управление доступом (авторизация, права)
-- CSRF защита
-- Утилиты для ответов (success/error)
-- Работа с параметрами запроса
-
-### TrainingPlanController
-- `load()` - загрузка плана тренировок
-- `checkStatus()` - проверка статуса плана
-
-### WorkoutController
-- `getDay()` - получить день тренировки
-- `saveResult()` - сохранить результат тренировки
-- `getResult()` - получить результат тренировки
-- `getAllResults()` - получить все результаты
-- `deleteWorkout()` - удалить тренировку
-
-### StatsController
-- `stats()` - получить статистику
-- `getAllWorkoutsSummary()` - сводка всех тренировок
-- `prepareWeeklyAnalysis()` - недельный анализ
-
-### ExerciseController
-- `addDayExercise()` - добавить упражнение к дню
-- `updateDayExercise()` - обновить упражнение
-- `deleteDayExercise()` - удалить упражнение
-- `reorderDayExercises()` - изменить порядок упражнений
-- `listExerciseLibrary()` - библиотека упражнений
-
-### WeekController
-- `addWeek()` - добавить неделю
-- `deleteWeek()` - удалить неделю
-- `addTrainingDay()` - добавить день тренировки
-
-### AdaptationController
-- `runWeeklyAdaptation()` - запустить недельную адаптацию
-
-## Миграция
-
-Постепенная миграция действий из `api.php` в контроллеры:
-1. ✅ Основные действия мигрированы (18+ действий)
-2. ⏳ Остальные действия (save, reset, generate_plan, etc.) - в процессе
-3. ⏳ Вынос бизнес-логики в сервисы (следующий этап)
-
-## Принципы
-
-- **Обратная совместимость** - старый API работает
-- **Постепенная миграция** - по одному действию
-- **Переиспользование** - используем существующие функции из api.php
-- **Тестирование** - тесты для новых контроллеров
+- обзор слоя: `/var/www/planrun/docs/02-BACKEND.md`
+- глубокий manual reference controller/service/repository слоя: `/var/www/planrun/docs/12-BACKEND-APPLICATION-REFERENCE.md`
+- карта action -> controller method: `/var/www/planrun/docs/03-API.md`
+- список файлов слоя: `/var/www/planrun/docs/04-FILES-REFERENCE.md`

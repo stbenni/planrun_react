@@ -75,7 +75,7 @@
   min-height: 46px;
   width: var(--pill-width);
   transform: translateX(var(--pill-left));
-  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1), width 0.28s cubic-bezier(0.33, 1, 0.68, 1);
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1), width 0.28s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.18s ease;
   border-radius: var(--bottom-nav-pill-radius);
   background: linear-gradient(
     180deg,
@@ -88,6 +88,10 @@
     0 0 0 1px color-mix(in srgb, var(--primary-500) 10%, rgba(255, 255, 255, 0.04));
   pointer-events: none;
   z-index: 0;
+}
+
+.nav-pill--hidden {
+  opacity: 0;
 }
 
 [data-theme="dark"] .nav-pill {

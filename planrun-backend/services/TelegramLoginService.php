@@ -12,6 +12,7 @@ class TelegramLoginService {
     private string $botToken;
     private string $botUsername;
     private ?string $proxy;
+    private static bool $externalBotConfigLoaded = false;
 
     public function __construct($db) {
         $this->db = $db;
@@ -23,10 +24,55 @@ class TelegramLoginService {
             ? $scopes
             : trim('openid ' . $scopes);
         $this->stateSecret = (string) env('JWT_SECRET_KEY', 'telegram-login-state-fallback-' . md5(__DIR__));
-        $this->botToken = trim((string) env('TELEGRAM_BOT_TOKEN', ''));
+        $this->botToken = $this->resolveBotToken();
         $this->botUsername = trim((string) env('TELEGRAM_BOT_USERNAME', 'running_cal_bot'));
         $proxy = trim((string) env('TELEGRAM_PROXY', ''));
         $this->proxy = $proxy !== '' ? $proxy : null;
+    }
+
+    public function isBotConfigured(): bool {
+        return $this->botToken !== '';
+    }
+
+    private function resolveBotToken(): string {
+        $token = trim((string) env('TELEGRAM_BOT_TOKEN', ''));
+        if ($token !== '') {
+            return $token;
+        }
+
+        self::loadExternalBotConfig();
+
+        if (defined('TELEGRAM_BOT_TOKEN')) {
+            $externalToken = trim((string) constant('TELEGRAM_BOT_TOKEN'));
+            if ($externalToken !== '') {
+                return $externalToken;
+            }
+        }
+
+        return '';
+    }
+
+    private static function loadExternalBotConfig(): void {
+        if (self::$externalBotConfigLoaded) {
+            return;
+        }
+
+        self::$externalBotConfigLoaded = true;
+
+        $configuredPath = trim((string) env('TELEGRAM_BOT_CONFIG_PATH', ''));
+        $candidatePaths = array_filter([
+            $configuredPath,
+            dirname(__DIR__, 3) . '/planrun-bot/bot/config.php',
+        ]);
+
+        foreach ($candidatePaths as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+
+            require_once $path;
+            return;
+        }
     }
 
     private function getCurlOpts(array $extra = []): array {
@@ -288,6 +334,63 @@ class TelegramLoginService {
                 'response' => is_string($response) ? substr($response, 0, 500) : null,
             ]);
         }
+    }
+
+    public function sendMessageIfConfigured(int $telegramId, string $title, string $body, array $options = []): bool {
+        if ($telegramId <= 0 || $this->botToken === '') {
+            return false;
+        }
+
+        $safeTitle = htmlspecialchars(trim($title), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $safeBody = htmlspecialchars(trim($body), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $rawLink = trim((string) ($options['link'] ?? ''));
+        $appUrl = rtrim((string) env('APP_URL', ''), '/');
+        $link = '';
+        if ($rawLink !== '') {
+            $link = preg_match('#^https?://#i', $rawLink)
+                ? $rawLink
+                : ($appUrl !== '' ? $appUrl . $rawLink : $rawLink);
+        }
+
+        $message = '<b>' . $safeTitle . '</b>';
+        if ($safeBody !== '') {
+            $message .= "\n\n" . $safeBody;
+        }
+        if ($link !== '') {
+            $message .= "\n\n" . htmlspecialchars($link, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        $payload = http_build_query([
+            'chat_id' => $telegramId,
+            'text' => $message,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => 'true',
+        ]);
+
+        $ch = curl_init('https://api.telegram.org/bot' . $this->botToken . '/sendMessage');
+        curl_setopt_array($ch, $this->getCurlOpts([
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+        ]));
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $data = json_decode($response ?: '', true);
+        if ($httpCode >= 400 || !is_array($data) || empty($data['ok'])) {
+            $this->logWarning('Не удалось отправить Telegram-уведомление', [
+                'telegram_id' => $telegramId,
+                'http_code' => $httpCode,
+                'curl_error' => $curlError ?: null,
+                'response' => is_string($response) ? substr($response, 0, 500) : null,
+            ]);
+            return false;
+        }
+
+        return true;
     }
 
     private function getJwks(): array {

@@ -4,21 +4,24 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import BiometricService from '../services/BiometricService';
 import PinAuthService from '../services/PinAuthService';
+import WebPushService from '../services/WebPushService';
 import { isNativeCapacitor } from '../services/TokenStorageService';
 import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon } from '../components/common/Icons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon, MailIcon, MessageCircleIcon, SmartphoneIcon } from '../components/common/Icons';
 import { useMyCoaches } from './settings/useMyCoaches';
 import { useCoachPricing } from './settings/useCoachPricing';
 import { createInitialFormData, daysOfWeek } from './settings/profileForm';
+import { NOTIFICATION_CHANNELS, ensureNotificationChannelsEnabled, normalizeNotificationSettings } from './settings/notificationSettings';
 import { useSettingsActions } from './settings/useSettingsActions';
 import { useSettingsProfile } from './settings/useSettingsProfile';
 import { applyTheme, getSystemTheme, getThemePreference, VALID_TABS } from './settings/settingsUtils';
@@ -26,6 +29,17 @@ import './SettingsScreen.css';
 
 const TELEGRAM_LINK_PENDING_STORAGE_KEY = 'planrun.telegramLinkPendingAt';
 const TELEGRAM_LINK_PENDING_MAX_AGE_MS = 30 * 60 * 1000;
+
+function detectIOSDevice() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+
+  return /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 
 function getTelegramLinkPendingTimestamp() {
   if (typeof window === 'undefined') {
@@ -79,6 +93,117 @@ function clearTelegramLinkPending() {
   }
 }
 
+function summarizeWebPushUserAgent(userAgent) {
+  const value = String(userAgent || '').toLowerCase();
+  if (!value) {
+    return 'Браузер без названия';
+  }
+
+  let browser = 'Неизвестный браузер';
+  if (value.includes('edg/')) {
+    browser = 'Microsoft Edge';
+  } else if (value.includes('opr/') || value.includes('opera')) {
+    browser = 'Opera';
+  } else if (value.includes('firefox/')) {
+    browser = 'Firefox';
+  } else if (value.includes('chrome/') && !value.includes('edg/')) {
+    browser = 'Chrome';
+  } else if (value.includes('safari/') && !value.includes('chrome/')) {
+    browser = 'Safari';
+  }
+
+  let platform = '';
+  if (value.includes('android')) {
+    platform = 'Android';
+  } else if (value.includes('iphone') || value.includes('ipad') || value.includes('ios')) {
+    platform = 'iOS';
+  } else if (value.includes('mac os') || value.includes('macintosh')) {
+    platform = 'macOS';
+  } else if (value.includes('windows')) {
+    platform = 'Windows';
+  } else if (value.includes('linux')) {
+    platform = 'Linux';
+  }
+
+  return platform ? `${browser} · ${platform}` : browser;
+}
+
+function formatWebPushEndpointSuffix(endpoint) {
+  const value = String(endpoint || '').trim();
+  if (!value) {
+    return '';
+  }
+
+  return value.length > 14 ? `…${value.slice(-14)}` : value;
+}
+
+function getBrowserNotificationRecoveryText(permission) {
+  if (permission === 'denied') {
+    return 'Браузер уже заблокировал уведомления для этого сайта. Нажмите на значок замка рядом с адресом сайта, откройте пункт "Уведомления" и переключите его в "Разрешить", затем обновите страницу.';
+  }
+
+  if (permission === 'default') {
+    return 'Нажмите кнопку ниже, и браузер покажет системное окно с запросом на уведомления.';
+  }
+
+  return '';
+}
+
+function getNotificationReminderTime(eventKey, schedule) {
+  if (eventKey === 'workout.reminder.today') {
+    return schedule?.workout_today_time || '08:00';
+  }
+
+  if (eventKey === 'workout.reminder.tomorrow') {
+    return schedule?.workout_tomorrow_time || '20:00';
+  }
+
+  return '';
+}
+
+function getNotificationMobileSummary(event, schedule) {
+  const reminderTime = getNotificationReminderTime(event.event_key, schedule);
+  return reminderTime || '';
+}
+
+function BrowserWindowIcon({ className = '', size = 16, ...props }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3.25" />
+      <path d="M3.5 8.5h17" />
+      <circle cx="6.75" cy="6.5" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function renderNotificationChannelVisual(channelConfig, className, size = 16) {
+  if (channelConfig.logoSrc) {
+    return (
+      <img
+        src={channelConfig.logoSrc}
+        alt=""
+        aria-hidden="true"
+        className={className}
+      />
+    );
+  }
+
+  const Icon = channelConfig.Icon;
+  return <Icon size={size} className={className} />;
+}
+
 const SettingsScreen = ({ onLogout }) => {
   const isTabActive = useIsTabActive('/settings');
   const navigate = useNavigate();
@@ -103,10 +228,12 @@ const SettingsScreen = ({ onLogout }) => {
   const [pinDisabling, setPinDisabling] = useState(false);
   const [showPinSetupModal, setShowPinSetupModal] = useState(false);
   const [pinSetupTokens, setPinSetupTokens] = useState(null);
-  const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false });
+  const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false, garmin: false, coros: false });
   const [huaweiSyncing, setHuaweiSyncing] = useState(false);
   const [stravaSyncing, setStravaSyncing] = useState(false);
   const [polarSyncing, setPolarSyncing] = useState(false);
+  const [garminSyncing, setGarminSyncing] = useState(false);
+  const [corosSyncing, setCorosSyncing] = useState(false);
   const [stravaDebug, setStravaDebug] = useState(null);
   const [settingsTabPillStyle, setSettingsTabPillStyle] = useState({ left: 0, width: 0 });
   const [telegramLinkCode, setTelegramLinkCode] = useState(null);
@@ -115,6 +242,24 @@ const SettingsScreen = ({ onLogout }) => {
   const telegramLoginPollRef = useRef(null);
   const telegramLoginTimeoutRef = useRef(null);
   const telegramLoginPollInFlightRef = useRef(false);
+  const stravaPollRef = useRef(null);
+  const stravaPollTimeoutRef = useRef(null);
+  const [browserNotificationsSupported, setBrowserNotificationsSupported] = useState(false);
+  const [browserNotificationPermission, setBrowserNotificationPermission] = useState('default');
+  const [currentBrowserWebPushSubscribed, setCurrentBrowserWebPushSubscribed] = useState(false);
+  const [currentBrowserWebPushEndpoint, setCurrentBrowserWebPushEndpoint] = useState('');
+  const [notificationActionLoading, setNotificationActionLoading] = useState('');
+  const [expandedNotificationEventKey, setExpandedNotificationEventKey] = useState('');
+  const isMobileWebsiteViewport = useMediaQuery('(max-width: 1023px)');
+  const isStandaloneDisplayMode = useMediaQuery('(display-mode: standalone)');
+  const isNativeApp = isNativeCapacitor();
+  const isMobileWeb = !isNativeApp && isMobileWebsiteViewport;
+  const isIOSDevice = detectIOSDevice();
+  const isStandaloneWebApp = !isNativeApp && (
+    isStandaloneDisplayMode
+    || (typeof navigator !== 'undefined' && Boolean(navigator.standalone))
+  );
+  const isIOSWebPushInstallRequired = !isNativeApp && isIOSDevice && !isStandaloneWebApp;
 
   // Состояние формы со всеми полями
   // ВАЖНО: Все поля должны быть инициализированы как строки/массивы, а не null
@@ -153,6 +298,7 @@ const SettingsScreen = ({ onLogout }) => {
     handleRemoveAvatar,
     handleStartTelegramLogin,
     handleUnlinkTelegram,
+    runHuaweiSync,
     runStravaSync,
   } = useSettingsActions({
     api,
@@ -162,6 +308,7 @@ const SettingsScreen = ({ onLogout }) => {
     setBiometricEnabling,
     setCsrfToken,
     setFormData,
+    setHuaweiSyncing,
     setMessage,
     setPinDisabling,
     setPinEnabled,
@@ -245,15 +392,22 @@ const SettingsScreen = ({ onLogout }) => {
     }, 180000);
   }, [handleTelegramConnected, stopTelegramLoginPolling]);
 
-  // Обработка OAuth callback (connected=huawei|strava|telegram, error=...)
+  // Обработка OAuth callback (connected=huawei|strava|polar|garmin|coros|telegram, error=...)
   useEffect(() => {
     const connected = searchParams.get('connected');
     const errorParam = searchParams.get('error');
     if (connected === 'huawei') {
       setIntegrationsStatus(prev => ({ ...prev, huawei: true }));
-      setMessage({ type: 'success', text: 'Huawei Health успешно подключен' });
       setSearchParams({ tab: 'integrations' });
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+      let currentApi = api || useAuthStore.getState().api;
+      if (!currentApi) {
+        setTimeout(async () => {
+          currentApi = useAuthStore.getState().api;
+          if (currentApi) runHuaweiSync(currentApi, true);
+        }, 1000);
+      } else {
+        runHuaweiSync(currentApi, true);
+      }
     } else if (connected === 'strava') {
       setIntegrationsStatus(prev => ({ ...prev, strava: true }));
       setSearchParams({ tab: 'integrations' });
@@ -270,6 +424,16 @@ const SettingsScreen = ({ onLogout }) => {
     } else if (connected === 'polar') {
       setIntegrationsStatus(prev => ({ ...prev, polar: true }));
       setMessage({ type: 'success', text: 'Polar успешно подключен' });
+      setSearchParams({ tab: 'integrations' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (connected === 'garmin') {
+      setIntegrationsStatus(prev => ({ ...prev, garmin: true }));
+      setMessage({ type: 'success', text: 'Garmin успешно подключен' });
+      setSearchParams({ tab: 'integrations' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (connected === 'coros') {
+      setIntegrationsStatus(prev => ({ ...prev, coros: true }));
+      setMessage({ type: 'success', text: 'COROS успешно подключен' });
       setSearchParams({ tab: 'integrations' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } else if (connected === 'telegram') {
@@ -289,7 +453,7 @@ const SettingsScreen = ({ onLogout }) => {
         }).catch(() => {});
       }
     }
-  }, [api, handleTelegramConnected, searchParams, stopTelegramLoginPolling]);
+  }, [api, handleTelegramConnected, runHuaweiSync, runStravaSync, searchParams, stopTelegramLoginPolling]);
 
   useEffect(() => {
     if (activeTab !== 'integrations') return;
@@ -302,6 +466,28 @@ const SettingsScreen = ({ onLogout }) => {
       })
       .catch(() => {});
   }, [activeTab, api]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const supported = WebPushService.isSupported();
+    setBrowserNotificationsSupported(supported);
+    setBrowserNotificationPermission(supported ? WebPushService.getPermission() : 'unsupported');
+
+    // Track permission changes while page is open
+    if (supported && window.Notification?.permission !== undefined) {
+      const permStatus = navigator.permissions?.query?.({ name: 'notifications' });
+      if (permStatus) {
+        permStatus.then((status) => {
+          status.onchange = () => {
+            setBrowserNotificationPermission(status.state === 'prompt' ? 'default' : status.state);
+          };
+        }).catch(() => {});
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const onTelegramLoginMessage = async (event) => {
@@ -334,6 +520,12 @@ const SettingsScreen = ({ onLogout }) => {
   }, [handleTelegramConnected, setMessage, startTelegramLoginPolling, stopTelegramLoginPolling]);
 
   useEffect(() => () => stopTelegramLoginPolling(), [stopTelegramLoginPolling]);
+
+  // Cleanup Strava polling on unmount
+  useEffect(() => () => {
+    if (stravaPollRef.current) clearInterval(stravaPollRef.current);
+    if (stravaPollTimeoutRef.current) clearTimeout(stravaPollTimeoutRef.current);
+  }, []);
 
   useEffect(() => {
     if (formData.telegram_id) {
@@ -392,60 +584,17 @@ const SettingsScreen = ({ onLogout }) => {
   useEffect(() => {
     if (!isTabActive && !hasLoadedProfileRef.current) return;
     const loadProfileData = async () => {
-      const currentApi = api || useAuthStore.getState().api;
-      if (!currentApi) {
-        const checkApi = setInterval(() => {
-          const { api: storeApi } = useAuthStore.getState();
-          if (storeApi) {
-            clearInterval(checkApi);
-            loadProfile(storeApi);
-          }
-        }, 100);
-        setTimeout(() => clearInterval(checkApi), 5000);
+      if (!api) {
+        // api ещё не готов — useEffect перезапустится когда api появится в сторе
         return;
       }
       hasLoadedProfileRef.current = true;
-      await loadProfile(currentApi);
+      await loadProfile(api);
     };
     
     loadProfileData();
-  }, [api, isTabActive]);
+  }, [api, isTabActive, loadProfile]);
   
-  // Отдельный useEffect для принудительного обновления select'ов после загрузки данных
-  useEffect(() => {
-    if (!loading) {
-      // Используем небольшую задержку, чтобы DOM успел обновиться
-      const timer = setTimeout(() => {
-        // Принудительно обновляем все select'ы через DOM API
-        const selectFields = [
-          { field: 'race_distance', selector: 'select[key*="race_distance"]' },
-          { field: 'experience_level', selector: 'select[key*="experience_level"]' },
-          { field: 'training_mode', selector: 'select[key*="training_mode"]' },
-          { field: 'ofp_preference', selector: 'select[key*="ofp_preference"]' },
-          { field: 'training_time_pref', selector: 'select[key*="training_time_pref"]' },
-          { field: 'health_program', selector: 'select[key*="health_program"]' },
-          { field: 'last_race_distance', selector: 'select[key*="last_race_distance"]' },
-        ];
-        
-        selectFields.forEach(({ field, selector }) => {
-          const value = formData[field];
-          if (value) {
-            const select = document.querySelector(selector);
-            if (select && select.value !== value) {
-              select.value = value;
-              // Триггерим событие change для React
-              const event = new Event('change', { bubbles: true });
-              select.dispatchEvent(event);
-            }
-          }
-        });
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [loading, formData.race_distance, formData.experience_level, formData.training_mode, 
-      formData.ofp_preference, formData.training_time_pref, formData.health_program,
-      formData.last_race_distance]);
 
   const updateSettingsTabPill = useCallback(() => {
     const tabs = settingsTabsRef.current;
@@ -670,6 +819,672 @@ const SettingsScreen = ({ onLogout }) => {
     .map((part) => part.charAt(0).toUpperCase())
     .join('');
 
+  const notificationSettings = ensureNotificationChannelsEnabled(
+    normalizeNotificationSettings(
+      formData.notification_settings,
+      formData.timezone || currentUser?.timezone || 'Europe/Moscow'
+    )
+  );
+  const effectiveTelegramLinked = Boolean(
+    notificationSettings.channels?.telegram?.available
+    || notificationSettings.channels?.telegram?.linked
+    || String(formData.telegram_id || '').trim()
+  );
+  const effectiveEmailAvailable = Boolean(
+    notificationSettings.channels?.email?.available
+    || String(formData.email || '').trim()
+  );
+  const effectiveNotificationSettings = {
+    ...notificationSettings,
+    channels: {
+      ...notificationSettings.channels,
+      telegram: {
+        ...(notificationSettings.channels?.telegram || {}),
+        available: effectiveTelegramLinked,
+        linked: effectiveTelegramLinked,
+      },
+      email: {
+        ...(notificationSettings.channels?.email || {}),
+        available: effectiveEmailAvailable,
+      },
+    },
+  };
+  const webPushChannel = notificationSettings.channels?.web_push || {};
+
+  const updateNotificationSettings = useCallback((updater) => {
+    setHasUnsavedChanges(true);
+    setFormData((prev) => {
+      const currentSettings = normalizeNotificationSettings(
+        prev.notification_settings,
+        prev.timezone || currentUser?.timezone || 'Europe/Moscow'
+      );
+      const nextSettings = typeof updater === 'function' ? updater(currentSettings) : updater;
+      return {
+        ...prev,
+        notification_settings: ensureNotificationChannelsEnabled(
+          normalizeNotificationSettings(nextSettings, prev.timezone || currentSettings.timezone)
+        ),
+      };
+    });
+  }, [currentUser?.timezone, setFormData, setHasUnsavedChanges]);
+
+  const updateNotificationPreference = useCallback((eventKey, channelKey, enabled) => {
+    updateNotificationSettings((prev) => ({
+      ...prev,
+      preferences: {
+        ...prev.preferences,
+        [eventKey]: {
+          ...(prev.preferences?.[eventKey] || {}),
+          [`${channelKey}_enabled`]: enabled,
+        },
+      },
+    }));
+  }, [updateNotificationSettings]);
+
+  const updateNotificationTime = useCallback((field, fallbackValue, nextValue) => {
+    updateNotificationSettings((prev) => ({
+      ...prev,
+      schedule: {
+        ...prev.schedule,
+        [field]: nextValue || fallbackValue,
+      },
+    }));
+  }, [updateNotificationSettings]);
+
+  const updateQuietHours = useCallback((field, value) => {
+    updateNotificationSettings((prev) => ({
+      ...prev,
+      quiet_hours: {
+        ...prev.quiet_hours,
+        [field]: value,
+      },
+    }));
+  }, [updateNotificationSettings]);
+
+  const refreshCurrentBrowserWebPushState = useCallback(async () => {
+    if (!browserNotificationsSupported || browserNotificationPermission !== 'granted') {
+      setCurrentBrowserWebPushSubscribed(false);
+      setCurrentBrowserWebPushEndpoint('');
+      return null;
+    }
+
+    try {
+      const subscription = await WebPushService.getCurrentSubscription();
+      const endpoint = subscription?.endpoint || '';
+      setCurrentBrowserWebPushSubscribed(Boolean(endpoint));
+      setCurrentBrowserWebPushEndpoint(endpoint);
+      return subscription;
+    } catch (_) {
+      setCurrentBrowserWebPushSubscribed(false);
+      setCurrentBrowserWebPushEndpoint('');
+      return null;
+    }
+  }, [browserNotificationPermission, browserNotificationsSupported]);
+
+  const handleBrowserNotificationPermission = useCallback(async (options = {}) => {
+    if (!browserNotificationsSupported || typeof window === 'undefined' || typeof window.Notification === 'undefined') {
+      return false;
+    }
+
+    if (window.Notification.permission === 'denied') {
+      setBrowserNotificationPermission('denied');
+      setMessage({
+        type: 'error',
+        text: getBrowserNotificationRecoveryText('denied'),
+      });
+      return false;
+    }
+
+    try {
+      setNotificationActionLoading('web_push-permission');
+      const permission = await window.Notification.requestPermission();
+      setBrowserNotificationPermission(permission);
+      if (permission === 'granted') {
+        await refreshCurrentBrowserWebPushState();
+        if (!options.silentSuccess) {
+          setMessage({ type: 'success', text: 'Разрешение браузера выдано. Теперь можно подключить этот браузер к web push.' });
+        }
+        return true;
+      } else if (permission === 'denied') {
+        setMessage({
+          type: 'error',
+          text: getBrowserNotificationRecoveryText('denied'),
+        });
+      }
+      return false;
+    } catch (_) {
+      setBrowserNotificationPermission(window.Notification.permission || 'default');
+      setMessage({
+        type: 'error',
+        text: 'Браузер не открыл системный запрос. Попробуйте нажать кнопку ещё раз или проверьте, не заблокированы ли уведомления для сайта.',
+      });
+      return false;
+    } finally {
+      setNotificationActionLoading('');
+    }
+  }, [browserNotificationsSupported, refreshCurrentBrowserWebPushState, setMessage]);
+
+  const syncWebPushSubscription = useCallback(async (options = {}) => {
+    const currentApi = api || useAuthStore.getState().api;
+    const vapidPublicKey = webPushChannel.public_key || '';
+
+    if (!browserNotificationsSupported || !currentApi || !csrfToken) {
+      return false;
+    }
+    if (browserNotificationPermission !== 'granted') {
+      return false;
+    }
+    if (!webPushChannel.enabled) {
+      return false;
+    }
+    if (!webPushChannel.delivery_ready || !vapidPublicKey) {
+      return false;
+    }
+
+    try {
+      setNotificationActionLoading('web_push-connect');
+      const subscription = await WebPushService.ensureSubscription({
+        api: currentApi,
+        csrfToken,
+        vapidPublicKey,
+      });
+      setCurrentBrowserWebPushSubscribed(Boolean(subscription?.endpoint));
+      setCurrentBrowserWebPushEndpoint(subscription?.endpoint || '');
+      await loadProfile(currentApi, { silent: true });
+      if (!options.silent) {
+        setMessage({ type: 'success', text: 'Web push подключён для этого браузера' });
+      }
+      return true;
+    } catch (error) {
+      if (!options.silent) {
+        setMessage({ type: 'error', text: error.message || 'Не удалось подключить web push' });
+      }
+      return false;
+    } finally {
+      setNotificationActionLoading('');
+    }
+  }, [
+    api,
+    browserNotificationPermission,
+    browserNotificationsSupported,
+    csrfToken,
+    loadProfile,
+    setMessage,
+    setNotificationActionLoading,
+    webPushChannel.delivery_ready,
+    webPushChannel.enabled,
+    webPushChannel.public_key,
+  ]);
+
+  const disconnectCurrentBrowserWebPush = useCallback(async () => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!browserNotificationsSupported || !currentApi || !csrfToken) {
+      return false;
+    }
+
+    try {
+      setNotificationActionLoading('web_push-disconnect');
+      const removed = await WebPushService.unregister({
+        api: currentApi,
+        csrfToken,
+      });
+      if (!removed) {
+        setMessage({ type: 'error', text: 'Для этого браузера нет активной подписки' });
+        return false;
+      }
+
+      setCurrentBrowserWebPushSubscribed(false);
+      setCurrentBrowserWebPushEndpoint('');
+      await loadProfile(currentApi, { silent: true });
+      setMessage({ type: 'success', text: 'Этот браузер отключён от web push' });
+      return true;
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Не удалось отключить этот браузер' });
+      return false;
+    } finally {
+      setNotificationActionLoading('');
+    }
+  }, [api, browserNotificationsSupported, csrfToken, loadProfile, setMessage]);
+
+  const showIOSWebPushInstallInstructions = useCallback(() => {
+    setMessage({
+      type: 'success',
+      text: 'На iPhone или iPad откройте меню "Поделиться" в Safari, выберите "На экран Домой", затем откройте сайт с домашнего экрана и снова включите уведомления.',
+    });
+  }, [setMessage]);
+
+  const showWebPushBlockedInstructions = useCallback(() => {
+    setMessage({
+      type: 'error',
+      text: getBrowserNotificationRecoveryText('denied'),
+    });
+  }, [setMessage]);
+
+  const getWebPushSetupState = useCallback(() => {
+    if (!webPushChannel.delivery_ready) {
+      return {
+        key: 'server_unavailable',
+        summary: 'Уведомления в браузере пока недоступны.',
+        actionLabel: '',
+        action: null,
+        actionBusy: false,
+      };
+    }
+
+    if (isIOSWebPushInstallRequired) {
+      return {
+        key: 'install_required',
+        summary: 'На iPhone и iPad добавьте сайт на экран Домой, чтобы включить уведомления.',
+        actionLabel: 'Как установить',
+        action: showIOSWebPushInstallInstructions,
+        actionBusy: false,
+      };
+    }
+
+    if (!browserNotificationsSupported) {
+      return {
+        key: 'unsupported',
+        summary: 'Этот браузер не поддерживает уведомления сайта.',
+        actionLabel: '',
+        action: null,
+        actionBusy: false,
+      };
+    }
+
+    if (notificationActionLoading === 'web_push-permission') {
+      return {
+        key: 'requesting_permission',
+        summary: 'Открываем системный запрос браузера...',
+        actionLabel: 'Открываем...',
+        action: handleBrowserNotificationPermission,
+        actionBusy: true,
+      };
+    }
+
+    if (notificationActionLoading === 'web_push-connect') {
+      return {
+        key: 'connecting',
+        summary: 'Подключаем этот браузер к уведомлениям...',
+        actionLabel: 'Подключаем...',
+        action: () => syncWebPushSubscription(),
+        actionBusy: true,
+      };
+    }
+
+    if (notificationActionLoading === 'web_push-disconnect') {
+      return {
+        key: 'disconnecting',
+        summary: 'Отключаем этот браузер от уведомлений...',
+        actionLabel: 'Отключаем...',
+        action: disconnectCurrentBrowserWebPush,
+        actionBusy: true,
+      };
+    }
+
+    if (browserNotificationPermission === 'denied') {
+      return {
+        key: 'denied',
+        summary: 'Уведомления для этого сайта заблокированы в браузере.',
+        actionLabel: 'Как разблокировать',
+        action: showWebPushBlockedInstructions,
+        actionBusy: false,
+      };
+    }
+
+    if (browserNotificationPermission !== 'granted') {
+      return {
+        key: 'permission_required',
+        summary: 'Разрешите уведомления, и браузер подключится автоматически.',
+        actionLabel: 'Разрешить',
+        action: async () => {
+          const granted = await handleBrowserNotificationPermission({ silentSuccess: true });
+          if (granted) {
+            await syncWebPushSubscription();
+          }
+        },
+        actionBusy: false,
+      };
+    }
+
+    if (!currentBrowserWebPushSubscribed) {
+      return {
+        key: 'subscription_required',
+        summary: 'Разрешение уже есть. Осталось подключить этот браузер.',
+        actionLabel: 'Подключить браузер',
+        action: () => syncWebPushSubscription(),
+        actionBusy: false,
+      };
+    }
+
+    return {
+      key: 'connected',
+      summary: 'Этот браузер уже подключён и будет получать выбранные события.',
+      actionLabel: 'Отключить браузер',
+      action: disconnectCurrentBrowserWebPush,
+      actionBusy: false,
+    };
+  }, [
+    browserNotificationPermission,
+    browserNotificationsSupported,
+    currentBrowserWebPushSubscribed,
+    disconnectCurrentBrowserWebPush,
+    handleBrowserNotificationPermission,
+    isIOSWebPushInstallRequired,
+    notificationActionLoading,
+    showIOSWebPushInstallInstructions,
+    showWebPushBlockedInstructions,
+    syncWebPushSubscription,
+    webPushChannel.delivery_ready,
+  ]);
+
+  const ensureNotificationChannelReady = useCallback(async (channelKey) => {
+    const currentApi = api || useAuthStore.getState().api;
+    const channel = effectiveNotificationSettings.channels?.[channelKey] || {};
+
+    if (channelKey === 'web_push') {
+      if (!webPushChannel.delivery_ready) {
+        setMessage({ type: 'error', text: 'Web push ещё не настроен на сервере.' });
+        return false;
+      }
+      if (isIOSWebPushInstallRequired) {
+        showIOSWebPushInstallInstructions();
+        return false;
+      }
+      if (!browserNotificationsSupported) {
+        setMessage({ type: 'error', text: 'Этот браузер не поддерживает web push.' });
+        return false;
+      }
+      if (browserNotificationPermission === 'denied') {
+        showWebPushBlockedInstructions();
+        return false;
+      }
+      if (!webPushChannel.public_key) {
+        setMessage({ type: 'error', text: 'Web push ещё не настроен на сервере.' });
+        return false;
+      }
+      if (currentBrowserWebPushSubscribed) {
+        return true;
+      }
+
+      const permissionGranted = browserNotificationPermission === 'granted'
+        ? true
+        : await handleBrowserNotificationPermission({ silentSuccess: true });
+
+      if (!permissionGranted) {
+        return false;
+      }
+
+      return syncWebPushSubscription();
+    }
+
+    if (channelKey === 'mobile_push') {
+      if (!isNativeApp) {
+        if (channel.available) {
+          return true;
+        }
+        setMessage({ type: 'error', text: 'Push на телефон можно подключить только в приложении.' });
+        return false;
+      }
+
+      if (channel.available) {
+        return true;
+      }
+
+      if (!currentApi) {
+        setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
+        return false;
+      }
+
+      try {
+        setNotificationActionLoading('mobile_push-connect');
+        const { registerPushNotifications } = await import('../services/PushService');
+        const result = await registerPushNotifications(currentApi);
+
+        if (!result?.ok) {
+          setMessage({ type: 'error', text: result?.reason || 'Не удалось подключить push на телефон.' });
+          return false;
+        }
+
+        setMessage({ type: 'success', text: 'Разрешение на push получено. Устройство подключается к уведомлениям.' });
+        setTimeout(() => {
+          loadProfile(currentApi, { silent: true }).catch(() => {});
+        }, 1200);
+        return true;
+      } catch (error) {
+        setMessage({ type: 'error', text: error?.message || 'Не удалось подключить push на телефон.' });
+        return false;
+      } finally {
+        setNotificationActionLoading('');
+      }
+    }
+
+    if (channelKey === 'telegram') {
+      if (!channel.available || !channel.linked) {
+        setMessage({ type: 'error', text: 'Сначала подключите Telegram во вкладке интеграций.' });
+        return false;
+      }
+      return true;
+    }
+
+    if (channelKey === 'email') {
+      if (!channel.available) {
+        setMessage({ type: 'error', text: 'Укажите email в профиле, чтобы получать письма.' });
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  }, [
+    api,
+    browserNotificationPermission,
+    browserNotificationsSupported,
+    currentBrowserWebPushSubscribed,
+    effectiveNotificationSettings.channels,
+    handleBrowserNotificationPermission,
+    isIOSWebPushInstallRequired,
+    isNativeApp,
+    loadProfile,
+    setMessage,
+    showIOSWebPushInstallInstructions,
+    showWebPushBlockedInstructions,
+    syncWebPushSubscription,
+    webPushChannel.delivery_ready,
+    webPushChannel.public_key,
+  ]);
+
+  const handleNotificationPreferenceToggle = useCallback(async (eventKey, channelKey, enabled) => {
+    if (!enabled) {
+      updateNotificationPreference(eventKey, channelKey, false);
+      return;
+    }
+
+    const isReady = await ensureNotificationChannelReady(channelKey);
+    if (!isReady) {
+      return;
+    }
+
+    updateNotificationPreference(eventKey, channelKey, true);
+  }, [ensureNotificationChannelReady, updateNotificationPreference]);
+
+  useEffect(() => {
+    if (!browserNotificationsSupported) {
+      return;
+    }
+    if (browserNotificationPermission !== 'granted') {
+      return;
+    }
+    if (!webPushChannel.enabled) {
+      return;
+    }
+    if (!webPushChannel.delivery_ready) {
+      return;
+    }
+
+    syncWebPushSubscription({ silent: true }).catch(() => {});
+  }, [
+    browserNotificationPermission,
+    browserNotificationsSupported,
+    syncWebPushSubscription,
+    webPushChannel.delivery_ready,
+    webPushChannel.enabled,
+  ]);
+
+  useEffect(() => {
+    refreshCurrentBrowserWebPushState().catch(() => {});
+  }, [
+    browserNotificationPermission,
+    browserNotificationsSupported,
+    notificationSettings.channels?.web_push?.subscriptions,
+    refreshCurrentBrowserWebPushState,
+  ]);
+
+  const channelMeta = {
+    mobile_push: {
+      label: 'Push на телефон',
+      shortLabel: 'Push',
+      description: 'FCM для Android и iOS',
+      Icon: SmartphoneIcon,
+    },
+    web_push: {
+      label: 'Уведомления в браузере',
+      shortLabel: 'Браузер',
+      description: 'Разрешение браузера и web push',
+      Icon: BrowserWindowIcon,
+    },
+    telegram: {
+      label: 'Telegram',
+      shortLabel: 'Telegram',
+      description: 'Сообщения через подключённого бота',
+      Icon: MessageCircleIcon,
+      logoSrc: '/integrations/telegram.svg',
+    },
+    email: {
+      label: 'Email',
+      shortLabel: 'Email',
+      description: 'Письма на адрес профиля',
+      Icon: MailIcon,
+    },
+  };
+
+  const visibleNotificationGroups = (notificationSettings.catalog || [])
+    .map((group) => ({
+      ...group,
+      events: (group.events || []).filter((event) => {
+        const roles = Array.isArray(event.roles) ? event.roles : [];
+        return roles.length === 0 || roles.includes(currentUser?.role || 'user');
+      }),
+    }))
+    .filter((group) => group.key !== 'system' && group.events.length > 0);
+
+  const toggleNotificationEventExpanded = (eventKey) => {
+    setExpandedNotificationEventKey((currentEventKey) => (currentEventKey === eventKey ? '' : eventKey));
+  };
+
+  const getEventChannelState = (event, channelKey) => {
+    const supportsChannel = (event.channels || []).includes(channelKey);
+    const channel = effectiveNotificationSettings.channels?.[channelKey] || {};
+    const field = `${channelKey}_enabled`;
+    const isChannelBusy = (channelKey === 'web_push' && notificationActionLoading.startsWith('web_push'))
+      || (channelKey === 'mobile_push' && notificationActionLoading === 'mobile_push-connect');
+    const checked = event.locked
+      ? channelKey === 'email'
+      : Boolean(effectiveNotificationSettings.preferences?.[event.event_key]?.[field]);
+    const disabled = !supportsChannel
+      || Boolean(event.locked)
+      || isChannelBusy;
+
+    return {
+      supportsChannel,
+      channel,
+      checked,
+      disabled,
+    };
+  };
+
+  const isNotificationChannelEffectivelyActive = useCallback((event, channelKey, checked) => {
+    if (event.locked) {
+      return channelKey === 'email';
+    }
+
+    if (!checked) {
+      return false;
+    }
+
+    if (channelKey === 'web_push') {
+      return getWebPushSetupState().key === 'connected';
+    }
+
+    if (channelKey === 'mobile_push') {
+      return !isNativeApp || Boolean(effectiveNotificationSettings.channels?.mobile_push?.available);
+    }
+
+    if (channelKey === 'telegram') {
+      return Boolean(effectiveNotificationSettings.channels?.telegram?.linked);
+    }
+
+    if (channelKey === 'email') {
+      return Boolean(effectiveNotificationSettings.channels?.email?.available);
+    }
+
+    return true;
+  }, [effectiveNotificationSettings.channels, getWebPushSetupState, isNativeApp]);
+
+  const getEventMobileChannels = (event, channelKeys) => channelKeys.reduce((items, channelKey) => {
+    const state = getEventChannelState(event, channelKey);
+    if (!state.supportsChannel) {
+      return items;
+    }
+
+    items.push({
+      channelKey,
+      ...state,
+      isActive: isNotificationChannelEffectivelyActive(event, channelKey, state.checked),
+    });
+    return items;
+  }, []);
+
+  const getNotificationChannelStatusText = useCallback((event, channelKey, checked) => {
+    if (event.locked) {
+      return 'Обязательный канал';
+    }
+
+    if (channelKey === 'web_push') {
+      const state = getWebPushSetupState();
+
+      if (state.key === 'install_required') {
+        return 'Добавьте на экран Домой';
+      }
+      if (state.key === 'unsupported') {
+        return 'Браузер не поддерживает';
+      }
+      if (state.key === 'server_unavailable') {
+        return 'Пока недоступно';
+      }
+      if (state.key === 'denied') {
+        return 'Заблокировано в браузере';
+      }
+      if (state.key === 'requesting_permission' || state.key === 'permission_required') {
+        return 'Нужно разрешение';
+      }
+      if (state.key === 'connecting' || state.key === 'subscription_required') {
+        return checked ? 'Подключаем браузер' : 'Нужно подключить браузер';
+      }
+
+      return checked ? 'Включено' : 'Доступно';
+    }
+
+    if (channelKey === 'mobile_push' && isNativeApp && !effectiveNotificationSettings.channels?.mobile_push?.available) {
+      return 'Нужно разрешение на устройстве';
+    }
+
+    return checked ? 'Включено' : 'Выключено';
+  }, [
+    effectiveNotificationSettings.channels,
+    getWebPushSetupState,
+    isNativeApp,
+  ]);
+
   // Загрузка тренеров/цен при переходе на вкладку social
   useEffect(() => {
     if (activeTab === 'social' && api) {
@@ -752,6 +1567,13 @@ const SettingsScreen = ({ onLogout }) => {
             onClick={() => handleTabChange('training')}
           >
             <RunningIcon size={18} className="settings-tab-icon" aria-hidden /> Тренировки
+          </button>
+          <button
+            className={`settings-tab ${activeTab === 'notifications' ? 'active' : ''}`}
+            type="button"
+            onClick={() => handleTabChange('notifications')}
+          >
+            <BellIcon size={18} className="settings-tab-icon" aria-hidden /> Уведомления
           </button>
           <button
             className={`settings-tab ${activeTab === 'social' ? 'active' : ''}`}
@@ -1004,54 +1826,229 @@ const SettingsScreen = ({ onLogout }) => {
                 )}
               </div>
             )}
-
-            {isNativeCapacitor() && (
-              <div className="settings-section">
-                <h2><BellIcon size={22} className="section-icon" aria-hidden /> Push-уведомления</h2>
-                <p className="settings-section-desc">Выберите, когда присылать уведомления на устройство</p>
-                <div className="form-group">
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={formData.push_workouts_enabled === 1}
-                      onChange={(e) => handleInputChange('push_workouts_enabled', e.target.checked ? 1 : 0)}
-                    />
-                    <span>Напоминания о тренировках</span>
-                  </label>
-                </div>
-                {formData.push_workouts_enabled === 1 && (
-                  <div className="form-group">
-                    <label>Время напоминания</label>
-                    <input
-                      type="time"
-                      value={`${String(formData.push_workout_hour).padStart(2, '0')}:${String(formData.push_workout_minute).padStart(2, '0')}`}
-                      onChange={(e) => {
-                        const [h, m] = (e.target.value || '20:00').split(':').map((n) => parseInt(n, 10) || 0);
-                        setFormData((prev) => ({
-                          ...prev,
-                          push_workout_hour: Math.min(23, Math.max(0, h)),
-                          push_workout_minute: Math.min(59, Math.max(0, m)),
-                        }));
-                      }}
-                    />
-                    <p className="settings-biometric-hint">Это же время используется для напоминаний о тренировках в Telegram-боте.</p>
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={formData.push_chat_enabled === 1}
-                      onChange={(e) => handleInputChange('push_chat_enabled', e.target.checked ? 1 : 0)}
-                    />
-                    <span>Сообщения в чате</span>
-                  </label>
-                </div>
-              </div>
-            )}
-
           </div>
         )}
+
+        {/* Вкладка Уведомления */}
+        {activeTab === 'notifications' && (() => {
+          const webPushSetupState = getWebPushSetupState();
+          const availableChannels = NOTIFICATION_CHANNELS.filter((key) => {
+            const ch = effectiveNotificationSettings.channels?.[key] || {};
+            if (key === 'telegram') return ch.available && ch.linked;
+            if (key === 'mobile_push' && isMobileWeb) return false;
+            if (key === 'web_push' && isNativeApp) return false;
+            if (key === 'web_push') return true;
+            if (key === 'mobile_push') return isNativeApp || ch.available;
+            return true; // email always shown
+          });
+          const showWebPushSetup = !isNativeApp;
+
+          return (
+          <div className="tab-content active">
+            <div className="settings-section notification-center">
+              <h2><BellIcon size={22} className="section-icon" aria-hidden /> Уведомления</h2>
+
+              {showWebPushSetup && (
+                <div className={`notification-inline-helper ${webPushSetupState.key === 'connected' ? 'is-connected' : ''}`}>
+                  <div className="notification-inline-helper-copy">
+                    <strong>Уведомления в браузере</strong>
+                    <span>{webPushSetupState.summary}</span>
+                  </div>
+                  {webPushSetupState.actionLabel && webPushSetupState.action && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={webPushSetupState.action}
+                      disabled={webPushSetupState.actionBusy}
+                    >
+                      {webPushSetupState.actionLabel}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Расписание напоминаний */}
+              <div className="notification-schedule-grid">
+                <div className="form-group">
+                  <label>Напоминание на сегодня</label>
+                  <input
+                    type="time"
+                    value={notificationSettings.schedule?.workout_today_time || '08:00'}
+                    onChange={(e) => updateNotificationTime('workout_today_time', '08:00', e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Напоминание на завтра</label>
+                  <input
+                    type="time"
+                    value={notificationSettings.schedule?.workout_tomorrow_time || '20:00'}
+                    onChange={(e) => updateNotificationTime('workout_tomorrow_time', '20:00', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="notification-quiet-hours">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(notificationSettings.quiet_hours?.enabled)}
+                    onChange={(e) => updateQuietHours('enabled', e.target.checked)}
+                  />
+                  <span>Тихие часы</span>
+                </label>
+                {notificationSettings.quiet_hours?.enabled && (
+                  <div className="notification-schedule-grid">
+                    <div className="form-group">
+                      <label>С</label>
+                      <input
+                        type="time"
+                        value={notificationSettings.quiet_hours?.start || '22:00'}
+                        onChange={(e) => updateQuietHours('start', e.target.value || '22:00')}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>До</label>
+                      <input
+                        type="time"
+                        value={notificationSettings.quiet_hours?.end || '07:00'}
+                        onChange={(e) => updateQuietHours('end', e.target.value || '07:00')}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Матрица событий — только доступные каналы */}
+	              <div className="notification-groups">
+	                {visibleNotificationGroups.map((group) => (
+	                  <div key={group.key} className="notification-group">
+	                    <div className="notification-group-heading">
+	                      <h3>{group.label}</h3>
+	                    </div>
+	                    <div className="notification-matrix notification-matrix--desktop">
+	                      <div className="notification-matrix-header notification-matrix-row">
+	                        <div className="notification-event-copy">Событие</div>
+	                        {availableChannels.map((channelKey) => (
+	                          <div key={`${group.key}-${channelKey}-head`} className="notification-channel-head">
+	                            {channelMeta[channelKey].shortLabel}
+                          </div>
+                        ))}
+                      </div>
+
+	                      {group.events.map((event) => (
+	                        <div key={event.event_key} className="notification-matrix-row">
+	                          <div className="notification-event-copy">
+	                            <strong>{event.label}</strong>
+	                            {event.locked && <em>Обязательно</em>}
+	                          </div>
+	                          {availableChannels.map((channelKey) => {
+	                            const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
+
+	                            return (
+	                              <label key={`${event.event_key}-${channelKey}`} className={`notification-toggle ${disabled ? 'is-disabled' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
+                                />
+                                <span>{supportsChannel ? channelMeta[channelKey].shortLabel : '—'}</span>
+                              </label>
+                            );
+	                          })}
+	                        </div>
+	                      ))}
+	                    </div>
+
+	                    <div className="notification-mobile-list">
+	                      {group.events.map((event) => {
+	                        const mobileChannels = getEventMobileChannels(event, availableChannels);
+	                        const summary = getNotificationMobileSummary(event, notificationSettings.schedule);
+	                        const isExpanded = expandedNotificationEventKey === event.event_key;
+
+	                        return (
+	                          <div
+	                            key={`${group.key}-${event.event_key}-mobile`}
+	                            className={`notification-mobile-item ${isExpanded ? 'is-expanded' : ''}`}
+	                          >
+	                            <button
+	                              type="button"
+	                              className="notification-mobile-item-head"
+	                              onClick={() => toggleNotificationEventExpanded(event.event_key)}
+	                              aria-expanded={isExpanded}
+	                            >
+	                              <div className="notification-mobile-item-copy">
+	                                <strong>{event.label}</strong>
+	                                {summary ? <span>{summary}</span> : null}
+	                              </div>
+	                              <div className="notification-mobile-item-meta">
+	                                <div className="notification-mobile-channel-icons" aria-hidden="true">
+	                                    {mobileChannels.map(({ channelKey, isActive }) => {
+	                                      return (
+	                                        <span
+	                                          key={`${event.event_key}-${channelKey}-icon`}
+	                                          className={`notification-mobile-channel-chip notification-mobile-channel-chip--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
+	                                          title={channelMeta[channelKey].label}
+	                                        >
+	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-chip-icon', 16)}
+	                                        </span>
+	                                      );
+	                                    })}
+	                                </div>
+	                                <span className={`notification-mobile-expand-indicator ${isExpanded ? 'is-open' : ''}`} aria-hidden="true" />
+	                              </div>
+	                            </button>
+
+	                            {isExpanded && (
+	                              <div className="notification-mobile-item-body">
+	                                {availableChannels.map((channelKey) => {
+	                                  const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
+	                                  if (!supportsChannel) {
+	                                    return null;
+	                                  }
+
+	                                  const isActive = isNotificationChannelEffectivelyActive(event, channelKey, checked);
+	                                  const statusText = getNotificationChannelStatusText(event, channelKey, checked);
+
+	                                  return (
+	                                    <label
+	                                      key={`${event.event_key}-${channelKey}-mobile-toggle`}
+	                                      className={`notification-mobile-channel-row ${disabled ? 'is-disabled' : ''} ${isActive ? 'is-active' : 'is-inactive'}`}
+	                                    >
+	                                      <div className="notification-mobile-channel-copy">
+	                                        <span
+	                                          className={`notification-mobile-channel-icon notification-mobile-channel-icon--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
+	                                          aria-hidden="true"
+	                                        >
+	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-row-icon', 18)}
+	                                        </span>
+	                                        <div className="notification-mobile-channel-text">
+	                                          <strong>{channelMeta[channelKey].label}</strong>
+	                                          <span>{statusText}</span>
+	                                        </div>
+	                                      </div>
+	                                      <input
+	                                        type="checkbox"
+	                                        checked={checked}
+	                                        disabled={disabled}
+	                                        onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
+	                                      />
+	                                    </label>
+	                                  );
+	                                })}
+	                              </div>
+	                            )}
+	                          </div>
+	                        );
+	                      })}
+	                    </div>
+	                  </div>
+	                ))}
+	              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* Вкладка Тренировки (объединены Цели, Тренировки и Здоровье) */}
         {activeTab === 'training' && (
@@ -1118,11 +2115,6 @@ const SettingsScreen = ({ onLogout }) => {
                       onChange={(e) => {
                         const val = e.target.value || '';
                         handleInputChange('race_distance', val);
-                      }}
-                      ref={(el) => {
-                        if (el && formData.race_distance) {
-                          el.value = formData.race_distance;
-                        }
                       }}
                     >
                       <option value="">Выберите дистанцию</option>
@@ -1243,11 +2235,6 @@ const SettingsScreen = ({ onLogout }) => {
                   key={`experience_level-${formData.experience_level || 'novice'}`}
                   value={formData.experience_level || 'novice'}
                   onChange={(e) => handleInputChange('experience_level', e.target.value)}
-                  ref={(el) => {
-                    if (el && formData.experience_level) {
-                      el.value = formData.experience_level;
-                    }
-                  }}
                 >
                   <option value="novice">Новичок (не бегаю или менее 3 месяцев)</option>
                   <option value="beginner">Начинающий (3-6 месяцев регулярного бега)</option>
@@ -1363,11 +2350,6 @@ const SettingsScreen = ({ onLogout }) => {
                   key={`ofp_preference-${formData.ofp_preference || 'empty'}`}
                   value={formData.ofp_preference || ''}
                   onChange={(e) => handleInputChange('ofp_preference', e.target.value || null)}
-                  ref={(el) => {
-                    if (el && formData.ofp_preference) {
-                      el.value = formData.ofp_preference;
-                    }
-                  }}
                 >
                   <option value="">Не указано</option>
                   <option value="gym">Тренажерный зал</option>
@@ -1389,11 +2371,6 @@ const SettingsScreen = ({ onLogout }) => {
                   key={`training_time_pref-${formData.training_time_pref || 'empty'}`}
                   value={formData.training_time_pref || ''}
                   onChange={(e) => handleInputChange('training_time_pref', e.target.value || null)}
-                  ref={(el) => {
-                    if (el && formData.training_time_pref) {
-                      el.value = formData.training_time_pref;
-                    }
-                  }}
                 >
                   <option value="">Не указано</option>
                   <option value="morning">Утро</option>
@@ -1430,11 +2407,6 @@ const SettingsScreen = ({ onLogout }) => {
                   key={`training_mode-${formData.training_mode || 'ai'}`}
                   value={formData.training_mode || 'ai'}
                   onChange={(e) => handleInputChange('training_mode', e.target.value)}
-                  ref={(el) => {
-                    if (el && formData.training_mode) {
-                      el.value = formData.training_mode;
-                    }
-                  }}
                 >
                   <option value="ai">AI план</option>
                   <option value="coach">С тренером</option>
@@ -1484,11 +2456,6 @@ const SettingsScreen = ({ onLogout }) => {
                       key={`health_program-${formData.health_program || 'empty'}`}
                       value={formData.health_program || ''}
                       onChange={(e) => handleInputChange('health_program', e.target.value || null)}
-                      ref={(el) => {
-                        if (el && formData.health_program) {
-                          el.value = formData.health_program;
-                        }
-                      }}
                     >
                       <option value="">Не указано</option>
                       <option value="start_running">Начать бегать</option>
@@ -1572,11 +2539,6 @@ const SettingsScreen = ({ onLogout }) => {
                       key={`last_race_distance-${formData.last_race_distance || 'empty'}`}
                       value={formData.last_race_distance || ''}
                       onChange={(e) => handleInputChange('last_race_distance', e.target.value || null)}
-                      ref={(el) => {
-                        if (el && formData.last_race_distance) {
-                          el.value = formData.last_race_distance;
-                        }
-                      }}
                     >
                       <option value="">Не указано</option>
                       <option value="5k">5 км</option>
@@ -1643,6 +2605,9 @@ const SettingsScreen = ({ onLogout }) => {
             <div className="settings-section">
               <h2><UsersIcon size={22} className="section-icon" aria-hidden /> Конфиденциальность</h2>
               <p>Управляйте тем, как другие видят ваш тренировочный календарь</p>
+              <p className="form-hint">
+                <Link to="/privacy">Полная политика конфиденциальности</Link>
+              </p>
 
               <div className="form-group">
                 <label>Уровень приватности</label>
@@ -1902,7 +2867,7 @@ const SettingsScreen = ({ onLogout }) => {
               <h2>Подключить</h2>
 
               {/* Подключено — горизонтальные карточки: логотип | кнопки */}
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar) && (
+              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
                 <div className="integrations-connected-section">
                   <p className="integrations-connected-label">Подключено:</p>
                   <div className="integrations-connected-row">
@@ -1925,17 +2890,7 @@ const SettingsScreen = ({ onLogout }) => {
                           <button type="button" className="btn btn-primary btn--sm" disabled={huaweiSyncing} onClick={async () => {
                             const currentApi = api || useAuthStore.getState().api;
                             if (!currentApi) return;
-                            setHuaweiSyncing(true);
-                            try {
-                              const res = await currentApi.syncWorkouts('huawei');
-                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
-                              useWorkoutRefreshStore.getState().triggerRefresh();
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
-                            } finally {
-                              setHuaweiSyncing(false);
-                            }
+                            await runHuaweiSync(currentApi);
                           }}>{huaweiSyncing ? '...' : 'Синхр.'}</button>
                           <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
                             if (!window.confirm('Отвязать Huawei Health?')) return;
@@ -2027,14 +2982,88 @@ const SettingsScreen = ({ onLogout }) => {
                         </div>
                       </div>
                     )}
+                    {integrationsStatus.garmin && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/garmin.svg" alt="Garmin" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-primary btn--sm" disabled={garminSyncing} onClick={async () => {
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            setGarminSyncing(true);
+                            try {
+                              const res = await currentApi.syncWorkouts('garmin');
+                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+                              useWorkoutRefreshStore.getState().triggerRefresh();
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+                            } finally {
+                              setGarminSyncing(false);
+                            }
+                          }}>{garminSyncing ? '...' : 'Синхр.'}</button>
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
+                            if (!window.confirm('Отвязать Garmin?')) return;
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            try {
+                              await currentApi.unlinkIntegration('garmin');
+                              setIntegrationsStatus(prev => ({ ...prev, garmin: false }));
+                              setMessage({ type: 'success', text: 'Garmin отключен' });
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+                            }
+                          }}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
+                    {integrationsStatus.coros && (
+                      <div className="integration-connected-card">
+                        <div className="integration-connected-card__logo">
+                          <img src="/integrations/coros.svg" alt="COROS" />
+                        </div>
+                        <div className="integration-connected-card__actions">
+                          <button type="button" className="btn btn-primary btn--sm" disabled={corosSyncing} onClick={async () => {
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            setCorosSyncing(true);
+                            try {
+                              const res = await currentApi.syncWorkouts('coros');
+                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+                              useWorkoutRefreshStore.getState().triggerRefresh();
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+                            } finally {
+                              setCorosSyncing(false);
+                            }
+                          }}>{corosSyncing ? '...' : 'Синхр.'}</button>
+                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
+                            if (!window.confirm('Отвязать COROS?')) return;
+                            const currentApi = api || useAuthStore.getState().api;
+                            if (!currentApi) return;
+                            try {
+                              await currentApi.unlinkIntegration('coros');
+                              setIntegrationsStatus(prev => ({ ...prev, coros: false }));
+                              setMessage({ type: 'success', text: 'COROS отключен' });
+                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+                            } catch (err) {
+                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+                            }
+                          }}>Отвязать</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
               {/* Не подключено — логотипы-кнопки для подключения */}
-              {(!formData.telegram_id || !integrationsStatus.huawei || !integrationsStatus.strava || !integrationsStatus.polar) && (
+              {(!formData.telegram_id || !integrationsStatus.huawei || !integrationsStatus.strava || !integrationsStatus.polar || !integrationsStatus.garmin || !integrationsStatus.coros) && (
               <>
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar) && (
+              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
                 <p className="integrations-disconnected-label">Подключить:</p>
               )}
               <div className="integrations-logos">
@@ -2068,10 +3097,20 @@ const SettingsScreen = ({ onLogout }) => {
                     const currentApi = api || useAuthStore.getState().api;
                     if (!currentApi) return;
                     try {
-                      const res = await currentApi.getIntegrationOAuthUrl('huawei');
+                      const native = isNativeCapacitor();
+                      const res = await currentApi.getIntegrationOAuthUrl('huawei', native ? { from_app: '1' } : {});
                       const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (url) window.location.href = url;
-                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                      if (!url) {
+                        setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                        return;
+                      }
+                      if (native) {
+                        // Android/iOS: In-App Browser -> HTTPS callback -> deep link planrun://oauth-callback
+                        const { Browser } = await import('@capacitor/browser');
+                        await Browser.open({ url });
+                      } else {
+                        window.location.href = url;
+                      }
                     } catch (e) {
                       setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
                     }
@@ -2100,18 +3139,24 @@ const SettingsScreen = ({ onLogout }) => {
                       } else {
                         // Web: новая вкладка + поллинг статуса подключения
                         window.open(url, '_blank');
-                        const pollStatus = setInterval(async () => {
+                        if (stravaPollRef.current) clearInterval(stravaPollRef.current);
+                        if (stravaPollTimeoutRef.current) clearTimeout(stravaPollTimeoutRef.current);
+                        stravaPollRef.current = setInterval(async () => {
                           try {
                             const statusRes = await currentApi.getIntegrationsStatus();
                             const isConnected = statusRes?.data?.integrations?.strava ?? statusRes?.integrations?.strava ?? false;
                             if (isConnected) {
-                              clearInterval(pollStatus);
+                              clearInterval(stravaPollRef.current);
+                              stravaPollRef.current = null;
                               setIntegrationsStatus(prev => ({ ...prev, strava: true }));
                               runStravaSync(currentApi);
                             }
                           } catch {}
                         }, 3000);
-                        setTimeout(() => clearInterval(pollStatus), 300000);
+                        stravaPollTimeoutRef.current = setTimeout(() => {
+                          if (stravaPollRef.current) clearInterval(stravaPollRef.current);
+                          stravaPollRef.current = null;
+                        }, 300000);
                       }
                     } catch (e) {
                       setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
@@ -2140,6 +3185,44 @@ const SettingsScreen = ({ onLogout }) => {
                       <img src="/integrations/polar.svg" alt="Polar" />
                     </div>
                     <span>Polar</span>
+                  </div>
+                )}
+                {!integrationsStatus.garmin && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
+                    const currentApi = api || useAuthStore.getState().api;
+                    if (!currentApi) return;
+                    try {
+                      const res = await currentApi.getIntegrationOAuthUrl('garmin');
+                      const url = res?.data?.auth_url ?? res?.auth_url;
+                      if (url) window.location.href = url;
+                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                    } catch (e) {
+                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+                    }
+                  }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/garmin.svg" alt="Garmin" />
+                    </div>
+                    <span>Garmin</span>
+                  </div>
+                )}
+                {!integrationsStatus.coros && (
+                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
+                    const currentApi = api || useAuthStore.getState().api;
+                    if (!currentApi) return;
+                    try {
+                      const res = await currentApi.getIntegrationOAuthUrl('coros');
+                      const url = res?.data?.auth_url ?? res?.auth_url;
+                      if (url) window.location.href = url;
+                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
+                    } catch (e) {
+                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+                    }
+                  }}>
+                    <div className="integration-logo-btn__icon">
+                      <img src="/integrations/coros.svg" alt="COROS" />
+                    </div>
+                    <span>COROS</span>
                   </div>
                 )}
               </div>

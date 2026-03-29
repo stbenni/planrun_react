@@ -13,6 +13,7 @@ export function useSettingsActions({
   setBiometricEnabling,
   setCsrfToken,
   setFormData,
+  setHuaweiSyncing,
   setMessage,
   setPinDisabling,
   setPinEnabled,
@@ -37,6 +38,36 @@ export function useSettingsActions({
       setStravaSyncing(false);
     }
   }, [setMessage, setStravaSyncing]);
+
+  const runHuaweiSync = useCallback(async (apiClient, announceConnected = false) => {
+    setMessage({
+      type: 'success',
+      text: announceConnected ? 'Huawei Health успешно подключен. Синхронизация...' : 'Синхронизация Huawei Health...',
+    });
+    setHuaweiSyncing(true);
+
+    try {
+      const response = await apiClient.syncWorkouts('huawei');
+      const imported = response?.data?.imported ?? response?.imported ?? 0;
+      setMessage({
+        type: 'success',
+        text: announceConnected
+          ? `Huawei Health подключен. Синхронизировано: ${imported} тренировок`
+          : `Синхронизировано из Huawei Health: ${imported} тренировок`,
+      });
+      useWorkoutRefreshStore.getState().triggerRefresh();
+      setTimeout(() => setMessage({ type: '', text: '' }), 4000);
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: announceConnected
+          ? `Huawei Health подключен, но ошибка синхронизации: ${error?.message || ''}`
+          : `Ошибка синхронизации Huawei Health: ${error?.message || ''}`,
+      });
+    } finally {
+      setHuaweiSyncing(false);
+    }
+  }, [setHuaweiSyncing, setMessage]);
 
   const handleEnableLock = useCallback(async () => {
     const currentApi = api || useAuthStore.getState().api;
@@ -325,6 +356,7 @@ export function useSettingsActions({
     handleRemoveAvatar,
     handleStartTelegramLogin,
     handleUnlinkTelegram,
+    runHuaweiSync,
     runStravaSync,
   };
 }

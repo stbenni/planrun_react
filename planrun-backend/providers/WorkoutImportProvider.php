@@ -4,7 +4,7 @@
  */
 interface WorkoutImportProvider {
     /**
-     * ID провайдера: huawei, garmin, strava, polar
+     * ID провайдера: huawei, garmin, strava, polar, coros
      */
     public function getProviderId(): string;
 

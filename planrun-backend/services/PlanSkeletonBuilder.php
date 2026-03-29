@@ -260,21 +260,7 @@ class PlanSkeletonBuilder {
         }
 
         if (in_array($goalType, ['health', 'weight_loss'], true)) {
-            // 65+ — только лёгкий бег, без интенсива
-            if (in_array('older_adult_65_plus', $specialFlags, true)) {
-                return [];
-            }
-            // Возврат после перерыва управляется выше (недели 1-3 ограничены)
-            // low_confidence_vdot НЕ блокирует фартлеки — они по ощущениям, без точного темпа
-
-            // Weight loss: фартлек с 3-й недели при ≥3 сессиях
-            if ($goalType === 'weight_loss' && $phaseKeys > 0 && $sessions >= 3 && $weekNumber >= 3) {
-                return ['fartlek'];
-            }
-            // Health: фартлек для intermediate+ (не новичков)
-            if ($goalType === 'health' && $phaseKeys > 0 && !in_array(($userData['experience_level'] ?? 'novice'), ['novice', 'beginner'], true)) {
-                return ['fartlek'];
-            }
+            // Health и weight_loss — только лёгкий бег + длительная, без интервалов и фартлеков
             return [];
         }
 

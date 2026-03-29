@@ -26,6 +26,18 @@ export function updateAdminSettings(client, payload) {
   return client.request('admin_update_settings', payload, 'POST');
 }
 
+export function getAdminNotificationTemplates(client) {
+  return client.request('admin_get_notification_templates', {}, 'GET');
+}
+
+export function updateAdminNotificationTemplate(client, payload) {
+  return client.request('admin_update_notification_template', payload, 'POST');
+}
+
+export function resetAdminNotificationTemplate(client, payload) {
+  return client.request('admin_reset_notification_template', payload, 'POST');
+}
+
 export function getSiteSettings(client) {
   return client.request('get_site_settings', {}, 'GET');
 }

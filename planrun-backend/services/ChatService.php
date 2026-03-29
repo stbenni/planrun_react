@@ -1,12 +1,19 @@
 <?php
 /**
- * Сервис чата: контекст (профиль, история, поиск по чату, RAG), вызов LM Studio напрямую (localhost).
- * Без прослойки API: приложение → LM Studio. RAG — один запрос в ai за фрагментами, дальше всё в LM Studio.
+ * Сервис чата — оркестратор.
+ * Делегирует: tools → ChatToolRegistry, промпт → ChatPromptBuilder,
+ * подтверждения → ChatConfirmationHandler, sanitize/action → ChatActionParser.
+ * Сам: LLM-вызовы, streaming, messaging CRUD, push-уведомления.
  */
 
 require_once __DIR__ . '/BaseService.php';
 require_once __DIR__ . '/../repositories/ChatRepository.php';
 require_once __DIR__ . '/ChatContextBuilder.php';
+require_once __DIR__ . '/ChatToolRegistry.php';
+require_once __DIR__ . '/ChatPromptBuilder.php';
+require_once __DIR__ . '/ChatConfirmationHandler.php';
+require_once __DIR__ . '/ChatActionParser.php';
+require_once __DIR__ . '/ChatMemoryManager.php';
 require_once __DIR__ . '/DateResolver.php';
 require_once __DIR__ . '/PushNotificationService.php';
 require_once __DIR__ . '/../config/Logger.php';
@@ -20,72 +27,83 @@ class ChatService extends BaseService {
 
     private $repository;
     private $contextBuilder;
-    /** @var string LM Studio base URL, например http://localhost:1234/v1 */
-    private $llmBaseUrl;
-    /** @var string Идентификатор модели в LM Studio */
-    private $llmModel;
-    private $historyLimit;
+    private string $llmBaseUrl;
+    private string $llmModel;
+    private int $historyLimit;
+
+    private ChatToolRegistry $toolRegistry;
+    private ChatPromptBuilder $promptBuilder;
+    private ChatConfirmationHandler $confirmationHandler;
+    private ChatActionParser $actionParser;
+    private ChatMemoryManager $memoryManager;
 
     public function __construct($db) {
         parent::__construct($db);
         $this->repository = new ChatRepository($db);
         $this->contextBuilder = new ChatContextBuilder($db);
-        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', env('LMSTUDIO_BASE_URL', 'http://127.0.0.1:8081/v1')), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', env('LMSTUDIO_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning'));
+        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
         $this->historyLimit = (int) env('CHAT_HISTORY_MESSAGES_LIMIT', self::DEFAULT_HISTORY_LIMIT);
         if ($this->historyLimit < 1) {
             $this->historyLimit = self::DEFAULT_HISTORY_LIMIT;
         }
+
+        $this->toolRegistry = new ChatToolRegistry($db, $this->contextBuilder);
+        $this->promptBuilder = new ChatPromptBuilder($db, $this->contextBuilder, $this->repository);
+        $this->confirmationHandler = new ChatConfirmationHandler($db, $this->toolRegistry);
+        $this->actionParser = new ChatActionParser($db, $this->toolRegistry, $this->confirmationHandler);
+        $this->memoryManager = new ChatMemoryManager($db);
     }
 
-    /**
-     * При превышении порога — суммаризировать старые сообщения, сохранить в history_summary,
-     * вернуть только последние N сообщений для контекста.
-     */
-    private function applyHistorySummarization(int $userId, int $conversationId, array &$history): void {
-        if ((int) env('CHAT_SUMMARIZE_ENABLED', 1) !== 1) {
-            return;
+    // ═══ Health ═══
+
+    public function checkLlmHealth(): bool {
+        $url = $this->llmBaseUrl . '/models';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+        if ($curlErr || $httpCode !== 200) {
+            Logger::error('LLM health check failed', ['url' => $url, 'http_code' => $httpCode, 'error' => $curlErr ?: 'HTTP ' . $httpCode]);
+            return false;
         }
+        $data = json_decode($response, true);
+        $models = $data['models'] ?? $data['data'] ?? [];
+        if (empty($models)) {
+            Logger::error('LLM health check: no models loaded', ['url' => $url, 'response' => substr($response, 0, 200)]);
+            return false;
+        }
+        return true;
+    }
+
+    // ═══ History summarization ═══
+
+    private function applyHistorySummarization(int $userId, int $conversationId, array &$history): void {
+        if ((int) env('CHAT_SUMMARIZE_ENABLED', 1) !== 1) return;
         $threshold = (int) env('CHAT_SUMMARIZE_THRESHOLD', self::DEFAULT_SUMMARIZE_THRESHOLD);
         $recentCount = (int) env('CHAT_RECENT_MESSAGES', self::DEFAULT_RECENT_MESSAGES);
-        if ($recentCount < 1) {
-            $recentCount = self::DEFAULT_RECENT_MESSAGES;
-        }
+        if ($recentCount < 1) $recentCount = self::DEFAULT_RECENT_MESSAGES;
         $total = count($history);
-        if ($total < $threshold) {
-            return;
-        }
-
+        if ($total < $threshold) return;
         $olderCount = $total - $recentCount;
-        if ($olderCount < 5) {
-            return;
-        }
-
-        $older = array_slice($history, 0, $olderCount);
-        $recent = array_slice($history, $olderCount);
-        $summary = $this->summarizeOlderMessages($older, $userId);
+        if ($olderCount < 5) return;
+        $summary = $this->summarizeOlderMessages(array_slice($history, 0, $olderCount), $userId);
         if ($summary !== '') {
             $this->contextBuilder->setHistorySummary($userId, $summary);
-            $history = $recent;
+            $history = array_slice($history, $olderCount);
         }
     }
 
-    /**
-     * Вызвать LM Studio для суммаризации старой части диалога.
-     */
     private function summarizeOlderMessages(array $messages, int $userId): string {
         $text = '';
         foreach ($messages as $m) {
             $role = ($m['sender_type'] ?? '') === 'user' ? 'Пользователь' : 'Ассистент';
-            $content = trim($m['content'] ?? '');
-            if ($content === '') {
-                continue;
-            }
-            $text .= "{$role}: {$content}\n\n";
+            $c = trim($m['content'] ?? '');
+            if ($c !== '') $text .= "{$role}: {$c}\n\n";
         }
-        if (mb_strlen($text) < 200) {
-            return '';
-        }
+        if (mb_strlen($text) < 200) return '';
 
         $systemPrompt = "Ты — помощник для суммаризации диалога бегуна с AI-тренером. Сжато извлеки ключевую информацию из диалога ниже. Пиши ТОЛЬКО на русском. Формат (краткие пункты):\n\n" .
             "ЦЕЛИ/ЗАБЕГИ: цели по бегу, планы на забеги, целевые времена.\n" .
@@ -95,88 +113,69 @@ class ChatService extends BaseService {
             "ПРОЧЕЕ: другая важная информация о пользователе.\n\n" .
             "Не повторяй общие фразы. Только конкретика. До 500 символов.";
 
-        $payload = [
-            'model' => $this->llmModel,
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => "Суммаризируй диалог:\n\n" . mb_substr($text, 0, 12000)]
-            ],
-            'stream' => false,
-            'max_tokens' => 800
-        ];
-
         $url = $this->llmBaseUrl . '/chat/completions';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_POSTFIELDS => json_encode([
+                'model' => $this->llmModel,
+                'messages' => [['role' => 'system', 'content' => $systemPrompt], ['role' => 'user', 'content' => "Суммаризируй диалог:\n\n" . mb_substr($text, 0, 12000)]],
+                'stream' => false, 'max_tokens' => 800
+            ]),
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 60,
-            CURLOPT_CONNECTTIMEOUT => 10
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_CONNECTTIMEOUT => 10
         ]);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-
         if ($httpCode !== 200 || $response === false) {
             Logger::warning('Chat summarization failed', ['http' => $httpCode, 'userId' => $userId]);
             return '';
         }
-        $data = json_decode($response, true);
-        $content = trim($data['choices'][0]['message']['content'] ?? '');
-        return $content;
+        return trim(json_decode($response, true)['choices'][0]['message']['content'] ?? '');
     }
 
-    /**
-     * Отправить сообщение пользователя и получить ответ от AI
-     * Возвращает полный ответ (без streaming) для сохранения в БД
-     */
+    // ═══ AI messaging (non-streaming) ═══
+
     public function sendMessageAndGetResponse(int $userId, string $content): array {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
         $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
         $this->repository->touchConversation($conversation['id']);
-
         $this->applyHistorySummarization($userId, $conversation['id'], $history);
 
         $context = $this->contextBuilder->buildContextForUser($userId);
-        $context = $this->appendChatSearchSnippet($context, $conversation['id'], $content);
-        $context = $this->appendRagSnippet($context, $content);
-        $messages = $this->buildChatMessages($userId, $context, $history, $content);
+        $context = $this->promptBuilder->appendChatSearchSnippet($context, $conversation['id'], $content);
+        $context = $this->promptBuilder->appendRagSnippet($context, $content);
+        $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
 
         $response = $this->callLlm($messages, $userId);
+        $fullContent = $this->actionParser->sanitizeResponse($response['content'] ?? '');
+        $planWasUpdated = false;
+        $fullContent = $this->actionParser->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
 
-        $fullContent = $this->sanitizeResponse($response['content'] ?? '');
-        $fullContent = $this->parseAndExecuteActions($fullContent, $userId, $history, $content);
         if ($fullContent !== '') {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, [
-                'model' => $this->llmModel,
-                'eval_count' => $response['usage']['total_tokens'] ?? null
+                'model' => $this->llmModel, 'eval_count' => $response['usage']['total_tokens'] ?? null
             ]);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
-                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'chat');
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
             }
         }
 
-        return [
-            'content' => $fullContent,
-            'message_id' => $this->db->insert_id ?? null
-        ];
+        return ['content' => $fullContent, 'message_id' => $this->db->insert_id ?? null];
     }
 
-    /**
-     * Вызов LM Studio с streaming — выводит NDJSON в stdout (OpenAI SSE → чанки)
-     */
+    // ═══ AI messaging (streaming) ═══
+
     public function streamResponse(int $userId, string $content): void {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
         $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
         $this->repository->touchConversation($conversation['id']);
-
         $this->applyHistorySummarization($userId, $conversation['id'], $history);
 
         $context = '';
@@ -186,37 +185,46 @@ class ChatService extends BaseService {
             Logger::warning('ChatContextBuilder failed, using minimal context', ['error' => $e->getMessage()]);
             $context = "═══ ПРОФИЛЬ ═══\nДанные контекста временно недоступны.";
         }
-        $context = $this->appendChatSearchSnippet($context, $conversation['id'], $content);
-        $context = $this->appendRagSnippet($context, $content);
-
-        $messages = $this->buildChatMessages($userId, $context, $history, $content);
+        $context = $this->promptBuilder->appendChatSearchSnippet($context, $conversation['id'], $content);
+        $context = $this->promptBuilder->appendRagSnippet($context, $content);
+        $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
 
         $toolsUsed = [];
-        $swapHandled = $this->tryHandleSwapConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        $swapHandled = $this->confirmationHandler->tryHandleSwapConfirmation($content, $history, $userId, $messages, $toolsUsed);
         $replaceRaceHandled = false;
+        $genericUpdateHandled = false;
         if (!$swapHandled) {
-            $replaceRaceHandled = $this->tryHandleReplaceWithRaceConfirmation($content, $history, $userId, $messages, $toolsUsed);
+            $replaceRaceHandled = $this->confirmationHandler->tryHandleReplaceWithRaceConfirmation($content, $history, $userId, $messages, $toolsUsed);
         }
         if (!$swapHandled && !$replaceRaceHandled) {
+            $genericUpdateHandled = $this->confirmationHandler->tryHandleGenericUpdateConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        }
+        if (!$swapHandled && !$replaceRaceHandled && !$genericUpdateHandled) {
+            if (!$this->checkLlmHealth()) {
+                $this->repository->addMessage($conversation['id'], 'ai', null, 'Извини, LLM-сервер сейчас недоступен. Попробуй через минуту.');
+                echo json_encode(['chunk' => 'Извини, LLM-сервер сейчас недоступен. Попробуй через минуту.']) . "\n";
+                echo json_encode(['done' => true]) . "\n";
+                flush();
+                return;
+            }
             $messages = $this->resolveToolCalls($messages, $userId, $toolsUsed);
         }
 
+        // NDJSON control lines for plan-changing tools
         $planUpdatedSent = false;
-        if (in_array('update_training_day', $toolsUsed, true) || in_array('swap_training_days', $toolsUsed, true)
-            || in_array('delete_training_day', $toolsUsed, true) || in_array('move_training_day', $toolsUsed, true)) {
-            echo json_encode(['plan_updated' => true]) . "\n";
-            flush();
+        $planChangeTools = ['update_training_day', 'swap_training_days', 'delete_training_day', 'move_training_day', 'add_training_day', 'copy_day', 'log_workout'];
+        if (array_intersect($planChangeTools, $toolsUsed)) {
+            echo json_encode(['plan_updated' => true]) . "\n"; flush();
             $planUpdatedSent = true;
         }
         if (in_array('recalculate_plan', $toolsUsed, true)) {
-            echo json_encode(['plan_recalculating' => true]) . "\n";
-            flush();
+            echo json_encode(['plan_recalculating' => true]) . "\n"; flush();
         }
         if (in_array('generate_next_plan', $toolsUsed, true)) {
-            echo json_encode(['plan_generating_next' => true]) . "\n";
-            flush();
+            echo json_encode(['plan_generating_next' => true]) . "\n"; flush();
         }
 
+        // Stream with think/action buffering
         $chunks = [];
         $thinkBuffer = '';
         $insideThink = false;
@@ -238,10 +246,7 @@ class ChatService extends BaseService {
                     $parts = preg_split('/(\[\/THINK\]|<\/think>)\s*/i', $thinkBuffer, 2);
                     $thinkBuffer = '';
                     $insideThink = false;
-                    $after = $parts[1] ?? '';
-                    if ($after !== '') {
-                        $emitChunk($after);
-                    }
+                    if (($parts[1] ?? '') !== '') $emitChunk($parts[1]);
                 }
                 return;
             }
@@ -250,23 +255,18 @@ class ChatService extends BaseService {
                 $before = substr($thinkBuffer, 0, $tm[0][1]);
                 $insideThink = true;
                 $thinkBuffer = substr($thinkBuffer, $tm[0][1] + strlen($tm[0][0]));
-                if ($before !== '') {
-                    $emitChunk($before);
-                }
+                if ($before !== '') $emitChunk($before);
                 return;
             }
 
-            $tagPrefixes = ['[THINK', '[think', '<think', '<THINK'];
-            foreach ($tagPrefixes as $prefix) {
+            foreach (['[THINK', '[think', '<think', '<THINK'] as $prefix) {
                 $prefixLen = strlen($prefix);
                 $bufferEnd = substr($thinkBuffer, -$prefixLen);
                 for ($i = 1; $i <= $prefixLen; $i++) {
                     if (substr($bufferEnd, -$i) === substr($prefix, 0, $i)) {
                         $safe = substr($thinkBuffer, 0, -$i);
                         $thinkBuffer = substr($thinkBuffer, -$i);
-                        if ($safe !== '' && $safe !== false) {
-                            $emitChunk($safe);
-                        }
+                        if ($safe !== '' && $safe !== false) $emitChunk($safe);
                         return;
                     }
                 }
@@ -282,9 +282,7 @@ class ChatService extends BaseService {
                     $insideAction = false;
                     $actionBuffer = '';
                     $after = trim($parts[1] ?? '');
-                    if ($after !== '') {
-                        $emitChunk($after);
-                    }
+                    if ($after !== '') $emitChunk($after);
                 }
                 return;
             }
@@ -293,15 +291,10 @@ class ChatService extends BaseService {
                 $pos = strpos($out, '<!--');
                 $before = substr($out, 0, $pos);
                 $rest = substr($out, $pos);
-                if ($before !== '' && $before !== false) {
-                    $emitChunk($before);
-                }
+                if ($before !== '' && $before !== false) $emitChunk($before);
                 if (strpos($rest, '-->') !== false) {
                     $parts = explode('-->', $rest, 2);
-                    $after = trim($parts[1] ?? '');
-                    if ($after !== '') {
-                        $emitChunk($after);
-                    }
+                    if (trim($parts[1] ?? '') !== '') $emitChunk(trim($parts[1]));
                 } else {
                     $insideAction = true;
                     $actionBuffer = $rest;
@@ -312,9 +305,9 @@ class ChatService extends BaseService {
             $emitChunk($out);
         });
 
-        $fullContent = $this->sanitizeResponse(implode('', $chunks));
+        $fullContent = $this->actionParser->sanitizeResponse(implode('', $chunks));
         $planWasUpdated = false;
-        $fullContent = $this->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
+        $fullContent = $this->actionParser->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated, $toolsUsed);
         if ($planWasUpdated && !$planUpdatedSent) {
             echo json_encode(['plan_updated' => true]) . "\n";
             flush();
@@ -323,245 +316,41 @@ class ChatService extends BaseService {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, ['model' => $this->llmModel]);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
-                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'chat');
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
             }
         }
+
+        $this->triggerMemoryExtraction($userId, $conversation['id']);
     }
 
-    /**
-     * Обработка подтверждения «да» при предложении поменять тренировки.
-     * LLM часто не вызывает tool при коротком «да» — выполняем swap программно.
-     *
-     * @return bool true если обработали и нужно пропустить resolveToolCalls
-     */
-    private function tryHandleSwapConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
-        $trimmed = trim($content);
-        if (mb_strlen($trimmed) > 30) {
-            return false;
-        }
-        if (!preg_match('/^(да|ок|давай|подходит|сделай|согласен|хорошо|yes|ok|ага|угу|окей|оке|правильно)(,?\s*.*)?$/ui', $trimmed)) {
-            return false;
-        }
+    // ═══ Memory extraction ═══
 
-        $lastAssistant = '';
-        for ($i = count($history) - 1; $i >= 0; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'ai') {
-                $lastAssistant = trim($history[$i]['content'] ?? '');
-                break;
-            }
-        }
-        if ($lastAssistant === '') {
-            return false;
-        }
-        if (!preg_match('/(поменять|заменить|поменял|заменил|swap|местами)/ui', $lastAssistant)) {
-            return false;
-        }
-
-        $tzName = getUserTimezone($userId);
+    private function triggerMemoryExtraction(int $userId, int $conversationId): void {
+        if ((int) env('CHAT_MEMORY_ENABLED', 1) !== 1) return;
         try {
-            $tz = new DateTimeZone($tzName);
-        } catch (Exception $e) {
-            $tz = new DateTimeZone('Europe/Moscow');
+            $recentMessages = $this->repository->getMessagesAscending($conversationId, 20);
+            $this->memoryManager->extractAndSaveMemory($userId, $recentMessages);
+        } catch (Throwable $e) {
+            Logger::warning('Memory extraction failed (non-blocking)', ['error' => $e->getMessage(), 'userId' => $userId]);
         }
-        $now = new DateTime('now', $tz);
-        $today = $now->format('Y-m-d');
-        $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
-
-        $output = $this->executeTool('swap_training_days', json_encode(['date1' => $today, 'date2' => $tomorrow]), $userId);
-        $result = json_decode($output, true);
-        if (!isset($result['success']) || !$result['success']) {
-            return false;
-        }
-
-        $toolsUsed[] = 'swap_training_days';
-        $tcId = 'swap-' . uniqid();
-        $messages[] = [
-            'role' => 'assistant',
-            'content' => '',
-            'tool_calls' => [
-                [
-                    'id' => $tcId,
-                    'type' => 'function',
-                    'function' => [
-                        'name' => 'swap_training_days',
-                        'arguments' => json_encode(['date1' => $today, 'date2' => $tomorrow])
-                    ]
-                ]
-            ]
-        ];
-        $messages[] = [
-            'role' => 'tool',
-            'tool_call_id' => $tcId,
-            'content' => $output
-        ];
-        return true;
     }
 
-    /**
-     * Обработка подтверждения при предложении заменить на забег (полумарафон/марафон) + тактика.
-     * LLM часто не вызывает update_training_day при «да, правильно» — выполняем программно.
-     */
-    private function tryHandleReplaceWithRaceConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!$this->isConfirmationMessage($content)) {
-            return false;
-        }
-        $lastAssistant = '';
-        for ($i = count($history) - 1; $i >= 0; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'ai') {
-                $lastAssistant = trim($history[$i]['content'] ?? '');
-                break;
-            }
-        }
-        if ($lastAssistant === '') {
-            return false;
-        }
-        $proposal = $this->parseReplaceWithRaceProposal($lastAssistant, $userId);
-        if ($proposal === null) {
-            return false;
-        }
+    // ═══ Tool resolution ═══
 
-        $tzName = getUserTimezone($userId);
-        try {
-            $tz = new DateTimeZone($tzName);
-        } catch (Exception $e) {
-            $tz = new DateTimeZone('Europe/Moscow');
-        }
-        $now = new DateTime('now', $tz);
-        $today = $now->format('Y-m-d');
-        $tomorrow = (clone $now)->modify('+1 day')->format('Y-m-d');
-
-        $todayWorkout = $proposal['today'] ?? null;
-        $tomorrowWorkout = $proposal['tomorrow'] ?? null;
-        if (!$todayWorkout || !$tomorrowWorkout) {
-            return false;
-        }
-
-        $out1 = $this->executeTool('update_training_day', json_encode([
-            'date' => $today,
-            'type' => $todayWorkout['type'],
-            'description' => $todayWorkout['description']
-        ]), $userId);
-        $res1 = json_decode($out1, true);
-        if (isset($res1['error'])) {
-            Logger::warning('ReplaceWithRace: update today failed', ['error' => $res1['error'] ?? $res1]);
-            return false;
-        }
-
-        $out2 = $this->executeTool('update_training_day', json_encode([
-            'date' => $tomorrow,
-            'type' => $tomorrowWorkout['type'],
-            'description' => $tomorrowWorkout['description']
-        ]), $userId);
-        $res2 = json_decode($out2, true);
-        if (isset($res2['error'])) {
-            Logger::warning('ReplaceWithRace: update tomorrow failed', ['error' => $res2['error'] ?? $res2]);
-        }
-
-        $toolsUsed[] = 'update_training_day';
-        $toolsUsed[] = 'update_training_day';
-        $tcId1 = 'upd-' . uniqid();
-        $tcId2 = 'upd-' . uniqid();
-        $messages[] = [
-            'role' => 'assistant',
-            'content' => '',
-            'tool_calls' => [
-                [
-                    'id' => $tcId1,
-                    'type' => 'function',
-                    'function' => [
-                        'name' => 'update_training_day',
-                        'arguments' => json_encode(['date' => $today, 'type' => $todayWorkout['type'], 'description' => $todayWorkout['description']])
-                    ]
-                ],
-                [
-                    'id' => $tcId2,
-                    'type' => 'function',
-                    'function' => [
-                        'name' => 'update_training_day',
-                        'arguments' => json_encode(['date' => $tomorrow, 'type' => $tomorrowWorkout['type'], 'description' => $tomorrowWorkout['description']])
-                    ]
-                ]
-            ]
-        ];
-        $messages[] = ['role' => 'tool', 'tool_call_id' => $tcId1, 'content' => $out1];
-        $messages[] = ['role' => 'tool', 'tool_call_id' => $tcId2, 'content' => $out2];
-        return true;
-    }
-
-    /**
-     * Парсит предложение замены на забег из последнего сообщения AI.
-     * @return array|null ['today' => ['type'=>, 'description'=>], 'tomorrow' => ...] или null
-     */
-    private function parseReplaceWithRaceProposal(string $text, int $userId): ?array {
-        if (!preg_match('/(полумарафон|марафон|21\.1|42\.2|21\s*км|42\s*км)/ui', $text)) {
-            return null;
-        }
-        if (!preg_match('/(сегодня|завтра|подтверди|обновлю|замен)/ui', $text)) {
-            return null;
-        }
-
-        $result = ['today' => null, 'tomorrow' => null];
-
-        // Полумарафон — 21.1 км за 2 часа | 21.1 км за 2:00:00
-        if (preg_match('/(?:полумарафон|марафон)[^0-9]*(?:—|\-)?\s*(\d+(?:\.\d+)?)\s*км\s*(?:за\s+)?(\d+)(?::(\d+))?(?::(\d+))?\s*(?:час|ч|мин|м)?/ui', $text, $m)
-            || preg_match('/(\d+(?:\.\d+)?)\s*км\s*(?:за\s+)?(\d+)(?::(\d+))?(?::(\d+))?\s*(?:час|ч|мин|м)/ui', $text, $m)) {
-            $km = (float)($m[1] ?? 21.1);
-            $h = (int)($m[2] ?? 2);
-            $min = isset($m[3]) && $m[3] !== '' ? (int)$m[3] : 0;
-            $sec = isset($m[4]) && $m[4] !== '' ? (int)$m[4] : 0;
-            $totalSec = $h * 3600 + $min * 60 + $sec;
-            $timeStr = sprintf('%d:%02d:%02d', (int)floor($totalSec / 3600), (int)floor(($totalSec % 3600) / 60), $totalSec % 60);
-            $result['today'] = [
-                'type' => $km < 30 ? 'race' : 'marathon',
-                'description' => ($km < 30 ? 'Полумарафон' : 'Марафон') . ": {$km} км за {$timeStr}"
-            ];
-        }
-
-        // Лёгкий бег — 8 км в темпе 5:30/км | Лёгкий бег 8 км
-        if (preg_match('/(?:л[её]гкий|легкий)\s*бег[^0-9]*(?:—|\-)?\s*(\d+(?:\.\d+)?)\s*км(?:\s+в\s+темпе\s+(\d+):(\d+))?/ui', $text, $m)
-            || preg_match('/(?:л[её]гкий|легкий)\s*бег[^—\-]*[—\-]\s*(\d+(?:\.\d+)?)\s*км/ui', $text, $m)) {
-            $km = (float)($m[1] ?? 8);
-            $paceMin = isset($m[2]) && $m[2] !== '' ? (int)$m[2] : 5;
-            $paceSec = isset($m[3]) && $m[3] !== '' ? (int)$m[3] : 30;
-            $paceStr = sprintf('%d:%02d', $paceMin, $paceSec);
-            $durationMin = (int)round($km * ($paceMin + $paceSec / 60));
-            $durationStr = sprintf('0:%02d:00', $durationMin);
-            $result['tomorrow'] = [
-                'type' => 'easy',
-                'description' => "Легкий бег: {$km} км или {$durationStr}, темп {$paceStr}"
-            ];
-        }
-
-        if ($result['today'] && $result['tomorrow']) {
-            return $result;
-        }
-        return null;
-    }
-
-    /**
-     * Резолвит tool-вызовы (до maxToolRounds раундов) перед стримингом.
-     * Если LLM хочет вызвать tools — выполняем их (non-streaming), добавляем результаты
-     * в messages, и повторяем. Когда tool_calls пусты — messages готовы для стриминга.
-     */
     private function resolveToolCalls(array $messages, int $userId, array &$toolsUsed = []): array {
-        $toolsEnabled = (int) env('CHAT_TOOLS_ENABLED', 1) === 1;
-        if (!$toolsEnabled) {
-            return $messages;
-        }
+        if ((int) env('CHAT_TOOLS_ENABLED', 1) !== 1) return $messages;
 
-        $tools = $this->getChatTools();
+        $tools = $this->toolRegistry->getChatTools();
         $maxToolRounds = 5;
-
-        // Сокращённые messages для tool-resolution: оставляем system (укороченный),
-        // последние N сообщений истории и user-вопрос — без огромного контекста,
-        // который мешает модели вызывать tools.
-        $toolMessages = $this->buildToolResolutionMessages($messages);
+        $toolMessages = $this->promptBuilder->buildToolResolutionMessages($messages);
 
         for ($round = 0; $round < $maxToolRounds; $round++) {
             try {
                 $result = $this->callLlmDirect($toolMessages, $tools);
             } catch (Throwable $e) {
-                Logger::warning('Tool resolution failed, streaming without tools', ['error' => $e->getMessage()]);
+                Logger::warning('Tool resolution failed, streaming without tools', [
+                    'error' => $e->getMessage(), 'round' => $round, 'tools_used_so_far' => $toolsUsed,
+                ]);
                 return $messages;
             }
 
@@ -570,53 +359,33 @@ class ChatService extends BaseService {
             $contentText = $msg['content'] ?? '';
 
             Logger::debug('resolveToolCalls round', [
-                'round' => $round,
-                'has_tool_calls' => !empty($toolCalls),
-                'tool_calls_count' => count($toolCalls),
+                'round' => $round, 'has_tool_calls' => !empty($toolCalls), 'tool_calls_count' => count($toolCalls),
                 'content_preview' => mb_substr($contentText, 0, 200),
                 'tool_names' => array_map(fn($tc) => $tc['function']['name'] ?? '?', $toolCalls),
             ]);
 
             if (empty($toolCalls)) {
-                // Если LLM выводит tool-вызов как текст (ARGS формат) — парсим
+                // Text-based tool call fallback: name[ARGS]{...}
                 if (preg_match('/(\w+)\[ARGS\]\s*(\{[^}]+\})/i', $contentText, $textToolMatch)) {
                     $textToolName = $textToolMatch[1];
                     $textToolArgs = $textToolMatch[2];
-                    Logger::info('resolveToolCalls: parsed text-based tool call', [
-                        'name' => $textToolName, 'args' => $textToolArgs, 'round' => $round
-                    ]);
-                    $output = $this->executeTool($textToolName, $textToolArgs, $userId);
+                    Logger::info('resolveToolCalls: parsed text-based tool call', ['name' => $textToolName, 'args' => $textToolArgs, 'round' => $round]);
+                    echo json_encode(['tool_executing' => $textToolName]) . "\n"; flush();
+                    $output = $this->toolRegistry->executeTool($textToolName, $textToolArgs, $userId);
                     $toolsUsed[] = $textToolName;
                     $fakeId = 'text-' . uniqid();
-                    $toolCallMsg = [
-                        'role' => 'assistant',
-                        'content' => '',
-                        'tool_calls' => [[
-                            'id' => $fakeId,
-                            'type' => 'function',
-                            'function' => ['name' => $textToolName, 'arguments' => $textToolArgs]
-                        ]]
-                    ];
-                    $toolResultMsg = [
-                        'role' => 'tool',
-                        'tool_call_id' => $fakeId,
-                        'content' => $output
-                    ];
+                    $toolCallMsg = ['role' => 'assistant', 'content' => '', 'tool_calls' => [['id' => $fakeId, 'type' => 'function', 'function' => ['name' => $textToolName, 'arguments' => $textToolArgs]]]];
+                    $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $fakeId, 'content' => $output];
                     $messages[] = $toolCallMsg;
                     $messages[] = $toolResultMsg;
                     $toolMessages[] = $toolCallMsg;
                     $toolMessages[] = $toolResultMsg;
                     continue;
                 }
-                // Нет tool-вызовов — готовы к стримингу
                 return $messages;
             }
 
-            $assistantMsg = [
-                'role' => 'assistant',
-                'content' => $contentText,
-                'tool_calls' => $toolCalls
-            ];
+            $assistantMsg = ['role' => 'assistant', 'content' => $contentText, 'tool_calls' => $toolCalls];
             $messages[] = $assistantMsg;
             $toolMessages[] = $assistantMsg;
 
@@ -625,14 +394,11 @@ class ChatService extends BaseService {
                 $fn = $tc['function'] ?? [];
                 $name = $fn['name'] ?? '';
                 $argsJson = $fn['arguments'] ?? '{}';
-                $output = $this->executeTool($name, $argsJson, $userId);
+                echo json_encode(['tool_executing' => $name]) . "\n"; flush();
+                $output = $this->toolRegistry->executeTool($name, $argsJson, $userId);
                 $toolsUsed[] = $name;
                 Logger::debug('Tool executed', ['name' => $name, 'args' => $argsJson, 'output_preview' => mb_substr($output, 0, 200)]);
-                $toolResultMsg = [
-                    'role' => 'tool',
-                    'tool_call_id' => $id,
-                    'content' => $output
-                ];
+                $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $id, 'content' => $output];
                 $messages[] = $toolResultMsg;
                 $toolMessages[] = $toolResultMsg;
             }
@@ -641,1676 +407,100 @@ class ChatService extends BaseService {
         return $messages;
     }
 
-    /**
-     * Строит сокращённый набор messages для tool-resolution раундов.
-     * Полный system prompt слишком велик — модель теряет способность вызывать tools.
-     * Берём: короткий system (только tool-инструкции) + последние сообщения + user question.
-     */
-    private function buildToolResolutionMessages(array $fullMessages): array {
-        // Извлекаем system message
-        $systemMsg = null;
-        $otherMessages = [];
-        foreach ($fullMessages as $msg) {
-            if (($msg['role'] ?? '') === 'system' && $systemMsg === null) {
-                $systemMsg = $msg;
-            } else {
-                $otherMessages[] = $msg;
-            }
-        }
+    // ═══ LLM calling ═══
 
-        // Извлекаем дату из оригинального system prompt (уже с правильным часовым поясом пользователя)
-        $origContent = $systemMsg['content'] ?? '';
-        if (preg_match('/Сегодня:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})\.\s*Завтра:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})/u', $origContent, $dm)) {
-            $todayDow = $dm[1];
-            $today = $dm[2];
-            $tomorrowDow = $dm[3];
-            $tomorrow = $dm[4];
-        } else {
-            $now = new DateTime();
-            $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
-            $todayDow = $daysRu[(int) $now->format('N')] ?? '';
-            $today = $now->format('Y-m-d');
-            $tomorrowObj = (clone $now)->modify('+1 day');
-            $tomorrowDow = $daysRu[(int) $tomorrowObj->format('N')] ?? '';
-            $tomorrow = $tomorrowObj->format('Y-m-d');
-        }
-
-        $shortSystem = <<<PROMPT
-Ты — PlanRun, тренер по бегу. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
-
-ИНСТРУМЕНТЫ — вызывай ПРОАКТИВНО, не выдумывай данные:
-1. get_date(phrase) — «завтра», «в среду», «15 марта» → Y-m-d.
-2. get_plan(date) — план на неделю, содержащую дату.
-3. get_workouts(date_from, date_to) — история выполненных тренировок.
-4. get_day_details(date) — план + результат конкретного дня.
-5. update_training_day(date, type, description) — изменить тренировку. Спроси подтверждение.
-6. swap_training_days(date1, date2) — поменять местами. Сначала get_day_details обеих дат.
-7. delete_training_day(date) — удалить тренировку. Спроси подтверждение.
-8. move_training_day(source_date, target_date) — перенести. Сначала get_day_details обеих дат.
-9. recalculate_plan(reason) — пересчитать план. Спроси подтверждение.
-10. generate_next_plan(goals) — новый план. Спроси подтверждение.
-
-ПРАВИЛА:
-- Для ЛЮБОГО вопроса о плане/тренировках — СНАЧАЛА вызови tool, потом отвечай.
-- Для переноса/замены/удаления — сначала get_day_details для всех упомянутых дат, уточни у пользователя, получи подтверждение.
-- После подтверждения (да, давай, ок, супер) — НЕМЕДЛЕННО вызови write-tool (move_training_day, update_training_day, delete_training_day, swap_training_days). НЕ пиши текст — ВЫЗОВИ TOOL.
-- Никогда не угадывай даты и тренировки — всегда вызывай get_date и get_day_details.
-- Отвечай на русском.
-PROMPT;
-
-        $result = [['role' => 'system', 'content' => $shortSystem]];
-
-        // Берём последние сообщения (до 6), чтобы сохранить контекст диалога
-        $tail = array_slice($otherMessages, -6);
-        foreach ($tail as $msg) {
-            $result[] = $msg;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Поиск по истории чата пользователя в БД и подстановка релевантных фрагментов в контекст.
-     * Включается через CHAT_SEARCH_HISTORY=1 (по умолчанию 1). Ключевые слова — из текущего сообщения.
-     */
-    private function appendChatSearchSnippet(string $context, int $conversationId, string $currentMessage): string {
-        if ((int) env('CHAT_SEARCH_HISTORY', 1) !== 1) {
-            return $context;
-        }
-        $words = preg_split('/[\s\p{P}\p{S}]+/u', mb_strtolower($currentMessage), -1, PREG_SPLIT_NO_EMPTY);
-        $words = array_values(array_filter($words, function ($w) {
-            return mb_strlen($w) >= 3;
-        }));
-        $words = array_slice($words, 0, 8);
-        if (empty($words)) {
-            return $context;
-        }
-        try {
-            $rows = $this->repository->searchInChat($conversationId, $words, 8);
-        } catch (Throwable $e) {
-            Logger::warning('Chat search failed', ['error' => $e->getMessage()]);
-            return $context;
-        }
-        if (empty($rows)) {
-            return $context;
-        }
-        $currentTrim = trim($currentMessage);
-        $lines = ["═══ ИЗ ПРОШЛЫХ СООБЩЕНИЙ (по теме запроса) ═══"];
-        foreach ($rows as $r) {
-            $text = trim($r['content'] ?? '');
-            if ($text === '' || $text === $currentTrim) {
-                continue;
-            }
-            $role = ($r['sender_type'] ?? '') === 'user' ? 'Пользователь' : 'Ассистент';
-            $date = isset($r['created_at']) ? date('d.m.Y H:i', strtotime($r['created_at'])) : '';
-            $snippet = mb_strlen($text) > 600 ? mb_substr($text, 0, 597) . '…' : $text;
-            $lines[] = "{$role}" . ($date ? " ({$date})" : '') . ": {$snippet}";
-        }
-        if (count($lines) <= 1) {
-            return $context;
-        }
-        return $context . "\n\n" . implode("\n\n", $lines);
-    }
-
-    /**
-     * RAG: запрос к базе знаний (PlanRun AI /api/v1/retrieve-knowledge) и подстановка фрагментов в контекст.
-     * Включается через CHAT_RAG_ENABLED=1. URL — RAG_RETRIEVE_URL (по умолчанию из PLANRUN_AI_API_URL).
-     */
-    private function appendRagSnippet(string $context, string $currentMessage): string {
-        if ((int) env('CHAT_RAG_ENABLED', 0) !== 1) {
-            return $context;
-        }
-        $url = env('RAG_RETRIEVE_URL', '');
-        if ($url === '') {
-            $base = env('PLANRUN_AI_API_URL', 'http://127.0.0.1:8000/api/v1/generate-plan');
-            $url = preg_replace('#/generate-plan$#', '/retrieve-knowledge', $base);
-        }
-        $payload = json_encode(['query' => $currentMessage, 'limit' => 8]);
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_CONNECTTIMEOUT => 5,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($httpCode !== 200 || $response === false) {
-            return $context;
-        }
-        $data = json_decode($response, true);
-        $sources = $data['sources'] ?? [];
-        if (empty($sources)) {
-            return $context;
-        }
-        $lines = ['═══ БАЗА ЗНАНИЙ (документация по бегу) ═══'];
-        $lines[] = 'Используй эти выдержки при ответе. Не придумывай факты — опирайся на контекст.';
-        foreach ($sources as $i => $src) {
-            $chunk = trim($src['chunk'] ?? '');
-            if ($chunk === '') {
-                continue;
-            }
-            $title = isset($src['title']) && $src['title'] !== '' ? $src['title'] . ': ' : '';
-            $snippet = mb_strlen($chunk) > 500 ? mb_substr($chunk, 0, 497) . '…' : $chunk;
-            $lines[] = ($i + 1) . '. ' . $title . $snippet;
-        }
-        if (count($lines) <= 2) {
-            return $context;
-        }
-        return $context . "\n\n" . implode("\n\n", $lines);
-    }
-
-    /**
-     * Собирает массив сообщений для API: универсальный system prompt + контекст пользователя.
-     * LLM подстраивается под контекст и сообщение пользователя.
-     */
-    private function buildChatMessages(int $userId, string $context, array $history, string $currentQuestion): array {
-        $tzName = getUserTimezone($userId);
-        try {
-            $tz = new DateTimeZone($tzName);
-        } catch (Exception $e) {
-            $tz = new DateTimeZone('Europe/Moscow');
-        }
-        $now = new DateTime('now', $tz);
-        $tomorrowDt = (clone $now)->modify('+1 day');
-        $today = $now->format('Y-m-d');
-        $tomorrow = $tomorrowDt->format('Y-m-d');
-        $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
-        $todayDow = $daysRu[(int) $now->format('N')] ?? '';
-        $tomorrowDow = $daysRu[(int) $tomorrowDt->format('N')] ?? '';
-        $systemContent = <<<PROMPT
-Ты — PlanRun, персональный тренер по бегу. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
-
-ПЕРСОНА:
-Ты — опытный тренер по бегу с 15-летним стажем. Ты работаешь с бегунами любого уровня — от начинающих до марафонцев. Твой стиль:
-- Дружелюбный, но профессиональный. Как тренер, который действительно заботится о подопечном.
-- Краткий: не перегружай информацией. 2-4 предложения на простой вопрос, развёрнуто — только когда просят.
-- Конкретный: вместо «бегай побольше» — «добавь 1 км к длительной в воскресенье».
-- Эмпатичный: если пользователь устал/травмирован — прояви понимание, предложи помощь, не дави.
-- Мотивирующий: отмечай прогресс, хвали за выполнение плана, поддерживай при неудачах.
-- Адаптивный: подстраивай тон. Перед забегом — собранность и поддержка. После тяжёлой тренировки — забота о восстановлении. При пропуске — без укоров, мягко помоги вернуться.
-
-ЯЗЫК:
-- Отвечай ТОЛЬКО на русском. Никаких английских слов (recuperation → восстановление, pace → темп, long run → длительный бег, cooldown → заминка). Никогда не пиши «today» — только «сегодня», «сегодняшнюю», «сегодняшний».
-- Даты — в русском формате: «18 февраля», «среда, 18 февраля».
-- Не выводи внутренние рассуждения, мета-комментарии, англоязычный reasoning.
-
-ПОВЕДЕНИЕ ТРЕНЕРА:
-- Если пользователь здоровается → коротко поприветствуй, спроси как дела / как прошла тренировка (если есть данные о недавней).
-- Если спрашивает про план → посмотри get_plan, дай конкретный ответ.
-- Если жалуется на усталость/боль/травму:
-  1. Прояви эмпатию («Понимаю, давай разберёмся»).
-  2. Уточни детали если нужно.
-  3. ПРЕДЛОЖИ конкретную корректировку (заменить тяжёлую на лёгкую, добавить отдых).
-  4. Получи подтверждение → update_training_day.
-- Если пропустил тренировки → не укоряй. Скажи «Ничего страшного, давай посмотрим как лучше продолжить».
-- Если показал хороший результат → похвали конкретно: «Отличный темп 5:30 на интервалах — это прогресс по сравнению с прошлой неделей!»
-- Не вываливай весь контекст — используй его точечно, когда релевантно.
-
-ИНСТРУМЕНТЫ (tools):
-Используй их ПРОАКТИВНО — не гадай и не выдумывай цифры:
-1. get_plan(week_number или date) — план на неделю.
-2. get_workouts(date_from, date_to) — история выполненных тренировок (дистанция, время, темп, пульс, ощущения).
-3. get_day_details(date) — полные детали дня: план + упражнения + фактический результат.
-4. get_date(phrase) — преобразование «завтра», «в среду» в дату Y-m-d.
-5. update_training_day(date, type, description) — изменить запланированную тренировку. ОБЯЗАТЕЛЬНО спроси подтверждение перед изменением.
-6. swap_training_days(date1, date2) — ПОМЕНЯТЬ МЕСТАМИ тренировки на двух датах. Используй когда пользователь просит «поменять местами», «сделать сегодня лонг, завтра лёгкую». Сначала get_day_details для обеих дат, уточни, получи подтверждение — затем swap_training_days.
-7. delete_training_day(date) — УДАЛИТЬ запланированную тренировку. Используй при «отменить», «убери», «удали тренировку на завтра». ОБЯЗАТЕЛЬНО спроси подтверждение.
-8. move_training_day(source_date, target_date) — ПЕРЕНЕСТИ тренировку с одной даты на другую. Используй при «перенеси с среды на пятницу», «переставь на завтра». ОБЯЗАТЕЛЬНО спроси подтверждение.
-9. recalculate_plan() — пересчитать весь план с учётом истории, пропусков и текущей формы. Запускает фоновый процесс (3-5 мин). ОБЯЗАТЕЛЬНО спроси подтверждение.
-10. generate_next_plan() — создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился или просит новый цикл. ОБЯЗАТЕЛЬНО спроси подтверждение.
-
-СТРАТЕГИЯ:
-- Вопрос о конкретной тренировке → get_day_details.
-- Вопрос о периоде/прогрессе → get_workouts.
-- «Бежать сегодня?» / «Стоит ли бежать?» → get_day_details(сегодня) + контекст (последняя тренировка, пауза, самочувствие из сводки). Дай рекомендацию: бежать/отдыхать/заменить на лёгкую, с кратким обоснованием.
-- «Дай обратную связь» / «Почему вчера было тяжело?» / «Как прошла тренировка?» → get_workouts + get_day_details за последние дни. Проанализируй темп, пульс, ощущения, сравни с планом. Дай конкретный разбор и рекомендации.
-- «Поменять местами» → get_day_details для обеих дат → уточни → подтверждение → swap_training_days.
-- «Отменить» / «убери» / «удали тренировку» → get_day_details → уточни дату → подтверждение → delete_training_day.
-- «Перенеси» / «переставь тренировку» → get_day_details для обеих дат → подтверждение → move_training_day.
-- «Поменяй на полумарафон/марафон за X часов, дай тактику» → get_day_details(сегодня, завтра) → предложи замену (сегодня: race с дистанцией и временем; завтра: easy для восстановления) → подтверждение → update_training_day для каждой даты. Затем дай тактику: разминка, темп по отрезкам, питание, заминка.
-- Жалоба на самочувствие → get_day_details (ближайшая запланированная) → предложи замену.
-- Длительная пауза (>7 дней) / выполнение <50% → предложи recalculate_plan.
-- План закончился / «хочу новый план» → предложи generate_next_plan.
-- Никогда не выдумывай цифры — если нужны данные, вызови tool.
-
-ПРОАКТИВНЫЙ МОНИТОРИНГ:
-Хороший тренер не ждёт жалоб — он спрашивает первым. При приветствии или общем вопросе проверь контекст и ПРОАКТИВНО отреагируй:
-- Пауза >3 дней без тренировок → «Заметил, ты N дней без бега — всё в порядке? Если нужна корректировка, скажи.»
-- Вчера была тяжёлая ключевая (interval/tempo/long) → «Как прошла вчерашняя тренировка? Как ноги?»
-- Пиковая неделя по плану → «На этой неделе у тебя пиковый объём — следи за самочувствием, не стесняйся снижать.»
-- Выполнение <50% за 2 недели → «Вижу, на последних неделях получилось пробежать меньше запланированного. Может, пересчитаем план?»
-- Забег через 7 дней или меньше → «Забег уже скоро! Как настрой? Если нужна тактика — спрашивай.»
-- Отличный результат в последней тренировке → Похвали конкретно.
-Используй эти триггеры мягко, не в каждом сообщении. Если пользователь пришёл с конкретным вопросом — сначала ответь на него.
-
-КРОСС-ТРЕНИНГ:
-Если пользователь не может бегать (травма, погода, усталость) — предложи альтернативы:
-- Плавание, велосипед, эллипс — для поддержания аэробной формы без ударной нагрузки.
-- Йога, растяжка — для восстановления и гибкости.
-- Силовые — для укрепления мышц и профилактики травм.
-Это не заменяет бег, но помогает сохранить форму во время паузы.
-
-Ниже — контекст пользователя (ID: {$userId}): профиль, план, статистика, сводка по тренировкам.
-В ТРЕНИРОВКИ (кратко) — только сводка. Для деталей вызывай get_workouts или get_day_details.
-
-PROMPT;
-        $systemContent .= "\n\n";
-
-        if ($this->hasReplaceWithRaceIntent($currentQuestion, $history)) {
-            $systemContent .= "ЗАМЕНА НА ЗАБЕГ + ТАКТИКА: Пользователь просит заменить сегодняшнюю тренировку на полумарафон/марафон с целью по времени и дать тактику. Действуй так:\n";
-            $systemContent .= "1. Вызови get_day_details для сегодня и завтра (get_date(\"сегодня\"), get_date(\"завтра\")).\n";
-            $systemContent .= "2. Предложи замену: сегодня — race (полумарафон 21.1 км или марафон 42.2 км) с целевым временем; завтра — easy для восстановления (6–8 км). Спроси подтверждение.\n";
-            $systemContent .= "3. При подтверждении («да», «правильно», «ок») — ОБЯЗАТЕЛЬНО вызови update_training_day ДВАЖДЫ: для сегодня (type=race, description с дистанцией и временем) и для завтра (type=easy).\n";
-            $systemContent .= "4. После обновления плана дай тактику: разминка 1.5–2 км, темп по отрезкам (целевой темп = дистанция/время), питание (гель на 12–14 км для полумарафона), заминка.\n";
-            $systemContent .= "Формат description для race: «Полумарафон: 21.1 км за 2:00:00» или «Марафон: 42.2 км за 4:00:00». Темп в мин/км = время_сек / 60 / км.\n";
-            $systemContent .= "\n";
-        }
-        if ($this->hasAddTrainingIntent($currentQuestion, $history)) {
-            $systemContent .= "ДОБАВЛЕНИЕ ТРЕНИРОВКИ: Пользователь просит добавить тренировку. Уточни тип и детали, если не указано. Для даты используй get_date. При подтверждении («да», «супер», «ок», «достаточно») — ОБЯЗАТЕЛЬНО выведи блок ACTION с деталями из своего предыдущего сообщения. Без блока тренировка НЕ попадёт в календарь.\n";
-            $systemContent .= "Формат ответа при подтверждении: краткий текст + на новой строке блок. description в кавычках; несколько упражнений ОФП/СБУ — с новой строки в description. Примеры:\n";
-            $systemContent .= "ОФП: Понял, тренировку установил на 11 февраля.\n<!-- ACTION add_training_day date=2026-02-11 type=other description=\"Приседания — 3×10, 20 кг\nВыпрыгивания — 2×15\nПланка — 1 мин\" -->\n";
-            $systemContent .= "СБУ: Понял, тренировку установил на 13 февраля.\n<!-- ACTION add_training_day date=2026-02-13 type=sbu description=\"Бег с высоким подниманием бедра — 30 м\nЗахлёст голени — 50 м\" -->\n";
-            $systemContent .= "date — Y-m-d. type: easy|long|tempo|interval|fartlek|rest|other|sbu|race|marathon|control|free.\n";
-            $systemContent .= "Маппинг: лёгкий→easy, темповый→tempo, длительный→long, интервалы→interval, фартлек→fartlek, соревнование→race, ОФП→other, СБУ→sbu, отдых→rest.\n";
-            $systemContent .= "description — СТРОГО по формату ниже (иначе не распарсится при редактировании). Включай ВСЕ поля:\n";
-            $systemContent .= "--- ПРОСТОЙ БЕГ (easy/tempo/long/race) ---\n";
-            $systemContent .= "Формат: «Легкий бег: X км» или «Легкий бег: X км или ЧЧ:ММ:СС, темп M:SS» (+ опционально «, пульс 140»). Темп — M:SS (минуты:секунды), без ~ и /км. Если есть дистанция+темп — рассчитай время (6 км × 7:30 = 45 мин → или 0:45:00).\n";
-            $systemContent .= "Примеры: Легкий бег: 6 км или 0:45:00, темп 7:30 | Темповый бег: 10 км | Длительный бег: 21 км\n";
-            $systemContent .= "--- ИНТЕРВАЛЫ ---\n";
-            $systemContent .= "Все поля: разминка (км + темп), серия (N×Mм + темп), пауза (В МЕТРАХ: 200м, 400м — НЕ в секундах!), тип паузы (трусцой|ходьбой|отдых), заминка (км + темп).\n";
-            $systemContent .= "Пример: Разминка: 2 км в темпе 6:00. 8×400м в темпе 5:30, пауза 400м трусцой. Заминка: 1.5 км в темпе 6:00.\n";
-            $systemContent .= "--- ФАРТЛЕК ---\n";
-            $systemContent .= "Разминка, сегменты (N×Mм в темпе M:SS, восстановление Pм трусцой|ходьбой|легким бегом), заминка. Несколько сегментов — несколько блоков через точку.\n";
-            $systemContent .= "Пример: Разминка: 1 км. 4×200м в темпе 4:30, восстановление 200м трусцой. 3×400м в темпе 4:00, восстановление 300м ходьбой. Заминка: 1 км.\n";
-            $systemContent .= "--- ОФП ---\n";
-            $systemContent .= "Каждая строка: «Название — 3×10, 20 кг». Названия могут быть из контекста/библиотеки или свои (пользователь мог назвать по-своему). Разделитель — тире «—». Несколько упражнений — каждая с новой строки.\n";
-            $systemContent .= "Пример:\nПриседания — 3×10, 20 кг\nВыпрыгивания — 2×15\nПланка — 1 мин\n";
-            $systemContent .= "--- СБУ ---\n";
-            $systemContent .= "Каждая строка: «Название — 30 м» или «X км». Названия могут быть из контекста или свои. Несколько — с новой строки.\n";
-            $systemContent .= "Пример:\nБег с высоким подниманием бедра — 30 м\nЗахлёст голени — 50 м\n";
-            $systemContent .= "--- ОТДЫХ ---\n";
-            $systemContent .= "type=rest, description пустой или «Отдых»\n";
-            $resolvedDate = $this->resolveDateFromUserMessage($currentQuestion, $now);
-            if ($resolvedDate !== null) {
-                $systemContent .= "Вычисленная дата: {$resolvedDate}. Используй в date=.\n";
-            }
-            $systemContent .= "\n";
-        }
-
-        $systemContent .= $context;
-
-        $messages = [];
-        $messages[] = ['role' => 'system', 'content' => $systemContent];
-
-        // История диалога — отдельные сообщения user/assistant
-        foreach ($history as $m) {
-            $role = $m['sender_type'] === 'user' ? 'user' : 'assistant';
-            $messages[] = ['role' => $role, 'content' => trim($m['content'])];
-        }
-        // Текущий вопрос — добавлен в БД после getMessagesAscending, в history его нет
-        $messages[] = ['role' => 'user', 'content' => $currentQuestion];
-
-        return $this->normalizeMessagesForStrictAlternation($messages);
-    }
-
-    /**
-     * llama.cpp chat template для Ministral требует строгого чередования user/assistant.
-     * История сайта может содержать:
-     * - подряд несколько user-сообщений после неуспешных ответов,
-     * - подряд несколько assistant-сообщений из системных AI-уведомлений,
-     * - ведущие assistant-сообщения без предшествующего user.
-     * Нормализуем такую историю в допустимый вид перед отправкой в LLM.
-     */
-    private function normalizeMessagesForStrictAlternation(array $messages): array {
-        if (empty($messages)) {
-            return $messages;
-        }
-
-        $normalized = [];
-        $index = 0;
-        if (($messages[0]['role'] ?? null) === 'system') {
-            $normalized[] = $messages[0];
-            $index = 1;
-        }
-
-        $appendToSystem = function (string $text) use (&$normalized): void {
-            $text = trim($text);
-            if ($text === '') {
-                return;
-            }
-
-            $note = "═══ ПРЕДЫДУЩИЕ СООБЩЕНИЯ АССИСТЕНТА ═══\n{$text}";
-            if (!empty($normalized) && ($normalized[0]['role'] ?? null) === 'system') {
-                $existing = rtrim((string) ($normalized[0]['content'] ?? ''));
-                if (!str_contains($existing, $note)) {
-                    $normalized[0]['content'] = $existing . "\n\n" . $note;
-                }
-                return;
-            }
-
-            array_unshift($normalized, ['role' => 'system', 'content' => $note]);
-        };
-
-        for (; $index < count($messages); $index++) {
-            $message = $messages[$index];
-            $role = $message['role'] ?? null;
-            $content = trim((string) ($message['content'] ?? ''));
-
-            if ($content === '') {
-                continue;
-            }
-
-            if (!in_array($role, ['user', 'assistant'], true)) {
-                $normalized[] = $message;
-                continue;
-            }
-
-            $lastIndex = count($normalized) - 1;
-            $lastRole = $lastIndex >= 0 ? ($normalized[$lastIndex]['role'] ?? null) : null;
-            $hasConversationTurns = !empty($normalized) && (($normalized[0]['role'] ?? null) !== 'system' || count($normalized) > 1);
-
-            if (!$hasConversationTurns && $role === 'assistant') {
-                $appendToSystem($content);
-                continue;
-            }
-
-            if ($lastRole === $role && in_array($role, ['user', 'assistant'], true)) {
-                $separator = $role === 'user'
-                    ? "\n\n[Дополнение пользователя]\n"
-                    : "\n\n[Предыдущее сообщение ассистента]\n";
-                $normalized[$lastIndex]['content'] = rtrim((string) $normalized[$lastIndex]['content']) . $separator . $content;
-                continue;
-            }
-
-            $normalized[] = [
-                'role' => $role,
-                'content' => $content,
-            ];
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * Есть ли в сообщениях намерение добавить тренировку (добавь, поставь, запланируй и т.п.).
-     * Проверяет текущий вопрос и последние сообщения пользователя.
-     */
-    private function hasAddTrainingIntent(string $currentQuestion, array $history): bool {
-        $texts = [$currentQuestion];
-        $n = 0;
-        for ($i = count($history) - 1; $i >= 0 && $n < 3; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'user') {
-                $texts[] = $history[$i]['content'] ?? '';
-                $n++;
-            }
-        }
-        $s = mb_strtolower(implode(' ', $texts));
-        $verbs = ['добавь', 'добавить', 'поставь', 'поставить', 'запланируй', 'запланировать', 'запиши', 'записать', 'внеси', 'внести', 'установи', 'установить'];
-        foreach ($verbs as $v) {
-            if (mb_strpos($s, $v) !== false) {
-                return true;
-            }
-        }
-        if (preg_match('/тренировку\s+(на|в|завтра)/u', $s)) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Есть ли намерение заменить тренировку на забег (полумарафон/марафон) с целью и дать тактику.
-     */
-    private function hasReplaceWithRaceIntent(string $currentQuestion, array $history): bool {
-        $texts = [$currentQuestion];
-        $n = 0;
-        for ($i = count($history) - 1; $i >= 0 && $n < 3; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'user') {
-                $texts[] = $history[$i]['content'] ?? '';
-                $n++;
-            }
-        }
-        $s = mb_strtolower(implode(' ', $texts));
-        $racePhrases = ['полумарафон', 'марафон', 'половинку', '21.1', '42.2', '21 км', '42 км'];
-        $replacePhrases = ['поменяй', 'замени', 'поставь', 'сделай', 'пробежать', 'предоставь'];
-        $tacticPhrases = ['тактику', 'тактика', 'план'];
-        $hasRace = false;
-        foreach ($racePhrases as $p) {
-            if (mb_strpos($s, $p) !== false) {
-                $hasRace = true;
-                break;
-            }
-        }
-        $hasReplace = false;
-        foreach ($replacePhrases as $p) {
-            if (mb_strpos($s, $p) !== false) {
-                $hasReplace = true;
-                break;
-            }
-        }
-        $hasTactic = false;
-        foreach ($tacticPhrases as $p) {
-            if (mb_strpos($s, $p) !== false) {
-                $hasTactic = true;
-                break;
-            }
-        }
-        return $hasRace && ($hasReplace || $hasTactic);
-    }
-
-    /**
-     * Разрешает дату из сообщения пользователя («завтра», «в среду» и т.п.).
-     * @return string|null Y-m-d или null
-     */
-    private function resolveDateFromUserMessage(string $text, DateTime $now): ?string {
-        $resolver = new DateResolver();
-        if (!$resolver->hasDateReference($text)) {
-            return null;
-        }
-        $today = clone $now;
-        $today->setTime(0, 0, 0);
-        return $resolver->resolveFromText($text, $today);
-    }
-
-    /**
-     * Убирает утечку reasoning и английские префиксы из ответа LLM.
-     */
-    private function sanitizeResponse(string $text): string {
-        $text = trim($text);
-        if ($text === '') {
-            return '';
-        }
-        $text = preg_replace('/\[THINK\][\s\S]*?\[\/THINK\]\s*/i', '', $text) ?? $text;
-        $text = preg_replace('/<think>[\s\S]*?<\/think>\s*/i', '', $text) ?? $text;
-        $text = preg_replace('/^\[THINK\][\s\S]*?(?=[\p{Cyrillic}])/iu', '', $text) ?? $text;
-        $text = trim($text);
-        // Убрать мусор в начале: точки, тире, многоточие, >, пробелы
-        $text = preg_replace('/^[-.\s>…]+/u', '', $text);
-        // Служебные токены модели gpt-oss: <|channel|>, <|constrain|>, <|message|>
-        $text = preg_replace('/<\|[a-z_]+\|>/', '', $text);
-        $text = preg_replace('/\bcommentary\s+to=commentary\b/iu', '', $text);
-        $text = trim($text);
-        // Паттерны reasoning-утечки (англ.)
-        $leakPrefixes = [
-            '/^We\s+need\s+to\s+(output|provide|give|write)\s+[^.]*\.?##\s*/iu',
-            '/^We\s+need\s+to\s+/iu',
-            '/^The\s+conversation\s+/iu',
-            '/^The\s+user\s+(asks|wants|is)\s+/iu',
-            '/^Let\s+me\s+(think|analyze|check)\s+/iu',
-            '/^First,?\s+/iu',
-            '/^I\'ll\s+(start|begin|provide)\s+/iu',
-            '/^I\s+should\s+/iu',
-            '/^Here\'s?\s+(my|the)\s+/iu',
-            '/^\[.*?\]\s*/u',
-            '/^Output\s+(the\s+)?(plan|response)\s+[^.#]*\.?##\s*/iu',
-        ];
-        foreach ($leakPrefixes as $re) {
-            $prev = $text;
-            $text = preg_replace($re, '', $text);
-            if ($text !== $prev) {
-                $text = trim($text);
-            }
-        }
-        // Если текст начинается с английского мусора и дальше есть кириллица — обрезаем префикс
-        if (preg_match('/[\p{Cyrillic}]/u', $text)) {
-            $firstCyr = null;
-            $len = mb_strlen($text);
-            for ($i = 0; $i < $len; $i++) {
-                if (preg_match('/[\p{Cyrillic}]/u', mb_substr($text, $i, 1))) {
-                    $firstCyr = $i;
-                    break;
-                }
-            }
-            if ($firstCyr !== null && $firstCyr > 0) {
-                $before = mb_substr($text, 0, $firstCyr);
-                if (preg_match('/^[\s\p{P}A-Za-z0-9]+$/u', $before) && mb_strlen($before) < 150) {
-                    $text = mb_substr($text, $firstCyr);
-                }
-            }
-        }
-        // Текстовые tool-вызовы модели (name[ARGS]{...}) — удаляем из вывода
-        $text = preg_replace('/\w+\[ARGS\]\s*\{[^}]*\}/i', '', $text);
-        $text = trim($text);
-        // Артефакты: латинская t вместо кириллической т в сокращениях дней
-        $text = preg_replace('/\bBt\b/u', 'Вт', $text);
-        $text = preg_replace('/\bПt\b/u', 'Пт', $text);
-        // Частые английские термины → русские
-        $terms = [
-            'recovery' => 'восстановление',
-            'recuperation' => 'пауза',
-            'Weekly volume' => 'Недельный объём',
-            'weekly plan' => 'недельный план',
-            'tempo run' => 'темповая тренировка',
-            'tempowork' => 'темповая работа',
-            'long run' => 'длинная пробежка',
-            'especially' => 'особенно',
-            'practice' => 'практиковать',
-            'Focus' => 'Фокус',
-            'focus' => 'фокус',
-            'slightly faster than race pace' => 'чуть быстрее гоночного темпа',
-            'tipo' => 'типа',
-        ];
-        foreach ($terms as $en => $ru) {
-            $text = preg_replace('/\b' . preg_quote($en, '/') . '\b/iu', $ru, $text);
-        }
-        return trim($text);
-    }
-
-    /**
-     * Парсит action-блок из ответа, выполняет действия, возвращает текст без блока.
-     * Если блок не найден — fallback: при подтверждении пользователя парсим последнее сообщение AI с предложением.
-     * @param bool $planWasUpdated Выходной: true при успешном add_training_day
-     */
-    private function parseAndExecuteActions(string $text, int $userId, array $history = [], ?string $currentUserMessage = null, bool &$planWasUpdated = false): string {
-        // ── Обработка всех ACTION-блоков (move, update, delete, swap, add) ──
-        // Write-action блоки выполняем ТОЛЬКО если пользователь подтвердил ("да", "ок" и т.д.)
-        // или если LLM сама решила выполнить действие (не в ответ на подтверждение — значит контекст ясен)
-        $isConfirmation = $currentUserMessage !== null && $this->isConfirmationMessage($currentUserMessage);
-        $text = $this->executeAllActionBlocks($text, $userId, $planWasUpdated, $isConfirmation);
-
-        $params = null;
-        $replaceRegex = null;
-
-        // Формат 1: <!-- ACTION add_training_day date=... type=... description="..." --> (многострочный и без кавычек тоже)
-        $actionRegex = '/\s*<!--\s*ACTION\s+add_training_day\s+([\s\S]+?)\s*-->\s*/';
-        if (preg_match($actionRegex, $text, $m)) {
-            $attrs = trim($m[1]);
-            $params = [];
-            if (preg_match('/date=([^\s"\']+)/', $attrs, $dm)) {
-                $params['date'] = trim($dm[1]);
-            }
-            if (preg_match('/type=([^\s"\']+)/', $attrs, $tm)) {
-                $params['type'] = trim($tm[1]);
-            }
-            // description: в кавычках или без (часто последний параметр — всё до конца attrs)
-            if (preg_match('/description=("([^"]*)"|\'([^\']*)\')/', $attrs, $desc)) {
-                $params['description'] = trim($desc[2] ?? $desc[3] ?? '', '"\'');
-            } elseif (preg_match('/description=([\s\S]+)/', $attrs, $desc)) {
-                $params['description'] = trim($desc[1], '"\' ');
-            }
-            $replaceRegex = $actionRegex;
-        }
-
-        // Формат 2: JSON {"action":"add_training_day","date":"...","type":"...","description":"..."} (gpt-oss и др.)
-        $jsonPattern = '/\{\s*"action"\s*:\s*"add_training_day"\s*,\s*"date"\s*:\s*"([^"]+)"\s*,\s*"type"\s*:\s*"([^"]+)"\s*(?:,\s*"description"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"\s*)?\}/';
-        if ($params === null && preg_match($jsonPattern, $text, $jm)) {
-            $params = [
-                'date' => $jm[1],
-                'type' => $jm[2],
-                'description' => isset($jm[3]) ? $jm[3] : '',
-            ];
-            $replaceRegex = $jsonPattern;
-        }
-
-        if ($params === null) {
-            if ($currentUserMessage !== null && $this->isConfirmationMessage($currentUserMessage)) {
-                $fallbackParams = $this->tryExtractFromLastProposal($history, $userId);
-                if ($fallbackParams !== null) {
-                    $params = $fallbackParams;
-                }
-            }
-        }
-        if ($params === null || empty($params['date']) || empty($params['type'])) {
-            return $text;
-        }
-        $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
-        if (!in_array($params['type'], $validTypes)) {
-            return trim(preg_replace($replaceRegex, '', $text));
-        }
-        $dateObj = DateTime::createFromFormat('Y-m-d', $params['date']);
-        if (!$dateObj) {
-            return trim(preg_replace($replaceRegex, '', $text));
-        }
-        $maxDate = (new DateTime())->modify('+1 year')->format('Y-m-d');
-        if ($params['date'] > $maxDate) {
-            return trim(preg_replace($replaceRegex, '', $text));
-        }
-        try {
-            require_once __DIR__ . '/WeekService.php';
-            $weekService = new WeekService($this->db);
-            $weekService->addTrainingDayByDate($params, $userId);
-            $planWasUpdated = true;
-            if ($replaceRegex === null) {
-                Logger::info('Chat add_training_day fallback: workout added', ['date' => $params['date'] ?? null, 'type' => $params['type'] ?? null]);
-            }
-        } catch (Throwable $e) {
-            Logger::warning('Chat action add_training_day failed', ['error' => $e->getMessage(), 'params' => $params]);
-        }
-        return $replaceRegex !== null ? trim(preg_replace($replaceRegex, '', $text)) : $text;
-    }
-
-    /**
-     * Находит и выполняет все <!-- ACTION tool_name ... --> блоки в тексте:
-     * move_training_day, update_training_day, delete_training_day, swap_training_days.
-     * add_training_day обрабатывается отдельно (ниже в parseAndExecuteActions).
-     */
-    private function executeAllActionBlocks(string $text, int $userId, bool &$planWasUpdated, bool $isConfirmation = false): string {
-        // Универсальный паттерн: <!-- ACTION tool_name key=value ... -->
-        $pattern = '/\s*<!--\s*ACTION\s+(move_training_day|update_training_day|delete_training_day|swap_training_days)\s+([\s\S]+?)\s*-->\s*/';
-
-        // Проверяем есть ли ACTION блоки в тексте
-        $hasWriteBlocks = preg_match($pattern, $text);
-
-        // Если есть write-action блоки, но пользователь НЕ подтверждал —
-        // это значит LLM вставила ACTION в ответ-предложение (до "да").
-        // В таком случае просто удаляем блоки, но НЕ выполняем.
-        if ($hasWriteBlocks && !$isConfirmation) {
-            // Проверяем, есть ли в тексте признаки запроса подтверждения
-            $askingConfirmation = preg_match('/(подтверди|подтверж|правильно\s*\?|подходит\s*\?|согласен|нужно.*\?|хоч|переставлю|перенесу|обновлю|заменю)/ui', $text);
-            if ($askingConfirmation) {
-                Logger::debug('ACTION blocks found in proposal message — stripping without executing', [
-                    'block_count' => preg_match_all($pattern, $text)
-                ]);
-                $text = preg_replace($pattern, '', $text);
-                return trim($text);
-            }
-        }
-
-        while (preg_match($pattern, $text, $m)) {
-            $toolName = $m[1];
-            $attrs = trim($m[2]);
-
-            // Парсим key=value пары
-            $args = [];
-            // date, source_date, target_date, date1, date2, type, reason
-            foreach (['source_date', 'target_date', 'date1', 'date2', 'date', 'type', 'reason'] as $key) {
-                if (preg_match('/' . $key . '=([^\s"\']+|"[^"]*"|\'[^\']*\')/', $attrs, $km)) {
-                    $args[$key] = trim($km[1], '"\'');
-                }
-            }
-            // description отдельно — может быть многострочным
-            if (preg_match('/description=("([^"]*)"|\'([^\']*)\')/', $attrs, $dm)) {
-                $args['description'] = trim($dm[2] ?? $dm[3] ?? '', '"\'');
-            } elseif (preg_match('/description=([^\s>]+)/', $attrs, $dm)) {
-                $args['description'] = trim($dm[1], '"\'');
-            }
-
-            try {
-                $argsJson = json_encode($args);
-                $output = $this->executeTool($toolName, $argsJson, $userId);
-                $result = json_decode($output, true);
-                if (!isset($result['error'])) {
-                    $planWasUpdated = true;
-                    Logger::info('ACTION block executed', ['tool' => $toolName, 'args' => $args]);
-                } else {
-                    Logger::warning('ACTION block failed', ['tool' => $toolName, 'args' => $args, 'error' => $result['error']]);
-                }
-            } catch (Throwable $e) {
-                Logger::warning('ACTION block exception', ['tool' => $toolName, 'error' => $e->getMessage()]);
-            }
-
-            // Удаляем обработанный блок из текста
-            $text = preg_replace($pattern, '', $text, 1);
-        }
-
-        return $text;
-    }
-
-    private function isConfirmationMessage(string $text): bool {
-        $s = mb_strtolower(trim($text));
-        $short = preg_replace('/[\s\p{P}]+/u', '', $s);
-        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'го', 'погнали', 'достаточно', 'этогодостаточно', 'правильно'])
-            || preg_match('/^(да|давай|ок|супер|отлично|хорошо|правильно)[\s\p{P}]*$/ui', $s)
-            || preg_match('/^(этого\s+)?достаточно\??$/ui', $s)
-            || preg_match('/^(да,?\s+)?правильно\??$/ui', $s);
-    }
-
-    /**
-     * Fallback: извлечь date/type/description из последнего сообщения AI с предложением тренировки.
-     * Формат: «уточню детали для **ОФП на пятницу, 13 февраля**» и «Детали: Приседания — 3×10 (20 кг)...»
-     */
-    private function tryExtractFromLastProposal(array $history, int $userId): ?array {
-        $lastAi = null;
-        for ($i = count($history) - 1; $i >= 0; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'assistant') {
-                $lastAi = trim($history[$i]['content'] ?? '');
-                break;
-            }
-        }
-        if ($lastAi === '' || mb_strlen($lastAi) < 20) {
-            return null;
-        }
-        $params = [];
-        if (preg_match('/для\s+\*\*[^*]*на\s+([^*]+)\*\*/ui', $lastAi, $dm)
-            || preg_match('/(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/ui', $lastAi, $dm)) {
-            $resolver = new DateResolver();
-            $today = new DateTime('now', new DateTimeZone(getUserTimezone($userId)));
-            $dateStr = $resolver->resolveFromText(trim($dm[1]), $today);
-            if ($dateStr) {
-                $params['date'] = $dateStr;
-            }
-        }
-        if (preg_match('/\*\*Тип\*\*:\s*(\w+)/ui', $lastAi, $tm)) {
-            $t = mb_strtolower(trim($tm[1]));
-            $map = ['офп' => 'other', 'сбу' => 'sbu', 'интервалы' => 'interval', 'интервал' => 'interval', 'фартлек' => 'fartlek', 'лёгкий' => 'easy', 'темповый' => 'tempo', 'длительный' => 'long', 'соревнование' => 'race', 'отдых' => 'rest'];
-            $params['type'] = $map[$t] ?? $t;
-        } elseif (preg_match('/для\s+\*\*(ОФП|СБУ|интервалы?|фартлек|лёгкий|темповый|длительный)/ui', $lastAi, $tm)) {
-            $t = mb_strtolower(trim($tm[1]));
-            $map = ['офп' => 'other', 'сбу' => 'sbu', 'интервалы' => 'interval', 'интервал' => 'interval', 'фартлек' => 'fartlek', 'лёгкий' => 'easy', 'темповый' => 'tempo', 'длительный' => 'long'];
-            $params['type'] = $map[$t] ?? 'other';
-        }
-        if (preg_match('/\*\*Детали\*\*:\s*([^\n]+(?:\n(?!\s*[-*]|\s*Если)[^\n]*)*)/ui', $lastAi, $dd)) {
-            $details = trim($dd[1]);
-            $details = preg_replace('/\s*\((\d+)\s*кг\)/u', ', $1 кг', $details);
-            $lines = preg_split('/,\s+(?=[А-ЯЁ])/u', $details, -1, PREG_SPLIT_NO_EMPTY);
-            $params['description'] = implode("\n", array_map('trim', $lines));
-        }
-        $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
-        if (empty($params['date']) || empty($params['type']) || !in_array($params['type'], $validTypes)) {
-            return null;
-        }
-        Logger::info('Chat add_training_day fallback: extracted from proposal', ['params' => $params]);
-        return $params;
-    }
-
-    /**
-     * Вызов LLM: при CHAT_USE_PLANRUN_AI=1 — через PlanRun AI, иначе — напрямую LM Studio с fallback.
-     * Для LM Studio: tools (get_date) + цикл обработки tool_calls.
-     */
     private function callLlm(array $messages, ?int $userId = null): array {
         if ((int) env('CHAT_USE_PLANRUN_AI', 0) === 1) {
             return $this->callPlanRunAIChat($messages);
         }
-        $tools = ((int) env('CHAT_TOOLS_ENABLED', 1) === 1) ? $this->getChatTools() : null;
+        $tools = ((int) env('CHAT_TOOLS_ENABLED', 1) === 1) ? $this->toolRegistry->getChatTools() : null;
         $maxToolRounds = 5;
         $totalUsage = [];
 
         try {
+            $msg = null;
             for ($round = 0; $round <= $maxToolRounds; $round++) {
-                // Всегда передаём tools — LLM нужно видеть доступные инструменты
-                // для цепочных вызовов (get_date → get_day_details и т.п.)
                 $result = $this->callLlmDirect($messages, $tools);
                 $msg = $result['message'] ?? null;
-                if (isset($result['usage']) && !empty($result['usage'])) {
-                    $totalUsage = $result['usage'];
-                }
+                if (isset($result['usage']) && !empty($result['usage'])) $totalUsage = $result['usage'];
                 $toolCalls = $msg['tool_calls'] ?? [];
-                if (empty($toolCalls)) {
-                    return [
-                        'content' => $msg['content'] ?? '',
-                        'usage' => $totalUsage
-                    ];
-                }
-                $messages[] = [
-                    'role' => 'assistant',
-                    'content' => $msg['content'] ?? '',
-                    'tool_calls' => $toolCalls
-                ];
+                if (empty($toolCalls)) return ['content' => $msg['content'] ?? '', 'usage' => $totalUsage];
+
+                $messages[] = ['role' => 'assistant', 'content' => $msg['content'] ?? '', 'tool_calls' => $toolCalls];
                 foreach ($toolCalls as $tc) {
-                    $id = $tc['id'] ?? '';
                     $fn = $tc['function'] ?? [];
-                    $name = $fn['name'] ?? '';
-                    $argsJson = $fn['arguments'] ?? '{}';
-                    $output = $this->executeTool($name, $argsJson, $userId);
-                    $messages[] = [
-                        'role' => 'tool',
-                        'tool_call_id' => $id,
-                        'content' => $output
-                    ];
+                    $output = $this->toolRegistry->executeTool($fn['name'] ?? '', $fn['arguments'] ?? '{}', $userId);
+                    $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'] ?? '', 'content' => $output];
                 }
             }
-            return [
-                'content' => $msg['content'] ?? '',
-                'usage' => $totalUsage
-            ];
+            return ['content' => ($msg['content'] ?? ''), 'usage' => $totalUsage];
         } catch (Throwable $e) {
             if ((int) env('CHAT_FALLBACK_TO_PLANRUN_AI', 0) === 1) {
-                Logger::warning('LM Studio failed, using PlanRun AI fallback', ['error' => $e->getMessage()]);
+                Logger::warning('LLM direct call failed, using PlanRun AI fallback', ['error' => $e->getMessage()]);
                 return $this->callPlanRunAIChat($messages);
             }
             throw $e;
         }
     }
 
-    private function getChatTools(): array {
-        return [
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'get_date',
-                    'description' => 'Преобразовать фразу о дате на русском (завтра, в среду, следующая пятница, через неделю, 15 февраля) в дату Y-m-d. Используй для date= в add_training_day.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'phrase' => [
-                                'type' => 'string',
-                                'description' => 'Фраза о дате: завтра, послезавтра, в понедельник, следующая среда, через 3 дня, 15 февраля'
-                            ]
-                        ],
-                        'required' => ['phrase']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'get_plan',
-                    'description' => 'Получить актуальный план тренировок на неделю из БД. Вызывай при вопросе «какой план?», «что на следующую неделю?», «что запланировано?» и т.п. Возвращает фактические данные из календаря.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'week_number' => [
-                                'type' => 'integer',
-                                'description' => 'Номер недели (например 13 для 13-й недели)'
-                            ],
-                            'date' => [
-                                'type' => 'string',
-                                'description' => 'Дата Y-m-d — план на неделю, содержащую эту дату (например 2026-02-18)'
-                            ]
-                        ],
-                        'required' => []
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'get_workouts',
-                    'description' => 'Получить историю выполненных тренировок за период. Вызывай при вопросах «как я бегал на прошлой неделе?», «покажи мои результаты за февраль», «какой у меня прогресс?», «сколько я пробежал?» и т.п.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'date_from' => [
-                                'type' => 'string',
-                                'description' => 'Начало периода Y-m-d (например 2026-02-01)'
-                            ],
-                            'date_to' => [
-                                'type' => 'string',
-                                'description' => 'Конец периода Y-m-d (например 2026-02-28)'
-                            ]
-                        ],
-                        'required' => ['date_from', 'date_to']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'get_day_details',
-                    'description' => 'Получить полные детали конкретного дня: план (тип, описание, упражнения) + фактический результат (дистанция, время, темп, пульс, заметки). Вызывай при вопросах «что было запланировано на вторник?», «как прошла тренировка 15 февраля?», «какой результат вчера?».',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'date' => [
-                                'type' => 'string',
-                                'description' => 'Дата Y-m-d (например 2026-02-18)'
-                            ]
-                        ],
-                        'required' => ['date']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'update_training_day',
-                    'description' => 'Изменить запланированную тренировку на конкретную дату. Используй когда пользователь просит заменить тренировку, снизить нагрузку, поставить отдых из-за травмы/усталости, или скорректировать план. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'date' => [
-                                'type' => 'string',
-                                'description' => 'Дата тренировки Y-m-d'
-                            ],
-                            'type' => [
-                                'type' => 'string',
-                                'description' => 'Новый тип: easy, long, tempo, interval, fartlek, control, rest, other, sbu, race, free',
-                                'enum' => ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free']
-                            ],
-                            'description' => [
-                                'type' => 'string',
-                                'description' => 'Описание тренировки (формат как в add_training_day). Для rest — пустая строка.'
-                            ]
-                        ],
-                        'required' => ['date', 'type']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'swap_training_days',
-                    'description' => 'Поменять местами тренировки на двух датах. Используй когда пользователь просит «поменять местами», «сделать сегодня лонг, завтра лёгкую» и т.п. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом. Вызывай get_day_details для обеих дат, чтобы получить актуальные описания.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'date1' => [
-                                'type' => 'string',
-                                'description' => 'Первая дата Y-m-d (например сегодня)'
-                            ],
-                            'date2' => [
-                                'type' => 'string',
-                                'description' => 'Вторая дата Y-m-d (например завтра)'
-                            ]
-                        ],
-                        'required' => ['date1', 'date2']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'delete_training_day',
-                    'description' => 'Удалить запланированную тренировку на дату. Используй когда пользователь просит «отменить», «убери», «удали тренировку» на конкретную дату. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'date' => [
-                                'type' => 'string',
-                                'description' => 'Дата тренировки Y-m-d для удаления'
-                            ]
-                        ],
-                        'required' => ['date']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'move_training_day',
-                    'description' => 'Перенести тренировку с одной даты на другую. Используй когда пользователь просит «перенеси с среды на пятницу», «переставь на завтра» и т.п. Копирует тренировку на целевую дату и удаляет с исходной. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'source_date' => [
-                                'type' => 'string',
-                                'description' => 'Исходная дата Y-m-d (откуда переносим)'
-                            ],
-                            'target_date' => [
-                                'type' => 'string',
-                                'description' => 'Целевая дата Y-m-d (куда переносим)'
-                            ]
-                        ],
-                        'required' => ['source_date', 'target_date']
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'recalculate_plan',
-                    'description' => 'Пересчитать весь план тренировок с учётом истории выполненных тренировок, пропусков и текущей формы. Вызывай когда видишь длительную паузу (>5 дней без тренировок), серьёзное отклонение от плана (выполнено <50%), или пользователь просит пересчитать. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'reason' => [
-                                'type' => 'string',
-                                'description' => 'Краткое описание причины пересчёта на основе разговора (травма, болезнь, пауза, изменение целей и т.п.)'
-                            ]
-                        ],
-                        'required' => []
-                    ]
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'generate_next_plan',
-                    'description' => 'Создать новый план после завершения предыдущего. Вызывай когда пользователь говорит, что план закончился, хочет новый цикл, или просит «создай новый план». AI учтёт всю историю тренировок. ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'goals' => [
-                                'type' => 'string',
-                                'description' => 'Пожелания к новому плану на основе разговора (подготовка к забегу, увеличение объёма и т.п.)'
-                            ]
-                        ],
-                        'required' => []
-                    ]
-                ]
-            ]
-        ];
-    }
-
-    private function executeTool(string $name, string $argsJson, ?int $userId): string {
-        $args = json_decode($argsJson, true) ?? [];
-        if ($name === 'get_date') {
-            $phrase = $args['phrase'] ?? '';
-            if ($phrase === '') {
-                return json_encode(['date' => null, 'error' => 'empty_phrase']);
-            }
-            $tzName = $userId ? getUserTimezone($userId) : 'Europe/Moscow';
-            try {
-                $tz = new DateTimeZone($tzName);
-            } catch (Exception $e) {
-                $tz = new DateTimeZone('Europe/Moscow');
-            }
-            $now = new DateTime('now', $tz);
-            $today = clone $now;
-            $today->setTime(0, 0, 0);
-            $resolver = new DateResolver();
-            $date = $resolver->resolveFromText($phrase, $today);
-            return json_encode(['date' => $date]);
-        }
-        if ($name === 'get_plan') {
-            return $this->executeGetPlan($args, $userId);
-        }
-        if ($name === 'get_workouts') {
-            return $this->executeGetWorkouts($args, $userId);
-        }
-        if ($name === 'get_day_details') {
-            return $this->executeGetDayDetails($args, $userId);
-        }
-        if ($name === 'update_training_day') {
-            return $this->executeUpdateTrainingDay($args, $userId);
-        }
-        if ($name === 'swap_training_days') {
-            return $this->executeSwapTrainingDays($args, $userId);
-        }
-        if ($name === 'delete_training_day') {
-            return $this->executeDeleteTrainingDay($args, $userId);
-        }
-        if ($name === 'move_training_day') {
-            return $this->executeMoveTrainingDay($args, $userId);
-        }
-        if ($name === 'recalculate_plan') {
-            return $this->executeRecalculatePlan($args, $userId);
-        }
-        if ($name === 'generate_next_plan') {
-            return $this->executeGenerateNextPlan($args, $userId);
-        }
-        return json_encode(['error' => 'unknown_tool']);
-    }
-
-    private function executeGetPlan(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        require_once __DIR__ . '/../repositories/WeekRepository.php';
-        $repo = new WeekRepository($this->db);
-        $week = null;
-        if (!empty($args['week_number'])) {
-            $week = $repo->getWeekByWeekNumber($userId, (int) $args['week_number']);
-        } elseif (!empty($args['date'])) {
-            $week = $repo->getWeekByDate($userId, $args['date']);
-        } else {
-            $tzName = $userId ? getUserTimezone($userId) : 'Europe/Moscow';
-            try {
-                $tz = new DateTimeZone($tzName);
-            } catch (Exception $e) {
-                $tz = new DateTimeZone('Europe/Moscow');
-            }
-            $today = (new DateTime('now', $tz))->format('Y-m-d');
-            $week = $repo->getWeekByDate($userId, $today);
-        }
-        if (!$week) {
-            return json_encode(['error' => 'week_not_found', 'message' => 'Неделя не найдена в плане']);
-        }
-        $weekId = (int) $week['id'];
-        $weekNumber = (int) $week['week_number'];
-        $startDate = $week['start_date'] ?? null;
-        $days = $repo->getDaysByWeekId($userId, $weekId);
-        $dayLabels = [1 => 'Пн', 2 => 'Вт', 3 => 'Ср', 4 => 'Чт', 5 => 'Пт', 6 => 'Сб', 7 => 'Вс'];
-        $typeRu = [
-            'easy' => 'Легкий бег', 'long' => 'Длительный', 'tempo' => 'Темповый',
-            'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
-            'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег', 'free' => 'Пустой'
-        ];
-        $byDay = [];
-        foreach ($days as $d) {
-            $dow = (int) $d['day_of_week'];
-            $label = $dayLabels[$dow] ?? (string) $dow;
-            $type = $d['type'] ?? 'rest';
-            $desc = trim($d['description'] ?? '');
-            $byDay[] = [
-                'day' => $label,
-                'date' => $d['date'] ?? null,
-                'type' => $typeRu[$type] ?? $type,
-                'description' => $desc
-            ];
-        }
-        return json_encode([
-            'week_number' => $weekNumber,
-            'start_date' => $startDate,
-            'days' => $byDay,
-            'total_volume' => $week['total_volume'] ?? null
-        ]);
-    }
-
-    private function executeGetWorkouts(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $dateFrom = $args['date_from'] ?? '';
-        $dateTo = $args['date_to'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
-            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
-        }
-
-        $limit = 100;
-        $workouts = $this->contextBuilder->getWorkoutsHistory($userId, $dateFrom, $dateTo, $limit);
-        if (empty($workouts)) {
-            return json_encode(['workouts' => [], 'message' => 'Нет выполненных тренировок за период']);
-        }
-
-        $typeRu = [
-            'easy' => 'Легкий бег', 'long' => 'Длительный', 'tempo' => 'Темповый',
-            'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
-            'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег'
-        ];
-
-        $formatted = [];
-        $totalKm = 0;
-        foreach ($workouts as $w) {
-            $type = $w['plan_type'] ?? null;
-            $entry = [
-                'date' => $w['date'],
-                'type' => $type ? ($typeRu[$type] ?? $type) : null,
-                'is_key_workout' => !empty($w['is_key_workout']),
-            ];
-            if (!empty($w['distance_km'])) {
-                $entry['distance_km'] = (float) $w['distance_km'];
-                $totalKm += (float) $w['distance_km'];
-            }
-            if (!empty($w['result_time']) && $w['result_time'] !== '0:00:00') {
-                $entry['time'] = $w['result_time'];
-            }
-            if (!empty($w['pace']) && $w['pace'] !== '0:00') {
-                $entry['pace'] = $w['pace'];
-            }
-            if (!empty($w['avg_heart_rate'])) {
-                $entry['avg_hr'] = (int) $w['avg_heart_rate'];
-            }
-            if (!empty($w['rating'])) {
-                $ratingLabels = [1 => 'очень тяжело', 2 => 'тяжело', 3 => 'нормально', 4 => 'хорошо', 5 => 'отлично'];
-                $entry['feeling'] = $ratingLabels[(int) $w['rating']] ?? (int) $w['rating'];
-            }
-            $notes = trim($w['notes'] ?? '');
-            if ($notes !== '') {
-                $entry['notes'] = mb_strlen($notes) > 300 ? mb_substr($notes, 0, 297) . '…' : $notes;
-            }
-            $formatted[] = $entry;
-        }
-
-        $result = [
-            'period' => "{$dateFrom} — {$dateTo}",
-            'total_workouts' => count($formatted),
-            'total_km' => round($totalKm, 1),
-            'workouts' => $formatted,
-        ];
-        if (count($formatted) >= $limit) {
-            $result['note'] = 'Показаны последние ' . $limit . ' тренировок за период.';
-        }
-        return json_encode($result);
-    }
-
-    private function executeGetDayDetails(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $date = $args['date'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
-        }
-
-        $details = $this->contextBuilder->getDayDetails($userId, $date);
-
-        $result = ['date' => $date];
-
-        if ($details['plan']) {
-            $result['plan'] = $details['plan'];
-        } else {
-            $result['plan'] = null;
-            $result['plan_message'] = 'На этот день нет запланированной тренировки';
-        }
-
-        if (!empty($details['exercises'])) {
-            $exFormatted = [];
-            foreach ($details['exercises'] as $ex) {
-                $e = ['category' => $ex['category'], 'name' => $ex['name']];
-                if (!empty($ex['sets'])) $e['sets'] = (int) $ex['sets'];
-                if (!empty($ex['reps'])) $e['reps'] = (int) $ex['reps'];
-                if (!empty($ex['distance_m'])) $e['distance_m'] = (int) $ex['distance_m'];
-                if (!empty($ex['duration_sec'])) $e['duration_sec'] = (int) $ex['duration_sec'];
-                if (!empty($ex['weight_kg'])) $e['weight_kg'] = (float) $ex['weight_kg'];
-                if (!empty($ex['pace'])) $e['pace'] = $ex['pace'];
-                $exFormatted[] = $e;
-            }
-            $result['exercises'] = $exFormatted;
-        }
-
-        if ($details['workout']) {
-            $w = $details['workout'];
-            $workout = ['completed' => true];
-            if (!empty($w['distance_km'])) $workout['distance_km'] = (float) $w['distance_km'];
-            if (!empty($w['result_time']) && $w['result_time'] !== '0:00:00') $workout['time'] = $w['result_time'];
-            if (!empty($w['pace']) && $w['pace'] !== '0:00') $workout['pace'] = $w['pace'];
-            if (!empty($w['avg_heart_rate'])) $workout['avg_hr'] = (int) $w['avg_heart_rate'];
-            if (!empty($w['max_heart_rate'])) $workout['max_hr'] = (int) $w['max_heart_rate'];
-            if (!empty($w['avg_cadence'])) $workout['cadence'] = (int) $w['avg_cadence'];
-            if (!empty($w['elevation_gain'])) $workout['elevation_m'] = (int) $w['elevation_gain'];
-            if (!empty($w['calories'])) $workout['calories'] = (int) $w['calories'];
-            if (!empty($w['rating'])) {
-                $ratingLabels = [1 => 'очень тяжело', 2 => 'тяжело', 3 => 'нормально', 4 => 'хорошо', 5 => 'отлично'];
-                $workout['feeling'] = $ratingLabels[(int) $w['rating']] ?? (int) $w['rating'];
-            }
-            $notes = trim($w['notes'] ?? '');
-            if ($notes !== '') {
-                $workout['notes'] = mb_strlen($notes) > 500 ? mb_substr($notes, 0, 497) . '…' : $notes;
-            }
-            $result['workout'] = $workout;
-        } else {
-            $result['workout'] = null;
-            $result['workout_message'] = 'Тренировка не выполнена';
-        }
-
-        return json_encode($result);
-    }
-
-    /**
-     * Tool: update_training_day — изменить или заменить тренировку на конкретную дату.
-     * Находит day_id по дате, обновляет тип и описание через WeekService.
-     */
-    private function executeUpdateTrainingDay(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $date = $args['date'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
-        }
-        $type = $args['type'] ?? null;
-        $allowed = ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free'];
-        if (!$type || !in_array($type, $allowed, true)) {
-            return json_encode(['error' => 'invalid_type', 'message' => 'Допустимые типы: ' . implode(', ', $allowed)]);
-        }
-
-        $dayId = $this->findDayIdByDate($userId, $date);
-
-        if (!$dayId) {
-            return json_encode([
-                'error' => 'no_plan_for_date',
-                'message' => "На дату {$date} нет запланированной тренировки. Используй add_training_day."
-            ]);
-        }
-
-        try {
-            require_once __DIR__ . '/WeekService.php';
-            $weekService = new WeekService($this->db);
-
-            $data = ['type' => $type];
-            if (isset($args['description'])) {
-                $data['description'] = $args['description'];
-            }
-            if ($type === 'rest') {
-                $data['description'] = $data['description'] ?? 'Отдых';
-                $data['is_key_workout'] = 0;
-            }
-
-            $weekService->updateTrainingDayById($dayId, $userId, $data);
-
-            $typeRu = [
-                'easy' => 'Лёгкий бег', 'long' => 'Длительный бег', 'tempo' => 'Темповый бег',
-                'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
-                'rest' => 'Отдых', 'other' => 'Другое', 'sbu' => 'СБУ/ОФП', 'race' => 'Забег', 'free' => 'Свободная'
-            ];
-            $typeName = $typeRu[$type] ?? $type;
-
-            $dt = DateTime::createFromFormat('Y-m-d', $date);
-            $dateFormatted = $dt ? $dt->format('d.m.Y') : $date;
-
-            return json_encode([
-                'success' => true,
-                'message' => "Тренировка на {$dateFormatted} изменена на «{$typeName}»"
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'update_failed',
-                'message' => 'Не удалось обновить: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Tool: delete_training_day — удалить запланированную тренировку на дату.
-     */
-    private function executeDeleteTrainingDay(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $date = $args['date'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
-        }
-
-        $dayId = $this->findDayIdByDate($userId, $date);
-        if (!$dayId) {
-            return json_encode([
-                'error' => 'no_plan_for_date',
-                'message' => "На дату {$date} нет запланированной тренировки"
-            ]);
-        }
-
-        try {
-            require_once __DIR__ . '/WeekService.php';
-            $weekService = new WeekService($this->db);
-            $weekService->deleteTrainingDayById($dayId, $userId);
-
-            $dt = DateTime::createFromFormat('Y-m-d', $date);
-            $dateFormatted = $dt ? $dt->format('d.m.Y') : $date;
-
-            return json_encode([
-                'success' => true,
-                'message' => "Тренировка на {$dateFormatted} удалена"
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'delete_failed',
-                'message' => 'Не удалось удалить: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Tool: move_training_day — перенести тренировку с одной даты на другую (copy + delete).
-     */
-    private function executeMoveTrainingDay(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $sourceDate = $args['source_date'] ?? '';
-        $targetDate = $args['target_date'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate)) {
-            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
-        }
-        if ($sourceDate === $targetDate) {
-            return json_encode(['error' => 'same_dates', 'message' => 'Исходная и целевая даты совпадают']);
-        }
-
-        $sourceDayId = $this->findDayIdByDate($userId, $sourceDate);
-        if (!$sourceDayId) {
-            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$sourceDate} нет запланированной тренировки"]);
-        }
-
-        try {
-            require_once __DIR__ . '/WeekService.php';
-            $weekService = new WeekService($this->db);
-
-            $targetDayId = $this->findDayIdByDate($userId, $targetDate);
-            if ($targetDayId) {
-                $weekService->deleteTrainingDayById($targetDayId, $userId);
-            }
-
-            $weekService->copyDay($sourceDate, $targetDate, $userId);
-            $weekService->deleteTrainingDayById($sourceDayId, $userId);
-
-            $d1 = DateTime::createFromFormat('Y-m-d', $sourceDate);
-            $d2 = DateTime::createFromFormat('Y-m-d', $targetDate);
-            $fmt1 = $d1 ? $d1->format('d.m.Y') : $sourceDate;
-            $fmt2 = $d2 ? $d2->format('d.m.Y') : $targetDate;
-
-            return json_encode([
-                'success' => true,
-                'message' => "Тренировка перенесена с {$fmt1} на {$fmt2}"
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'move_failed',
-                'message' => 'Не удалось перенести: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Tool: swap_training_days — поменять местами тренировки на двух датах.
-     * Меняет type и description. Упражнения (ОФП, СБУ) остаются при своих днях.
-     */
-    private function executeSwapTrainingDays(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        $date1 = $args['date1'] ?? '';
-        $date2 = $args['date2'] ?? '';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date1) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date2)) {
-            return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
-        }
-        if ($date1 === $date2) {
-            return json_encode(['error' => 'same_dates', 'message' => 'Даты должны отличаться']);
-        }
-
-        $day1 = $this->getDayPlanDataByDate($userId, $date1);
-        $day2 = $this->getDayPlanDataByDate($userId, $date2);
-
-        if (!$day1) {
-            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$date1} нет запланированной тренировки"]);
-        }
-        if (!$day2) {
-            return json_encode(['error' => 'no_plan_for_date', 'message' => "На дату {$date2} нет запланированной тренировки"]);
-        }
-
-        try {
-            require_once __DIR__ . '/WeekService.php';
-            $weekService = new WeekService($this->db);
-
-            $weekService->updateTrainingDayById($day1['id'], $userId, [
-                'type' => $day2['type'],
-                'description' => $day2['description'] ?? '',
-            ]);
-            $weekService->updateTrainingDayById($day2['id'], $userId, [
-                'type' => $day1['type'],
-                'description' => $day1['description'] ?? '',
-            ]);
-
-            $typeRu = [
-                'easy' => 'Лёгкий бег', 'long' => 'Длительный бег', 'tempo' => 'Темповый бег',
-                'interval' => 'Интервалы', 'fartlek' => 'Фартлек', 'control' => 'Контрольный забег',
-                'rest' => 'Отдых', 'other' => 'ОФП', 'sbu' => 'СБУ', 'race' => 'Забег', 'free' => 'Свободная'
-            ];
-            $d1 = DateTime::createFromFormat('Y-m-d', $date1);
-            $d2 = DateTime::createFromFormat('Y-m-d', $date2);
-            $fmt1 = $d1 ? $d1->format('d.m.Y') : $date1;
-            $fmt2 = $d2 ? $d2->format('d.m.Y') : $date2;
-            $t1 = $typeRu[$day1['type']] ?? $day1['type'];
-            $t2 = $typeRu[$day2['type']] ?? $day2['type'];
-
-            return json_encode([
-                'success' => true,
-                'message' => "Тренировки поменяны местами: {$fmt1} — {$t2}, {$fmt2} — {$t1}"
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'swap_failed',
-                'message' => 'Не удалось поменять местами: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Получить type, description, id дня по дате.
-     */
-    private function getDayPlanDataByDate(int $userId, string $date): ?array {
-        $stmt = $this->db->prepare(
-            "SELECT d.id, d.type, d.description FROM training_plan_days d 
-             JOIN training_plan_weeks w ON d.week_id = w.id 
-             WHERE w.user_id = ? AND d.date = ? 
-             ORDER BY d.id DESC LIMIT 1"
-        );
-        if (!$stmt) return null;
-        $stmt->bind_param('is', $userId, $date);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $row ? [
-            'id' => (int) $row['id'],
-            'type' => $row['type'] ?? 'rest',
-            'description' => $row['description'] ?? '',
-        ] : null;
-    }
-
-    /**
-     * Найти day_id плана по дате для заданного пользователя.
-     */
-    private function findDayIdByDate(int $userId, string $date): ?int {
-        $stmt = $this->db->prepare(
-            "SELECT d.id FROM training_plan_days d 
-             JOIN training_plan_weeks w ON d.week_id = w.id 
-             WHERE w.user_id = ? AND d.date = ? 
-             ORDER BY d.id DESC LIMIT 1"
-        );
-        if (!$stmt) return null;
-        $stmt->bind_param('is', $userId, $date);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $row ? (int) $row['id'] : null;
-    }
-
-    private function executeRecalculatePlan(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        try {
-            $reason = !empty($args['reason']) ? trim($args['reason']) : null;
-            require_once __DIR__ . '/TrainingPlanService.php';
-            $planService = new TrainingPlanService($this->db);
-            $result = $planService->recalculatePlan($userId, $reason);
-            return json_encode([
-                'success' => true,
-                'message' => 'Пересчёт плана запущен. Новый план будет готов через 3-5 минут.',
-                'pid' => $result['pid'] ?? null
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'recalculate_failed',
-                'message' => 'Не удалось запустить пересчёт: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    private function executeGenerateNextPlan(array $args, ?int $userId): string {
-        if (!$userId) {
-            return json_encode(['error' => 'user_required']);
-        }
-        try {
-            $goals = !empty($args['goals']) ? trim($args['goals']) : null;
-            require_once __DIR__ . '/TrainingPlanService.php';
-            $planService = new TrainingPlanService($this->db);
-            $result = $planService->generateNextPlan($userId, $goals);
-            return json_encode([
-                'success' => true,
-                'message' => 'Генерация нового плана запущена. План будет готов через 3-5 минут.',
-                'pid' => $result['pid'] ?? null
-            ]);
-        } catch (Exception $e) {
-            return json_encode([
-                'error' => 'generate_next_failed',
-                'message' => 'Не удалось запустить генерацию: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Вызов LM Studio напрямую. tools — опционально (get_date и др.)
-     */
     private function callLlmDirect(array $messages, ?array $tools = null): array {
         $url = $this->llmBaseUrl . '/chat/completions';
-        $maxTokens = (int) env('CHAT_MAX_TOKENS', 87000);
-        if ($maxTokens < 1) {
-            $maxTokens = 87000;
-        }
-        $payload = [
-            'model' => $this->llmModel,
-            'messages' => $messages,
-            'stream' => false,
-            'max_tokens' => $maxTokens
-        ];
+        $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
+        $payload = ['model' => $this->llmModel, 'messages' => $messages, 'stream' => false, 'max_tokens' => $maxTokens];
         if ($tools !== null && $tools !== []) {
             $payload['tools'] = $tools;
             $payload['tool_choice'] = 'auto';
         }
         $body = json_encode($payload);
+        $maxRetries = (int) env('LLM_MAX_RETRIES', 3);
+        $retryableCodes = [500, 502, 503, 429];
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 120,
-            CURLOPT_CONNECTTIMEOUT => 10
-        ]);
+        $response = false;
+        $httpCode = 0;
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_CONNECTTIMEOUT => 10]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
 
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlErr) {
-            Logger::error('LM Studio connection error', ['error' => $curlErr, 'url' => $url]);
-            throw new Exception('LM Studio недоступен. Запустите: lms server start');
-        }
-        if ($httpCode !== 200 || $response === false) {
-            Logger::error('LM Studio API error', ['http_code' => $httpCode, 'response' => substr($response ?? '', 0, 500)]);
-            throw new Exception('LM Studio вернул ошибку ' . $httpCode . '. Проверьте, что модель загружена.');
+            if ($curlErr) {
+                Logger::warning('LLM connection error, retry', ['attempt' => $attempt, 'max' => $maxRetries, 'error' => $curlErr]);
+                if ($attempt < $maxRetries) { usleep($attempt * 500000); continue; }
+                throw new Exception('LLM-сервер недоступен: ' . $curlErr);
+            }
+            if ($httpCode === 200 && $response !== false) break;
+            if (in_array($httpCode, $retryableCodes) && $attempt < $maxRetries) {
+                Logger::warning('LLM API error, retry', ['attempt' => $attempt, 'max' => $maxRetries, 'http_code' => $httpCode]);
+                usleep($attempt * 500000); continue;
+            }
+            Logger::error('LLM API error', ['http_code' => $httpCode, 'response' => substr($response ?? '', 0, 500), 'attempt' => $attempt]);
+            throw new Exception('LLM-сервер вернул ошибку ' . $httpCode . '.');
         }
 
         $data = json_decode($response, true);
-        if (!$data) {
-            throw new Exception('Ошибка ответа LM Studio');
-        }
-
-        $choices = $data['choices'] ?? [];
-        $msg = $choices[0]['message'] ?? [];
-        $content = $msg['content'] ?? '';
-
-        return [
-            'content' => $content,
-            'message' => $msg,
-            'usage' => $data['usage'] ?? []
-        ];
+        if (!$data) throw new Exception('Ошибка ответа LLM-сервера');
+        $msg = $data['choices'][0]['message'] ?? [];
+        return ['content' => $msg['content'] ?? '', 'message' => $msg, 'usage' => $data['usage'] ?? []];
     }
 
-    /**
-     * Fallback: вызов PlanRun AI /api/v1/chat (тоже идёт в LM Studio, но через ai-сервис)
-     */
     private function callPlanRunAIChat(array $messages): array {
         $base = env('PLANRUN_AI_API_URL', 'http://127.0.0.1:8000/api/v1/generate-plan');
         $url = preg_replace('#/generate-plan$#', '/chat', $base);
-        $maxTokens = (int) env('CHAT_MAX_TOKENS', 87000);
-        if ($maxTokens < 1) {
-            $maxTokens = 87000;
-        }
-        $payload = [
-            'messages' => $messages,
-            'stream' => false,
-            'max_tokens' => $maxTokens
-        ];
-        $body = json_encode($payload);
-
+        $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 120,
-            CURLOPT_CONNECTTIMEOUT => 5
-        ]);
-
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode(['messages' => $messages, 'stream' => false, 'max_tokens' => $maxTokens]), CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_CONNECTTIMEOUT => 5]);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErr = curl_error($ch);
         curl_close($ch);
-
-        if ($curlErr || $httpCode !== 200 || $response === false) {
-            throw new Exception('PlanRun AI недоступен. Запустите: systemctl start planrun-ai');
-        }
+        if ($curlErr || $httpCode !== 200 || $response === false) throw new Exception('PlanRun AI недоступен. Запустите: systemctl start planrun-ai');
         $data = json_decode($response, true);
-        if (!$data) {
-            throw new Exception('Ошибка ответа PlanRun AI');
-        }
-        return [
-            'content' => $data['content'] ?? '',
-            'usage' => $data['usage'] ?? []
-        ];
+        if (!$data) throw new Exception('Ошибка ответа PlanRun AI');
+        return ['content' => $data['content'] ?? '', 'usage' => $data['usage'] ?? []];
     }
 
-    /**
-     * Стриминг: при CHAT_USE_PLANRUN_AI=1 — через PlanRun AI, иначе LM Studio с fallback
-     */
     private function callLlmStream(array $messages, callable $onChunk): void {
         if ((int) env('CHAT_USE_PLANRUN_AI', 0) === 1) {
             $this->callPlanRunAIChatStream($messages, $onChunk);
@@ -2320,7 +510,7 @@ PROMPT;
             $this->callLlmStreamDirect($messages, $onChunk);
         } catch (Throwable $e) {
             if ((int) env('CHAT_FALLBACK_TO_PLANRUN_AI', 0) === 1) {
-                Logger::warning('LM Studio stream failed, using PlanRun AI fallback', ['error' => $e->getMessage()]);
+                Logger::warning('LLM stream failed, using PlanRun AI fallback', ['error' => $e->getMessage()]);
                 $this->callPlanRunAIChatStream($messages, $onChunk);
             } else {
                 throw $e;
@@ -2328,330 +518,212 @@ PROMPT;
         }
     }
 
-    /**
-     * Стриминг: LM Studio POST /v1/chat/completions stream=true
-     */
     private function callLlmStreamDirect(array $messages, callable $onChunk): void {
         $url = $this->llmBaseUrl . '/chat/completions';
-        $maxTokens = (int) env('CHAT_MAX_TOKENS', 87000);
-        if ($maxTokens < 1) {
-            $maxTokens = 87000;
-        }
-        $payload = [
-            'model' => $this->llmModel,
-            'messages' => $messages,
-            'stream' => true,
-            'max_tokens' => $maxTokens
-        ];
-        $body = json_encode($payload);
+        $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
+        $body = json_encode(['model' => $this->llmModel, 'messages' => $messages, 'stream' => true, 'max_tokens' => $maxTokens]);
+        $maxRetries = (int) env('LLM_MAX_RETRIES', 3);
+        $retryableCodes = [500, 502, 503, 429];
 
-        $buffer = '';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 180,
-            CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$buffer) {
-                $buffer .= $data;
-                $lines = explode("\n", $buffer);
-                $buffer = array_pop($lines);
-                foreach ($lines as $line) {
-                    $line = trim($line);
-                    if ($line === '' || strpos($line, 'data: ') !== 0) {
-                        continue;
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            $buffer = '';
+            $chunksReceived = false;
+
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_TIMEOUT => 180, CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$buffer, &$chunksReceived) {
+                    $buffer .= $data;
+                    $lines = explode("\n", $buffer);
+                    $buffer = array_pop($lines);
+                    foreach ($lines as $line) {
+                        $line = trim($line);
+                        if ($line === '' || strpos($line, 'data: ') !== 0) continue;
+                        $json = substr($line, 6);
+                        if (trim($json) === '[DONE]') continue;
+                        $decoded = json_decode($json, true);
+                        if (!$decoded || empty($decoded['choices'][0])) continue;
+                        $content = $decoded['choices'][0]['delta']['content'] ?? '';
+                        if ($content !== '') { $chunksReceived = true; $onChunk($content); }
                     }
-                    $json = substr($line, 6);
-                    if (trim($json) === '[DONE]') {
-                        continue;
-                    }
-                    $decoded = json_decode($json, true);
-                    if (!$decoded || empty($decoded['choices'][0])) {
-                        continue;
-                    }
-                    $delta = $decoded['choices'][0]['delta'] ?? [];
-                    $content = $delta['content'] ?? '';
-                    if ($content !== '') {
-                        $onChunk($content);
-                    }
+                    return strlen($data);
                 }
-                return strlen($data);
-            }
-        ]);
+            ]);
 
-        curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr = curl_error($ch);
-        curl_close($ch);
+            curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
 
-        if ($curlErr) {
-            Logger::error('LM Studio stream error', ['error' => $curlErr, 'url' => $url]);
-            throw new Exception('Не удалось подключиться к LM Studio. Запустите: lms server start');
-        }
-        if ($httpCode !== 200) {
-            Logger::error('LM Studio stream API error', ['http_code' => $httpCode, 'url' => $url]);
-            throw new Exception('LM Studio вернул ошибку ' . $httpCode . '.');
+            if (!$curlErr && $httpCode === 200) return;
+            if ($chunksReceived) { if ($curlErr) Logger::error('LLM stream interrupted', ['error' => $curlErr]); return; }
+
+            $canRetry = $attempt < $maxRetries;
+            if ($curlErr && $canRetry) { Logger::warning('LLM stream error, retry', ['attempt' => $attempt, 'error' => $curlErr]); usleep($attempt * 500000); continue; }
+            if (in_array($httpCode, $retryableCodes) && $canRetry) { Logger::warning('LLM stream API error, retry', ['attempt' => $attempt, 'http_code' => $httpCode]); usleep($attempt * 500000); continue; }
+
+            if ($curlErr) throw new Exception('LLM-сервер недоступен: ' . $curlErr);
+            throw new Exception('LLM-сервер вернул ошибку ' . $httpCode . '.');
         }
     }
 
-    /**
-     * Fallback stream: PlanRun AI /api/v1/chat (NDJSON {chunk})
-     */
     private function callPlanRunAIChatStream(array $messages, callable $onChunk): void {
         $base = env('PLANRUN_AI_API_URL', 'http://127.0.0.1:8000/api/v1/generate-plan');
         $url = preg_replace('#/generate-plan$#', '/chat', $base);
-        $maxTokens = (int) env('CHAT_MAX_TOKENS', 87000);
-        if ($maxTokens < 1) {
-            $maxTokens = 87000;
-        }
-        $payload = [
-            'messages' => $messages,
-            'stream' => true,
-            'max_tokens' => $maxTokens
-        ];
-        $body = json_encode($payload);
-
+        $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
         $buffer = '';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 180,
+            CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode(['messages' => $messages, 'stream' => true, 'max_tokens' => $maxTokens]),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_TIMEOUT => 180,
             CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$buffer) {
                 $buffer .= $data;
                 $lines = explode("\n", $buffer);
                 $buffer = array_pop($lines);
                 foreach ($lines as $line) {
                     $line = trim($line);
-                    if ($line === '') {
-                        continue;
-                    }
+                    if ($line === '') continue;
                     $decoded = json_decode($line, true);
-                    if ($decoded && isset($decoded['chunk']) && $decoded['chunk'] !== '') {
-                        $onChunk($decoded['chunk']);
-                    }
+                    if ($decoded && isset($decoded['chunk']) && $decoded['chunk'] !== '') $onChunk($decoded['chunk']);
                 }
                 return strlen($data);
             }
         ]);
-
         curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErr = curl_error($ch);
         curl_close($ch);
-
-        if ($curlErr || $httpCode !== 200) {
-            throw new Exception('PlanRun AI недоступен. Запустите: systemctl start planrun-ai');
-        }
+        if ($curlErr || $httpCode !== 200) throw new Exception('PlanRun AI недоступен. Запустите: systemctl start planrun-ai');
     }
 
-    /**
-     * Получить сообщения разговора
-     */
+    // ═══ Messaging CRUD ═══
+
     public function getMessages(int $userId, string $type = 'ai', int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($userId, $type);
-        if ($type === 'admin') {
-            $messages = $this->repository->getAdminTabMessages($conversation['id'], $userId, $limit, $offset);
-        } else {
-            $messages = $this->repository->getMessages($conversation['id'], $limit, $offset);
-        }
-        return [
-            'conversation_id' => $conversation['id'],
-            'messages' => $messages
-        ];
+        $messages = ($type === 'admin') ? $this->repository->getAdminTabMessages($conversation['id'], $userId, $limit, $offset) : $this->repository->getMessages($conversation['id'], $limit, $offset);
+        return ['conversation_id' => $conversation['id'], 'messages' => $messages];
     }
 
-    /**
-     * Очистить чат с AI — удалить все сообщения из диалога и суммаризацию истории
-     */
     public function clearAiChat(int $userId): void {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $this->repository->deleteMessagesByConversation($conversation['id']);
         $this->contextBuilder->setHistorySummary($userId, '');
     }
 
-    /**
-     * Отметить сообщения как прочитанные (admin)
-     */
     public function markAsRead(int $userId, int $conversationId): void {
         $conv = $this->repository->getConversationById($conversationId, $userId);
-        if ($conv) {
-            $this->repository->markMessagesRead($conversationId);
-        }
+        if ($conv) $this->repository->markMessagesRead($conversationId);
     }
 
-    /**
-     * Пользователь: отправить сообщение администрации
-     * Сообщение добавляется в admin-чат пользователя (админы увидят в админ-панели)
-     */
     public function sendUserMessageToAdmin(int $userId, string $content): array {
         $conversation = $this->repository->getOrCreateConversation($userId, 'admin');
         $messageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
         $this->repository->touchConversation($conversation['id']);
-        return [
-            'conversation_id' => $conversation['id'],
-            'message_id' => $messageId
-        ];
+        $senderUsername = $this->getUsernameById($userId);
+        $this->notifyAdminsAboutUserMessage($userId, $senderUsername ?: 'пользователь', $content);
+        return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
-    /**
-     * Пользователь: отправить сообщение другому пользователю (от имени отправителя)
-     * Сообщение попадает в admin-чат получателя (он увидит в «От администрации»)
-     */
     public function sendUserMessageToUser(int $senderUserId, int $targetUserId, string $content): array {
-        if ($senderUserId === $targetUserId) {
-            throw new InvalidArgumentException('Нельзя отправить сообщение самому себе');
-        }
+        if ($senderUserId === $targetUserId) throw new InvalidArgumentException('Нельзя отправить сообщение самому себе');
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $messageId = $this->repository->addMessage($conversation['id'], 'user', $senderUserId, $content);
         $this->repository->touchConversation($conversation['id']);
         $senderUsername = $this->getUsernameById($senderUserId);
-        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $content, 'chat');
-        return [
-            'conversation_id' => $conversation['id'],
-            'message_id' => $messageId
-        ];
+        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $content, 'direct', ['sender_name' => $senderUsername ?: 'пользователя']);
+        return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
-    /**
-     * Админ: отправить сообщение пользователю
-     */
     public function sendAdminMessage(int $targetUserId, int $adminUserId, string $content): array {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $messageId = $this->repository->addMessage($conversation['id'], 'admin', $adminUserId, $content);
         $this->repository->touchConversation($conversation['id']);
         $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin');
-        return [
-            'conversation_id' => $conversation['id'],
-            'message_id' => $messageId
-        ];
+        return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
-    /**
-     * Сообщения между текущим пользователем и другим (диалог «Написать»)
-     * Сообщения хранятся в admin-чате получателя
-     * При загрузке помечает сообщения от собеседника как прочитанные
-     */
     public function getDirectMessagesWithUser(int $currentUserId, int $targetUserId, int $limit = 50, int $offset = 0): array {
         $this->repository->markDirectDialogRead($currentUserId, $targetUserId);
-        $messages = $this->repository->getDirectMessagesBetweenUsers($currentUserId, $targetUserId, $limit, $offset);
-        return [
-            'messages' => $messages,
-            'conversation_id' => null,
-        ];
+        return ['messages' => $this->repository->getDirectMessagesBetweenUsers($currentUserId, $targetUserId, $limit, $offset), 'conversation_id' => null];
     }
 
-    /**
-     * Очистить direct-диалог между текущим пользователем и собеседником
-     */
     public function clearDirectDialog(int $currentUserId, int $targetUserId): int {
-        if ($currentUserId === $targetUserId) {
-            throw new InvalidArgumentException('Нельзя очистить диалог с самим собой');
-        }
+        if ($currentUserId === $targetUserId) throw new InvalidArgumentException('Нельзя очистить диалог с самим собой');
         return $this->repository->deleteDirectMessagesBetweenUsers($currentUserId, $targetUserId);
     }
 
-    /**
-     * Админ: получить сообщения пользователя (admin-чат)
-     * При запросе сообщений помечает входящие от пользователя как прочитанные
-     */
     public function getAdminMessages(int $targetUserId, int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $this->repository->markUserMessagesReadByAdmin($conversation['id']);
-        $messages = $this->repository->getMessages($conversation['id'], $limit, $offset);
-        return [
-            'conversation_id' => $conversation['id'],
-            'messages' => $messages
-        ];
+        return ['conversation_id' => $conversation['id'], 'messages' => $this->repository->getMessages($conversation['id'], $limit, $offset)];
     }
 
-    /**
-     * Админ: список пользователей, которые писали в admin-чат
-     */
-    public function getUsersWithAdminChat(): array {
-        return $this->repository->getUsersWithAdminChat();
-    }
+    public function getUsersWithAdminChat(): array { return $this->repository->getUsersWithAdminChat(); }
+    public function getUsersWhoWroteToMe(int $userId): array { return $this->repository->getUsersWhoWroteToMe($userId); }
+    public function getUnreadUserMessagesForAdmin(int $limit = 10): array { return $this->repository->getUnreadUserMessagesForAdmin($limit); }
+    public function getAdminUnreadCount(): int { return $this->repository->getAdminUnreadCount(); }
+    public function markAllAsRead(int $userId): void { $this->repository->markAllConversationsReadForUser($userId); }
+    public function markAllAdminAsRead(): void { $this->repository->markAllAdminUserMessagesRead(); }
 
-    /**
-     * Список диалогов: пользователи, которые писали мне через «Написать»
-     */
-    public function getUsersWhoWroteToMe(int $userId): array {
-        return $this->repository->getUsersWhoWroteToMe($userId);
-    }
-
-    /**
-     * Админ: непрочитанные сообщения от пользователей (для уведомлений)
-     */
-    public function getUnreadUserMessagesForAdmin(int $limit = 10): array {
-        return $this->repository->getUnreadUserMessagesForAdmin($limit);
-    }
-
-    /**
-     * Админ: счётчик непрочитанных сообщений от пользователей
-     */
-    public function getAdminUnreadCount(): int {
-        return $this->repository->getAdminUnreadCount();
-    }
-
-    /**
-     * Отметить все сообщения как прочитанные (для пользователя — во всех его чатах)
-     */
-    public function markAllAsRead(int $userId): void {
-        $this->repository->markAllConversationsReadForUser($userId);
-    }
-
-    /**
-     * Админ: отметить все сообщения от пользователей как прочитанные
-     */
-    public function markAllAdminAsRead(): void {
-        $this->repository->markAllAdminUserMessagesRead();
-    }
-
-    /**
-     * Админ: отметить сообщения конкретного пользователя как прочитанные (при открытии чата с ним)
-     */
     public function markAdminConversationRead(int $targetUserId): void {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $this->repository->markUserMessagesReadByAdmin($conversation['id']);
     }
 
-    /**
-     * Добавить сообщение от AI в чат пользователя (без ответа пользователя).
-     * Используется для «досыла» сообщений, напоминаний, рассылок от AI.
-     * Вызывается админом или AI-сервисом.
-     *
-     * @return array ['message_id' => int]
-     */
-    public function addAIMessageToUser(int $userId, string $content): array {
+    public function addAIMessageToUser(int $userId, string $content, array $notificationOptions = []): array {
         $content = trim($content);
-        if ($content === '') {
-            throw new InvalidArgumentException('Сообщение не может быть пустым');
-        }
-        if (mb_strlen($content) > 4000) {
-            throw new InvalidArgumentException('Сообщение слишком длинное');
-        }
+        if ($content === '') throw new InvalidArgumentException('Сообщение не может быть пустым');
+        if (mb_strlen($content) > 4000) throw new InvalidArgumentException('Сообщение слишком длинное');
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
-        $messageId = $this->repository->addMessage($conversation['id'], 'ai', null, $content);
+        $msgMeta = null;
+        if (!empty($notificationOptions['proactive_type'])) {
+            $msgMeta = ['proactive_type' => $notificationOptions['proactive_type']];
+        }
+        $messageId = $this->repository->addMessage($conversation['id'], 'ai', null, $content, $msgMeta);
         $this->repository->touchConversation($conversation['id']);
-        $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $content, 'chat');
+        $eventKey = trim((string) ($notificationOptions['event_key'] ?? 'chat.ai_message'));
+        $title = trim((string) ($notificationOptions['title'] ?? 'Новое сообщение от AI-тренера'));
+        $link = trim((string) ($notificationOptions['link'] ?? '/chat'));
+        $dispatchOptions = $notificationOptions;
+        unset($dispatchOptions['event_key'], $dispatchOptions['title'], $dispatchOptions['link']);
+        $this->dispatchNotificationEvent($userId, $eventKey, $title !== '' ? $title : 'Новое сообщение от AI-тренера', $content, $link, $dispatchOptions);
         return ['message_id' => $messageId];
     }
 
-    /**
-     * Отправить push о новом сообщении в чате (проверяет push_chat_enabled).
-     */
-    private function sendChatPush(int $userId, string $title, string $body, string $type): void {
+    // ═══ Notifications (private) ═══
+
+    private function sendChatPush(int $userId, string $title, string $body, string $type, array $notificationOptions = []): void {
         try {
-            $push = new PushNotificationService($this->db);
-            $truncated = mb_strlen($body) > 100 ? mb_substr($body, 0, 97) . '...' : $body;
-            $push->sendToUser($userId, $title, $truncated, [
-                'type' => 'chat',
-                'link' => '/chat'
-            ]);
-        } catch (\Throwable $e) {
-            // Push send failed — тихо игнорируем
-        }
+            $eventKey = match ($type) { 'admin' => 'chat.admin_message', 'ai' => 'chat.ai_message', 'direct' => 'chat.direct_message', default => 'chat.direct_message' };
+            $this->dispatchNotificationEvent($userId, $eventKey, $title, $body, '/chat', $notificationOptions);
+        } catch (\Throwable $e) {}
+    }
+
+    private function dispatchNotificationEvent(int $userId, string $eventKey, string $title, string $body, string $link = '/chat', array $notificationOptions = []): void {
+        require_once __DIR__ . '/NotificationDispatcher.php';
+        $truncated = mb_strlen($body) > 100 ? mb_substr($body, 0, 97) . '...' : $body;
+        $pushData = is_array($notificationOptions['push_data'] ?? null) ? $notificationOptions['push_data'] : [];
+        unset($notificationOptions['push_data']);
+        (new NotificationDispatcher($this->db))->dispatchToUser($userId, $eventKey, $title, $truncated, array_merge($notificationOptions, [
+            'link' => $link, 'push_data' => array_merge(['type' => 'chat', 'link' => $link], $pushData),
+        ]));
+    }
+
+    private function notifyAdminsAboutUserMessage(int $senderUserId, string $senderName, string $content): void {
+        try {
+            require_once __DIR__ . '/NotificationDispatcher.php';
+            $dispatcher = new NotificationDispatcher($this->db);
+            $title = 'Новое сообщение от ' . $senderName;
+            $truncated = mb_strlen($content) > 100 ? mb_substr($content, 0, 97) . '...' : $content;
+            foreach ($this->getAdminUserIds() as $adminId) {
+                if ($adminId === $senderUserId) continue;
+                $dispatcher->dispatchToUser($adminId, 'admin.new_user_message', $title, $truncated, [
+                    'link' => '/chat', 'sender_name' => $senderName, 'push_data' => ['type' => 'chat', 'link' => '/chat'],
+                ]);
+            }
+        } catch (\Throwable $e) {}
     }
 
     private function getUsernameById(int $userId): ?string {
@@ -2663,17 +735,16 @@ PROMPT;
         return $row['username'] ?? null;
     }
 
-    /**
-     * Админ: массовая рассылка сообщения пользователям
-     * @param int $adminUserId ID админа (отправителя)
-     * @param string $content Текст сообщения
-     * @param array|null $userIds Список ID получателей или null = всем пользователям (кроме админа)
-     * @return array ['sent' => N]
-     */
+    private function getAdminUserIds(): array {
+        $result = $this->db->query("SELECT id FROM users WHERE role = 'admin'");
+        if (!$result) return [];
+        $ids = [];
+        while ($row = $result->fetch_assoc()) $ids[] = (int) ($row['id'] ?? 0);
+        return array_values(array_filter($ids, fn($id) => $id > 0));
+    }
+
     public function broadcastAdminMessage(int $adminUserId, string $content, ?array $userIds = null): array {
-        if ($userIds === null) {
-            $userIds = $this->repository->getAllUserIdsForBroadcast($adminUserId);
-        }
+        if ($userIds === null) $userIds = $this->repository->getAllUserIdsForBroadcast($adminUserId);
         $userIds = array_map('intval', array_filter($userIds, fn($id) => $id > 0 && $id !== $adminUserId));
         $sent = 0;
         foreach ($userIds as $targetUserId) {

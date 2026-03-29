@@ -17,6 +17,8 @@
   border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 6%, var(--surface-glass-border));
   box-shadow: var(--glass-shadow), var(--glass-shadow-inset);
   isolation: isolate;
+  transition: transform var(--transition-fast), opacity var(--transition-fast), visibility var(--transition-fast);
+  will-change: transform, opacity;
 }
 
 /* Тёмная тема: нижняя граница */
@@ -478,6 +480,13 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
 @media (max-width: 1023px) {
   .top-header {
     z-index: 1100;
+  }
+
+  body.chat-page-active.chat-keyboard-open .top-header {
+    transform: translateY(calc(-100% - env(safe-area-inset-top, 0px)));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 }
 

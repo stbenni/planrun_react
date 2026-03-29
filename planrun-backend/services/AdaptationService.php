@@ -27,7 +27,11 @@ class AdaptationService extends BaseService {
             try {
                 require_once __DIR__ . '/ChatService.php';
                 $chatService = new ChatService($this->db);
-                $chatService->addAIMessageToUser($userId, $result['review_message']);
+                $chatService->addAIMessageToUser($userId, $result['review_message'], [
+                    'event_key' => 'plan.weekly_adaptation',
+                    'title' => 'Недельная адаптация готова',
+                    'link' => '/chat',
+                ]);
             } catch (Throwable $e) {
                 $this->logError('Не удалось отправить ревью в чат', [
                     'user_id' => $userId,

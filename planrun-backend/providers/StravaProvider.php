@@ -262,13 +262,13 @@ class StravaProvider implements WorkoutImportProvider {
             if ($onError) $onError(200, $response, 'invalid json or missing id');
             return null;
         }
-        $a['strava_streams'] = $this->fetchActivityStreams($activityId, $accessToken, $a['start_date_local'] ?? null);
+        $a = $this->enrichActivityWithStreamsAndLaps($a, $activityId, $accessToken);
         $workouts = $this->mapStravaActivitiesToWorkouts([$a]);
         return $workouts[0] ?? null;
     }
 
     private function enrichWithDetails(array $activities, string $accessToken): array {
-        $limit = 50;
+        $limit = 30; // ~30 activities × 3 API calls ≈ 45s, fits in 60s timeout
         $enriched = [];
         foreach (array_slice($activities, 0, $limit) as $a) {
             $id = $a['id'] ?? null;
@@ -293,11 +293,13 @@ class StravaProvider implements WorkoutImportProvider {
                     $a['average_speed'] = $detail['average_speed'] ?? $a['average_speed'] ?? null;
                     $a['sport_type'] = $detail['sport_type'] ?? $a['sport_type'] ?? null;
                     $a['type'] = $detail['type'] ?? $a['type'] ?? null;
+                    $a['workout_type'] = $detail['workout_type'] ?? $a['workout_type'] ?? null;
+                    $a['laps'] = $detail['laps'] ?? $a['laps'] ?? null;
                 }
             }
-            $a['strava_streams'] = $this->fetchActivityStreams($id, $accessToken, $a['start_date_local'] ?? null);
+            $a = $this->enrichActivityWithStreamsAndLaps($a, (int)$id, $accessToken);
             $enriched[] = $a;
-            usleep(250000);
+            usleep(100000); // 100ms between requests to stay within Strava rate limits
         }
         foreach (array_slice($activities, $limit) as $a) {
             $enriched[] = $a;
@@ -309,7 +311,7 @@ class StravaProvider implements WorkoutImportProvider {
         if (!$activityId || !$startDateLocal) {
             return null;
         }
-        $url = 'https://www.strava.com/api/v3/activities/' . $activityId . '/streams?keys=time,heartrate,altitude,velocity_smooth,distance,cadence';
+        $url = 'https://www.strava.com/api/v3/activities/' . $activityId . '/streams?keys=time,heartrate,altitude,velocity_smooth,distance,cadence,latlng';
         $ch = curl_init($url);
         curl_setopt_array($ch, $this->getCurlOpts([
             CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $accessToken],
@@ -340,6 +342,7 @@ class StravaProvider implements WorkoutImportProvider {
         $velData = $byType['velocity_smooth'] ?? [];
         $distData = $byType['distance'] ?? [];
         $cadData = $byType['cadence'] ?? [];
+        $latlngData = $byType['latlng'] ?? [];
         $points = [];
         $count = count($timeData);
         $step = max(1, (int)floor($count / 500));
@@ -357,6 +360,8 @@ class StravaProvider implements WorkoutImportProvider {
             $alt = isset($altData[$i]) ? (float)$altData[$i] : null;
             $dist = isset($distData[$i]) ? (float)($distData[$i] / 1000) : null;
             $cad = isset($cadData[$i]) ? (int)$cadData[$i] : null;
+            $lat = isset($latlngData[$i]) ? (float)$latlngData[$i][0] : null;
+            $lng = isset($latlngData[$i]) ? (float)$latlngData[$i][1] : null;
             $pace = null;
             if (isset($velData[$i]) && $velData[$i] > 0) {
                 $secPerKm = 1000 / $velData[$i];
@@ -369,9 +374,95 @@ class StravaProvider implements WorkoutImportProvider {
                 'altitude' => $alt,
                 'distance' => $dist,
                 'cadence' => $cad,
+                'latitude' => $lat,
+                'longitude' => $lng,
             ];
         }
         return $points;
+    }
+
+    private function enrichActivityWithStreamsAndLaps(array $activity, int $activityId, string $accessToken): array {
+        $activity['strava_streams'] = $this->fetchActivityStreams($activityId, $accessToken, $activity['start_date_local'] ?? null);
+        $laps = $this->normalizeActivityLaps($activity['laps'] ?? null);
+        if ($laps === null) {
+            $laps = $this->fetchActivityLaps($activityId, $accessToken);
+        }
+        if (!empty($laps)) {
+            $activity['strava_laps'] = $laps;
+        }
+        return $activity;
+    }
+
+    private function fetchActivityLaps(int $activityId, string $accessToken): ?array {
+        if ($activityId <= 0) {
+            return null;
+        }
+        $url = 'https://www.strava.com/api/v3/activities/' . $activityId . '/laps';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, $this->getCurlOpts([
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $accessToken],
+        ]));
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($httpCode !== 200) {
+            return null;
+        }
+        $laps = json_decode($response, true);
+        return $this->normalizeActivityLaps($laps);
+    }
+
+    private function normalizeActivityLaps($laps): ?array {
+        if (!is_array($laps) || empty($laps)) {
+            return null;
+        }
+        $normalized = [];
+        $position = 1;
+        foreach ($laps as $lap) {
+            if (!is_array($lap)) {
+                continue;
+            }
+            $distanceM = isset($lap['distance']) ? (float)$lap['distance'] : 0.0;
+            $distanceKm = $distanceM > 0 ? round($distanceM / 1000, 3) : null;
+            $elapsedSeconds = isset($lap['elapsed_time']) ? (int)$lap['elapsed_time'] : null;
+            $movingSeconds = isset($lap['moving_time']) ? (int)$lap['moving_time'] : null;
+            $paceSeconds = null;
+            if ($distanceM > 0 && $movingSeconds !== null && $movingSeconds > 0) {
+                $paceSeconds = (int)round($movingSeconds / ($distanceM / 1000));
+            } elseif (isset($lap['average_speed']) && (float)$lap['average_speed'] > 0) {
+                $paceSeconds = (int)round(1000 / (float)$lap['average_speed']);
+            }
+            $normalized[] = [
+                'lap_index' => isset($lap['lap_index']) ? max(1, (int)$lap['lap_index']) : $position,
+                'name' => isset($lap['name']) && trim((string)$lap['name']) !== '' ? trim((string)$lap['name']) : ('Lap ' . $position),
+                'start_time' => !empty($lap['start_date_local'])
+                    ? date('Y-m-d H:i:s', strtotime((string)$lap['start_date_local']))
+                    : (!empty($lap['start_date']) ? date('Y-m-d H:i:s', strtotime((string)$lap['start_date'])) : null),
+                'elapsed_seconds' => $elapsedSeconds !== null && $elapsedSeconds > 0 ? $elapsedSeconds : null,
+                'moving_seconds' => $movingSeconds !== null && $movingSeconds > 0
+                    ? $movingSeconds
+                    : ($elapsedSeconds !== null && $elapsedSeconds > 0 ? $elapsedSeconds : null),
+                'distance_km' => $distanceKm,
+                'average_speed' => isset($lap['average_speed']) ? round((float)$lap['average_speed'], 3) : null,
+                'max_speed' => isset($lap['max_speed']) ? round((float)$lap['max_speed'], 3) : null,
+                'avg_pace' => $paceSeconds !== null ? sprintf('%d:%02d', (int)floor($paceSeconds / 60), (int)($paceSeconds % 60)) : null,
+                'pace_seconds_per_km' => $paceSeconds,
+                'avg_heart_rate' => isset($lap['average_heartrate']) ? (int)round((float)$lap['average_heartrate']) : null,
+                'max_heart_rate' => isset($lap['max_heartrate']) ? (int)round((float)$lap['max_heartrate']) : null,
+                'elevation_gain' => isset($lap['total_elevation_gain']) ? round((float)$lap['total_elevation_gain'], 2) : null,
+                'cadence' => isset($lap['average_cadence']) ? (int)round((float)$lap['average_cadence']) : null,
+                'start_index' => isset($lap['start_index']) ? (int)$lap['start_index'] : null,
+                'end_index' => isset($lap['end_index']) ? (int)$lap['end_index'] : null,
+            ];
+            $position++;
+        }
+        if (empty($normalized)) {
+            return null;
+        }
+        usort($normalized, static function (array $left, array $right): int {
+            return ($left['lap_index'] ?? 0) <=> ($right['lap_index'] ?? 0);
+        });
+        return array_values($normalized);
     }
 
     private function mapStravaActivitiesToWorkouts(array $activities): array {
@@ -407,6 +498,7 @@ class StravaProvider implements WorkoutImportProvider {
                 'elevation_gain' => $elevationGain,
                 'external_id' => 'strava_' . ($a['id'] ?? $startTime . '-' . ($distanceKm ?? 0)),
                 'timeline' => $a['strava_streams'] ?? null,
+                'laps' => $a['strava_laps'] ?? null,
             ];
         }
         return $workouts;
@@ -524,6 +616,90 @@ class StravaProvider implements WorkoutImportProvider {
         $stmt->close();
     }
 
+    /**
+     * Проверить и при необходимости восстановить webhook-подписку Strava для приложения.
+     *
+     * @return array{
+     *   ok: bool,
+     *   changed: bool,
+     *   subscription_id: ?int,
+     *   callback_url: ?string,
+     *   deleted_ids: int[],
+     *   error: ?string,
+     *   http_code: ?int,
+     *   response: ?string
+     * }
+     */
+    public function ensureWebhookSubscription(): array {
+        $result = [
+            'ok' => false,
+            'changed' => false,
+            'subscription_id' => null,
+            'callback_url' => null,
+            'deleted_ids' => [],
+            'error' => null,
+            'http_code' => null,
+            'response' => null,
+        ];
+
+        $callbackUrl = trim((string)((function_exists('env') ? env('STRAVA_WEBHOOK_CALLBACK_URL', '') : '') ?: ''));
+        $verifyToken = trim((string)((function_exists('env') ? env('STRAVA_WEBHOOK_VERIFY_TOKEN', 'planrun_verify') : '') ?: 'planrun_verify'));
+
+        if ($this->clientId === '' || $this->clientSecret === '' || $callbackUrl === '') {
+            $result['error'] = 'STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET and STRAVA_WEBHOOK_CALLBACK_URL are required';
+            return $result;
+        }
+
+        $result['callback_url'] = $callbackUrl;
+
+        $listResult = $this->listWebhookSubscriptions();
+        if (!$listResult['ok']) {
+            $result['error'] = $listResult['error'] ?? 'Unable to list webhook subscriptions';
+            $result['http_code'] = $listResult['http_code'] ?? null;
+            $result['response'] = $listResult['response'] ?? null;
+            return $result;
+        }
+
+        $subscriptions = $listResult['subscriptions'];
+        foreach ($subscriptions as $subscription) {
+            $subscriptionId = isset($subscription['id']) ? (int)$subscription['id'] : 0;
+            $subscriptionCallback = trim((string)($subscription['callback_url'] ?? ''));
+            if ($subscriptionId > 0 && $subscriptionCallback === $callbackUrl) {
+                $result['ok'] = true;
+                $result['subscription_id'] = $subscriptionId;
+                return $result;
+            }
+        }
+
+        foreach ($subscriptions as $subscription) {
+            $subscriptionId = isset($subscription['id']) ? (int)$subscription['id'] : 0;
+            if ($subscriptionId <= 0) {
+                continue;
+            }
+            $deleteResult = $this->deleteWebhookSubscription($subscriptionId);
+            if (!$deleteResult['ok']) {
+                $result['error'] = $deleteResult['error'];
+                $result['http_code'] = $deleteResult['http_code'];
+                $result['response'] = $deleteResult['response'];
+                return $result;
+            }
+            $result['deleted_ids'][] = $subscriptionId;
+        }
+
+        $createResult = $this->createWebhookSubscription($callbackUrl, $verifyToken);
+        if (!$createResult['ok']) {
+            $result['error'] = $createResult['error'];
+            $result['http_code'] = $createResult['http_code'];
+            $result['response'] = $createResult['response'];
+            return $result;
+        }
+
+        $result['ok'] = true;
+        $result['changed'] = true;
+        $result['subscription_id'] = $createResult['subscription_id'];
+        return $result;
+    }
+
     private function getTokenRow(int $userId): ?array {
         $stmt = $this->db->prepare("SELECT access_token, refresh_token, expires_at FROM integration_tokens WHERE user_id = ? AND provider = ?");
         $provider = $this->getProviderId();
@@ -550,5 +726,136 @@ class StravaProvider implements WorkoutImportProvider {
         $stmt->bind_param("isssss", $userId, $provider, $athleteId, $accessToken, $refreshToken, $expiresAt);
         $stmt->execute();
         $stmt->close();
+    }
+
+    private function listWebhookSubscriptions(): array {
+        $url = 'https://www.strava.com/api/v3/push_subscriptions?' . http_build_query([
+            'client_id' => $this->clientId,
+            'client_secret' => $this->clientSecret,
+        ]);
+        $apiResult = $this->callWebhookApi($url);
+        if (!$apiResult['ok']) {
+            return $apiResult;
+        }
+
+        $subscriptions = json_decode($apiResult['response'], true);
+        if (!is_array($subscriptions)) {
+            return [
+                'ok' => false,
+                'subscriptions' => [],
+                'error' => 'Invalid JSON while listing push subscriptions',
+                'http_code' => $apiResult['http_code'],
+                'response' => $apiResult['response'],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'subscriptions' => $subscriptions,
+            'error' => null,
+            'http_code' => $apiResult['http_code'],
+            'response' => $apiResult['response'],
+        ];
+    }
+
+    private function deleteWebhookSubscription(int $subscriptionId): array {
+        $url = 'https://www.strava.com/api/v3/push_subscriptions/' . $subscriptionId . '?' . http_build_query([
+            'client_id' => $this->clientId,
+            'client_secret' => $this->clientSecret,
+        ]);
+
+        $apiResult = $this->callWebhookApi($url, [
+            CURLOPT_CUSTOMREQUEST => 'DELETE',
+        ]);
+
+        if (!$apiResult['ok'] && (int)($apiResult['http_code'] ?? 0) !== 204) {
+            return $apiResult;
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'http_code' => $apiResult['http_code'],
+            'response' => $apiResult['response'],
+        ];
+    }
+
+    private function createWebhookSubscription(string $callbackUrl, string $verifyToken): array {
+        $apiResult = $this->callWebhookApi('https://www.strava.com/api/v3/push_subscriptions', [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'client_id' => $this->clientId,
+                'client_secret' => $this->clientSecret,
+                'callback_url' => $callbackUrl,
+                'verify_token' => $verifyToken,
+            ]),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+        ], [200, 201]);
+
+        if (!$apiResult['ok']) {
+            return $apiResult;
+        }
+
+        $data = json_decode($apiResult['response'], true);
+        $subscriptionId = isset($data['id']) ? (int)$data['id'] : 0;
+        if ($subscriptionId <= 0) {
+            return [
+                'ok' => false,
+                'subscription_id' => null,
+                'error' => 'Push subscription created but response does not contain id',
+                'http_code' => $apiResult['http_code'],
+                'response' => $apiResult['response'],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'subscription_id' => $subscriptionId,
+            'error' => null,
+            'http_code' => $apiResult['http_code'],
+            'response' => $apiResult['response'],
+        ];
+    }
+
+    private function callWebhookApi(string $url, array $extraOpts = [], array $successHttpCodes = [200, 204]): array {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, $this->getCurlOpts($extraOpts));
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlErr !== '') {
+            return [
+                'ok' => false,
+                'error' => $curlErr,
+                'http_code' => $httpCode,
+                'response' => $response ?: null,
+            ];
+        }
+
+        if (!in_array($httpCode, $successHttpCodes, true)) {
+            $error = null;
+            $data = json_decode($response ?: '', true);
+            if (is_array($data)) {
+                $error = $data['message'] ?? ($data['errors'][0]['message'] ?? null);
+            }
+            if ($error === null) {
+                $error = 'Strava webhook API request failed';
+            }
+            return [
+                'ok' => false,
+                'error' => $error,
+                'http_code' => $httpCode,
+                'response' => $response ?: null,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'http_code' => $httpCode,
+            'response' => $response ?: null,
+        ];
     }
 }

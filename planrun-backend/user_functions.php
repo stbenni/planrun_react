@@ -31,7 +31,6 @@ function getUserData($userId, $fields = null, $useCache = true) {
     if ($useCache) {
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
-            Logger::debug("User data loaded from cache", ['user_id' => $userId]);
             return $cached;
         }
     }
@@ -63,8 +62,9 @@ function getUserData($userId, $fields = null, $useCache = true) {
         
         // Кешируем результат (30 минут)
         if ($user && $useCache) {
-            Cache::set($cacheKey, $user, 1800);
-            Logger::debug("User data loaded from DB and cached", ['user_id' => $userId]);
+            if (Cache::set($cacheKey, $user, 1800)) {
+                Logger::debug("User data cached", ['user_id' => $userId]);
+            }
         }
         
         return $user;
@@ -129,7 +129,6 @@ function clearUserCache($userId = null) {
     
     if ($userId) {
         Cache::invalidate("user_data_{$userId}*");
-        Logger::debug("User cache cleared", ['user_id' => $userId]);
     }
 }
 
@@ -239,4 +238,3 @@ function generateUsernameSlug($username, $excludeUserId = null) {
     
     return $usernameSlug;
 }
-

@@ -520,7 +520,17 @@ class ChatContextBuilder {
             }
         }
 
-        $lines[] = "Для деталей тренировок — используй get_workouts или get_day_details.";
+        // Детализация: план vs факт по каждому дню текущей недели
+        $dayDetails = $this->getWeekDayByDayComparison($userId);
+        if (!empty($dayDetails)) {
+            $lines[] = "";
+            $lines[] = "ПЛАН vs ФАКТ (эта неделя):";
+            foreach ($dayDetails as $dd) {
+                $lines[] = "  {$dd}";
+            }
+        }
+
+        $lines[] = "Для детальных данных о конкретном дне — используй get_day_details(date).";
 
         return implode("\n", $lines);
     }
@@ -932,45 +942,54 @@ class ChatContextBuilder {
             }
         }
 
-        // Фактический результат из workout_log
+        // Фактические результаты из workout_log (ручные записи)
+        $allWorkouts = [];
         $stmt = $this->db->prepare(
-            "SELECT distance_km, result_time, pace, duration_minutes, avg_heart_rate, max_heart_rate, 
+            "SELECT distance_km, result_time, pace, duration_minutes, avg_heart_rate, max_heart_rate,
                     notes, rating, is_completed, avg_cadence, elevation_gain, calories, 'manual' AS source
-             FROM workout_log 
-             WHERE user_id = ? AND training_date = ? AND is_completed = 1 
-             LIMIT 1"
+             FROM workout_log
+             WHERE user_id = ? AND training_date = ? AND is_completed = 1
+             ORDER BY id DESC"
         );
         if ($stmt) {
             $stmt->bind_param('is', $userId, $date);
             $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            if ($row) {
-                $result['workout'] = $row;
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $allWorkouts[] = $row;
             }
+            $stmt->close();
         }
 
-        // Если нет записи в workout_log — проверяем таблицу workouts (импорт/Strava)
-        if (!$result['workout']) {
-            $stmtW = $this->db->prepare(
-                "SELECT distance_km, NULL AS result_time, avg_pace COLLATE utf8mb4_unicode_ci AS pace, duration_minutes,
-                        avg_heart_rate, max_heart_rate, NULL AS notes, NULL AS rating,
-                        1 AS is_completed, NULL AS avg_cadence, elevation_gain, calories,
-                        COALESCE(source, 'import') COLLATE utf8mb4_unicode_ci AS source,
-                        activity_type COLLATE utf8mb4_unicode_ci AS activity_type
-                 FROM workouts
-                 WHERE user_id = ? AND DATE(start_time) = ?
-                 ORDER BY start_time DESC LIMIT 1"
-            );
-            if ($stmtW) {
-                $stmtW->bind_param('is', $userId, $date);
-                $stmtW->execute();
-                $rowW = $stmtW->get_result()->fetch_assoc();
-                $stmtW->close();
-                if ($rowW) {
-                    $result['workout'] = $rowW;
-                }
+        // Результаты из таблицы workouts (импорт/Strava)
+        $stmtW = $this->db->prepare(
+            "SELECT distance_km, NULL AS result_time, avg_pace COLLATE utf8mb4_unicode_ci AS pace, duration_minutes,
+                    avg_heart_rate, max_heart_rate, NULL AS notes, NULL AS rating,
+                    1 AS is_completed, NULL AS avg_cadence, elevation_gain, calories,
+                    COALESCE(source, 'import') COLLATE utf8mb4_unicode_ci AS source,
+                    activity_type COLLATE utf8mb4_unicode_ci AS activity_type
+             FROM workouts
+             WHERE user_id = ? AND DATE(start_time) = ?
+             ORDER BY start_time ASC"
+        );
+        if ($stmtW) {
+            $stmtW->bind_param('is', $userId, $date);
+            $stmtW->execute();
+            $resW = $stmtW->get_result();
+            while ($rowW = $resW->fetch_assoc()) {
+                $allWorkouts[] = $rowW;
             }
+            $stmtW->close();
+        }
+
+        if (count($allWorkouts) === 1) {
+            $result['workout'] = $allWorkouts[0];
+        } elseif (count($allWorkouts) > 1) {
+            // Несколько тренировок за день — возвращаем массив
+            $result['workouts'] = $allWorkouts;
+            // Для обратной совместимости: workout = основная (самая длинная дистанция)
+            usort($allWorkouts, fn($a, $b) => ((float)($b['distance_km'] ?? 0)) <=> ((float)($a['distance_km'] ?? 0)));
+            $result['workout'] = $allWorkouts[0];
         }
 
         return $result;
@@ -1034,13 +1053,7 @@ class ChatContextBuilder {
                     )
                 WHERE w.user_id = ?
                     AND DATE(w.start_time) >= ?
-                    AND DATE(w.start_time) <= ?
-                    AND NOT EXISTS (
-                        SELECT 1 FROM workout_log wl2
-                        WHERE wl2.user_id = w.user_id
-                          AND wl2.training_date = DATE(w.start_time)
-                          AND wl2.is_completed = 1
-                    ))
+                    AND DATE(w.start_time) <= ?)
                 ORDER BY date ASC
                 LIMIT ?";
 

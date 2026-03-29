@@ -53,12 +53,18 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
 4. Для rest-дней можно добавить "notes" типа "Активное восстановление: прогулка 30 мин" (не для каждого).
 
 СТРОГИЕ ПРАВИЛА:
-- ПИШИ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. Никакого английского текста в notes.
+- ⚠ ЯЗЫК: ВСЕ notes ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. Никакого английского.
+  Правильно: "Разминка 2 км. 5×1000м в темпе 4:40, пауза 400м трусцой. Заминка 1.5 км"
+  Неправильно: "Warm up 2 km. 5x1000m at 4:40 pace, 400m jog recovery. Cool down 1.5 km"
+  Правильно: "Лёгкий восстановительный бег. Следи за пульсом, не торопись."
+  Неправильно: "Easy recovery run. Keep your heart rate low."
 - НЕ МЕНЯЙ числовые поля: distance_km, pace, reps, interval_m, rest_m, warmup_km, cooldown_km, tempo_km, duration_minutes
 - НЕ МЕНЯЙ type
 - НЕ ДОБАВЛЯЙ и НЕ УДАЛЯЙ дни или недели
 - НЕ МЕНЯЙ week_number, phase, phase_label, is_recovery
 - Только ДОБАВЛЯЙ поле "notes" (строка, на русском языке)
+
+НАПОМИНАНИЕ: Весь текст в notes — строго на русском языке. Без исключений.
 
 Верни JSON — массив weeks[] того же формата, с добавленными notes.
 PROMPT;

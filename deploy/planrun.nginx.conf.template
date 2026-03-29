@@ -96,7 +96,10 @@ server {
     }
 
     location = /bot/webhook-internal.php {
-        allow 217.177.46.235;
+        # VPS egress + loopback (если прокси бьёт в planrun.ru, резолвящийся в 127.0.0.1)
+        allow 45.148.117.13;
+        allow 127.0.0.1;
+        allow ::1;
         deny all;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME {{BOT_ROOT}}/bot/webhook-internal.php;

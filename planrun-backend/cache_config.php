@@ -144,71 +144,112 @@ class MemcachedCache extends CacheInterface {
  */
 class FileCache extends CacheInterface {
     private $dir;
-    
+    private $available = true;
+
     public function __construct() {
         $this->dir = CACHE_DIR;
-        if (!is_dir($this->dir)) {
-            mkdir($this->dir, 0775, true);
-        }
+        $this->available = $this->ensureDirectory($this->dir);
     }
-    
+
+    private function ensureDirectory($dir) {
+        if (is_dir($dir)) {
+            return is_writable($dir);
+        }
+
+        if (@mkdir($dir, 0775, true)) {
+            return true;
+        }
+
+        return is_dir($dir) && is_writable($dir);
+    }
+
     private function getFilePath($key) {
         $hash = md5($key);
         return $this->dir . '/' . substr($hash, 0, 2) . '/' . $hash . '.cache';
     }
-    
+
     public function get($key) {
-        $file = $this->getFilePath($key);
-        
-        if (!file_exists($file)) {
+        if (!$this->available) {
             return null;
         }
-        
-        $data = unserialize(file_get_contents($file), ['allowed_classes' => false]);
-        
+
+        $file = $this->getFilePath($key);
+
+        if (!is_file($file) || !is_readable($file)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($file);
+        if ($raw === false) {
+            return null;
+        }
+
+        $data = @unserialize($raw, ['allowed_classes' => false]);
+        if (!is_array($data) || !array_key_exists('expires', $data)) {
+            @unlink($file);
+            return null;
+        }
+
         // Проверяем TTL
         if ($data['expires'] < time()) {
             @unlink($file);
             return null;
         }
-        
-        return $data['value'];
+
+        return $data['value'] ?? null;
     }
-    
+
     public function set($key, $value, $ttl = null) {
+        if (!$this->available) {
+            return false;
+        }
+
         $ttl = $ttl ?? CACHE_DEFAULT_TTL;
         $file = $this->getFilePath($key);
         $dir = dirname($file);
-        
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+
+        if (!$this->ensureDirectory($dir)) {
+            return false;
         }
-        
+
         $data = [
+            'key' => $key,
             'value' => $value,
             'expires' => time() + $ttl
         ];
-        
-        return file_put_contents($file, serialize($data)) !== false;
+
+        return @file_put_contents($file, serialize($data)) !== false;
     }
-    
+
     public function delete($key) {
+        if (!$this->available) {
+            return false;
+        }
+
         $file = $this->getFilePath($key);
-        return @unlink($file);
+        return !file_exists($file) || @unlink($file);
     }
-    
+
     public function clear() {
-        $files = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->dir, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
-        
+        if (!is_dir($this->dir) || !is_readable($this->dir)) {
+            return true;
+        }
+
+        try {
+            $files = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($this->dir, RecursiveDirectoryIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+        } catch (Throwable $e) {
+            return false;
+        }
+
         foreach ($files as $file) {
             if ($file->isFile() && $file->getExtension() === 'cache') {
                 @unlink($file->getRealPath());
             }
         }
-        
+
         return true;
     }
 }
@@ -275,18 +316,42 @@ class Cache {
      */
     public static function invalidate($pattern) {
         $cache = getCache();
-        
+
         // Для файлового кеша
         if ($cache instanceof FileCache) {
-            $files = glob(__DIR__ . '/cache/**/*.cache');
+            if (!is_dir(CACHE_DIR) || !is_readable(CACHE_DIR)) {
+                return false;
+            }
+
+            $deleted = false;
+            try {
+                $files = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator(CACHE_DIR, RecursiveDirectoryIterator::SKIP_DOTS)
+                );
+            } catch (Throwable $e) {
+                return false;
+            }
+
             foreach ($files as $file) {
-                $content = unserialize(file_get_contents($file), ['allowed_classes' => false]);
-                if (isset($content['key']) && fnmatch($pattern, $content['key'])) {
-                    @unlink($file);
+                if (!$file->isFile() || $file->getExtension() !== 'cache') {
+                    continue;
+                }
+
+                $raw = @file_get_contents($file->getRealPath());
+                if ($raw === false) {
+                    continue;
+                }
+
+                $content = @unserialize($raw, ['allowed_classes' => false]);
+                $cacheKey = is_array($content) ? ($content['key'] ?? null) : null;
+                if ($cacheKey !== null && fnmatch($pattern, $cacheKey)) {
+                    $deleted = @unlink($file->getRealPath()) || $deleted;
                 }
             }
+
+            return $deleted;
         }
-        
+
         // Для других типов кеша просто удаляем по ключу
         return $cache->delete($pattern);
     }
@@ -298,6 +363,4 @@ class Cache {
         return getCache()->clear();
     }
 }
-
-
 

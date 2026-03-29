@@ -3,7 +3,7 @@
  * Анимация как в Telegram: плавно перемещающаяся «таблетка» под активной вкладкой.
  */
 
-import React, { useRef, useLayoutEffect, useState, useMemo } from 'react';
+import { useRef, useLayoutEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers, NavIconUsers, NavIconMail } from './BottomNavIcons';
 import useAuthStore from '../../stores/useAuthStore';
@@ -31,7 +31,7 @@ const BottomNav = () => {
   const isCoach = role === 'coach';
   const tabs = useMemo(() => isCoach ? coachTabs : userTabs, [isCoach]);
   const navRef = useRef(null);
-  const [pillStyle, setPillStyle] = useState({ left: 0, width: 0 });
+  const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, visible: false });
 
   const isActive = (path) => {
     if (path === '/') {
@@ -44,15 +44,22 @@ const BottomNav = () => {
 
   const updatePill = () => {
     const nav = navRef.current;
-    if (!nav) return;
+    if (!nav) {
+      setPillStyle({ left: 0, width: 0, visible: false });
+      return;
+    }
     const active = nav.querySelector('.nav-item.active');
-    if (!active) return;
+    if (!active) {
+      setPillStyle({ left: 0, width: 0, visible: false });
+      return;
+    }
     const navRect = nav.getBoundingClientRect();
     const itemRect = active.getBoundingClientRect();
     const w = Math.max(MIN_PILL_WIDTH, itemRect.width);
     setPillStyle({
       left: itemRect.left - navRect.left + ((itemRect.width - w) / 2),
-      width: w
+      width: w,
+      visible: true
     });
   };
 
@@ -67,7 +74,7 @@ const BottomNav = () => {
 
   return (
     <nav ref={navRef} className="bottom-nav" style={{ '--pill-left': `${pillStyle.left}px`, '--pill-width': `${pillStyle.width}px` }}>
-      <span className="nav-pill" aria-hidden="true" />
+      <span className={`nav-pill ${pillStyle.visible ? '' : 'nav-pill--hidden'}`.trim()} aria-hidden="true" />
       {tabs.map(tab => {
         const Icon = tab.Icon;
         return (

@@ -156,6 +156,23 @@ class StatsController extends BaseController {
     }
 
     /**
+     * Тренировочная нагрузка (TRIMP / ATL / CTL / TSB)
+     * GET /api_v2.php?action=training_load&days=90
+     */
+    public function trainingLoad() {
+        try {
+            require_once __DIR__ . '/../services/TrainingLoadService.php';
+            $service = new TrainingLoadService($this->db);
+            $days = (int)($this->getParam('days') ?: 90);
+            $days = min(max($days, 30), 365);
+            $data = $service->getTrainingLoad($this->calendarUserId, $days);
+            $this->returnSuccess($data);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Riegel formula: T2 = T1 * (D2/D1)^1.06
      */
     private function riegelPredictAll(float $knownDistKm, int $knownTimeSec): array {

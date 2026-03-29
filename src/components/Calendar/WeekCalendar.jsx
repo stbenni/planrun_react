@@ -701,15 +701,21 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
                       const typeKey = (workout.activity_type ?? workout.type ?? 'run').toLowerCase().trim();
                       const typeName = TYPE_NAMES[typeKey] || typeKey;
                       const workoutId = workout.is_manual ? `log_${workout.id}` : (workout.id ?? workout.workout_id);
+                      const immediateDayData = {
+                        ...dayDetail,
+                        planDays: dayDetail.planDays || [],
+                        dayExercises: dayDetail.dayExercises || [],
+                        workouts,
+                      };
                       return (
                         <div
                           key={workout.id || workout.workout_id || Math.random()}
                           className="workout-item"
-                          onClick={onOpenWorkoutDetails ? () => onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId) : undefined}
+                          onClick={onOpenWorkoutDetails ? () => onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId, immediateDayData) : undefined}
                           style={{ cursor: onOpenWorkoutDetails ? 'pointer' : 'default' }}
                           role={onOpenWorkoutDetails ? 'button' : undefined}
                           tabIndex={onOpenWorkoutDetails ? 0 : undefined}
-                          onKeyDown={onOpenWorkoutDetails ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId); } } : undefined}
+                          onKeyDown={onOpenWorkoutDetails ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenWorkoutDetails(selectedDay.date, selectedDay.weekNumber ?? 1, selectedDay.dayKey, workoutId, immediateDayData); } } : undefined}
                         >
                           <div className="workout-item-type" data-type={typeKey}>
                             <ActivityTypeIcon type={typeKey} className="workout-item-type__icon" aria-hidden />

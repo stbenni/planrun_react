@@ -133,7 +133,13 @@ try {
         $review = generatePlanReview($planData, $reviewStartDate, $mode);
         if ($review !== null && $review !== '') {
             $chatService = new ChatService($db);
-            $chatService->addAIMessageToUser($userId, $review);
+            $eventKey = $isNextPlan ? 'plan.next_generated' : ($isRecalculate ? 'plan.recalculated' : 'plan.generated');
+            $title = $isNextPlan ? 'Следующий план готов' : ($isRecalculate ? 'План пересчитан' : 'План сгенерирован');
+            $chatService->addAIMessageToUser($userId, $review, [
+                'event_key' => $eventKey,
+                'title' => $title,
+                'link' => '/chat',
+            ]);
             error_log("generate_plan_async.php: Рецензия плана добавлена в чат пользователя {$userId}");
         }
     } catch (Exception $reviewEx) {

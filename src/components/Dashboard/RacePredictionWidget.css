@@ -108,6 +108,9 @@
   font-weight: var(--font-normal);
   color: var(--text-secondary);
 }
+.race-prediction__vdot-source--low {
+  color: var(--warning-500, #d97706);
+}
 
 /* Goal countdown — как metric-card: фон gray-50, бордер */
 .race-prediction__goal {

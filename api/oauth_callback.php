@@ -1,6 +1,6 @@
 <?php
 /**
- * OAuth callback для интеграций (Huawei, Garmin, Strava).
+ * OAuth callback для интеграций (Huawei, Strava, Polar, Garmin, COROS).
  * Поддерживает два режима:
  *  1. Web (сессия) — классический redirect flow
  *  2. Mobile app (подписанный state) — In-App Browser без общей сессии
@@ -76,8 +76,16 @@ require_once $projectRoot . '/planrun-backend/providers/WorkoutImportProvider.ph
 require_once $projectRoot . '/planrun-backend/providers/HuaweiHealthProvider.php';
 require_once $projectRoot . '/planrun-backend/providers/StravaProvider.php';
 require_once $projectRoot . '/planrun-backend/providers/PolarProvider.php';
+require_once $projectRoot . '/planrun-backend/providers/GarminProvider.php';
+require_once $projectRoot . '/planrun-backend/providers/CorosProvider.php';
 
-$providers = ['huawei' => HuaweiHealthProvider::class, 'strava' => StravaProvider::class, 'polar' => PolarProvider::class];
+$providers = [
+    'huawei' => HuaweiHealthProvider::class,
+    'strava' => StravaProvider::class,
+    'polar' => PolarProvider::class,
+    'garmin' => GarminProvider::class,
+    'coros' => CorosProvider::class,
+];
 if (!isset($providers[$providerId])) {
     header('Location: ' . $redirectBase . '&error=unknown_provider');
     exit;
@@ -97,6 +105,16 @@ try {
     $provider->exchangeCodeForTokens($code, $state);
     if ($providerId === 'strava') {
         $provider->ensureIntegrationHealthy($userId);
+    }
+    if ($providerId === 'polar' && $provider instanceof PolarProvider) {
+        $wh = $provider->ensureWebhookSubscription();
+        if (empty($wh['ok'])) {
+            require_once $projectRoot . '/planrun-backend/config/Logger.php';
+            Logger::warning('Polar webhook ensure failed after OAuth', [
+                'user_id' => $userId,
+                'error' => $wh['error'] ?? 'unknown',
+            ]);
+        }
     }
 
     if ($isFromApp) {

@@ -31,16 +31,6 @@ class TrainingPlanController extends BaseController {
     }
     
     /**
-     * Сохранить план тренировок
-     * POST /api_v2.php?action=save
-     * 
-     * TODO: Реализовать сохранение плана
-     */
-    public function save() {
-        $this->returnError('Сохранение плана пока не реализовано. Используйте редактирование через интерфейс.', 501);
-    }
-    
-    /**
      * Проверить статус плана
      * GET /api_v2.php?action=check_plan_status
      */

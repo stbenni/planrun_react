@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import { isNativeCapacitor } from '../services/TokenStorageService';
 import './LoginScreen.css';
 
 const LoginScreen = ({ onLogin }) => {
@@ -30,7 +31,7 @@ const LoginScreen = ({ onLogin }) => {
     
     try {
       // Используем JWT для мобильных приложений
-      const useJwt = typeof window !== 'undefined' && window.Capacitor;
+      const useJwt = isNativeCapacitor();
       
       // Используем onLogin из props, если передан, иначе из store
       const loginFn = onLogin || login;

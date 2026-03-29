@@ -13,8 +13,9 @@ import './AdminScreen.css';
 
 const TAB_USERS = 'users';
 const TAB_SETTINGS = 'settings';
+const TAB_NOTIFICATION_TEMPLATES = 'notification_templates';
 const TAB_COACH_APPS = 'coach_apps';
-const ADMIN_TABS = [TAB_USERS, TAB_SETTINGS, TAB_COACH_APPS];
+const ADMIN_TABS = [TAB_USERS, TAB_SETTINGS, TAB_NOTIFICATION_TEMPLATES, TAB_COACH_APPS];
 const ROLES = [{ value: 'user', label: 'Пользователь' }, { value: 'coach', label: 'Тренер' }, { value: 'admin', label: 'Администратор' }];
 
 const GOAL_TYPE_LABELS = {
@@ -97,6 +98,78 @@ function renderApplicationField(label, value, className = '') {
   );
 }
 
+function normalizeNotificationTemplateGroups(groups) {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
+
+  return groups
+    .filter((group) => group && typeof group === 'object')
+    .map((group) => ({
+      key: String(group.key || ''),
+      label: String(group.label || ''),
+      description: String(group.description || ''),
+      events: Array.isArray(group.events)
+        ? group.events
+          .filter((event) => event && typeof event === 'object' && event.event_key)
+          .map((event) => ({
+            event_key: String(event.event_key || ''),
+            label: String(event.label || event.event_key || ''),
+            description: String(event.description || ''),
+            placeholders: Array.isArray(event.placeholders) ? event.placeholders.map((token) => String(token || '')).filter(Boolean) : [],
+            defaults: {
+              title_template: String(event.defaults?.title_template || ''),
+              body_template: String(event.defaults?.body_template || ''),
+              link_template: String(event.defaults?.link_template || ''),
+              email_action_label_template: String(event.defaults?.email_action_label_template || ''),
+            },
+            overrides: {
+              title_template: String(event.overrides?.title_template || ''),
+              body_template: String(event.overrides?.body_template || ''),
+              link_template: String(event.overrides?.link_template || ''),
+              email_action_label_template: String(event.overrides?.email_action_label_template || ''),
+            },
+            has_override: Boolean(event.has_override),
+            updated_at: String(event.updated_at || ''),
+            updated_by: event.updated_by ?? null,
+          }))
+        : [],
+    }))
+    .filter((group) => group.events.length > 0);
+}
+
+function buildNotificationTemplateDrafts(groups) {
+  return groups.reduce((acc, group) => {
+    (group.events || []).forEach((event) => {
+      acc[event.event_key] = {
+        title_template: event.overrides?.title_template || '',
+        body_template: event.overrides?.body_template || '',
+        link_template: event.overrides?.link_template || '',
+        email_action_label_template: event.overrides?.email_action_label_template || '',
+      };
+    });
+    return acc;
+  }, {});
+}
+
+function formatNotificationTemplateUpdatedAt(value) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function AdminScreen() {
   const navigate = useNavigate();
   const { user, api } = useAuthStore();
@@ -106,6 +179,7 @@ export default function AdminScreen() {
   const [csrfToken, setCsrfToken] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   // Пользователи
   const [users, setUsers] = useState([]);
@@ -141,6 +215,13 @@ export default function AdminScreen() {
     contact_email: '',
   });
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Шаблоны уведомлений
+  const [notificationTemplateGroups, setNotificationTemplateGroups] = useState([]);
+  const [notificationTemplateDrafts, setNotificationTemplateDrafts] = useState({});
+  const [notificationTemplatesLoading, setNotificationTemplatesLoading] = useState(false);
+  const [savingTemplateKey, setSavingTemplateKey] = useState('');
+  const [resettingTemplateKey, setResettingTemplateKey] = useState('');
 
   // Заявки тренеров
   const [coachApps, setCoachApps] = useState([]);
@@ -213,6 +294,24 @@ export default function AdminScreen() {
     }
   }, [api]);
 
+  const loadNotificationTemplates = useCallback(async () => {
+    if (!api) return;
+    setNotificationTemplatesLoading(true);
+    try {
+      const res = await api.getAdminNotificationTemplates();
+      const data = res?.data ?? res;
+      const groups = normalizeNotificationTemplateGroups(data?.groups ?? []);
+      setNotificationTemplateGroups(groups);
+      setNotificationTemplateDrafts(buildNotificationTemplateDrafts(groups));
+    } catch (e) {
+      setError(e.message || 'Ошибка загрузки шаблонов уведомлений');
+      setNotificationTemplateGroups([]);
+      setNotificationTemplateDrafts({});
+    } finally {
+      setNotificationTemplatesLoading(false);
+    }
+  }, [api]);
+
   const handleApproveCoach = async (appId) => {
     if (!api) return;
     try {
@@ -242,8 +341,9 @@ export default function AdminScreen() {
     if (!isAdmin || !api) return;
     if (tab === TAB_USERS) loadUsers();
     if (tab === TAB_SETTINGS) loadSettings();
+    if (tab === TAB_NOTIFICATION_TEMPLATES) loadNotificationTemplates();
     if (tab === TAB_COACH_APPS) loadCoachApps();
-  }, [isAdmin, api, tab, loadUsers, loadSettings, loadCoachApps]);
+  }, [isAdmin, api, tab, loadUsers, loadSettings, loadNotificationTemplates, loadCoachApps]);
 
   useEffect(() => {
     if (!isAdmin || !api || !isAdminRouteActive || tab !== TAB_COACH_APPS) {
@@ -252,23 +352,17 @@ export default function AdminScreen() {
 
     loadCoachApps();
 
-    const refreshCoachApps = () => {
-      loadCoachApps();
-    };
-
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        refreshCoachApps();
+        loadCoachApps();
       }
     };
 
-    const intervalId = window.setInterval(refreshCoachApps, 15000);
-    window.addEventListener('focus', refreshCoachApps);
+    const intervalId = window.setInterval(loadCoachApps, 60000);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', refreshCoachApps);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isAdmin, api, isAdminRouteActive, tab, loadCoachApps]);
@@ -338,6 +432,7 @@ export default function AdminScreen() {
     if (!api || !csrfToken) return;
     setSavingSettings(true);
     setError('');
+    setNotice('');
     try {
       await api.updateAdminSettings({
         csrf_token: csrfToken,
@@ -350,12 +445,74 @@ export default function AdminScreen() {
         },
       });
       await loadSettings();
+      setNotice('Настройки сайта сохранены');
     } catch (e) {
       setError(e.message || 'Ошибка сохранения настроек');
     } finally {
       setSavingSettings(false);
     }
   };
+
+  const handleTemplateDraftChange = useCallback((eventKey, field, value) => {
+    setNotificationTemplateDrafts((prev) => ({
+      ...prev,
+      [eventKey]: {
+        ...(prev[eventKey] || {}),
+        [field]: value,
+      },
+    }));
+  }, []);
+
+  const handleSaveNotificationTemplate = useCallback(async (eventKey) => {
+    if (!api || !csrfToken || !eventKey) {
+      return;
+    }
+
+    setSavingTemplateKey(eventKey);
+    setError('');
+    setNotice('');
+
+    try {
+      const draft = notificationTemplateDrafts[eventKey] || {};
+      await api.updateAdminNotificationTemplate({
+        csrf_token: csrfToken,
+        event_key: eventKey,
+        title_template: draft.title_template || '',
+        body_template: draft.body_template || '',
+        link_template: draft.link_template || '',
+        email_action_label_template: draft.email_action_label_template || '',
+      });
+      await loadNotificationTemplates();
+      setNotice('Шаблон уведомления сохранён');
+    } catch (e) {
+      setError(e.message || 'Ошибка сохранения шаблона уведомления');
+    } finally {
+      setSavingTemplateKey('');
+    }
+  }, [api, csrfToken, loadNotificationTemplates, notificationTemplateDrafts]);
+
+  const handleResetNotificationTemplate = useCallback(async (eventKey) => {
+    if (!api || !csrfToken || !eventKey) {
+      return;
+    }
+
+    setResettingTemplateKey(eventKey);
+    setError('');
+    setNotice('');
+
+    try {
+      await api.resetAdminNotificationTemplate({
+        csrf_token: csrfToken,
+        event_key: eventKey,
+      });
+      await loadNotificationTemplates();
+      setNotice('Шаблон уведомления сброшен к значениям по умолчанию');
+    } catch (e) {
+      setError(e.message || 'Ошибка сброса шаблона уведомления');
+    } finally {
+      setResettingTemplateKey('');
+    }
+  }, [api, csrfToken, loadNotificationTemplates]);
 
   if (!user) {
     return (
@@ -393,6 +550,15 @@ export default function AdminScreen() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === TAB_NOTIFICATION_TEMPLATES}
+          className={`admin-tab ${tab === TAB_NOTIFICATION_TEMPLATES ? 'active' : ''}`}
+          onClick={() => setTab(TAB_NOTIFICATION_TEMPLATES)}
+        >
+          Шаблоны уведомлений
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === TAB_COACH_APPS}
           className={`admin-tab ${tab === TAB_COACH_APPS ? 'active' : ''}`}
           onClick={() => setTab(TAB_COACH_APPS)}
@@ -405,6 +571,12 @@ export default function AdminScreen() {
       {error && (
         <div className="admin-error" role="alert">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="admin-success" role="status">
+          {notice}
         </div>
       )}
 
@@ -574,6 +746,142 @@ export default function AdminScreen() {
             {savingSettings ? 'Сохранение…' : 'Сохранить настройки'}
           </button>
         </form>
+        </section>
+      )}
+
+      {tab === TAB_NOTIFICATION_TEMPLATES && (
+        <section className="admin-section" aria-label="Шаблоны уведомлений">
+          <div className="admin-template-head">
+            <div>
+              <h2 className="admin-template-title">Шаблоны уведомлений</h2>
+              <p className="admin-template-desc">
+                Пустое поле оставляет дефолт из кода. Для динамических частей используйте переменные вида <code>{'{{body}}'}</code>.
+              </p>
+            </div>
+          </div>
+
+          {notificationTemplatesLoading ? (
+            <div className="admin-loading"><LogoLoading size="sm" /></div>
+          ) : notificationTemplateGroups.length === 0 ? (
+            <p className="admin-empty">Пока нет доступных шаблонов уведомлений</p>
+          ) : (
+            <div className="admin-template-groups">
+              {notificationTemplateGroups.map((group) => (
+                <div key={group.key} className="admin-template-group">
+                  <div className="admin-template-group-head">
+                    <h3>{group.label}</h3>
+                    {group.description && <p>{group.description}</p>}
+                  </div>
+
+                  <div className="admin-template-list">
+                    {group.events.map((event) => {
+                      const draft = notificationTemplateDrafts[event.event_key] || {
+                        title_template: '',
+                        body_template: '',
+                        link_template: '',
+                        email_action_label_template: '',
+                      };
+                      const updatedAt = formatNotificationTemplateUpdatedAt(event.updated_at);
+                      const isSaving = savingTemplateKey === event.event_key;
+                      const isResetting = resettingTemplateKey === event.event_key;
+
+                      return (
+                        <article key={event.event_key} className="admin-template-card">
+                          <div className="admin-template-card-head">
+                            <div>
+                              <h4>{event.label}</h4>
+                              {event.description && <p>{event.description}</p>}
+                            </div>
+                            <div className="admin-template-card-meta">
+                              <span className={`admin-template-status ${event.has_override ? 'is-custom' : ''}`}>
+                                {event.has_override ? 'Переопределён' : 'По умолчанию'}
+                              </span>
+                              {updatedAt && <span className="admin-template-updated">Обновлён: {updatedAt}</span>}
+                            </div>
+                          </div>
+
+                          {event.placeholders.length > 0 && (
+                            <div className="admin-template-placeholders">
+                              {event.placeholders.map((token) => (
+                                <span key={`${event.event_key}-${token}`} className="admin-template-token">
+                                  {`{{${token}}}`}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="admin-template-defaults">
+                            <div><strong>По умолчанию, title:</strong> {event.defaults.title_template || '—'}</div>
+                            <div><strong>По умолчанию, body:</strong> {event.defaults.body_template || '—'}</div>
+                            <div><strong>По умолчанию, link:</strong> {event.defaults.link_template || '—'}</div>
+                            <div><strong>По умолчанию, CTA:</strong> {event.defaults.email_action_label_template || '—'}</div>
+                          </div>
+
+                          <div className="admin-template-grid">
+                            <div className="admin-form-group">
+                              <label>Title override</label>
+                              <input
+                                type="text"
+                                value={draft.title_template}
+                                onChange={(e) => handleTemplateDraftChange(event.event_key, 'title_template', e.target.value)}
+                                placeholder={event.defaults.title_template || 'Оставьте пустым для дефолта'}
+                              />
+                            </div>
+                            <div className="admin-form-group">
+                              <label>Link override</label>
+                              <input
+                                type="text"
+                                value={draft.link_template}
+                                onChange={(e) => handleTemplateDraftChange(event.event_key, 'link_template', e.target.value)}
+                                placeholder={event.defaults.link_template || 'Оставьте пустым для дефолта'}
+                              />
+                            </div>
+                            <div className="admin-form-group admin-form-group--full">
+                              <label>Body override</label>
+                              <textarea
+                                value={draft.body_template}
+                                onChange={(e) => handleTemplateDraftChange(event.event_key, 'body_template', e.target.value)}
+                                placeholder={event.defaults.body_template || 'Оставьте пустым для дефолта'}
+                                rows={4}
+                              />
+                            </div>
+                            <div className="admin-form-group">
+                              <label>CTA override</label>
+                              <input
+                                type="text"
+                                value={draft.email_action_label_template}
+                                onChange={(e) => handleTemplateDraftChange(event.event_key, 'email_action_label_template', e.target.value)}
+                                placeholder={event.defaults.email_action_label_template || 'Оставьте пустым для дефолта'}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="admin-template-actions">
+                            <button
+                              type="button"
+                              className="btn btn-primary admin-btn-save"
+                              onClick={() => handleSaveNotificationTemplate(event.event_key)}
+                              disabled={isSaving || isResetting}
+                            >
+                              {isSaving ? 'Сохраняем...' : 'Сохранить'}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn-reset-template"
+                              onClick={() => handleResetNotificationTemplate(event.event_key)}
+                              disabled={isSaving || isResetting}
+                            >
+                              {isResetting ? 'Сбрасываем...' : 'Сбросить'}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 

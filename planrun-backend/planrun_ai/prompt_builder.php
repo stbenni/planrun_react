@@ -158,7 +158,7 @@ function getSuggestedPlanWeeks($userData, $goalType) {
     if (!empty($endStr)) {
         $end = strtotime($endStr);
         if ($end > $start) {
-            return (int) max(4, ceil(($end - $start) / (7 * 86400)));
+            return (int) ceil(($end - $start) / (7 * 86400));
         }
     }
 
@@ -488,10 +488,30 @@ function assessGoalRealism(array $userData): array {
     $distLabels = ['5k' => '5 км', '10k' => '10 км', 'half' => 'полумарафон', '21.1k' => 'полумарафон', 'marathon' => 'марафон', '42.2k' => 'марафон'];
     $distLabel = $distLabels[$dist] ?? $dist;
 
+    // Если дистанция не выбрана — не можем оценить
+    if (!$dist || !$targetKm) {
+        return ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+    }
+
     $weeklyKm = (float) ($userData['weekly_base_km'] ?? 0);
     $sessions = (int) ($userData['sessions_per_week'] ?? 3);
     $expLevel = $userData['experience_level'] ?? 'novice';
     $isNovice = in_array($expLevel, ['novice', 'beginner']);
+
+    // Если weekly_base_km не указан (0), но есть данные о забегах/темпе — оценить базу
+    if ($weeklyKm <= 0) {
+        $hasRaceHistory = !empty($userData['last_race_time']) && !empty($userData['last_race_distance']);
+        $hasPace = !empty($userData['easy_pace_sec']) || !empty($userData['comfortable_pace']);
+        if ($hasRaceHistory || $hasPace) {
+            // Бегун указал результаты — значит бегает, оценим по сессиям и темпу
+            $estSessions = max($sessions, 3);
+            $estAvgRun = 6.0; // средняя пробежка 6 км для любителя
+            if (!$isNovice) $estAvgRun = 8.0;
+            $weeklyKm = round($estSessions * $estAvgRun, 1);
+            $userData['weekly_base_km'] = $weeklyKm;
+            $userData['_weekly_km_estimated'] = true;
+        }
+    }
 
     $totalWeeks = getSuggestedPlanWeeks($userData, $goalType);
 
@@ -511,7 +531,8 @@ function assessGoalRealism(array $userData): array {
     $recWeeks = $minWeeks[$dist]['novice'] ?? 12;
 
     if ($totalWeeks !== null && $totalWeeks < $reqWeeks) {
-        $suggestedDate = date('Y-m-d', strtotime(($userData['training_start_date'] ?? 'now') . " +{$recWeeks} weeks"));
+        $suggestedWeeks = $reqWeeks; // предлагаем минимум для текущего уровня, не для novice
+        $suggestedDate = date('Y-m-d', strtotime(($userData['training_start_date'] ?? 'now') . " +{$suggestedWeeks} weeks"));
         $shorterDist = null;
         $shorterLabel = null;
         $distOrder = ['5k', '10k', 'half', 'marathon'];
@@ -528,7 +549,7 @@ function assessGoalRealism(array $userData): array {
             'text' => "Для подготовки к дистанции «{$distLabel}» рекомендуется минимум {$reqWeeks} недель" . ($isNovice ? ' (для вашего уровня)' : '') . ". У вас {$totalWeeks}.",
             'suggestions' => [],
         ];
-        $msg['suggestions'][] = ['text' => "Перенести забег на {$suggestedDate} ({$recWeeks} нед.)", 'action' => ['field' => 'race_date', 'value' => $suggestedDate]];
+        $msg['suggestions'][] = ['text' => "Перенести забег на {$suggestedDate} ({$suggestedWeeks} нед.)", 'action' => ['field' => 'race_date', 'value' => $suggestedDate]];
         if ($shorterDist) {
             $msg['suggestions'][] = ['text' => "Выбрать {$shorterLabel}", 'action' => ['field' => 'race_distance', 'value' => $shorterDist]];
         }
@@ -547,11 +568,12 @@ function assessGoalRealism(array $userData): array {
     $absMin = $minKm[$dist]['abs'] ?? 0;
     $recMin = $minKm[$dist]['rec'] ?? 0;
 
+    $volumeNote = !empty($userData['_weekly_km_estimated']) ? " (оценка по вашим данным)" : "";
     if ($weeklyKm < $absMin) {
         $severities[] = 'unrealistic';
         $messages[] = [
             'type' => 'error',
-            'text' => "Ваш текущий объём ({$weeklyKm} км/нед) слишком мал для {$distLabel}. Минимум {$absMin} км/нед, рекомендуется {$recMin}+.",
+            'text' => "Ваш текущий объём ({$weeklyKm} км/нед{$volumeNote}) слишком мал для {$distLabel}. Минимум {$absMin} км/нед, рекомендуется {$recMin}+.",
             'suggestions' => [
                 ['text' => "Сначала набрать базу {$recMin} км/нед (4-8 недель лёгкого бега)", 'action' => null],
             ],
@@ -560,7 +582,7 @@ function assessGoalRealism(array $userData): array {
         $severities[] = 'challenging';
         $messages[] = [
             'type' => 'warning',
-            'text' => "Ваш объём ({$weeklyKm} км/нед) ниже рекомендуемого для {$distLabel} ({$recMin}+ км/нед). Подготовка возможна, но с повышенным риском.",
+            'text' => "Ваш объём ({$weeklyKm} км/нед{$volumeNote}) ниже рекомендуемого для {$distLabel} ({$recMin}+ км/нед). Подготовка возможна, но с повышенным риском.",
             'suggestions' => [],
         ];
     }
@@ -596,12 +618,21 @@ function assessGoalRealism(array $userData): array {
     $trainingPaces = null;
     $vdotSource = null;
 
-    // Try to get VDOT from last race
+    // Prefer VDOT from training_state (computed by TrainingStateBuilder) if available
+    if (!empty($userData['training_state']['vdot'])) {
+        $vdot = (float) $userData['training_state']['vdot'];
+        $vdotSource = $userData['training_state']['vdot_source_label'] ?? 'training state';
+        if (!empty($userData['training_state']['training_paces'])) {
+            $trainingPaces = $userData['training_state']['training_paces'];
+        }
+    }
+
+    // Fallback: try to get VDOT from last race
     $lastDist = $userData['last_race_distance'] ?? null;
     $lastTime = $userData['last_race_time'] ?? null;
     $lastDistKm = null;
 
-    if ($lastDist && $lastTime) {
+    if (!$vdot && $lastDist && $lastTime) {
         if ($lastDist === 'other') {
             $lastDistKm = (float) ($userData['last_race_distance_km'] ?? 0);
         } else {
@@ -692,12 +723,29 @@ function assessGoalRealism(array $userData): array {
         }
     }
 
-    // ── Check 5: computeMacrocycle warnings ──
+    // ── Check 5: computeMacrocycle warnings (без дублей с Check 1/2) ──
     $mc = computeMacrocycle($userData, $goalType);
     if ($mc && !empty($mc['warnings'])) {
+        // Собираем тексты уже добавленных сообщений для проверки дублей
+        $existingTexts = array_map(fn($m) => mb_strtolower($m['text']), $messages);
         foreach ($mc['warnings'] as $w) {
-            $severities[] = 'challenging';
-            $messages[] = ['type' => 'warning', 'text' => $w, 'suggestions' => []];
+            $wLower = mb_strtolower($w);
+            // Пропускаем если предупреждение дублирует уже существующее
+            $isDuplicate = false;
+            foreach ($existingTexts as $et) {
+                if (str_contains($wLower, 'недостаточно времени') && str_contains($et, 'рекомендуется минимум')) {
+                    $isDuplicate = true;
+                    break;
+                }
+                if (str_contains($wLower, 'нереалистичная цель') && (str_contains($et, 'слишком мал') || str_contains($et, 'рекомендуется минимум'))) {
+                    $isDuplicate = true;
+                    break;
+                }
+            }
+            if (!$isDuplicate) {
+                $severities[] = 'challenging';
+                $messages[] = ['type' => 'warning', 'text' => $w, 'suggestions' => []];
+            }
         }
     }
 
@@ -1216,10 +1264,8 @@ function computeHealthMacrocycle(array $userData, string $goalType): ?array {
         'label' => 'Развитие',
         'weeks_from' => $weekCursor,
         'weeks_to' => $weekCursor + $developW - 1,
-        'max_key_workouts' => $goalType === 'weight_loss' ? 1 : ($isNovice ? 0 : 1),
-        'description' => $goalType === 'weight_loss'
-            ? "Рост объёма. Длительная растёт. 1 фартлек/нед для метаболизма (с 3-й недели). Прирост до 10%/нед."
-            : "Рост объёма. Длительная растёт. " . ($isNovice ? "Без интенсивности." : "Можно добавить 1 фартлек/нед.") . " Прирост до 10%/нед.",
+        'max_key_workouts' => 0,
+        'description' => "Рост объёма. Длительная растёт. Только лёгкий бег. Прирост до 10%/нед.",
     ];
     $weekCursor += $developW;
 
@@ -1228,8 +1274,8 @@ function computeHealthMacrocycle(array $userData, string $goalType): ?array {
         'label' => 'Поддержание',
         'weeks_from' => $weekCursor,
         'weeks_to' => $totalWeeks,
-        'max_key_workouts' => $isNovice ? 0 : 1,
-        'description' => "Стабильный объём (~90% пикового). Длительная стабильна. Цель — закрепить привычку и форму.",
+        'max_key_workouts' => 0,
+        'description' => "Стабильный объём (~90% пикового). Длительная стабильна. Только лёгкий бег. Цель — закрепить привычку и форму.",
     ];
 
     return [
@@ -1290,7 +1336,7 @@ function formatHealthMacrocyclePrompt(array $mc, string $goalType): string {
     if ($goalType === 'weight_loss') {
         $out .= "АКЦЕНТ ДЛЯ СНИЖЕНИЯ ВЕСА:\n";
         $out .= "- Приоритет — длительность (время > дистанция). Бег в аэробной зоне сжигает жир.\n";
-        $out .= "- 1 фартлек/нед для ускорения метаболизма (короткие ускорения 30-60 сек через 2-3 мин).\n";
+        $out .= "- Только лёгкий бег. Без интервалов и фартлеков.\n";
         $out .= "- ОФП для сохранения мышечной массы.\n\n";
     }
 
@@ -1488,26 +1534,31 @@ function buildGoalBlock($userData, $goalType) {
                 }
             }
             if (!empty($userData['race_target_time'])) {
-                $block .= "Целевое время: {$userData['race_target_time']}\n";
-                // Рассчитываем целевой темп из времени и дистанции
-                $distanceKmMap = [
-                    '5k' => 5, '10k' => 10, 'half' => 21.1, 'marathon' => 42.195,
-                    '21.1k' => 21.1, '42.2k' => 42.195
-                ];
-                $raceKm = $distanceKmMap[$userData['race_distance']] ?? null;
-                if ($raceKm) {
-                    $timeParts = explode(':', $userData['race_target_time']);
-                    $totalMin = 0;
-                    if (count($timeParts) === 3) {
-                        $totalMin = (int)$timeParts[0] * 60 + (int)$timeParts[1] + (int)$timeParts[2] / 60;
-                    } elseif (count($timeParts) === 2) {
-                        $totalMin = (int)$timeParts[0] + (int)$timeParts[1] / 60;
-                    }
-                    if ($totalMin > 0) {
-                        $paceMin = $totalMin / $raceKm;
-                        $pm = (int) floor($paceMin);
-                        $ps = (int) round(($paceMin - $pm) * 60);
-                        $block .= "Целевой темп на забег: {$pm}:" . str_pad((string)$ps, 2, '0', STR_PAD_LEFT) . " /км\n";
+                if ($userData['race_target_time'] === 'finish') {
+                    $block .= "Цель по времени: просто финишировать (без целевого времени)\n";
+                    $block .= "→ Приоритет — подготовить к преодолению дистанции целиком. Темп не важен, главное — добежать.\n";
+                } else {
+                    $block .= "Целевое время: {$userData['race_target_time']}\n";
+                    // Рассчитываем целевой темп из времени и дистанции
+                    $distanceKmMap = [
+                        '5k' => 5, '10k' => 10, 'half' => 21.1, 'marathon' => 42.195,
+                        '21.1k' => 21.1, '42.2k' => 42.195
+                    ];
+                    $raceKm = $distanceKmMap[$userData['race_distance']] ?? null;
+                    if ($raceKm) {
+                        $timeParts = explode(':', $userData['race_target_time']);
+                        $totalMin = 0;
+                        if (count($timeParts) === 3) {
+                            $totalMin = (int)$timeParts[0] * 60 + (int)$timeParts[1] + (int)$timeParts[2] / 60;
+                        } elseif (count($timeParts) === 2) {
+                            $totalMin = (int)$timeParts[0] + (int)$timeParts[1] / 60;
+                        }
+                        if ($totalMin > 0) {
+                            $paceMin = $totalMin / $raceKm;
+                            $pm = (int) floor($paceMin);
+                            $ps = (int) round(($paceMin - $pm) * 60);
+                            $block .= "Целевой темп на забег: {$pm}:" . str_pad((string)$ps, 2, '0', STR_PAD_LEFT) . " /км\n";
+                        }
                     }
                 }
             }

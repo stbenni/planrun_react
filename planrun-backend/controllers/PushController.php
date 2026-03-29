@@ -13,9 +13,7 @@ class PushController extends BaseController {
      * Body: { fcm_token, device_id, platform }
      */
     public function registerToken() {
-        require_once __DIR__ . '/../auth.php';
-        if (!isAuthenticated()) {
-            $this->returnError('Требуется авторизация для этого действия', 401);
+        if (!$this->requireAuth()) {
             return;
         }
         try {

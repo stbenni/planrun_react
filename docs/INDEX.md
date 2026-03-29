@@ -1,68 +1,51 @@
-# PlanRun — полная документация проекта
+# PlanRun - документация проекта
 
-Документация по каждому файлу и функции в проекте PlanRun.
-
----
+Документация разделена на обзорные разделы и прикладные справочники по структуре кода.
 
 ## Навигация
 
-| Раздел | Описание |
-|--------|----------|
-| [01-FRONTEND.md](01-FRONTEND.md) | React-фронтенд: экраны, компоненты, stores, API-клиент, сервисы, хуки, утилиты |
-| [02-BACKEND.md](02-BACKEND.md) | PHP-бэкенд: контроллеры, сервисы, planrun_ai, провайдеры, репозитории |
-| [03-API.md](03-API.md) | API-слой: точки входа, CORS, сессии, OAuth, webhook'и |
-| [04-FILES-REFERENCE.md](04-FILES-REFERENCE.md) | Справочник по каждому файлу проекта |
-| [05-CALL-GRAPH.md](05-CALL-GRAPH.md) | Граф вызовов: где функция используется и с чем взаимодействует |
-| [06-ON-CREATE-UPDATE-DOCS.md](06-ON-CREATE-UPDATE-DOCS.md) | При создании нового — что обновлять в документации |
-| [07-AUTH-SECURITY.md](07-AUTH-SECURITY.md) | Политика авторизации, JWT, PIN, biometric recovery, anti-abuse лимиты |
-| [08-AI-SERVING-STACK.md](08-AI-SERVING-STACK.md) | Production-архитектура локальной LLM: llama-server, LM Studio embeddings, planrun-ai |
-| [HUAWEI_HEALTH_INTEGRATION.md](HUAWEI_HEALTH_INTEGRATION.md) | Интеграция Huawei Health Kit |
+| Раздел | Тип | Что внутри |
+|--------|-----|------------|
+| [01-FRONTEND.md](01-FRONTEND.md) | обзор | Архитектура React/Vite/Capacitor-клиента, экраны, stores, сервисы |
+| [02-BACKEND.md](02-BACKEND.md) | обзор | Архитектура PHP-бэкенда, контроллеры, сервисы, AI-пайплайн, уведомления |
+| [03-API.md](03-API.md) | справочник | Карта `api/*.php` и action-routing из `planrun-backend/api_v2.php` |
+| [04-FILES-REFERENCE.md](04-FILES-REFERENCE.md) | справочник | Полный список исходных файлов с категорией, количеством строк и назначением |
+| [05-CALL-GRAPH.md](05-CALL-GRAPH.md) | обзор | Ключевые цепочки вызовов: auth, план, чат, синхронизация, уведомления |
+| [06-ON-CREATE-UPDATE-DOCS.md](06-ON-CREATE-UPDATE-DOCS.md) | процесс | Что обновлять вручную после изменений в коде |
+| [07-AUTH-SECURITY.md](07-AUTH-SECURITY.md) | обзор | JWT, PIN, биометрия, ограничения и защитные меры |
+| [08-AI-SERVING-STACK.md](08-AI-SERVING-STACK.md) | обзор | LM Studio, llama/PlanRun AI, локальный inference stack |
+| [09-AI-MODULE-REFERENCE.md](09-AI-MODULE-REFERENCE.md) | справочник | Ручной разбор `planrun_ai/*`, skeleton path, validators и weekly adaptation |
+| [10-FRONTEND-MODULE-REFERENCE.md](10-FRONTEND-MODULE-REFERENCE.md) | справочник | Подробный ручной разбор `src/services`, `src/hooks`, `src/utils` и экранных helper-модулей |
+| [11-BACKEND-OPS-REFERENCE.md](11-BACKEND-OPS-REFERENCE.md) | справочник | Root PHP helper-файлы, config/bootstrap, providers, cron/worker scripts, миграции и ops-инфраструктура |
+| [12-BACKEND-APPLICATION-REFERENCE.md](12-BACKEND-APPLICATION-REFERENCE.md) | справочник | Глубокий ручной разбор контроллеров, сервисов, репозиториев, side effects и application-инвариантов backend |
+| [13-FRONTEND-COMPONENT-REFERENCE.md](13-FRONTEND-COMPONENT-REFERENCE.md) | справочник | Глубокий ручной разбор экранов, app shell, модалок, крупных UI-подсистем и фронтенд-инвариантов |
 
-**Будущие доработки:**
-| [PLANS-FUTURE.md](PLANS-FUTURE.md) | Сводный план: AI-чат, тренеры, Android auth, VDOT, ключевые тренировки |
+## Как пользоваться
 
-**Правила Cursor (alwaysApply):**
-- `.cursor/rules/architecture-flow.mdc` — граф вызовов, цепочки данных
-- `.cursor/rules/impact-matrix.mdc` — матрица влияния: при изменении X проверить Y (100% покрытие)
-- `.cursor/rules/on-create-update-docs.mdc` — при создании нового (компонент, API, store, утилита) — дописать в impact-matrix, architecture-flow, docs/
-
----
+1. Нужен быстрый обзор слоя: начинайте с `01-FRONTEND.md`, `02-BACKEND.md`, `05-CALL-GRAPH.md`.
+2. Нужен точный файл или action: открывайте `03-API.md` и `04-FILES-REFERENCE.md`.
+3. Нужны детали по функциям: смотрите `01-FRONTEND.md`, `02-BACKEND.md`, `09-AI-MODULE-REFERENCE.md`, `10-FRONTEND-MODULE-REFERENCE.md`, `11-BACKEND-OPS-REFERENCE.md`, `12-BACKEND-APPLICATION-REFERENCE.md`, `13-FRONTEND-COMPONENT-REFERENCE.md` и исходники соответствующего модуля.
 
 ## Структура проекта
 
-```
-vladimirov/
-├── src/                    # React-фронтенд
-│   ├── api/                # ApiClient
-│   ├── components/         # UI-компоненты
-│   ├── hooks/              # React-хуки
-│   ├── screens/            # Экраны (страницы)
-│   ├── services/           # Сервисы (Chat, Biometric, Pin)
-│   ├── stores/             # Zustand stores
-│   ├── styles/             # Глобальные стили
-│   ├── utils/              # Утилиты
-│   └── workers/            # Web Workers
-├── api/                    # PHP-точки входа
-├── planrun-backend/        # PHP-логика
-│   ├── controllers/        # Контроллеры API
-│   ├── services/           # Бизнес-логика
-│   ├── planrun_ai/         # Генерация планов, RAG
-│   ├── providers/          # Интеграции (Strava, Huawei, Garmin)
-│   └── repositories/       # Доступ к БД
-└── docs/                   # Документация
+```text
+planrun/
+├── src/                  # React/Vite фронтенд
+│   ├── api/              # frontend-обёртки над action-based API
+│   ├── components/       # UI-компоненты и составные виджеты
+│   ├── hooks/            # кастомные React hooks
+│   ├── screens/          # экраны и их служебные модули
+│   ├── services/         # платформенные сервисы: token storage, PIN, biometrics, push
+│   ├── stores/           # Zustand stores
+│   ├── utils/            # утилиты
+│   └── workers/          # web workers
+├── api/                  # PHP entrypoints / wrappers
+├── planrun-backend/      # контроллеры, сервисы, AI, провайдеры, репозитории, скрипты
+├── docs/                 # обзорная и прикладная документация
+└── scripts/              # служебные генераторы и утилиты проекта
 ```
 
----
+## Правило обновления
 
-## Стек технологий
-
-- **Фронт:** React 18, React Router 6, Vite 5, Zustand
-- **Бэкенд:** PHP 8+, MySQL
-- **Мобильное:** Capacitor (Android)
-- **AI:** LM Studio, PlanRun AI (локальная LLM)
-
----
-
-## Генерация справочника
-
-Скрипт `scripts/generate-docs.js` извлекает функции и компоненты из исходников и сохраняет в `docs/api-reference.json`. Запуск: `node scripts/generate-docs.js`.
+- Архитектурные изменения отражайте в обзорных markdown-файлах.
+- Если появился новый action, store, сервис или экран, обновите и обзорный документ, и соответствующий справочник.

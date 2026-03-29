@@ -34,15 +34,21 @@ class DateResolver {
             return null;
         }
 
-        // Завтра, послезавтра, сегодня
+        // Сегодня, вчера, позавчера, завтра, послезавтра
+        if (preg_match('/\bсегодня\b/u', $text)) {
+            return $relativeTo->format('Y-m-d');
+        }
+        if (preg_match('/\bвчера\b/u', $text)) {
+            return (clone $relativeTo)->modify('-1 day')->format('Y-m-d');
+        }
+        if (preg_match('/\bпозавчера\b/u', $text)) {
+            return (clone $relativeTo)->modify('-2 days')->format('Y-m-d');
+        }
         if (preg_match('/\bзавтра\b/u', $text)) {
             return (clone $relativeTo)->modify('+1 day')->format('Y-m-d');
         }
         if (preg_match('/\bпослезавтра\b/u', $text)) {
             return (clone $relativeTo)->modify('+2 days')->format('Y-m-d');
-        }
-        if (preg_match('/\bсегодня\b/u', $text)) {
-            return $relativeTo->format('Y-m-d');
         }
 
         // Через N дней
@@ -102,7 +108,7 @@ class DateResolver {
     public function hasDateReference(string $text): bool {
         $text = mb_strtolower($text);
         $patterns = [
-            '/\bзавтра\b/u', '/\bпослезавтра\b/u', '/\bсегодня\b/u',
+            '/\bзавтра\b/u', '/\bпослезавтра\b/u', '/\bсегодня\b/u', '/\bвчера\b/u', '/\bпозавчера\b/u',
             '/через\s+\d+\s+дн/u', '/через\s+неделю/u',
             '/\b(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|пн|вт|ср|чт|пт|сб|вс)\b/u',
             '/\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/u',

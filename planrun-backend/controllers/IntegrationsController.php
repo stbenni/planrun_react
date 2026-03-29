@@ -1,16 +1,24 @@
 <?php
 /**
- * Контроллер интеграций (Huawei, Garmin, Strava и др.)
+ * Контроллер интеграций (Huawei, Garmin, Polar, COROS, Strava и др.)
  */
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../providers/WorkoutImportProvider.php';
 require_once __DIR__ . '/../providers/HuaweiHealthProvider.php';
 require_once __DIR__ . '/../providers/StravaProvider.php';
 require_once __DIR__ . '/../providers/PolarProvider.php';
+require_once __DIR__ . '/../providers/GarminProvider.php';
+require_once __DIR__ . '/../providers/CorosProvider.php';
 require_once __DIR__ . '/../services/WorkoutService.php';
 
 class IntegrationsController extends BaseController {
-    private static $providers = ['huawei' => HuaweiHealthProvider::class, 'strava' => StravaProvider::class, 'polar' => PolarProvider::class];
+    private static $providers = [
+        'huawei' => HuaweiHealthProvider::class,
+        'strava' => StravaProvider::class,
+        'polar' => PolarProvider::class,
+        'garmin' => GarminProvider::class,
+        'coros' => CorosProvider::class,
+    ];
 
     private function getProvider(string $providerId): WorkoutImportProvider {
         $class = self::$providers[$providerId] ?? null;
@@ -88,6 +96,7 @@ class IntegrationsController extends BaseController {
         }
         $startDate = $data['start_date'] ?? date('Y-m-d', strtotime('-1 month'));
         $endDate = $data['end_date'] ?? date('Y-m-d');
+        set_time_limit(120); // Sync may take a while with streams/GPS data
         try {
             $workouts = $provider->fetchWorkouts($this->currentUserId, $startDate, $endDate);
             $workoutService = new WorkoutService($this->db);

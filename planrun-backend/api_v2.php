@@ -349,6 +349,18 @@ try {
         case 'get_workout_timeline':
             planrunRouteControllerAction($db, WorkoutController::class, 'getWorkoutTimeline', $method);
             break;
+
+        case 'get_workout_share_map':
+            planrunRouteControllerAction($db, WorkoutController::class, 'getWorkoutShareMap', $method);
+            break;
+
+        case 'generate_workout_share_card':
+            planrunRouteControllerAction($db, WorkoutController::class, 'generateWorkoutShareCard', $method);
+            break;
+
+        case 'store_workout_share_card':
+            planrunRouteControllerAction($db, WorkoutController::class, 'storeWorkoutShareCard', $method, 'POST');
+            break;
             
         case 'save_result':
             planrunRouteControllerAction($db, WorkoutController::class, 'saveResult', $method, 'POST');
@@ -365,7 +377,11 @@ try {
         case 'get_all_results':
             planrunRouteControllerAction($db, WorkoutController::class, 'getAllResults', $method);
             break;
-            
+
+        case 'data_version':
+            planrunRouteControllerAction($db, WorkoutController::class, 'dataVersion', $method);
+            break;
+
         case 'delete_workout':
             planrunRouteControllerAction($db, WorkoutController::class, 'deleteWorkout', $method, 'POST');
             break;
@@ -397,6 +413,10 @@ try {
 
         case 'race_prediction':
             planrunRouteControllerAction($db, StatsController::class, 'racePrediction', $method, 'GET');
+            break;
+
+        case 'training_load':
+            planrunRouteControllerAction($db, StatsController::class, 'trainingLoad', $method, 'GET');
             break;
 
         // ExerciseController
@@ -475,6 +495,30 @@ try {
             $controller = new UserController($db);
             $controller->updateProfile();
             break;
+
+        case 'get_notification_settings':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->getNotificationSettings();
+            break;
+
+        case 'get_notification_delivery_log':
+            if ($method !== 'GET') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->getNotificationDeliveryLog();
+            break;
+
+        case 'update_notification_settings':
+            if ($method !== 'POST') {
+                ErrorHandler::returnJsonError('Метод не поддерживается', 405);
+            }
+            $controller = new UserController($db);
+            $controller->updateNotificationSettings();
+            break;
             
         case 'delete_user':
             if ($method !== 'POST') {
@@ -521,6 +565,18 @@ try {
             planrunRouteControllerAction($db, PushController::class, 'unregisterToken', $method, 'POST');
             break;
 
+        case 'register_web_push_subscription':
+            planrunRouteControllerAction($db, UserController::class, 'registerWebPushSubscription', $method, 'POST');
+            break;
+
+        case 'unregister_web_push_subscription':
+            planrunRouteControllerAction($db, UserController::class, 'unregisterWebPushSubscription', $method, 'POST');
+            break;
+
+        case 'send_test_notification':
+            planrunRouteControllerAction($db, UserController::class, 'sendTestNotification', $method, 'POST');
+            break;
+
         case 'telegram_login_url':
             planrunRouteControllerAction($db, UserController::class, 'getTelegramLoginUrl', $method, 'GET');
             break;
@@ -533,7 +589,7 @@ try {
             planrunRouteControllerAction($db, UserController::class, 'unlinkTelegram', $method, 'POST');
             break;
 
-        // IntegrationsController (Huawei, Garmin, Strava)
+        // IntegrationsController (Huawei, Garmin, Polar, COROS, Strava)
         case 'integration_oauth_url':
             planrunRouteControllerAction($db, IntegrationsController::class, 'getOAuthUrl', $method, 'GET');
             break;
@@ -603,6 +659,18 @@ try {
 
         case 'admin_update_settings':
             planrunRouteControllerAction($db, AdminController::class, 'updateSettings', $method, 'POST');
+            break;
+
+        case 'admin_get_notification_templates':
+            planrunRouteControllerAction($db, AdminController::class, 'getNotificationTemplates', $method, 'GET');
+            break;
+
+        case 'admin_update_notification_template':
+            planrunRouteControllerAction($db, AdminController::class, 'updateNotificationTemplate', $method, 'POST');
+            break;
+
+        case 'admin_reset_notification_template':
+            planrunRouteControllerAction($db, AdminController::class, 'resetNotificationTemplate', $method, 'POST');
             break;
 
         case 'request_password_reset':

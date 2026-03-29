@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/BaseService.php';
 require_once __DIR__ . '/../config/env_loader.php';
+require_once __DIR__ . '/NotificationSettingsService.php';
 $autoload = __DIR__ . '/../vendor/autoload.php';
 if (is_file($autoload)) {
     require_once $autoload;
@@ -90,14 +91,48 @@ class PushNotificationService extends BaseService {
      */
     public function sendToUser(int $userId, string $title, string $body, array $data = []): bool {
         $type = $data['type'] ?? 'chat';
-        if (!$this->isPushAllowed($userId, $type)) {
+        $eventKey = trim((string) ($data['event_key'] ?? ''));
+        $settings = null;
+        if ($eventKey !== '') {
+            $settings = new NotificationSettingsService($this->db);
+            $guard = $settings->canDeliver($userId, 'mobile_push', $eventKey, !empty($data['ignore_quiet_hours']));
+            if (empty($guard['allowed'])) {
+                $settings->logDelivery($userId, $eventKey, 'mobile_push', 'skipped', [
+                    'title' => $title,
+                    'body' => $body,
+                    'entity_type' => isset($data['entity_type']) ? (string) $data['entity_type'] : null,
+                    'entity_id' => isset($data['entity_id']) ? (string) $data['entity_id'] : null,
+                    'error_text' => $guard['reason'] ?? 'guard_rejected',
+                ]);
+                return false;
+            }
+        } elseif (!$this->isPushAllowed($userId, $type)) {
             return false;
         }
         $tokens = $this->getUserTokens($userId);
         if (empty($tokens)) {
+            if ($settings && $eventKey !== '') {
+                $settings->logDelivery($userId, $eventKey, 'mobile_push', 'skipped', [
+                    'title' => $title,
+                    'body' => $body,
+                    'entity_type' => isset($data['entity_type']) ? (string) $data['entity_type'] : null,
+                    'entity_id' => isset($data['entity_id']) ? (string) $data['entity_id'] : null,
+                    'error_text' => 'no_tokens',
+                ]);
+            }
             return false;
         }
-        return $this->sendToTokens($tokens, $title, $body, $data);
+        $sent = $this->sendToTokens($tokens, $title, $body, $data);
+        if ($settings && $eventKey !== '') {
+            $settings->logDelivery($userId, $eventKey, 'mobile_push', $sent ? 'sent' : 'failed', [
+                'title' => $title,
+                'body' => $body,
+                'entity_type' => isset($data['entity_type']) ? (string) $data['entity_type'] : null,
+                'entity_id' => isset($data['entity_id']) ? (string) $data['entity_id'] : null,
+                'error_text' => $sent ? null : 'send_failed',
+            ]);
+        }
+        return $sent;
     }
 
     /**
@@ -143,6 +178,38 @@ class PushNotificationService extends BaseService {
                     $this->removeInvalidToken($token);
                 }
                 error_log('[Push] Send error for token ' . substr($token, 0, 20) . '...: ' . $e->getMessage());
+            }
+        }
+        return $sent;
+    }
+
+    /**
+     * Отправить data-only push (silent) — без уведомления пользователю.
+     * Приложение получит данные и обновит UI в фоне.
+     */
+    public function sendDataPush(int $userId, array $data): bool {
+        $tokens = $this->getUserTokens($userId);
+        if (empty($tokens)) return false;
+
+        $messaging = $this->getMessaging();
+        if (!$messaging) return false;
+
+        $sent = false;
+        $androidConfig = \Kreait\Firebase\Messaging\AndroidConfig::new()
+            ->withNormalMessagePriority(); // normal priority для data-only — не будит устройство агрессивно
+
+        foreach ($tokens as $token) {
+            try {
+                $message = \Kreait\Firebase\Messaging\CloudMessage::withTarget('token', $token)
+                    ->withData($data)
+                    ->withAndroidConfig($androidConfig);
+                $messaging->send($message);
+                $sent = true;
+            } catch (\Throwable $e) {
+                if (strpos($e->getMessage(), 'not a valid FCM registration token') !== false ||
+                    strpos($e->getMessage(), 'unregistered') !== false) {
+                    $this->removeInvalidToken($token);
+                }
             }
         }
         return $sent;

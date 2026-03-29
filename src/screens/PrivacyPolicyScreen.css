@@ -1,0 +1,118 @@
+.privacy-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.privacy-page__header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: var(--space-4) var(--page-padding-x);
+  background: var(--glass-bg, var(--bg-primary));
+  backdrop-filter: blur(var(--glass-blur, 12px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 12px));
+  border-bottom: 1px solid var(--card-border);
+}
+
+.privacy-page__logo {
+  font-family: var(--font-heading, inherit);
+  font-weight: var(--font-bold, 700);
+  font-size: var(--text-lg);
+  color: var(--primary-500);
+  text-decoration: none;
+}
+
+.privacy-page__logo:hover {
+  color: var(--primary-600);
+}
+
+.privacy-page__main {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: var(--space-8) var(--page-padding-x) var(--space-10);
+}
+
+@media (min-width: 1024px) {
+  .privacy-page__main {
+    padding-top: var(--page-top-desktop, var(--space-10));
+  }
+}
+
+@media (max-width: 1023px) {
+  .privacy-page__main {
+    padding-bottom: var(--page-mobile-end-spacing);
+  }
+}
+
+.privacy-page__article.card {
+  padding: var(--space-8);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.privacy-page__title {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-bold);
+  margin: 0 0 var(--space-2);
+  color: var(--text-primary);
+}
+
+.privacy-page__updated {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  margin: 0 0 var(--space-8);
+}
+
+.privacy-page__section {
+  margin-bottom: var(--space-8);
+}
+
+.privacy-page__section h2 {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  margin: 0 0 var(--space-3);
+  color: var(--text-primary);
+}
+
+.privacy-page__section p,
+.privacy-page__section li {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.privacy-page__section ul {
+  margin: 0;
+  padding-left: var(--space-6);
+}
+
+.privacy-page__section li {
+  margin-bottom: var(--space-2);
+}
+
+.privacy-page__section a {
+  color: var(--primary-500);
+}
+
+.privacy-page__back {
+  margin-top: var(--space-10);
+  margin-bottom: 0;
+  font-size: var(--text-sm);
+}
+
+.privacy-page__back a {
+  color: var(--primary-500);
+  text-decoration: none;
+}
+
+.privacy-page__back a:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .privacy-page__logo {
+    transition: none;
+  }
+}

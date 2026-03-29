@@ -19,6 +19,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import useAuthStore from '../../stores/useAuthStore';
+import usePlanStore from '../../stores/usePlanStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
@@ -31,6 +32,7 @@ import { useDashboardData } from './useDashboardData';
 import SkeletonScreen from '../common/SkeletonScreen';
 import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
+import TrainingLoadWidget from './TrainingLoadWidget';
 import './Dashboard.css';
 
 /** Полоска-зона сброса «вставить перед строкой N» (для @dnd-kit) */
@@ -283,9 +285,10 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     user,
   });
   const { refreshing, pullDistance } = useDashboardPullToRefresh(dashboardRef, loadDashboardData);
+  const generationLabel = usePlanStore((s) => s.generationLabel);
   const supportsAiPlan = isAiTrainingMode || isAiPlanMode(user?.training_mode);
   const hasPendingPlanNotice = Boolean((showPlanMessage || registrationMessage) && !planExists && !planError);
-  const showAiEmptyState = supportsAiPlan && noPlanChecked && !planGenerating && !planError && !planExists;
+  const showAiEmptyState = supportsAiPlan && noPlanChecked && !planGenerating && !planError && !planExists && !loading;
   const showAiGenerationNotice = supportsAiPlan && (planGenerating || hasPendingPlanNotice);
   const showManualModeNotice = !supportsAiPlan && hasPendingPlanNotice;
 
@@ -376,25 +379,11 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         </div>
       )}
 
-      {/* Уведомление о генерации плана — показываем при planGenerating (AI генерирует) или после регистрации */}
+      {/* Компактная плашка генерации — как в календаре */}
       {showAiGenerationNotice && !planError && (
-        <div className="plan-generation-notice plan-generation-notice--generating">
-          <div className="plan-generation-notice__icon" aria-hidden><BotIcon size={32} /></div>
-          <h3 className="plan-generation-notice__title">План тренировок генерируется</h3>
-          <p className="plan-generation-notice__message">
-            {registrationMessage || 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут.'}
-          </p>
-          <div className="plan-generation-notice__spinner-row">
-            <div className="spinner-dash" />
-            <span>Ожидайте...</span>
-          </div>
-          <button
-            type="button"
-            className="plan-generation-notice__btn"
-            onClick={() => loadDashboardData()}
-          >
-            Проверить готовность
-          </button>
+        <div className="plan-generating-banner">
+          <span className="btn-spinner" />
+          <span>{generationLabel || 'Генерация плана...'} Это займёт 3-5 минут.</span>
         </div>
       )}
 
@@ -454,20 +443,18 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
               })}
             </p>
           </div>
-          {!planGenerating && (
-            <button
-              type="button"
-              className="dashboard-customize-btn"
-              onClick={() => setCustomizerOpen(true)}
-              aria-label="Настроить виджеты дашборда"
-            >
-              Виджеты
-            </button>
-          )}
+          <button
+            type="button"
+            className="dashboard-customize-btn"
+            onClick={() => setCustomizerOpen(true)}
+            aria-label="Настроить виджеты дашборда"
+          >
+            Виджеты
+          </button>
         </div>
       </div>
 
-      {!planGenerating && dashboardRows.map((row, rowIndex) => {
+      {dashboardRows.map((row, rowIndex) => {
         const renderSection = (moduleId) => {
           const sectionClass = row.type === 'double' ? 'dashboard-section dashboard-section-inline' : 'dashboard-section';
           if (moduleId === 'today_workout') {
@@ -586,7 +573,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                   <div className="metric-card">
                     <div className="metric-card__label">
                       <MetricDistanceIcon className="metric-card__icon" />
-                      <span>Дистанция</span>
+                      <span>{metrics.hasWalking ? 'Дистанция (бег + ходьба)' : 'Дистанция'}</span>
                     </div>
                     <div className="metric-card__value">
                       <span className="metric-card__number">{metrics.distance}</span>
@@ -596,11 +583,11 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                   <div className="metric-card">
                     <div className="metric-card__label">
                       <MetricActivityIcon className="metric-card__icon" />
-                      <span>Активность</span>
+                      <span>{metrics.hasWalking ? 'Активности' : 'Тренировки'}</span>
                     </div>
                     <div className="metric-card__value">
                       <span className="metric-card__number">{metrics.workouts}</span>
-                      <span className="metric-card__unit">тренировок</span>
+                      <span className="metric-card__unit">{metrics.hasWalking ? 'активностей' : 'тренировок'}</span>
                     </div>
                   </div>
                   <div className="metric-card">
@@ -699,6 +686,16 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                 <h2 className="section-title">Прогноз на забег</h2>
                 <div className="dashboard-module-card">
                   <RacePredictionWidget api={api} compact={row.type === 'double'} />
+                </div>
+              </div>
+            );
+          }
+          if (moduleId === 'training_load') {
+            return (
+              <div key="training_load" className={sectionClass}>
+                <h2 className="section-title">Тренировочная нагрузка</h2>
+                <div className="dashboard-module-card">
+                  <TrainingLoadWidget api={api} compact={row.type === 'double'} />
                 </div>
               </div>
             );

@@ -13,7 +13,7 @@ const formatPaceFromSeconds = (seconds) => {
   return `${m}:${String(s).padStart(2, '0')}`;
 };
 
-const PaceChart = ({ timeline }) => {
+const PaceChart = ({ timeline, onHoverIndex }) => {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [tooltip, setTooltip] = useState(null);
   const svgRef = useRef(null);
@@ -158,10 +158,12 @@ const PaceChart = ({ timeline }) => {
       time: `${hours}:${minutes}:${seconds}`,
       point: point
     });
+    if (onHoverIndex) onHoverIndex(point.index);
   };
 
   const handleMouseLeave = () => {
     setTooltip(null);
+    if (onHoverIndex) onHoverIndex(null);
   };
 
   // Формируем путь для графика (линия продлевается до правого края, чтобы не было пустого отступа)
@@ -241,6 +243,8 @@ const PaceChart = ({ timeline }) => {
           preserveAspectRatio={isMobile ? 'none' : 'xMidYMid meet'}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
+          onTouchMove={(e) => { e.preventDefault(); handleMouseMove(e.touches[0]); }}
+          onTouchEnd={handleMouseLeave}
         >
           {/* Сетка */}
           {yAxisLabels.map((label, i) => (

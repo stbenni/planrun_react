@@ -63,7 +63,7 @@ class LLMEnricher
         $payload = json_encode([
             'model' => $this->model,
             'messages' => [
-                ['role' => 'system', 'content' => 'Ты — тренер по бегу. Отвечай строго JSON без markdown-обёрток. Пиши только на русском языке.'],
+                ['role' => 'system', 'content' => 'Ты — тренер по бегу. Отвечай строго JSON без markdown-обёрток. Все notes пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ — никакого английского текста.'],
                 ['role' => 'user', 'content' => $prompt],
             ],
             'temperature' => 0.3,

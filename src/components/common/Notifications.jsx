@@ -7,13 +7,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatSSE } from '../../services/ChatSSE';
+import usePlanStore from '../../stores/usePlanStore';
 import { BotIcon, MessageCircleIcon, BellIcon, CloseIcon } from './Icons';
 import './Notifications.css';
 
-const userTimezone = (user) => user?.timezone || (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions?.().timeZone) || 'Europe/Moscow';
-
 const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
-  const tz = userTimezone(user);
   const navigate = useNavigate();
   const [upcomingWorkouts, setUpcomingWorkouts] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
@@ -44,51 +42,56 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
     api?.dismissNotification(id).catch(() => {});
   }, [api]);
 
-  const loadUpcomingWorkouts = useCallback(async () => {
-    if (!api) return;
-    try {
-      const plan = await api.getPlan();
-      const weeksData = plan?.weeks_data;
-      if (!plan || !Array.isArray(weeksData)) return;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfterTomorrow = new Date(today);
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-      const upcoming = [];
-      for (const week of weeksData) {
-        if (!week.start_date || !week.days) continue;
-        const startDate = new Date(week.start_date);
-        startDate.setHours(0, 0, 0, 0);
-        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        for (let i = 0; i < 7; i++) {
-          const workoutDate = new Date(startDate);
-          workoutDate.setDate(startDate.getDate() + i);
-          workoutDate.setHours(0, 0, 0, 0);
-          if (workoutDate.getTime() === tomorrow.getTime() ||
-              workoutDate.getTime() === dayAfterTomorrow.getTime()) {
-            const dayKey = dayKeys[i];
-            const dayData = week.days[dayKey];
-            if (dayData && dayData.type !== 'rest' && dayData.type !== 'free') {
-              upcoming.push({
-                type: 'workout',
-                id: `workout_${workoutDate.toISOString().split('T')[0]}`,
-                date: workoutDate.toISOString().split('T')[0],
-                dateObj: workoutDate,
-                dayData,
-                weekNumber: week.number,
-                dayKey
-              });
-            }
+  // Подписка на план из стора (без отдельного api.getPlan())
+  const planFromStore = usePlanStore((s) => s.plan);
+
+  const deriveUpcomingWorkouts = useCallback((plan) => {
+    const weeksData = plan?.weeks_data;
+    if (!plan || !Array.isArray(weeksData)) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfterTomorrow = new Date(today);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+    const upcoming = [];
+    for (const week of weeksData) {
+      if (!week.start_date || !week.days) continue;
+      const startDate = new Date(week.start_date);
+      startDate.setHours(0, 0, 0, 0);
+      const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      for (let i = 0; i < 7; i++) {
+        const workoutDate = new Date(startDate);
+        workoutDate.setDate(startDate.getDate() + i);
+        workoutDate.setHours(0, 0, 0, 0);
+        if (workoutDate.getTime() === tomorrow.getTime() ||
+            workoutDate.getTime() === dayAfterTomorrow.getTime()) {
+          const dayKey = dayKeys[i];
+          const rawDay = week.days[dayKey];
+          if (!rawDay) continue;
+          const dayItems = Array.isArray(rawDay) ? rawDay : [rawDay];
+          const primaryItem = dayItems.find((it) => it && it.type !== 'rest' && it.type !== 'free') || null;
+          if (primaryItem) {
+            upcoming.push({
+              type: 'workout',
+              id: `workout_${workoutDate.toISOString().split('T')[0]}`,
+              date: workoutDate.toISOString().split('T')[0],
+              dateObj: workoutDate,
+              dayData: primaryItem,
+              dayItems,
+              weekNumber: week.number,
+              dayKey
+            });
           }
         }
       }
-      setUpcomingWorkouts(upcoming.slice(0, 2));
-    } catch (error) {
-      console.error('Error loading upcoming workouts:', error);
     }
-  }, [api]);
+    return upcoming.slice(0, 2);
+  }, []);
+
+  useEffect(() => {
+    setUpcomingWorkouts(deriveUpcomingWorkouts(planFromStore));
+  }, [planFromStore, deriveUpcomingWorkouts]);
 
   const loadAdminMessages = useCallback(async () => {
     if (!api) return;
@@ -161,18 +164,14 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
     }
   }, [api]);
 
-  const refreshPlanData = useCallback(async () => {
-    await Promise.all([loadUpcomingWorkouts(), loadPlanNotifications()]);
-  }, [loadPlanNotifications, loadUpcomingWorkouts]);
-
   const refreshChatData = useCallback(async () => {
     await Promise.all([loadAdminMessages(), loadAiMessages()]);
   }, [loadAdminMessages, loadAiMessages]);
 
   const refresh = useCallback(async () => {
     if (!api) return;
-    await Promise.all([refreshPlanData(), refreshChatData()]);
-  }, [api, refreshChatData, refreshPlanData]);
+    await Promise.all([loadPlanNotifications(), refreshChatData()]);
+  }, [api, loadPlanNotifications, refreshChatData]);
 
   useEffect(() => {
     if (!api) return;
@@ -219,7 +218,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
       {allItems.map((item, index) => {
         if (item.type === 'plan_notif') {
           const timeStr = item.created_at
-            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: tz })
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: user?.timezone || undefined })
             : '';
           const meta = item.metadata || {};
           const isCoachUpdate = (item.type === 'plan_notif' && meta.coach_id);
@@ -267,7 +266,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
 
         if (item.type === 'chat_ai') {
           const timeStr = item.created_at
-            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz })
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: user?.timezone || undefined })
             : '';
           const content = (item.content || '').slice(0, 60);
           const truncated = content.length >= 60 ? content + '…' : content;
@@ -301,7 +300,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
 
         if (item.type === 'chat') {
           const timeStr = item.created_at
-            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: tz })
+            ? new Date(item.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: user?.timezone || undefined })
             : '';
           const content = (item.content || '').slice(0, 60);
           const truncated = content.length >= 60 ? content + '…' : content;
@@ -361,10 +360,14 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
               <div className="notification-title">Предстоящая тренировка</div>
               <div className="notification-date">{dayLabel}</div>
               <div className="notification-workout">
-                {workout.dayData.type === 'long-run' ? 'Длительный бег' :
+                {workout.dayData.type === 'long-run' || workout.dayData.type === 'long' ? 'Длительный бег' :
                  workout.dayData.type === 'interval' ? 'Интервалы' :
                  workout.dayData.type === 'tempo' ? 'Темп' :
-                 workout.dayData.type === 'easy' ? 'Легкий бег' : 'Тренировка'}
+                 workout.dayData.type === 'easy' ? 'Лёгкий бег' :
+                 workout.dayData.type === 'fartlek' ? 'Фартлек' :
+                 workout.dayData.type === 'race' ? 'Соревнование' :
+                 workout.dayData.type === 'sbu' ? 'СБУ' : 'Тренировка'}
+                {workout.dayItems && workout.dayItems.length > 1 ? ` + ещё ${workout.dayItems.length - 1}` : ''}
               </div>
             </div>
             <div className="notification-actions">

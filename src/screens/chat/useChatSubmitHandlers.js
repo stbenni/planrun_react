@@ -13,6 +13,7 @@ export function useChatSubmitHandlers({
   sending,
   chatAdminSending,
   input,
+  inputRef,
   setInput,
   setSending,
   setChatAdminSending,
@@ -27,9 +28,22 @@ export function useChatSubmitHandlers({
   setNextPlanMessage,
   loadDirectDialogs,
   loadChatAdminMessages,
+  onBeforeSend,
 }) {
   // Ref чтобы sendContent не зависел от sending/input (избегаем stale closure)
   const sendingRef = useRef(false);
+
+  const readInputValue = useCallback(() => {
+    const domValue = inputRef?.current?.value;
+    return typeof domValue === 'string' ? domValue : input;
+  }, [input, inputRef]);
+
+  const clearInputValue = useCallback(() => {
+    if (inputRef?.current) {
+      inputRef.current.value = '';
+    }
+    setInput('');
+  }, [inputRef, setInput]);
 
   /**
    * Ядро отправки — принимает текст напрямую.
@@ -38,8 +52,9 @@ export function useChatSubmitHandlers({
   const sendContent = useCallback(async (content) => {
     if (!content || !api || sendingRef.current) return;
 
+    onBeforeSend?.();
     sendingRef.current = true;
-    setInput('');
+    clearInputValue();
     setSending(true);
     setError(null);
 
@@ -141,6 +156,9 @@ export function useChatSubmitHandlers({
       {
         signal: abortController.signal,
         onFirstChunk: () => !abortController.signal.aborted && setStreamPhase('streaming'),
+        onToolExecuting: (toolName) => {
+          if (!abortController.signal.aborted) setStreamPhase(`tool:${toolName}`);
+        },
         onPlanUpdated: () => usePlanStore.getState().loadPlan(),
         onPlanRecalculating: () => {
           if (!abortController.signal.aborted) {
@@ -194,9 +212,10 @@ export function useChatSubmitHandlers({
     loadDirectDialogs,
     myUserId,
     notificationTimersRef,
+    onBeforeSend,
     selectedChat,
+    clearInputValue,
     setError,
-    setInput,
     setMessages,
     setNextPlanMessage,
     setRecalcMessage,
@@ -210,9 +229,9 @@ export function useChatSubmitHandlers({
   /** Form submit — берёт текст из input state */
   const handleSubmit = useCallback((event) => {
     event.preventDefault();
-    const content = input.trim();
+    const content = readInputValue().trim();
     if (content) sendContent(content);
-  }, [input, sendContent]);
+  }, [readInputValue, sendContent]);
 
   /** Прямая отправка по клику (quick-reply pills, suggested prompts) */
   const sendDirect = useCallback((text) => {
@@ -222,9 +241,10 @@ export function useChatSubmitHandlers({
 
   const handleAdminChatSend = useCallback(async (event) => {
     event.preventDefault();
-    if (!api || !selectedChatUser || !input.trim() || chatAdminSending) return;
-    const content = input.trim();
-    setInput('');
+    const content = readInputValue().trim();
+    if (!api || !selectedChatUser || !content || chatAdminSending) return;
+    onBeforeSend?.();
+    clearInputValue();
     setChatAdminSending(true);
     setError(null);
     try {
@@ -238,12 +258,13 @@ export function useChatSubmitHandlers({
   }, [
     api,
     chatAdminSending,
-    input,
+    clearInputValue,
     loadChatAdminMessages,
+    onBeforeSend,
+    readInputValue,
     selectedChatUser,
     setChatAdminSending,
     setError,
-    setInput,
   ]);
 
   const handleClearAiChat = useCallback(async () => {
