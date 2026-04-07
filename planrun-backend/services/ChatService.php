@@ -25,6 +25,13 @@ class ChatService extends BaseService {
     private const DEFAULT_SUMMARIZE_THRESHOLD = 35;
     private const DEFAULT_RECENT_MESSAGES = 15;
 
+    private const WRITE_TOOLS = [
+        'log_workout', 'update_training_day', 'add_training_day',
+        'delete_training_day', 'move_training_day', 'swap_training_days',
+        'copy_day', 'recalculate_plan', 'generate_next_plan', 'update_profile',
+        'report_health_issue',
+    ];
+
     private $repository;
     private $contextBuilder;
     private string $llmBaseUrl;
@@ -42,7 +49,7 @@ class ChatService extends BaseService {
         $this->repository = new ChatRepository($db);
         $this->contextBuilder = new ChatContextBuilder($db);
         $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'qwen3-14b');
         $this->historyLimit = (int) env('CHAT_HISTORY_MESSAGES_LIMIT', self::DEFAULT_HISTORY_LIMIT);
         if ($this->historyLimit < 1) {
             $this->historyLimit = self::DEFAULT_HISTORY_LIMIT;
@@ -138,6 +145,7 @@ class ChatService extends BaseService {
     // ═══ AI messaging (non-streaming) ═══
 
     public function sendMessageAndGetResponse(int $userId, string $content): array {
+        $this->blockedActions = [];
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
@@ -150,15 +158,25 @@ class ChatService extends BaseService {
         $context = $this->promptBuilder->appendRagSnippet($context, $content);
         $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
 
-        $response = $this->callLlm($messages, $userId);
+        $toolsUsed = [];
+        $pendingHandled = $this->confirmationHandler->tryExecutePendingAction($content, $history, $userId, $messages, $toolsUsed);
+        if ($pendingHandled) {
+            $response = $this->callLlm($messages, $userId);
+        } else {
+            $response = $this->callLlm($messages, $userId);
+        }
         $fullContent = $this->actionParser->sanitizeResponse($response['content'] ?? '');
         $planWasUpdated = false;
-        $fullContent = $this->actionParser->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
+        $fullContent = $this->actionParser->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated, $toolsUsed);
 
         if ($fullContent !== '') {
-            $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, [
-                'model' => $this->llmModel, 'eval_count' => $response['usage']['total_tokens'] ?? null
-            ]);
+            $meta = ['model' => $this->llmModel, 'eval_count' => $response['usage']['total_tokens'] ?? null];
+            if (!empty($this->blockedActions)) {
+                $meta['pending_action'] = count($this->blockedActions) === 1
+                    ? $this->blockedActions[0]
+                    : $this->blockedActions;
+            }
+            $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, $meta);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
                 $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
@@ -171,6 +189,7 @@ class ChatService extends BaseService {
     // ═══ AI messaging (streaming) ═══
 
     public function streamResponse(int $userId, string $content): void {
+        $this->blockedActions = [];
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
@@ -190,16 +209,20 @@ class ChatService extends BaseService {
         $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
 
         $toolsUsed = [];
-        $swapHandled = $this->confirmationHandler->tryHandleSwapConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        $pendingHandled = $this->confirmationHandler->tryExecutePendingAction($content, $history, $userId, $messages, $toolsUsed);
+        $swapHandled = false;
         $replaceRaceHandled = false;
         $genericUpdateHandled = false;
-        if (!$swapHandled) {
+        if (!$pendingHandled) {
+            $swapHandled = $this->confirmationHandler->tryHandleSwapConfirmation($content, $history, $userId, $messages, $toolsUsed);
+        }
+        if (!$pendingHandled && !$swapHandled) {
             $replaceRaceHandled = $this->confirmationHandler->tryHandleReplaceWithRaceConfirmation($content, $history, $userId, $messages, $toolsUsed);
         }
-        if (!$swapHandled && !$replaceRaceHandled) {
+        if (!$pendingHandled && !$swapHandled && !$replaceRaceHandled) {
             $genericUpdateHandled = $this->confirmationHandler->tryHandleGenericUpdateConfirmation($content, $history, $userId, $messages, $toolsUsed);
         }
-        if (!$swapHandled && !$replaceRaceHandled && !$genericUpdateHandled) {
+        if (!$pendingHandled && !$swapHandled && !$replaceRaceHandled && !$genericUpdateHandled) {
             if (!$this->checkLlmHealth()) {
                 $this->repository->addMessage($conversation['id'], 'ai', null, 'Извини, LLM-сервер сейчас недоступен. Попробуй через минуту.');
                 echo json_encode(['chunk' => 'Извини, LLM-сервер сейчас недоступен. Попробуй через минуту.']) . "\n";
@@ -315,6 +338,9 @@ class ChatService extends BaseService {
         if ($fullContent !== '') {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, ['model' => $this->llmModel]);
             $this->repository->touchConversation($conversation['id']);
+            if (!empty($this->blockedActions)) {
+                $this->storePendingAction($conversation['id'], $this->blockedActions);
+            }
             if (connection_aborted()) {
                 $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
             }
@@ -337,8 +363,70 @@ class ChatService extends BaseService {
 
     // ═══ Tool resolution ═══
 
+    private const ACTION_NAMES_RU = [
+        'log_workout' => 'записать тренировку', 'update_training_day' => 'изменить тренировку',
+        'add_training_day' => 'добавить тренировку', 'delete_training_day' => 'удалить тренировку',
+        'move_training_day' => 'перенести тренировку', 'swap_training_days' => 'поменять тренировки местами',
+        'copy_day' => 'скопировать тренировку', 'recalculate_plan' => 'пересчитать план',
+        'generate_next_plan' => 'сгенерировать новый план', 'update_profile' => 'обновить профиль',
+        'report_health_issue' => 'зарегистрировать проблему со здоровьем',
+    ];
+
+    private function writeToolConfirmationStub(string $toolName, string $argsJson): string {
+        $actionRu = self::ACTION_NAMES_RU[$toolName] ?? $toolName;
+        $args = json_decode($argsJson, true) ?: [];
+        return json_encode([
+            'status' => 'BLOCKED',
+            'reason' => "Действие «{$actionRu}» НЕ выполнено. Необходимо подтверждение пользователя.",
+            'action' => $toolName,
+            'args' => $args,
+            'instruction' => "ДЕЙСТВИЕ ЗАБЛОКИРОВАНО. Ты ОБЯЗАН: "
+                . "1) Описать пользователю что именно планируешь сделать (используй слова «записываю», «изменю», «перенесу» и т.п.). "
+                . "2) Указать конкретные параметры: дату, дистанцию, темп, тип. "
+                . "3) Закончить вопросом «Подтверждаешь?» или «Записать?». "
+                . "НЕ говори что действие выполнено — оно НЕ ВЫПОЛНЕНО.",
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Store pending action metadata in the last AI message for structured confirmation.
+     */
+    /**
+     * @param array $actions [['tool' => name, 'args' => [...]]] or single action
+     */
+    private function storePendingAction(int $conversationId, array $actions): void {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT id, metadata FROM chat_messages WHERE conversation_id = ? AND sender_type = 'ai' ORDER BY id DESC LIMIT 1"
+            );
+            if (!$stmt) return;
+            $stmt->bind_param('i', $conversationId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$row) return;
+
+            $existingMeta = json_decode($row['metadata'] ?? '{}', true) ?: [];
+            $existingMeta['pending_action'] = count($actions) === 1 ? $actions[0] : $actions;
+            $metaJson = json_encode($existingMeta, JSON_UNESCAPED_UNICODE);
+            $upd = $this->db->prepare("UPDATE chat_messages SET metadata = ? WHERE id = ?");
+            if ($upd) {
+                $msgId = (int) $row['id'];
+                $upd->bind_param('si', $metaJson, $msgId);
+                $upd->execute();
+                $upd->close();
+            }
+        } catch (Throwable $e) {
+            Logger::warning('Failed to store pending action', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /** @var array Blocked write-tool actions [['tool' => name, 'args' => decoded_args], ...] */
+    private array $blockedActions = [];
+
     private function resolveToolCalls(array $messages, int $userId, array &$toolsUsed = []): array {
         if ((int) env('CHAT_TOOLS_ENABLED', 1) !== 1) return $messages;
+        $this->blockedActions = [];
 
         $tools = $this->toolRegistry->getChatTools();
         $maxToolRounds = 5;
@@ -365,14 +453,20 @@ class ChatService extends BaseService {
             ]);
 
             if (empty($toolCalls)) {
-                // Text-based tool call fallback: name[ARGS]{...}
                 if (preg_match('/(\w+)\[ARGS\]\s*(\{[^}]+\})/i', $contentText, $textToolMatch)) {
                     $textToolName = $textToolMatch[1];
                     $textToolArgs = $textToolMatch[2];
                     Logger::info('resolveToolCalls: parsed text-based tool call', ['name' => $textToolName, 'args' => $textToolArgs, 'round' => $round]);
-                    echo json_encode(['tool_executing' => $textToolName]) . "\n"; flush();
-                    $output = $this->toolRegistry->executeTool($textToolName, $textToolArgs, $userId);
-                    $toolsUsed[] = $textToolName;
+
+                    if (in_array($textToolName, self::WRITE_TOOLS, true)) {
+                        Logger::info('Write tool blocked (text-based), returning confirmation stub', ['name' => $textToolName]);
+                        $output = $this->writeToolConfirmationStub($textToolName, $textToolArgs);
+                        $this->blockedActions[] = ['tool' => $textToolName, 'args' => json_decode($textToolArgs, true) ?: []];
+                    } else {
+                        echo json_encode(['tool_executing' => $textToolName]) . "\n"; flush();
+                        $output = $this->toolRegistry->executeTool($textToolName, $textToolArgs, $userId);
+                        $toolsUsed[] = $textToolName;
+                    }
                     $fakeId = 'text-' . uniqid();
                     $toolCallMsg = ['role' => 'assistant', 'content' => '', 'tool_calls' => [['id' => $fakeId, 'type' => 'function', 'function' => ['name' => $textToolName, 'arguments' => $textToolArgs]]]];
                     $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $fakeId, 'content' => $output];
@@ -394,10 +488,17 @@ class ChatService extends BaseService {
                 $fn = $tc['function'] ?? [];
                 $name = $fn['name'] ?? '';
                 $argsJson = $fn['arguments'] ?? '{}';
-                echo json_encode(['tool_executing' => $name]) . "\n"; flush();
-                $output = $this->toolRegistry->executeTool($name, $argsJson, $userId);
-                $toolsUsed[] = $name;
-                Logger::debug('Tool executed', ['name' => $name, 'args' => $argsJson, 'output_preview' => mb_substr($output, 0, 200)]);
+
+                if (in_array($name, self::WRITE_TOOLS, true)) {
+                    Logger::info('Write tool blocked, returning confirmation stub', ['name' => $name, 'args' => $argsJson]);
+                    $output = $this->writeToolConfirmationStub($name, $argsJson);
+                    $this->blockedActions[] = ['tool' => $name, 'args' => json_decode($argsJson, true) ?: []];
+                } else {
+                    echo json_encode(['tool_executing' => $name]) . "\n"; flush();
+                    $output = $this->toolRegistry->executeTool($name, $argsJson, $userId);
+                    $toolsUsed[] = $name;
+                }
+                Logger::debug('Tool result', ['name' => $name, 'args' => $argsJson, 'output_preview' => mb_substr($output, 0, 200)]);
                 $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $id, 'content' => $output];
                 $messages[] = $toolResultMsg;
                 $toolMessages[] = $toolResultMsg;
@@ -416,6 +517,7 @@ class ChatService extends BaseService {
         $tools = ((int) env('CHAT_TOOLS_ENABLED', 1) === 1) ? $this->toolRegistry->getChatTools() : null;
         $maxToolRounds = 5;
         $totalUsage = [];
+        $this->blockedActions = [];
 
         try {
             $msg = null;
@@ -429,7 +531,14 @@ class ChatService extends BaseService {
                 $messages[] = ['role' => 'assistant', 'content' => $msg['content'] ?? '', 'tool_calls' => $toolCalls];
                 foreach ($toolCalls as $tc) {
                     $fn = $tc['function'] ?? [];
-                    $output = $this->toolRegistry->executeTool($fn['name'] ?? '', $fn['arguments'] ?? '{}', $userId);
+                    $name = $fn['name'] ?? '';
+                    $argsJson = $fn['arguments'] ?? '{}';
+                    if (in_array($name, self::WRITE_TOOLS, true)) {
+                        $output = $this->writeToolConfirmationStub($name, $argsJson);
+                        $this->blockedActions[] = ['tool' => $name, 'args' => json_decode($argsJson, true) ?: []];
+                    } else {
+                        $output = $this->toolRegistry->executeTool($name, $argsJson, $userId);
+                    }
                     $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'] ?? '', 'content' => $output];
                 }
             }
@@ -446,7 +555,10 @@ class ChatService extends BaseService {
     private function callLlmDirect(array $messages, ?array $tools = null): array {
         $url = $this->llmBaseUrl . '/chat/completions';
         $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
-        $payload = ['model' => $this->llmModel, 'messages' => $messages, 'stream' => false, 'max_tokens' => $maxTokens];
+        $payload = [
+            'model' => $this->llmModel, 'messages' => $messages, 'stream' => false, 'max_tokens' => $maxTokens,
+            'chat_template_kwargs' => ['enable_thinking' => false],
+        ];
         if ($tools !== null && $tools !== []) {
             $payload['tools'] = $tools;
             $payload['tool_choice'] = 'auto';
@@ -482,7 +594,10 @@ class ChatService extends BaseService {
         $data = json_decode($response, true);
         if (!$data) throw new Exception('Ошибка ответа LLM-сервера');
         $msg = $data['choices'][0]['message'] ?? [];
-        return ['content' => $msg['content'] ?? '', 'message' => $msg, 'usage' => $data['usage'] ?? []];
+        $content = $msg['content'] ?? '';
+        $content = preg_replace('/<think>[\s\S]*?<\/think>\s*/i', '', $content) ?? $content;
+        $msg['content'] = $content;
+        return ['content' => $content, 'message' => $msg, 'usage' => $data['usage'] ?? []];
     }
 
     private function callPlanRunAIChat(array $messages): array {
@@ -612,6 +727,11 @@ class ChatService extends BaseService {
         $this->contextBuilder->setHistorySummary($userId, '');
     }
 
+    public function clearAdminTabDialog(int $userId): int {
+        $conversation = $this->repository->getOrCreateConversation($userId, 'admin');
+        return $this->repository->deleteAdminTabMessages($conversation['id'], $userId);
+    }
+
     public function markAsRead(int $userId, int $conversationId): void {
         $conv = $this->repository->getConversationById($conversationId, $userId);
         if ($conv) $this->repository->markMessagesRead($conversationId);
@@ -652,6 +772,11 @@ class ChatService extends BaseService {
     public function clearDirectDialog(int $currentUserId, int $targetUserId): int {
         if ($currentUserId === $targetUserId) throw new InvalidArgumentException('Нельзя очистить диалог с самим собой');
         return $this->repository->deleteDirectMessagesBetweenUsers($currentUserId, $targetUserId);
+    }
+
+    public function clearAdminConversation(int $targetUserId): int {
+        $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
+        return $this->repository->deleteMessagesByConversation($conversation['id']);
     }
 
     public function getAdminMessages(int $targetUserId, int $limit = 50, int $offset = 0): array {
@@ -698,7 +823,9 @@ class ChatService extends BaseService {
         try {
             $eventKey = match ($type) { 'admin' => 'chat.admin_message', 'ai' => 'chat.ai_message', 'direct' => 'chat.direct_message', default => 'chat.direct_message' };
             $this->dispatchNotificationEvent($userId, $eventKey, $title, $body, '/chat', $notificationOptions);
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            error_log("sendChatPush failed user={$userId}: " . $e->getMessage());
+        }
     }
 
     private function dispatchNotificationEvent(int $userId, string $eventKey, string $title, string $body, string $link = '/chat', array $notificationOptions = []): void {
@@ -723,7 +850,9 @@ class ChatService extends BaseService {
                     'link' => '/chat', 'sender_name' => $senderName, 'push_data' => ['type' => 'chat', 'link' => '/chat'],
                 ]);
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            error_log("notifyAdminsAboutUserMessage failed sender={$senderUserId}: " . $e->getMessage());
+        }
     }
 
     private function getUsernameById(int $userId): ?string {

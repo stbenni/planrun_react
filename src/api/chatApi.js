@@ -58,7 +58,7 @@ export async function chatSendMessageStream(client, content, onChunk, opts = {})
     let fullContent = '';
 
     try {
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -143,6 +143,10 @@ export function chatClearDirectDialog(client, targetUserId) {
   return client.request('chat_clear_direct_dialog', { target_user_id: targetUserId }, 'POST');
 }
 
+export function chatClearAdminDialog(client) {
+  return client.request('chat_clear_admin_dialog', {}, 'POST');
+}
+
 export function chatMarkRead(client, conversationId) {
   return client.request('chat_mark_read', { conversation_id: conversationId }, 'POST');
 }
@@ -174,6 +178,10 @@ export function chatAdminGetMessages(client, userId, limit = 50, offset = 0) {
 
 export function chatAdminMarkConversationRead(client, userId) {
   return client.request('chat_admin_mark_conversation_read', { user_id: userId }, 'POST');
+}
+
+export function chatAdminClearConversation(client, userId) {
+  return client.request('chat_admin_clear_conversation', { user_id: userId }, 'POST');
 }
 
 export function chatAddAIMessage(client, userId, content) {

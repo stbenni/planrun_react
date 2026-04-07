@@ -274,7 +274,7 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
             <div key={item.id} className="notification-card notification-card--chat notification-card--ai" style={{ animationDelay: `${index * 100}ms` }}>
               <div className="notification-icon" aria-hidden><BotIcon size={24} /></div>
               <div className="notification-content">
-                <div className="notification-title">Новое сообщение от AI-тренера</div>
+                <div className="notification-title">Новое сообщение от ИИ-тренера</div>
                 <div className="notification-date">{timeStr}</div>
                 <div className="notification-workout">{truncated || 'Сообщение'}</div>
               </div>

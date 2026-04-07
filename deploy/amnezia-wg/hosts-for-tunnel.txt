@@ -1,0 +1,20 @@
+# Хосты для split-tunnel (IPv4 через WireGuard). Строки с # игнорируются.
+# Дополняй под свои интеграции; у CDN IP могут меняться — периодически перегенерируй AllowedIPs.
+
+# Cursor / AI в IDE
+api2.cursor.sh
+cursor.sh
+repo42.cursor.sh
+
+# OpenAI (чат/инструменты)
+api.openai.com
+chat.openai.com
+ab.chatgpt.com
+chatgpt.com
+
+# Telegram (исходящие с бэкенда)
+api.telegram.org
+oauth.telegram.org
+
+# Пример: Strava (если прямой выход режут)
+# www.strava.com

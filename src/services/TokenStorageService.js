@@ -128,7 +128,9 @@ class TokenStorageService {
           return { accessToken: at, refreshToken: rt };
         }
       }
-    } catch (_) {}
+    } catch (error) {
+      void error;
+    }
     return null;
   }
 
@@ -140,7 +142,9 @@ class TokenStorageService {
         storage.set(KEYS.AUTH_TOKEN, String(accessToken)),
         storage.set(KEYS.REFRESH_TOKEN, String(refreshToken))
       ]));
-    } catch (_) {}
+    } catch (error) {
+      void error;
+    }
   }
 
   async saveTokens(accessToken, refreshToken) {
@@ -158,7 +162,9 @@ class TokenStorageService {
         key: KEYS.BACKUP_TOKENS,
         value: JSON.stringify({ accessToken, refreshToken })
       });
-    } catch (_) {}
+    } catch (error) {
+      void error;
+    }
 
     // SecureStorage — может зависнуть при инициализации KeyStore на Android. Пишем в фоне.
     this._getSecureStorage().then((storage) => {
@@ -185,7 +191,9 @@ class TokenStorageService {
 
     try {
       await Preferences.remove({ key: KEYS.BACKUP_TOKENS });
-    } catch (_) {}
+    } catch (error) {
+      void error;
+    }
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(KEYS.AUTH_TOKEN);
       localStorage.removeItem(KEYS.REFRESH_TOKEN);
@@ -197,7 +205,9 @@ class TokenStorageService {
           storage.remove(KEYS.AUTH_TOKEN),
           storage.remove(KEYS.REFRESH_TOKEN)
         ]));
-      } catch (_) {}
+      } catch (error) {
+        void error;
+      }
     }
     return true;
   }

@@ -23,6 +23,8 @@ export function useChatNavigation({
   const contactUserFromState = location.state?.contactUser;
   const scrollToMessageId = location.state?.messageId;
   const contactSlugFromUrl = searchParams.get('contact');
+  const contextFromUrl = searchParams.get('context');
+  const contextDateFromUrl = searchParams.get('date');
 
   const [contactUser, setContactUser] = useState(() => contactUserFromState ?? null);
   const [contactUserLoading, setContactUserLoading] = useState(false);
@@ -185,6 +187,7 @@ export function useChatNavigation({
   const personalChats = [...SYSTEM_CHATS, ...directDialogChats, ...(userDialogChat && !hasContactInDialogs ? [userDialogChat] : [])];
   const chats = isAdmin ? [...personalChats, ADMIN_CHAT] : personalChats;
 
+  const hasDirectDialogSelection = selectedChat === TAB_USER_DIALOG || selectedChat?.startsWith?.('dialog_');
   const dialogUserId = selectedChat?.startsWith?.('dialog_')
     ? parseInt(selectedChat.replace('dialog_', ''), 10)
     : (selectedChat === TAB_USER_DIALOG && contactUser?.id)
@@ -207,7 +210,7 @@ export function useChatNavigation({
     )
     : contactUser;
 
-  const isUserDialog = Boolean(dialogUserId && contactUserForDialog);
+  const isUserDialog = Boolean(hasDirectDialogSelection);
 
   useEffect(() => {
     if (!selectedUserIdFromState || adminSection !== 'admin_mode' || chatUsersLoading) return;
@@ -302,6 +305,8 @@ export function useChatNavigation({
     contactUserForDialog,
     contactUserLoading,
     contactUserSlugFromState,
+    contextFromUrl,
+    contextDateFromUrl,
     currentChat,
     chats,
     handleAdminSectionChange,

@@ -107,7 +107,7 @@ class ChatRepository extends BaseRepository {
      */
     public function getMessagesAscending(int $conversationId, int $limit = 20): array {
         $rows = $this->fetchAll(
-            "SELECT id, conversation_id, sender_type, sender_id, content, created_at 
+            "SELECT id, conversation_id, sender_type, sender_id, content, metadata, created_at 
              FROM chat_messages 
              WHERE conversation_id = ? 
              ORDER BY created_at DESC 
@@ -162,8 +162,28 @@ class ChatRepository extends BaseRepository {
     /**
      * Удалить все сообщения из разговора (очистка чата)
      */
-    public function deleteMessagesByConversation(int $conversationId): void {
-        $this->execute("DELETE FROM chat_messages WHERE conversation_id = ?", [$conversationId], 'i');
+    public function deleteMessagesByConversation(int $conversationId): int {
+        $result = $this->execute("DELETE FROM chat_messages WHERE conversation_id = ?", [$conversationId], 'i');
+        return (int)($result['affected_rows'] ?? 0);
+    }
+
+    /**
+     * Удалить только сообщения пользовательского admin-чата:
+     * ответы администрации и собственные сообщения пользователя.
+     * Direct-сообщения от других пользователей сохраняются.
+     */
+    public function deleteAdminTabMessages(int $conversationId, int $userId): int {
+        $result = $this->execute(
+            "DELETE FROM chat_messages
+             WHERE conversation_id = ?
+               AND (
+                 sender_type = 'admin'
+                 OR (sender_type = 'user' AND sender_id = ?)
+               )",
+            [$conversationId, $userId],
+            'ii'
+        );
+        return (int)($result['affected_rows'] ?? 0);
     }
 
     /**
@@ -215,11 +235,11 @@ class ChatRepository extends BaseRepository {
      * ID всех пользователей для рассылки (кроме указанного, обычно отправителя)
      */
     public function getAllUserIdsForBroadcast(?int $excludeUserId = null): array {
-        $sql = "SELECT id FROM users";
+        $sql = "SELECT id FROM users WHERE banned = 0";
         $params = [];
         $types = '';
         if ($excludeUserId !== null && $excludeUserId > 0) {
-            $sql .= " WHERE id != ?";
+            $sql .= " AND id != ?";
             $params = [$excludeUserId];
             $types = 'i';
         }

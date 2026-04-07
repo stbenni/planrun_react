@@ -472,6 +472,192 @@ function predictAllRaceTimes(float $vdot): array {
     return $results;
 }
 
+function normalizeRaceDistanceKey(?string $dist): ?string {
+    if (!$dist) {
+        return null;
+    }
+
+    $aliases = [
+        '21.1k' => 'half',
+        '42.2k' => 'marathon',
+    ];
+
+    return $aliases[$dist] ?? $dist;
+}
+
+function getRaceDistanceLabel(?string $dist, ?float $distanceKm = null): string {
+    if ($dist === 'other' && $distanceKm && $distanceKm > 0) {
+        return rtrim(rtrim(number_format($distanceKm, 1, '.', ''), '0'), '.') . ' км';
+    }
+
+    return match (normalizeRaceDistanceKey($dist)) {
+        '5k' => '5 км',
+        '10k' => '10 км',
+        'half' => 'полумарафон',
+        'marathon' => 'марафон',
+        default => $dist ?: 'не указано',
+    };
+}
+
+function parseFlexibleTimeToSec(?string $time): ?int {
+    if (!$time) {
+        return null;
+    }
+
+    $parts = explode(':', $time);
+    if (count($parts) === 3) {
+        return (int) $parts[0] * 3600 + (int) $parts[1] * 60 + (int) $parts[2];
+    }
+    if (count($parts) === 2) {
+        return (int) $parts[0] * 60 + (int) $parts[1];
+    }
+
+    return null;
+}
+
+function formatWeeksRu(int $weeks): string {
+    $mod10 = $weeks % 10;
+    $mod100 = $weeks % 100;
+
+    if ($mod10 === 1 && $mod100 !== 11) {
+        return "{$weeks} неделю";
+    }
+    if ($mod10 >= 2 && $mod10 <= 4 && ($mod100 < 12 || $mod100 > 14)) {
+        return "{$weeks} недели";
+    }
+
+    return "{$weeks} недель";
+}
+
+function getGoalTimelineContext(array $userData, string $dist, float $targetKm, bool $isNovice): array {
+    $profiles = [
+        '5k' => [
+            'full_cycle' => ['novice' => 6, 'exp' => 4],
+            'same_distance_refresh' => ['novice' => 3, 'exp' => 2],
+            'longer_distance_bridge' => ['novice' => 3, 'exp' => 2],
+            'same_distance_fresh_weeks' => 6,
+            'longer_distance_fresh_weeks' => 8,
+        ],
+        '10k' => [
+            'full_cycle' => ['novice' => 8, 'exp' => 6],
+            'same_distance_refresh' => ['novice' => 4, 'exp' => 3],
+            'longer_distance_bridge' => ['novice' => 4, 'exp' => 3],
+            'same_distance_fresh_weeks' => 8,
+            'longer_distance_fresh_weeks' => 10,
+        ],
+        'half' => [
+            'full_cycle' => ['novice' => 12, 'exp' => 8],
+            'same_distance_refresh' => ['novice' => 6, 'exp' => 4],
+            'longer_distance_bridge' => ['novice' => 6, 'exp' => 5],
+            'same_distance_fresh_weeks' => 10,
+            'longer_distance_fresh_weeks' => 12,
+        ],
+        'marathon' => [
+            'full_cycle' => ['novice' => 18, 'exp' => 12],
+            'same_distance_refresh' => ['novice' => 8, 'exp' => 6],
+            'longer_distance_bridge' => null,
+            'same_distance_fresh_weeks' => 16,
+            'longer_distance_fresh_weeks' => null,
+        ],
+    ];
+
+    $canonicalDist = normalizeRaceDistanceKey($dist) ?? $dist;
+    $profile = $profiles[$canonicalDist] ?? $profiles['10k'];
+    $levelKey = $isNovice ? 'novice' : 'exp';
+    $fullCycleWeeks = $profile['full_cycle'][$levelKey] ?? 8;
+    $recommendedWeeks = $fullCycleWeeks;
+    $effectiveMinWeeks = $fullCycleWeeks;
+    $mode = 'standard';
+    $contextText = null;
+
+    $planningBenchmarkType = (string) ($userData['planning_benchmark_type'] ?? '');
+    $planningBenchmarkEffort = (string) ($userData['planning_benchmark_effort'] ?? '');
+    $planningBenchmarkLooksLikePerformance = $planningBenchmarkType === ''
+        || in_array($planningBenchmarkType, ['race', 'control'], true)
+        || ($planningBenchmarkType === 'hard_workout' && in_array($planningBenchmarkEffort, ['', 'max', 'hard'], true));
+    if (in_array($planningBenchmarkEffort, ['steady', 'easy'], true)) {
+        $planningBenchmarkLooksLikePerformance = false;
+    }
+
+    $referenceDistanceRaw = $planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_distance'])
+        ? $userData['planning_benchmark_distance']
+        : ($userData['last_race_distance'] ?? null);
+    $referenceDistanceKmRaw = $planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_distance'])
+        ? ($userData['planning_benchmark_distance_km'] ?? null)
+        : ($userData['last_race_distance_km'] ?? null);
+    $lastRaceDate = $planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_distance'])
+        ? ($userData['planning_benchmark_date'] ?? null)
+        : ($userData['last_race_date'] ?? null);
+    $lastRaceWeeksOld = null;
+    if ($lastRaceDate) {
+        $lastRaceTs = strtotime($lastRaceDate);
+        if ($lastRaceTs !== false) {
+            $lastRaceWeeksOld = (time() - $lastRaceTs) / (7 * 86400);
+        }
+    }
+
+    $distKm = ['5k' => 5.0, '10k' => 10.0, 'half' => 21.0975, '21.1k' => 21.0975, 'marathon' => 42.195, '42.2k' => 42.195];
+    $lastRaceRaw = $referenceDistanceRaw;
+    $lastRaceKey = normalizeRaceDistanceKey($lastRaceRaw);
+    $lastRaceKm = null;
+    if ($lastRaceRaw === 'other') {
+        $lastRaceKm = (float) ($referenceDistanceKmRaw ?? 0);
+    } elseif ($lastRaceRaw) {
+        $lastRaceKm = $distKm[$lastRaceRaw] ?? null;
+    }
+
+    $distanceToleranceKm = max(0.3, $targetKm * 0.02);
+    $isSameDistance = false;
+    if ($lastRaceKm && $targetKm > 0) {
+        $isSameDistance = abs($lastRaceKm - $targetKm) <= $distanceToleranceKm;
+    }
+    if (!$isSameDistance && $lastRaceKey && $canonicalDist) {
+        $isSameDistance = $lastRaceKey === $canonicalDist;
+    }
+
+    $distanceOrder = ['5k' => 1, '10k' => 2, 'half' => 3, 'marathon' => 4];
+    $targetOrder = $distanceOrder[$canonicalDist] ?? null;
+    $lastOrder = $distanceOrder[$lastRaceKey] ?? null;
+    $isLongerDistance = false;
+    if ($lastOrder !== null && $targetOrder !== null) {
+        $isLongerDistance = $lastOrder > $targetOrder;
+    } elseif ($lastRaceKm && $targetKm > 0) {
+        $isLongerDistance = $lastRaceKm >= ($targetKm * 1.15);
+    }
+
+    $isFirstRaceAtDistance = !empty($userData['is_first_race_at_distance']);
+
+    if (
+        !$isFirstRaceAtDistance
+        && $isSameDistance
+        && $lastRaceWeeksOld !== null
+        && $lastRaceWeeksOld <= $profile['same_distance_fresh_weeks']
+    ) {
+        $effectiveMinWeeks = $profile['same_distance_refresh'][$levelKey] ?? $effectiveMinWeeks;
+        $mode = 'same_distance_refresh';
+        $contextText = 'после свежего результата на этой же дистанции';
+    } elseif (
+        !empty($profile['longer_distance_bridge'])
+        && $isLongerDistance
+        && $lastRaceWeeksOld !== null
+        && $lastRaceWeeksOld <= ($profile['longer_distance_fresh_weeks'] ?? 0)
+    ) {
+        $effectiveMinWeeks = $profile['longer_distance_bridge'][$levelKey] ?? $effectiveMinWeeks;
+        $mode = 'bridge_from_longer';
+        $contextText = 'после недавнего более длинного старта';
+    }
+
+    return [
+        'mode' => $mode,
+        'context_text' => $contextText,
+        'full_cycle_weeks' => $fullCycleWeeks,
+        'recommended_weeks' => $recommendedWeeks,
+        'effective_min_weeks' => $effectiveMinWeeks,
+        'last_race_weeks_old' => $lastRaceWeeksOld !== null ? round($lastRaceWeeksOld, 1) : null,
+        'has_short_block_adjustment' => $effectiveMinWeeks < $fullCycleWeeks,
+    ];
+}
+
 // ════════════════════════════════════════════════════════════════
 // Оценка реалистичности цели (Goal Realism Assessment)
 // ════════════════════════════════════════════════════════════════
@@ -483,6 +669,7 @@ function assessGoalRealism(array $userData): array {
     }
 
     $dist = $userData['race_distance'] ?? '';
+    $normalizedDist = normalizeRaceDistanceKey($dist) ?? $dist;
     $distKm = ['5k' => 5.0, '10k' => 10.0, 'half' => 21.0975, '21.1k' => 21.0975, 'marathon' => 42.195, '42.2k' => 42.195];
     $targetKm = $distKm[$dist] ?? null;
     $distLabels = ['5k' => '5 км', '10k' => '10 км', 'half' => 'полумарафон', '21.1k' => 'полумарафон', 'marathon' => 'марафон', '42.2k' => 'марафон'];
@@ -517,26 +704,27 @@ function assessGoalRealism(array $userData): array {
 
     $messages = [];
     $severities = [];
+    $issueLevels = [
+        'timeline' => null,
+        'volume' => null,
+        'sessions' => null,
+        'target_time' => null,
+    ];
 
     // ── Check 1: Enough weeks ──
-    $minWeeks = [
-        '5k'       => ['novice' => 6,  'exp' => 4],
-        '10k'      => ['novice' => 8,  'exp' => 6],
-        'half'     => ['novice' => 12, 'exp' => 8],
-        '21.1k'    => ['novice' => 12, 'exp' => 8],
-        'marathon'  => ['novice' => 18, 'exp' => 12],
-        '42.2k'    => ['novice' => 18, 'exp' => 12],
-    ];
-    $reqWeeks = $minWeeks[$dist][$isNovice ? 'novice' : 'exp'] ?? 8;
-    $recWeeks = $minWeeks[$dist]['novice'] ?? 12;
+    $timelineContext = getGoalTimelineContext($userData, $normalizedDist, $targetKm, $isNovice);
+    $reqWeeks = $timelineContext['effective_min_weeks'];
+    $fullCycleWeeks = $timelineContext['full_cycle_weeks'];
+    $recWeeks = $timelineContext['recommended_weeks'];
+    $timelineMode = $timelineContext['mode'];
 
     if ($totalWeeks !== null && $totalWeeks < $reqWeeks) {
-        $suggestedWeeks = $reqWeeks; // предлагаем минимум для текущего уровня, не для novice
+        $suggestedWeeks = $reqWeeks;
         $suggestedDate = date('Y-m-d', strtotime(($userData['training_start_date'] ?? 'now') . " +{$suggestedWeeks} weeks"));
         $shorterDist = null;
         $shorterLabel = null;
         $distOrder = ['5k', '10k', 'half', 'marathon'];
-        $curIdx = array_search($dist, $distOrder);
+        $curIdx = array_search($normalizedDist, $distOrder, true);
         if ($curIdx !== false && $curIdx > 0) {
             $shorterDist = $distOrder[$curIdx - 1];
             $shorterLabel = $distLabels[$shorterDist] ?? $shorterDist;
@@ -544,16 +732,37 @@ function assessGoalRealism(array $userData): array {
 
         $sev = $totalWeeks < ($reqWeeks * 0.6) ? 'unrealistic' : 'challenging';
         $severities[] = $sev;
+        $issueLevels['timeline'] = $sev;
+        $timelineText = match ($timelineMode) {
+            'same_distance_refresh' => "Для полноценного цикла на «{$distLabel}» обычно закладываем {$fullCycleWeeks} недель, а короткий подводящий блок {$timelineContext['context_text']} требует хотя бы " . formatWeeksRu($reqWeeks),
+            'bridge_from_longer' => "Для полноценного цикла на «{$distLabel}» обычно закладываем {$fullCycleWeeks} недель, а короткая специфическая подводка {$timelineContext['context_text']} требует хотя бы " . formatWeeksRu($reqWeeks),
+            default => "Для подготовки к дистанции «{$distLabel}» рекомендуется минимум {$reqWeeks} недель" . ($isNovice ? ' (для вашего уровня)' : ''),
+        };
         $msg = [
             'type' => $sev === 'unrealistic' ? 'error' : 'warning',
-            'text' => "Для подготовки к дистанции «{$distLabel}» рекомендуется минимум {$reqWeeks} недель" . ($isNovice ? ' (для вашего уровня)' : '') . ". У вас {$totalWeeks}.",
+            'text' => $timelineText . ". У вас " . formatWeeksRu($totalWeeks) . '.',
             'suggestions' => [],
         ];
         $msg['suggestions'][] = ['text' => "Перенести забег на {$suggestedDate} ({$suggestedWeeks} нед.)", 'action' => ['field' => 'race_date', 'value' => $suggestedDate]];
+        if ($timelineMode !== 'standard' && $fullCycleWeeks > $reqWeeks) {
+            $msg['suggestions'][] = ['text' => "Для полного цикла лучше {$fullCycleWeeks}+ нед.", 'action' => null];
+        }
         if ($shorterDist) {
             $msg['suggestions'][] = ['text' => "Выбрать {$shorterLabel}", 'action' => ['field' => 'race_distance', 'value' => $shorterDist]];
         }
         $messages[] = $msg;
+    } elseif (
+        $totalWeeks !== null
+        && $timelineContext['has_short_block_adjustment']
+        && $totalWeeks < $fullCycleWeeks
+    ) {
+        $messages[] = [
+            'type' => 'info',
+            'text' => $timelineMode === 'same_distance_refresh'
+                ? "Полноценный цикл на «{$distLabel}» обычно занимает " . formatWeeksRu($fullCycleWeeks) . ", но {$timelineContext['context_text']} текущие " . formatWeeksRu($totalWeeks) . " можно использовать как короткий подводящий блок."
+                : "Полноценный цикл на «{$distLabel}» обычно занимает " . formatWeeksRu($fullCycleWeeks) . ", но {$timelineContext['context_text']} текущие " . formatWeeksRu($totalWeeks) . " можно использовать как короткую специфическую подводку.",
+            'suggestions' => [],
+        ];
     }
 
     // ── Check 2: Enough base volume ──
@@ -571,6 +780,7 @@ function assessGoalRealism(array $userData): array {
     $volumeNote = !empty($userData['_weekly_km_estimated']) ? " (оценка по вашим данным)" : "";
     if ($weeklyKm < $absMin) {
         $severities[] = 'unrealistic';
+        $issueLevels['volume'] = 'unrealistic';
         $messages[] = [
             'type' => 'error',
             'text' => "Ваш текущий объём ({$weeklyKm} км/нед{$volumeNote}) слишком мал для {$distLabel}. Минимум {$absMin} км/нед, рекомендуется {$recMin}+.",
@@ -580,6 +790,7 @@ function assessGoalRealism(array $userData): array {
         ];
     } elseif ($weeklyKm < $recMin) {
         $severities[] = 'challenging';
+        $issueLevels['volume'] = 'challenging';
         $messages[] = [
             'type' => 'warning',
             'text' => "Ваш объём ({$weeklyKm} км/нед{$volumeNote}) ниже рекомендуемого для {$distLabel} ({$recMin}+ км/нед). Подготовка возможна, но с повышенным риском.",
@@ -594,6 +805,7 @@ function assessGoalRealism(array $userData): array {
 
     if ($sessions < $absSess) {
         $severities[] = 'challenging';
+        $issueLevels['sessions'] = 'challenging';
         $messages[] = [
             'type' => 'warning',
             'text' => "Для {$distLabel} рекомендуется {$recSess} тренировки в неделю. У вас {$sessions}.",
@@ -603,6 +815,7 @@ function assessGoalRealism(array $userData): array {
         ];
     } elseif ($sessions < $recSess && in_array($dist, ['marathon', '42.2k', 'half', '21.1k'])) {
         $severities[] = 'challenging';
+        $issueLevels['sessions'] = 'challenging';
         $messages[] = [
             'type' => 'warning',
             'text' => "Для {$distLabel} лучше иметь {$recSess} тренировки в неделю. У вас {$sessions} — справитесь, но плотнее.",
@@ -617,6 +830,7 @@ function assessGoalRealism(array $userData): array {
     $predictions = null;
     $trainingPaces = null;
     $vdotSource = null;
+    $timelineIssue = $issueLevels['timeline'];
 
     // Prefer VDOT from training_state (computed by TrainingStateBuilder) if available
     if (!empty($userData['training_state']['vdot'])) {
@@ -627,25 +841,34 @@ function assessGoalRealism(array $userData): array {
         }
     }
 
-    // Fallback: try to get VDOT from last race
-    $lastDist = $userData['last_race_distance'] ?? null;
-    $lastTime = $userData['last_race_time'] ?? null;
+    // Fallback: try to get VDOT from planning benchmark or legacy last race
+    $benchmarkType = (string) ($userData['planning_benchmark_type'] ?? '');
+    $benchmarkEffort = (string) ($userData['planning_benchmark_effort'] ?? '');
+    $planningBenchmarkLooksLikePerformance = $benchmarkType === ''
+        || in_array($benchmarkType, ['race', 'control'], true)
+        || ($benchmarkType === 'hard_workout' && in_array($benchmarkEffort, ['', 'max', 'hard'], true));
+    if (in_array($benchmarkEffort, ['steady', 'easy'], true)) {
+        $planningBenchmarkLooksLikePerformance = false;
+    }
+
+    $lastDist = $planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_distance'])
+        ? $userData['planning_benchmark_distance']
+        : ($userData['last_race_distance'] ?? null);
+    $lastTime = $planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_time'])
+        ? $userData['planning_benchmark_time']
+        : ($userData['last_race_time'] ?? null);
     $lastDistKm = null;
 
     if (!$vdot && $lastDist && $lastTime) {
         if ($lastDist === 'other') {
-            $lastDistKm = (float) ($userData['last_race_distance_km'] ?? 0);
+            $lastDistKm = (float) ($planningBenchmarkLooksLikePerformance && !empty($userData['planning_benchmark_distance'])
+                ? ($userData['planning_benchmark_distance_km'] ?? 0)
+                : ($userData['last_race_distance_km'] ?? 0));
         } else {
             $lastDistKm = $distKm[$lastDist] ?? null;
         }
         if ($lastDistKm && $lastDistKm > 0) {
-            $parts = explode(':', $lastTime);
-            $lastTimeSec = 0;
-            if (count($parts) === 3) {
-                $lastTimeSec = (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2];
-            } elseif (count($parts) === 2) {
-                $lastTimeSec = (int)$parts[0] * 60 + (int)$parts[1];
-            }
+            $lastTimeSec = parseFlexibleTimeToSec($lastTime) ?? 0;
             if ($lastTimeSec > 0) {
                 $vdot = estimateVDOT($lastDistKm, $lastTimeSec);
                 $vdotSource = $distLabels[$lastDist] ?? "{$lastDistKm} км";
@@ -675,13 +898,7 @@ function assessGoalRealism(array $userData): array {
         // Compare target time with prediction
         $targetTimeStr = $userData['race_target_time'] ?? null;
         if ($targetTimeStr && $targetKm) {
-            $tParts = explode(':', $targetTimeStr);
-            $targetSec = 0;
-            if (count($tParts) === 3) {
-                $targetSec = (int)$tParts[0] * 3600 + (int)$tParts[1] * 60 + (int)$tParts[2];
-            } elseif (count($tParts) === 2) {
-                $targetSec = (int)$tParts[0] * 60 + (int)$tParts[1];
-            }
+            $targetSec = parseFlexibleTimeToSec($targetTimeStr) ?? 0;
 
             if ($targetSec > 0) {
                 $predictedSec = predictRaceTime($vdot, $targetKm);
@@ -689,33 +906,44 @@ function assessGoalRealism(array $userData): array {
 
                 $predictedStr = formatTimeSec($predictedSec);
                 $targetStr = formatTimeSec($targetSec);
+                $timelineWeeksHint = $totalWeeks ? "в текущие {$totalWeeks} " . ($totalWeeks === 1 ? 'неделю' : ($totalWeeks < 5 ? 'недели' : 'недель')) : 'в текущий срок';
 
                 if ($diff > 15) {
                     $severities[] = 'unrealistic';
+                    $issueLevels['target_time'] = 'unrealistic';
                     $messages[] = [
                         'type' => 'error',
-                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}, на основе {$vdotSource}). Это нереалистично за один цикл подготовки.",
+                        'text' => $timelineIssue
+                            ? "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}, на основе {$vdotSource}). Даже при более длинном цикле подготовки цель выглядит слишком агрессивной, а {$timelineWeeksHint} тем более нереалистична."
+                            : "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}, на основе {$vdotSource}). Это нереалистично за один цикл подготовки.",
                         'suggestions' => [
                             ['text' => "Поставить реалистичную цель: {$predictedStr}", 'action' => ['field' => 'race_target_time', 'value' => formatTimeSec($predictedSec)]],
                         ],
                     ];
                 } elseif ($diff > 5) {
                     $severities[] = 'challenging';
+                    $issueLevels['target_time'] = 'challenging';
                     $messages[] = [
                         'type' => 'warning',
-                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}). Амбициозно, но достижимо при правильной подготовке.",
+                        'text' => $timelineIssue
+                            ? "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}). По текущей форме это амбициозно, но при полноценном цикле подготовки достижимо; {$timelineWeeksHint} цель маловероятна."
+                            : "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}). Амбициозно, но достижимо при правильной подготовке.",
                         'suggestions' => [],
                     ];
                 } elseif ($diff >= -5) {
                     $messages[] = [
                         'type' => 'success',
-                        'text' => "Ваш целевой результат ({$targetStr}) реалистичен! Прогноз на основе {$vdotSource}: {$predictedStr}.",
+                        'text' => $timelineIssue
+                            ? "По текущей форме ваш целевой результат ({$targetStr}) выглядит реалистично: прогноз на основе {$vdotSource} — {$predictedStr}. Но {$timelineWeeksHint} срок подготовки слишком короткий."
+                            : "Ваш целевой результат ({$targetStr}) реалистичен! Прогноз на основе {$vdotSource}: {$predictedStr}.",
                         'suggestions' => [],
                     ];
                 } else {
                     $messages[] = [
                         'type' => 'success',
-                        'text' => "Ваш целевой результат ({$targetStr}) консервативен. По текущей форме вы способны на {$predictedStr}.",
+                        'text' => $timelineIssue
+                            ? "По текущей форме ваш целевой результат ({$targetStr}) даже консервативен: текущий прогноз — {$predictedStr}. Но {$timelineWeeksHint} срок всё равно ограничивает качество подготовки."
+                            : "Ваш целевой результат ({$targetStr}) консервативен. По текущей форме вы способны на {$predictedStr}.",
                         'suggestions' => [],
                     ];
                 }
@@ -730,6 +958,9 @@ function assessGoalRealism(array $userData): array {
         $existingTexts = array_map(fn($m) => mb_strtolower($m['text']), $messages);
         foreach ($mc['warnings'] as $w) {
             $wLower = mb_strtolower($w);
+            if ($timelineContext['has_short_block_adjustment'] && str_contains($wLower, 'недостаточно времени')) {
+                continue;
+            }
             // Пропускаем если предупреждение дублирует уже существующее
             $isDuplicate = false;
             foreach ($existingTexts as $et) {
@@ -761,6 +992,24 @@ function assessGoalRealism(array $userData): array {
         $verdict = 'challenging';
     } else {
         $verdict = 'realistic';
+    }
+
+    $primaryConstraint = 'mixed';
+    foreach (['timeline', 'target_time', 'volume', 'sessions'] as $constraint) {
+        if ($issueLevels[$constraint] === 'unrealistic') {
+            $primaryConstraint = $constraint;
+            break;
+        }
+    }
+    if ($primaryConstraint === 'mixed') {
+        $activeConstraints = array_keys(array_filter($issueLevels));
+        if (count($activeConstraints) === 1) {
+            $primaryConstraint = $activeConstraints[0];
+        } elseif (!empty($issueLevels['timeline']) && empty($issueLevels['volume']) && empty($issueLevels['sessions'])) {
+            $primaryConstraint = 'timeline';
+        } elseif (!empty($issueLevels['target_time']) && empty($issueLevels['volume']) && empty($issueLevels['sessions'])) {
+            $primaryConstraint = 'target_time';
+        }
     }
 
     // ── Format training paces for display ──
@@ -805,9 +1054,12 @@ function assessGoalRealism(array $userData): array {
         'vdot_source' => $vdotSource,
         'predictions' => $predsFormatted,
         'training_paces' => $pacesFormatted,
-        'recommended_weeks' => $totalWeeks && $totalWeeks < $reqWeeks ? $recWeeks : null,
+        'recommended_weeks' => $totalWeeks && $totalWeeks < $fullCycleWeeks ? $recWeeks : null,
+        'minimum_weeks' => $reqWeeks,
         'recommended_distance' => null,
         'recommended_sessions' => $sessions < $recSess ? $recSess : null,
+        'primary_constraint' => $primaryConstraint,
+        'timeline_mode' => $timelineMode,
     ];
 }
 
@@ -1500,6 +1752,30 @@ function buildUserInfoBlock($userData) {
         $estimatedMaxHR = 220 - $age;
         $block .= "ЧСС макс (оценка 220-возраст): ~{$estimatedMaxHR} уд/мин\n";
     }
+    // Зоны ЧСС из UserProfileService (авто/ручной/формула)
+    if (!empty($userData['id'])) {
+        try {
+            require_once __DIR__ . '/../services/UserProfileService.php';
+            $hrDb = getDBConnection();
+            if ($hrDb) {
+                $hrService = new UserProfileService($hrDb);
+                $hrData = $hrService->getHrZonesData((int) $userData['id'], $userData);
+                $hrMax = $hrData['effective_max_hr'] ?? 0;
+                if ($hrMax >= 120 && !empty($hrData['zones'])) {
+                    $zoneLines = [];
+                    $zoneNames = [1 => 'Восст.', 2 => 'Аэробная', 3 => 'Темповая', 4 => 'Пороговая', 5 => 'Макс.'];
+                    foreach ($hrData['zones'] as $z) {
+                        $n = $z['zone'];
+                        $zoneLines[] = "Z{$n} {$zoneNames[$n]}: {$z['min_hr']}–{$z['max_hr']}";
+                    }
+                    $block .= "Зоны ЧСС: " . implode(', ', $zoneLines) . "\n";
+                    $block .= "→ Указывай целевой пульс в описаниях: easy/long → до Z2, tempo → Z3-Z4, interval → Z4-Z5.\n";
+                }
+            }
+        } catch (Throwable $e) {
+            // не критично
+        }
+    }
     if (!empty($userData['injury_history'])) {
         $block .= "\n⚠ ИСТОРИЯ ТРАВМ / ОГРАНИЧЕНИЯ:\n{$userData['injury_history']}\n";
         $block .= "→ Учитывай при составлении плана: избегай нагрузок, провоцирующих эти проблемы.\n";
@@ -1565,8 +1841,23 @@ function buildGoalBlock($userData, $goalType) {
             if (!empty($userData['is_first_race_at_distance'])) {
                 $block .= "Это первый забег на эту дистанцию: " . ($userData['is_first_race_at_distance'] ? 'Да' : 'Нет') . "\n";
             }
-            if (!empty($userData['last_race_time']) && !empty($userData['last_race_distance'])) {
-                $block .= "Последний результат: {$userData['last_race_distance']} за {$userData['last_race_time']}\n";
+            $benchmarkDist = $userData['planning_benchmark_distance'] ?? ($userData['last_race_distance'] ?? null);
+            $benchmarkTime = $userData['planning_benchmark_time'] ?? ($userData['last_race_time'] ?? null);
+            $benchmarkDate = $userData['planning_benchmark_date'] ?? ($userData['last_race_date'] ?? null);
+            $benchmarkType = $userData['planning_benchmark_type'] ?? null;
+            $benchmarkDistKm = $userData['planning_benchmark_distance_km'] ?? ($userData['last_race_distance_km'] ?? null);
+            if (!empty($benchmarkTime) && !empty($benchmarkDist)) {
+                $benchmarkLabel = getRaceDistanceLabel($benchmarkDist, !empty($benchmarkDistKm) ? (float) $benchmarkDistKm : null);
+                $block .= "Ориентир текущей формы: {$benchmarkLabel} за {$benchmarkTime}\n";
+                if (!empty($benchmarkType)) {
+                    $benchmarkTypeMap = [
+                        'race' => 'забег',
+                        'control' => 'контрольная / тест',
+                        'hard_workout' => 'тяжёлая тренировка',
+                        'easy_workout' => 'обычная / лёгкая тренировка',
+                    ];
+                    $block .= "Тип ориентира: " . ($benchmarkTypeMap[$benchmarkType] ?? $benchmarkType) . "\n";
+                }
             }
             if (!empty($userData['running_experience'])) {
                 $expMap = [
@@ -1586,11 +1877,11 @@ function buildGoalBlock($userData, $goalType) {
                 $paceSec = (int) ($userData['easy_pace_sec'] % 60);
                 $block .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
             }
-            if (!empty($userData['last_race_date'])) {
-                $block .= "Дата последнего забега: {$userData['last_race_date']}\n";
+            if (!empty($benchmarkDate)) {
+                $block .= "Дата ориентира: {$benchmarkDate}\n";
             }
-            if (!empty($userData['last_race_distance_km']) && $userData['last_race_distance'] === 'other') {
-                $block .= "Последний забег: {$userData['last_race_distance_km']} км\n";
+            if (!empty($benchmarkDistKm) && $benchmarkDist === 'other') {
+                $block .= "Дистанция ориентира: {$benchmarkDistKm} км\n";
             }
             break;
 
@@ -1653,8 +1944,12 @@ function buildGoalBlock($userData, $goalType) {
                     $block .= "ДЕНЬ ЗАБЕГА: неделя {$racePos['week']}, день индекс {$racePos['dayIndex']} ({$racePos['dayName']}). Поставь type: \"race\" именно на этот индекс.\n";
                 }
             }
-            if (!empty($userData['last_race_time'])) {
-                $block .= "Текущее время: {$userData['last_race_time']}\n";
+            $benchmarkDist2 = $userData['planning_benchmark_distance'] ?? ($userData['last_race_distance'] ?? null);
+            $benchmarkTime2 = $userData['planning_benchmark_time'] ?? ($userData['last_race_time'] ?? null);
+            $benchmarkDate2 = $userData['planning_benchmark_date'] ?? ($userData['last_race_date'] ?? null);
+            $benchmarkDistKm2 = $userData['planning_benchmark_distance_km'] ?? ($userData['last_race_distance_km'] ?? null);
+            if (!empty($benchmarkTime2)) {
+                $block .= "Текущий ориентир по времени: {$benchmarkTime2}\n";
             }
             if (!empty($userData['running_experience'])) {
                 $expMap = [
@@ -1673,11 +1968,11 @@ function buildGoalBlock($userData, $goalType) {
                 $paceSec = (int) ($userData['easy_pace_sec'] % 60);
                 $block .= "Комфортный темп: {$paceMin}:" . str_pad((string)$paceSec, 2, '0', STR_PAD_LEFT) . " /км\n";
             }
-            if (!empty($userData['last_race_date'])) {
-                $block .= "Дата последнего забега: {$userData['last_race_date']}\n";
+            if (!empty($benchmarkDate2)) {
+                $block .= "Дата ориентира: {$benchmarkDate2}\n";
             }
-            if (!empty($userData['last_race_distance_km']) && $userData['last_race_distance'] === 'other') {
-                $block .= "Последний забег: {$userData['last_race_distance_km']} км\n";
+            if (!empty($benchmarkDistKm2) && $benchmarkDist2 === 'other') {
+                $block .= "Дистанция ориентира: {$benchmarkDistKm2} км\n";
             }
             break;
             

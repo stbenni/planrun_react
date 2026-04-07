@@ -4,7 +4,6 @@
  * Стиль: line/stroke, 24×24 viewBox, strokeWidth 1.8
  */
 
-import React from 'react';
 import {
   Footprints,
   Mountain,
@@ -52,6 +51,12 @@ import {
   XCircle,
   Settings,
   SkipForward,
+  Send,
+  ThumbsUp,
+  ThumbsDown,
+  Search,
+  Square,
+  EllipsisVertical,
 } from 'lucide-react';
 
 const ICON_SIZE = 20;
@@ -245,6 +250,24 @@ export function SettingsIcon(props) {
 }
 export function SkipForwardIcon(props) {
   return <SkipForward {...iconProps} {...props} />;
+}
+export function SendIcon(props) {
+  return <Send {...iconProps} {...props} />;
+}
+export function ThumbsUpIcon(props) {
+  return <ThumbsUp {...iconProps} {...props} />;
+}
+export function ThumbsDownIcon(props) {
+  return <ThumbsDown {...iconProps} {...props} />;
+}
+export function SearchIcon(props) {
+  return <Search {...iconProps} {...props} />;
+}
+export function EllipsisVerticalIcon(props) {
+  return <EllipsisVertical {...iconProps} {...props} />;
+}
+export function StopIcon(props) {
+  return <Square {...iconProps} {...props} />;
 }
 
 // --- Activity type mapping (для RecentWorkoutsList и др.) ---

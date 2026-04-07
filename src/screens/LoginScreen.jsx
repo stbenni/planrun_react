@@ -3,7 +3,7 @@
  * PIN и отпечаток — на отдельном LockScreen после входа
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { isNativeCapacitor } from '../services/TokenStorageService';

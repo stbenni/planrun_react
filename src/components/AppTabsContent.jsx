@@ -8,7 +8,7 @@
  * LazyTab загружает модуль в useEffect и показывает скелет сам, без Suspense.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import SkeletonScreen from './common/SkeletonScreen';
 import AppErrorBoundary from './common/AppErrorBoundary';
@@ -104,15 +104,13 @@ const AppTabsContent = ({ onLogout }) => {
     return pathname.startsWith(path);
   };
 
-  const activeKey = useMemo(() => {
-    if (isActive('/admin')) return TAB_KEYS.admin;
-    if (isActive('/settings')) return TAB_KEYS.settings;
-    if (isActive('/trainers')) return TAB_KEYS.trainers;
-    if (isActive('/chat')) return TAB_KEYS.chat;
-    if (isActive('/stats')) return TAB_KEYS.stats;
-    if (isActive('/calendar')) return TAB_KEYS.calendar;
-    return TAB_KEYS.dashboard;
-  }, [pathname]);
+  let activeKey = TAB_KEYS.dashboard;
+  if (isActive('/admin')) activeKey = TAB_KEYS.admin;
+  else if (isActive('/settings')) activeKey = TAB_KEYS.settings;
+  else if (isActive('/trainers')) activeKey = TAB_KEYS.trainers;
+  else if (isActive('/chat')) activeKey = TAB_KEYS.chat;
+  else if (isActive('/stats')) activeKey = TAB_KEYS.stats;
+  else if (isActive('/calendar')) activeKey = TAB_KEYS.calendar;
 
   const [mountedTabs, setMountedTabs] = useState(() => new Set([activeKey]));
 

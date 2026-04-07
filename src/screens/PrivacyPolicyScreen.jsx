@@ -2,7 +2,6 @@
  * Публичная страница: политика конфиденциальности PlanRun
  */
 
-import React from 'react';
 import { Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import './PrivacyPolicyScreen.css';
@@ -112,7 +111,14 @@ const PrivacyPolicyScreen = () => {
             <p>
               Мы можем обновлять этот документ. Актуальная версия всегда доступна по адресу{' '}
               <Link to="/privacy">/privacy</Link>. Существенные изменения по возможности доводятся до сведения через
-              Сервис или email.
+              Сервис или по эл. почте.
+            </p>
+          </section>
+
+          <section className="privacy-page__section">
+            <h2>10. Связанные документы</h2>
+            <p>
+              Условия использования сервиса также регулируются <Link to="/agreement">пользовательским соглашением</Link>.
             </p>
           </section>
 

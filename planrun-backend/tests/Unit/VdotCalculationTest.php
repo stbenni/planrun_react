@@ -87,6 +87,19 @@ class VdotCalculationTest extends TestCase {
         $this->assertSame('high', $state['vdot_confidence']);
     }
 
+    public function test_easy_planning_benchmark_does_not_override_easy_pace(): void {
+        $builder = new \TrainingStateBuilder(getDBConnection());
+        $state = $builder->buildForUser([
+            'planning_benchmark_distance' => 'half',
+            'planning_benchmark_time' => '02:15:00',
+            'planning_benchmark_type' => 'easy_workout',
+            'planning_benchmark_effort' => 'easy',
+            'easy_pace_sec' => 360,
+        ]);
+
+        $this->assertSame('easy_pace', $state['vdot_source']);
+    }
+
     public function test_source_priority_fresh_last_race_over_easy_pace(): void {
         $builder = new \TrainingStateBuilder(getDBConnection());
         $state = $builder->buildForUser([
@@ -111,6 +124,18 @@ class VdotCalculationTest extends TestCase {
 
         // Не должно быть last_race (>8 недель) — должен упасть на easy_pace
         $this->assertNotSame('last_race', $state['vdot_source']);
+    }
+
+    public function test_source_priority_last_race_without_date_over_easy_pace(): void {
+        $builder = new \TrainingStateBuilder(getDBConnection());
+        $state = $builder->buildForUser([
+            'last_race_distance' => '5k',
+            'last_race_time' => '00:22:00',
+            'easy_pace_sec' => 420,
+        ]);
+
+        $this->assertSame('last_race_undated', $state['vdot_source']);
+        $this->assertSame('medium', $state['vdot_confidence']);
     }
 
     // ── 5. target_time применяет коэффициент 0.92 ──

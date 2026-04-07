@@ -569,6 +569,27 @@
   border-color: rgba(252, 76, 2, 0.3);
 }
 
+.workout-card-hr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .workout-card-hr-badge {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
 .workout-card-plan-day-text {
   font-size: 14px;
   line-height: 1.2;

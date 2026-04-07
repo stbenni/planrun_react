@@ -4,12 +4,17 @@
   "webDir": "dist",
   "android": {
     "allowMixedContent": true,
-    "captureInput": false,
+    "captureInput": true,
     "adjustMarginsForEdgeToEdge": "disable"
   },
   "plugins": {
     "Keyboard": {
       "resizeOnFullScreen": false
+    },
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "LIGHT",
+      "hidden": false
     },
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]

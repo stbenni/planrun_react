@@ -15,7 +15,7 @@ class HuaweiHealthProvider implements WorkoutImportProvider {
         $this->db = $db;
         $this->clientId = (function_exists('env') ? env('HUAWEI_HEALTH_CLIENT_ID', '') : '') ?: '';
         $this->clientSecret = (function_exists('env') ? env('HUAWEI_HEALTH_CLIENT_SECRET', '') : '') ?: '';
-        $this->redirectUri = $this->normalizeRedirectUri((function_exists('env') ? env('HUAWEI_HEALTH_REDIRECT_URI', '') : '') ?: '');
+        $this->redirectUri = trim((string)((function_exists('env') ? env('HUAWEI_HEALTH_REDIRECT_URI', '') : '') ?: ''));
         $this->scopes = (function_exists('env') ? env('HUAWEI_HEALTH_SCOPES', '') : '') ?: 'https://www.huawei.com/healthkit/activity.read https://www.huawei.com/healthkit/historydata.open.month';
     }
 
@@ -251,36 +251,6 @@ class HuaweiHealthProvider implements WorkoutImportProvider {
             5 => 'hiking', 6 => 'other',
         ];
         return $map[(int)$value] ?? 'running';
-    }
-
-    private function normalizeRedirectUri(string $uri): string {
-        $uri = trim($uri);
-        if ($uri === '') {
-            return '';
-        }
-        $parts = parse_url($uri);
-        if ($parts === false) {
-            return $uri;
-        }
-        $query = [];
-        if (!empty($parts['query'])) {
-            parse_str($parts['query'], $query);
-        }
-        $query['provider'] = $this->getProviderId();
-        $queryString = http_build_query($query);
-
-        $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
-        $user = $parts['user'] ?? '';
-        $pass = isset($parts['pass']) ? ':' . $parts['pass'] : '';
-        $auth = $user !== '' ? $user . $pass . '@' : '';
-        $host = $parts['host'] ?? '';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
-        $path = $parts['path'] ?? '';
-        $fragment = isset($parts['fragment']) ? '#' . $parts['fragment'] : '';
-
-        return $scheme . $auth . $host . $port . $path
-            . ($queryString !== '' ? '?' . $queryString : '')
-            . $fragment;
     }
 
     private function buildErrorMessage(string $fallback, int $httpCode, $response, string $curlError = ''): string {

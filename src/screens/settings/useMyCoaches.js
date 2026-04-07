@@ -12,7 +12,8 @@ export function useMyCoaches(api, setMessage) {
       const res = await api.getMyCoaches();
       const data = res?.data ?? res;
       setMyCoaches(Array.isArray(data?.coaches) ? data.coaches : []);
-    } catch {
+    } catch (error) {
+      void error;
     } finally {
       setMyCoachesLoading(false);
     }

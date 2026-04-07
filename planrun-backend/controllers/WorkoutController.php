@@ -214,6 +214,11 @@ class WorkoutController extends BaseController {
             $result = $this->workoutService()->saveResult($data, $this->calendarUserId);
             $this->notifyCoachesResultLogged($data['date'] ?? null);
             $this->workoutService()->checkVdotUpdateAfterResult($data, $this->calendarUserId);
+            // Пересчёт целевого HR для будущих дней после нового результата
+            try {
+                require_once __DIR__ . '/../services/UserProfileService.php';
+                (new UserProfileService($this->db))->recalculateHrTargetsForFutureDays($this->calendarUserId);
+            } catch (Throwable $e) { /* non-critical */ }
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -379,6 +384,61 @@ class WorkoutController extends BaseController {
             }
             $this->returnSuccess(['timeline' => $timelinePayload]);
         } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * GET analyze_workout_ai — AI-анализ тренировки с кешированием
+     */
+    public function analyzeWorkoutAi() {
+        $date = $this->getParam('date');
+        $workoutIndex = (int) ($this->getParam('workout_index') ?? 0);
+        if (!$date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $this->returnError('Параметр date обязателен (формат Y-m-d)');
+            return;
+        }
+
+        try {
+            require_once __DIR__ . '/../cache_config.php';
+            $cacheKey = "ai_analysis_{$this->currentUserId}_{$date}_{$workoutIndex}";
+            $cached = Cache::get($cacheKey);
+            if ($cached) {
+                $this->returnSuccess(json_decode($cached, true));
+                return;
+            }
+
+            require_once __DIR__ . '/../services/ChatToolRegistry.php';
+            require_once __DIR__ . '/../services/ChatContextBuilder.php';
+            $ctx = new \ChatContextBuilder($this->db);
+            $registry = new \ChatToolRegistry($this->db, $ctx);
+            $resultJson = $registry->executeTool('analyze_workout', json_encode([
+                'date' => $date, 'workout_index' => $workoutIndex,
+            ]), $this->currentUserId);
+
+            $data = json_decode($resultJson, true);
+            if (isset($data['error'])) {
+                $this->returnError($data['message'] ?? 'Не удалось проанализировать тренировку');
+                return;
+            }
+
+            // Generate AI narrative using structured prompt builder
+            require_once __DIR__ . '/../services/ProactiveCoachService.php';
+            $coach = new \ProactiveCoachService($this->db);
+            $prompt = $coach->buildWorkoutAnalysisPrompt($data);
+            // Override for detailed version (5-8 sentences instead of 3-5)
+            $prompt = str_replace('КРАТКИЙ (3-5 предложений)', 'подробный (5-8 предложений)', $prompt);
+            $narrative = '';
+            try {
+                $ref = new \ReflectionMethod($coach, 'callLlmSimple');
+                $ref->setAccessible(true);
+                $narrative = $ref->invoke($coach, $prompt);
+            } catch (\Throwable $e) {}
+
+            $data['ai_narrative'] = $narrative;
+            Cache::set($cacheKey, json_encode($data), 86400);
+            $this->returnSuccess($data);
+        } catch (\Exception $e) {
             $this->handleException($e);
         }
     }

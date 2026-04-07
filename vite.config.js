@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -27,16 +27,38 @@ function planrunVersionPlugin() {
   }
 }
 
+function cleanupViteArtifactsPlugin() {
+  const viteArtifacts = [
+    resolve(process.cwd(), 'dist/assets'),
+    resolve(process.cwd(), 'dist/downloads'),
+    resolve(process.cwd(), 'dist/index.html'),
+    resolve(process.cwd(), 'dist/version.json'),
+    resolve(process.cwd(), 'dist/planrun.apk'),
+  ]
+
+  return {
+    name: 'planrun-clean-vite-artifacts',
+    buildStart() {
+      viteArtifacts.forEach((targetPath) => {
+        if (!existsSync(targetPath)) return
+        rmSync(targetPath, { recursive: true, force: true })
+      })
+    },
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), planrunVersionPlugin()],
+  plugins: [react(), cleanupViteArtifactsPlugin(), planrunVersionPlugin()],
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion),
     'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId),
     'import.meta.env.VITE_APP_BUILT_AT': JSON.stringify(buildTimestamp),
   },
   build: {
-    sourcemap: true,
+    // dist/.well-known is managed outside Vite; clean only Vite-owned artifacts.
+    emptyOutDir: false,
+    sourcemap: process.env.GENERATE_SOURCEMAP === 'true',
   },
   server: {
     host: '0.0.0.0',

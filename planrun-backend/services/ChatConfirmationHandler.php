@@ -23,8 +23,9 @@ class ChatConfirmationHandler {
         $s = mb_strtolower(trim($text));
         if (mb_strlen($s) > 50) return false;
         $short = preg_replace('/[\s\p{P}]+/u', '', $s);
-        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'погнали', 'достаточно', 'этогодостаточно', 'правильно'])
-            || preg_match('/^(да|давай|ок|супер|отлично|хорошо|правильно)[\s\p{P}]*$/ui', $s)
+        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'погнали', 'достаточно', 'этогодостаточно', 'правильно', 'подтверждаю', 'согласен', 'верно', 'точно', 'конечно', 'ага', 'угу'])
+            || preg_match('/^(да|давай|ок|супер|отлично|хорошо|правильно|подтверждаю|согласен|верно|конечно|ага|угу)[\s\p{P}]*$/ui', $s)
+            || preg_match('/^(да|ок|давай|подтверждаю|согласен|хорошо|конечно),?\s+(записывай|запиши|сделай|давай|меняй|переноси|удаляй|пересчитай|подтверждаю|ок|так\s+и\s+сделай)/ui', $s)
             || preg_match('/^(этого\s+)?достаточно\??$/ui', $s)
             || preg_match('/^(да,?\s+)?правильно\??$/ui', $s);
     }
@@ -36,6 +37,7 @@ class ChatConfirmationHandler {
 
         $lastAssistant = $this->getLastAssistantMessage($history);
         if ($lastAssistant === '') return false;
+        if (!$this->isProposal($lastAssistant)) return false;
         if (preg_match('/\b(1\.\s.*\n.*2\.)/us', $lastAssistant)) return false;
         if (!preg_match('/(поменять\s+местами|поменял\s+местами|swap|меняем\s+местами)/ui', $lastAssistant)) return false;
 
@@ -57,6 +59,7 @@ class ChatConfirmationHandler {
         if (!$this->isConfirmationMessage($content)) return false;
         $lastAssistant = $this->getLastAssistantMessage($history);
         if ($lastAssistant === '') return false;
+        if (!$this->isProposal($lastAssistant)) return false;
 
         $proposal = $this->parseReplaceWithRaceProposal($lastAssistant, $userId);
         if ($proposal === null) return false;
@@ -94,11 +97,68 @@ class ChatConfirmationHandler {
         return true;
     }
 
+    /**
+     * Выполняет pending_action из metadata последнего AI-сообщения.
+     * Это самый надёжный путь — tool_name + args сохранены при блокировке write-gate.
+     */
+    public function tryExecutePendingAction(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
+        if (!$this->isConfirmationMessage($content)) return false;
+
+        $pendingRaw = null;
+        for ($i = count($history) - 1; $i >= 0; $i--) {
+            if (($history[$i]['sender_type'] ?? '') === 'ai') {
+                $meta = $history[$i]['metadata'] ?? null;
+                if (is_string($meta)) {
+                    $meta = json_decode($meta, true);
+                }
+                if (is_array($meta) && !empty($meta['pending_action'])) {
+                    $pendingRaw = $meta['pending_action'];
+                }
+                break;
+            }
+        }
+        if (!$pendingRaw) return false;
+
+        $actions = isset($pendingRaw['tool']) ? [$pendingRaw] : $pendingRaw;
+        if (empty($actions)) return false;
+
+        $allToolCalls = [];
+        $allToolResults = [];
+        foreach ($actions as $action) {
+            $toolName = $action['tool'] ?? '';
+            $args = $action['args'] ?? [];
+            if (!$toolName || !is_array($args)) continue;
+
+            Logger::info('Executing pending action from metadata', ['tool' => $toolName, 'args' => $args, 'userId' => $userId]);
+
+            $output = $this->toolRegistry->executeTool($toolName, json_encode($args), $userId);
+            $result = json_decode($output, true);
+            if (isset($result['error'])) {
+                Logger::warning('Pending action execution failed', ['tool' => $toolName, 'error' => $result]);
+                return false;
+            }
+
+            $toolsUsed[] = $toolName;
+            $tcId = 'pending-' . uniqid();
+            $allToolCalls[] = ['id' => $tcId, 'type' => 'function', 'function' => ['name' => $toolName, 'arguments' => json_encode($args)]];
+            $allToolResults[] = ['role' => 'tool', 'tool_call_id' => $tcId, 'content' => $output];
+        }
+
+        if (empty($allToolCalls)) return false;
+
+        $messages[] = ['role' => 'assistant', 'content' => '', 'tool_calls' => $allToolCalls];
+        foreach ($allToolResults as $tr) {
+            $messages[] = $tr;
+        }
+        return true;
+    }
+
     public function tryHandleGenericUpdateConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
         if (!$this->isConfirmationMessage($content)) return false;
 
         $lastAssistant = $this->getLastAssistantMessage($history);
-        if ($lastAssistant === '' || mb_strlen($lastAssistant) < 20) return false;
+        if (!$lastAssistant || mb_strlen($lastAssistant) < 20) return false;
+        if (!$this->isProposal($lastAssistant)) return false;
         if (!preg_match('/(обновлю|скорректирую|изменю|заменю|сократим|сокращу|поменяю|заменим|скорректируем|записываю|зафиксирую|обновлённый|удалю|уберу|отменю|перенесу|переставлю|добавлю|скопирую|повтор[юяю]|пересчита[юю]|запущу|сгенериру[юю]|создам|подтверди|правильно\s*\?|подходит\s*\?|верно\s*\?)/ui', $lastAssistant)) return false;
 
         if ($this->tryExecuteRecalculateFromProposal($lastAssistant, $userId, $messages, $toolsUsed)) return true;
@@ -115,12 +175,12 @@ class ChatConfirmationHandler {
     public function tryExtractFromLastProposal(array $history, int $userId): ?array {
         $lastAi = null;
         for ($i = count($history) - 1; $i >= 0; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'assistant') {
+            if (($history[$i]['sender_type'] ?? '') === 'ai') {
                 $lastAi = trim($history[$i]['content'] ?? '');
                 break;
             }
         }
-        if ($lastAi === '' || mb_strlen($lastAi) < 20) return null;
+        if (!$lastAi || mb_strlen($lastAi) < 20) return null;
 
         $params = [];
         if (preg_match('/для\s+\*\*[^*]*на\s+([^*]+)\*\*/ui', $lastAi, $dm)
@@ -147,6 +207,14 @@ class ChatConfirmationHandler {
             return $params;
         }
         return null;
+    }
+
+    /**
+     * Determines if the AI message is a proposal (asking for confirmation)
+     * vs a confirmation of an already-executed action.
+     */
+    private function isProposal(string $text): bool {
+        return (bool) preg_match('/(\?\s*$|подтверд|записать\s*\?|подходит\s*\?|правильно\s*\?|верно\s*\?|записыва[юй]|сделать\s*\?|согласен\s*\?|менять\s*\?|поменять\s*\?)/ui', $text);
     }
 
     // ── Private helpers ──

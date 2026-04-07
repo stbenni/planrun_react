@@ -1,0 +1,6 @@
+PHPUnit 10.5.61 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.3.6
+Configuration: /var/www/planrun/planrun-backend/phpunit.xml
+
+{"success":false,"error":"Требуется авторизация"}

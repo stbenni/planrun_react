@@ -3,7 +3,7 @@
  * Полная многошаговая форма не используется — везде минимальная регистрация, затем специализация на дашборде.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import {
@@ -30,7 +30,7 @@ import { useVerificationCodeFlow } from '../hooks/useVerificationCodeFlow';
 import './RegisterScreen.css';
 import './LoginScreen.css'; /* стили логина для короткого попапа регистрации */
 
-const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalOnly, specializationOnly, onSpecializationSuccess }) => {
+const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, specializationOnly, onSpecializationSuccess }) => {
   const navigate = useNavigate();
   const { api, updateUser } = useAuthStore();
   const currentApi = api || getAuthClient();
@@ -95,10 +95,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     easy_pace_min: '', // формат MM:SS
     easy_pace_sec: '', // для сохранения в БД
     is_first_race_at_distance: false,
-    last_race_distance: '',
-    last_race_distance_km: '',
-    last_race_time: '',
-    last_race_date: '',
+    planning_benchmark_distance: '',
+    planning_benchmark_distance_km: '',
+    planning_benchmark_time: '',
+    planning_benchmark_date: '',
+    planning_benchmark_type: 'race',
+    planning_benchmark_effort: 'hard',
   });
   
   const [validationErrors, setValidationErrors] = useState({});
@@ -117,7 +119,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
 
   const requestVerificationCode = async () => {
     if (!currentApi) {
-      throw new Error('API не инициализирован.');
+      throw new Error('Клиент сервиса не готов.');
     }
 
     await currentApi.sendVerificationCode(formData.email.trim());
@@ -189,9 +191,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
           weekly_base_km: formData.weekly_base_km || 0,
           sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || 3,
           experience_level: formData.experience_level,
-          last_race_distance: formData.last_race_distance || '',
-          last_race_distance_km: formData.last_race_distance_km || '',
-          last_race_time: formData.last_race_time || '',
+          planning_benchmark_distance: formData.planning_benchmark_distance || '',
+          planning_benchmark_distance_km: formData.planning_benchmark_distance_km || '',
+          planning_benchmark_time: formData.planning_benchmark_time || '',
+          planning_benchmark_date: formData.planning_benchmark_date || '',
+          planning_benchmark_type: formData.planning_benchmark_type || '',
+          planning_benchmark_effort: formData.planning_benchmark_effort || '',
           easy_pace_sec: formData.easy_pace_sec || '',
         });
         if (result?.verdict) setGoalAssessment(result);
@@ -203,7 +208,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   }, [
     showRaceFields, formData.race_distance, formData.race_date, formData.race_target_time,
     formData.training_start_date, formData.weekly_base_km, formData.sessions_per_week,
-    formData.experience_level, formData.last_race_distance, formData.last_race_time,
+    formData.experience_level, formData.planning_benchmark_distance, formData.planning_benchmark_time,
+    formData.planning_benchmark_date, formData.planning_benchmark_type, formData.planning_benchmark_effort,
     formData.easy_pace_sec, formData.preferred_days?.length, api,
   ]);
 
@@ -376,7 +382,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         return;
       }
       if (!formData.email || !String(formData.email).trim()) {
-        setError('Введите email');
+        setError('Введите почту');
         return;
       }
       
@@ -387,7 +393,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
       }
       const emailResult = await validateField('email', formData.email.trim());
       if (!emailResult.valid) {
-        setError(emailResult.message || 'Некорректный email или уже используется');
+        setError(emailResult.message || 'Некорректный адрес почты или он уже используется');
         return;
       }
       
@@ -467,7 +473,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     try {
       // Получаем API клиент
       if (!currentApi) {
-        setError('API не инициализирован. Попробуйте обновить страницу.');
+        setError('Клиент сервиса не готов. Попробуйте обновить страницу.');
         setLoading(false);
         return;
       }
@@ -523,7 +529,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     setLoading(true);
     setError('');
     if (!currentApi) {
-      setError('API не инициализирован.');
+      setError('Клиент сервиса не готов.');
       setLoading(false);
       return;
     }
@@ -539,7 +545,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         return;
       }
       if (!formData.email || !String(formData.email).trim()) {
-        setError('Введите email');
+        setError('Введите почту');
         setLoading(false);
         return;
       }
@@ -556,7 +562,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         }
         const emailResult = await validateField('email', formData.email.trim());
         if (!emailResult.valid) {
-          setError(emailResult.message || 'Некорректный email или уже используется');
+          setError(emailResult.message || 'Некорректный адрес почты или он уже используется');
           setLoading(false);
           return;
         }
@@ -628,7 +634,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     setLoading(true);
     setError('');
     if (!currentApi) {
-      setError('API не инициализирован.');
+      setError('Клиент сервиса не готов.');
       setLoading(false);
       return;
     }
@@ -665,12 +671,33 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
   const currentStepIndex = getCurrentStepIndex();
   const progress = ((currentStepIndex + 1) / totalSteps) * 100;
   const dayLabels = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
+  const getGoalAssessmentTitle = (assessment) => {
+    if (!assessment) return 'Оценка цели';
+    if (assessment.verdict === 'realistic') return 'Цель реалистична';
+    if (assessment.verdict === 'challenging') return 'Амбициозная цель';
+
+    if (assessment.primary_constraint === 'timeline') {
+      return 'В текущий срок цель труднодостижима';
+    }
+    if (assessment.primary_constraint === 'target_time') {
+      return 'Цель пока недостижима';
+    }
+
+    return 'Цель труднодостижима';
+  };
   const healthPrograms = [
     { value: 'start_running', Icon: LeafIcon, name: 'Начни бегать', duration: '8 недель', desc: 'С нуля до 20 минут непрерывного бега' },
-    { value: 'couch_to_5k', Icon: RunningIcon, name: '5 км без остановки', duration: '10 недель', desc: 'Классическая программа Couch to 5K' },
+    { value: 'couch_to_5k', Icon: RunningIcon, name: '5 км без остановки', duration: '10 недель', desc: 'Классическая программа постепенного выхода на 5 км' },
     { value: 'regular_running', Icon: HeartIcon, name: 'Регулярный бег', duration: '12 недель', desc: '3 раза в неделю, плавный рост объёма' },
     { value: 'custom', Icon: SettingsIcon, name: 'Свой план', duration: 'по выбору', desc: 'Укажу параметры сам' },
   ];
+  const getDistanceLabel = (dist) => {
+    if (dist === '5k') return '5 км';
+    if (dist === '10k') return '10 км';
+    if (dist === 'half') return 'Полумарафон';
+    if (dist === 'marathon') return 'Марафон';
+    return dist;
+  };
 
   /* Короткий попап регистрации в стиле окна логина */
   if (embedInModal && isMinimalFlow) {
@@ -678,7 +705,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     return (
       <div className="login-content login-content--inline login-content--login">
         <h1 className="login-title">PlanRun</h1>
-        <p className="login-subtitle">{isCodeStep ? 'Подтверждение email' : 'Регистрация'}</p>
+        <p className="login-subtitle">{isCodeStep ? 'Подтверждение почты' : 'Регистрация'}</p>
         <form
           onSubmit={(e) => { e.preventDefault(); handleNext(); }}
           onFocusCapture={() => error && setError('')}
@@ -699,7 +726,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               <input
                 type="email"
                 className="login-input"
-                placeholder="Email"
+                placeholder="Почта"
                 value={formData.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 autoComplete="email"
@@ -779,7 +806,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
       <div className={embedInModal ? 'register-content register-content--modal' : 'register-content'}>
         <h1 className="register-title">{isMinimalFlow ? 'Регистрация' : 'Настройте свой план'}</h1>
         <p className="register-subtitle">
-          {isMinimalFlow ? 'Логин, email и пароль — потом настроите план на дашборде' : 'Выберите режим, цель и заполните профиль'}
+          {isMinimalFlow ? 'Логин, почта и пароль — потом настроите план на дашборде' : 'Выберите режим, цель и заполните профиль'}
         </p>
 
         {!isMinimalFlow && specializationOnly && planSubmitResult && (
@@ -865,7 +892,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                     <input type="password" value={formData.password} onChange={(e) => handleChange('password', e.target.value)} placeholder="Минимум 6 символов" minLength={6} required />
                   </div>
                   <div className="form-group">
-                    <label>Email <span className="required">*</span></label>
+                    <label>Эл. почта <span className="required">*</span></label>
                     <input type="email" value={formData.email} onChange={(e) => handleChange('email', e.target.value)} placeholder="your@email.com" required />
                     {validationErrors.email && <small className="error-text">{validationErrors.email}</small>}
                   </div>
@@ -927,7 +954,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               </div>
               <p className="register-privacy-note">
                 Регистрируясь, вы соглашаетесь с{' '}
-                <Link to="/privacy">политикой конфиденциальности</Link>.
+                <Link to="/privacy">политикой конфиденциальности</Link> и{' '}
+                <Link to="/agreement">пользовательским соглашением</Link>.
               </p>
             </div>
           )}
@@ -952,12 +980,12 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                     <div className="training-mode-option__icon">
                       <BotIcon />
                     </div>
-                    <div className="training-mode-option__title">AI-ТРЕНЕР</div>
+                    <div className="training-mode-option__title">ИИ-ТРЕНЕР</div>
                     <div className="training-mode-option__price">(бесплатно)</div>
                   </div>
                   <div className="training-mode-option__right">
                     <ul className="training-mode-option__list">
-                      <li><CheckIcon className="training-mode-option__list-icon" />AI создаст персональный план</li>
+                      <li><CheckIcon className="training-mode-option__list-icon" />ИИ создаст персональный план</li>
                       <li><CheckIcon className="training-mode-option__list-icon" />Адаптирует его каждую неделю</li>
                       <li><CheckIcon className="training-mode-option__list-icon" />Анализирует твой прогресс</li>
                     </ul>
@@ -1373,10 +1401,8 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                                       const totalSec = min * 60 + sec;
                                       if (totalSec >= 180 && totalSec <= 600) {
                                         handleChange('easy_pace_sec', String(totalSec));
-                                      } else {
-                                        // Не очищаем, просто не сохраняем если вне диапазона
-                                        // handleChange('easy_pace_sec', '');
                                       }
+                                      // Вне диапазона — просто не сохраняем
                                     }
                                   }
                                 }
@@ -1438,15 +1464,15 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </div>
                       
                       <div className="form-group">
-                        <label><MedalIcon className="form-label-icon" />Последний официальный результат</label>
-                        <small className="form-group-hint form-group-hint--spaced">Поможет точнее оценить твой уровень</small>
+                        <label><MedalIcon className="form-label-icon" />Ориентир текущей формы</label>
+                        <small className="form-group-hint form-group-hint--spaced">Укажи свежий забег, контрольную или тяжёлую тренировку, где бежал(а) на результат. Не выбирай лёгкую длительную только потому, что она была самой длинной.</small>
                         
                         <div className="form-row form-row--compact">
                           <div className="form-group form-group--tight">
                             <label className="form-label--secondary">Дистанция</label>
                             <select
-                              value={formData.last_race_distance}
-                              onChange={(e) => handleChange('last_race_distance', e.target.value)}
+                              value={formData.planning_benchmark_distance}
+                              onChange={(e) => handleChange('planning_benchmark_distance', e.target.value)}
                             >
                               <option value="">Не указано</option>
                               <option value="5k">5 км</option>
@@ -1456,32 +1482,33 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                               <option value="other">Другая</option>
                             </select>
                           </div>
-                          {formData.last_race_distance === 'other' && (
+                          {formData.planning_benchmark_distance === 'other' && (
                             <div className="form-group form-group--tight">
-                              <label className="form-label--secondary">Дистанция последнего забега (км)</label>
+                              <label className="form-label--secondary">Дистанция ориентира (км)</label>
                               <input
                                 type="number"
                                 min="0"
                                 max="200"
                                 step="0.1"
                                 placeholder="15"
-                                value={formData.last_race_distance_km}
-                                onChange={(e) => handleChange('last_race_distance_km', e.target.value)}
+                                value={formData.planning_benchmark_distance_km}
+                                onChange={(e) => handleChange('planning_benchmark_distance_km', e.target.value)}
                               />
                               <small className="form-help-inline">Укажите точную дистанцию в километрах, если она отличается от стандартных</small>
                             </div>
                           )}
                         </div>
                         
-                        {formData.last_race_distance && formData.last_race_distance !== '' && (
+                        {formData.planning_benchmark_distance && formData.planning_benchmark_distance !== '' && (
+                          <>
                           <div className="form-row">
                             <div className="form-group form-group--tight">
                               <label className="form-label--secondary">Результат</label>
                               <input
                                 type="time"
                                 step="1"
-                                value={formData.last_race_time}
-                                onChange={(e) => handleChange('last_race_time', e.target.value)}
+                                value={formData.planning_benchmark_time}
+                                onChange={(e) => handleChange('planning_benchmark_time', e.target.value)}
                               />
                               <small>Формат: ЧЧ:ММ:СС</small>
                             </div>
@@ -1490,11 +1517,39 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                               <input
                                 type="month"
                                 max={new Date().toISOString().slice(0, 7)}
-                                value={formData.last_race_date}
-                                onChange={(e) => handleChange('last_race_date', e.target.value)}
+                                value={formData.planning_benchmark_date}
+                                onChange={(e) => handleChange('planning_benchmark_date', e.target.value)}
                               />
                             </div>
                           </div>
+                          <div className="form-row">
+                            <div className="form-group form-group--tight">
+                              <label className="form-label--secondary">Что это было</label>
+                              <select
+                                value={formData.planning_benchmark_type}
+                                onChange={(e) => handleChange('planning_benchmark_type', e.target.value)}
+                              >
+                                <option value="race">Забег</option>
+                                <option value="control">Контрольная / тест</option>
+                                <option value="hard_workout">Тяжёлая тренировка</option>
+                                <option value="easy_workout">Обычная / лёгкая тренировка</option>
+                              </select>
+                            </div>
+                            <div className="form-group form-group--tight">
+                              <label className="form-label--secondary">Насколько в полную</label>
+                              <select
+                                value={formData.planning_benchmark_effort}
+                                onChange={(e) => handleChange('planning_benchmark_effort', e.target.value)}
+                              >
+                                <option value="max">На максимум</option>
+                                <option value="hard">Тяжело, но не в полную</option>
+                                <option value="steady">Ровно, умеренно</option>
+                                <option value="easy">Комфортно</option>
+                              </select>
+                            </div>
+                          </div>
+                          <small className="form-group-hint">Если это была обычная длительная или комфортный бег, калькулятор постарается сильнее опираться на другие данные, а не на этот результат.</small>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1669,7 +1724,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       {goalAssessment.verdict === 'realistic' ? <CheckIcon size={18} /> : goalAssessment.verdict === 'challenging' ? <AlertTriangleIcon size={18} /> : <XCircleIcon size={18} />}
                     </span>
                     <span className="goal-assessment-card__title">
-                      {goalAssessment.verdict === 'realistic' ? 'Цель реалистична' : goalAssessment.verdict === 'challenging' ? 'Амбициозная цель' : 'Цель труднодостижима'}
+                      {getGoalAssessmentTitle(goalAssessment)}
                     </span>
                   </div>
 
@@ -1697,7 +1752,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                     <div className="goal-assessment-card__data">
                       {goalAssessment.vdot && (
                         <div className="goal-assessment-card__vdot">
-                          VDOT: <strong>{goalAssessment.vdot}</strong>{goalAssessment.vdot_source ? ` (на основе: ${goalAssessment.vdot_source})` : ''}
+                          Индекс формы (VDOT): <strong>{goalAssessment.vdot}</strong>{goalAssessment.vdot_source ? ` (на основе: ${goalAssessment.vdot_source})` : ''}
                         </div>
                       )}
                       {goalAssessment.predictions && Object.keys(goalAssessment.predictions).length > 0 && (
@@ -1706,7 +1761,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                           <div className="goal-assessment-card__grid">
                             {Object.entries(goalAssessment.predictions).map(([dist, time]) => (
                               <div key={dist} className="goal-assessment-card__cell">
-                                <span className="goal-assessment-card__label">{dist === 'half' ? 'Полумарафон' : dist === 'marathon' ? 'Марафон' : dist.toUpperCase()}</span>
+                                <span className="goal-assessment-card__label">{getDistanceLabel(dist)}</span>
                                 <span className="goal-assessment-card__value">{time}</span>
                               </div>
                             ))}

@@ -3,8 +3,8 @@
  * Полная реализация с вкладками и всеми полями профиля
  */
 
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
@@ -93,50 +93,6 @@ function clearTelegramLinkPending() {
   }
 }
 
-function summarizeWebPushUserAgent(userAgent) {
-  const value = String(userAgent || '').toLowerCase();
-  if (!value) {
-    return 'Браузер без названия';
-  }
-
-  let browser = 'Неизвестный браузер';
-  if (value.includes('edg/')) {
-    browser = 'Microsoft Edge';
-  } else if (value.includes('opr/') || value.includes('opera')) {
-    browser = 'Opera';
-  } else if (value.includes('firefox/')) {
-    browser = 'Firefox';
-  } else if (value.includes('chrome/') && !value.includes('edg/')) {
-    browser = 'Chrome';
-  } else if (value.includes('safari/') && !value.includes('chrome/')) {
-    browser = 'Safari';
-  }
-
-  let platform = '';
-  if (value.includes('android')) {
-    platform = 'Android';
-  } else if (value.includes('iphone') || value.includes('ipad') || value.includes('ios')) {
-    platform = 'iOS';
-  } else if (value.includes('mac os') || value.includes('macintosh')) {
-    platform = 'macOS';
-  } else if (value.includes('windows')) {
-    platform = 'Windows';
-  } else if (value.includes('linux')) {
-    platform = 'Linux';
-  }
-
-  return platform ? `${browser} · ${platform}` : browser;
-}
-
-function formatWebPushEndpointSuffix(endpoint) {
-  const value = String(endpoint || '').trim();
-  if (!value) {
-    return '';
-  }
-
-  return value.length > 14 ? `…${value.slice(-14)}` : value;
-}
-
 function getBrowserNotificationRecoveryText(permission) {
   if (permission === 'denied') {
     return 'Браузер уже заблокировал уведомления для этого сайта. Нажмите на значок замка рядом с адресом сайта, откройте пункт "Уведомления" и переключите его в "Разрешить", затем обновите страницу.';
@@ -204,9 +160,8 @@ function renderNotificationChannelVisual(channelConfig, className, size = 16) {
   return <Icon size={size} className={className} />;
 }
 
-const SettingsScreen = ({ onLogout }) => {
+const SettingsScreen = () => {
   const isTabActive = useIsTabActive('/settings');
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { api, updateUser, user: currentUser } = useAuthStore();
   const tabFromUrl = searchParams.get('tab');
@@ -229,6 +184,8 @@ const SettingsScreen = ({ onLogout }) => {
   const [showPinSetupModal, setShowPinSetupModal] = useState(false);
   const [pinSetupTokens, setPinSetupTokens] = useState(null);
   const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false, garmin: false, coros: false });
+  // Провайдеры, скрытые до получения доступа к API (Garmin, COROS, Huawei)
+  const hiddenProviders = ['garmin', 'coros', 'huawei'];
   const [huaweiSyncing, setHuaweiSyncing] = useState(false);
   const [stravaSyncing, setStravaSyncing] = useState(false);
   const [polarSyncing, setPolarSyncing] = useState(false);
@@ -247,7 +204,7 @@ const SettingsScreen = ({ onLogout }) => {
   const [browserNotificationsSupported, setBrowserNotificationsSupported] = useState(false);
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState('default');
   const [currentBrowserWebPushSubscribed, setCurrentBrowserWebPushSubscribed] = useState(false);
-  const [currentBrowserWebPushEndpoint, setCurrentBrowserWebPushEndpoint] = useState('');
+  const [, setCurrentBrowserWebPushEndpoint] = useState('');
   const [notificationActionLoading, setNotificationActionLoading] = useState('');
   const [expandedNotificationEventKey, setExpandedNotificationEventKey] = useState('');
   const isMobileWebsiteViewport = useMediaQuery('(max-width: 1023px)');
@@ -296,7 +253,6 @@ const SettingsScreen = ({ onLogout }) => {
     handleGenerateTelegramLinkCode,
     handlePinSetupSuccess,
     handleRemoveAvatar,
-    handleStartTelegramLogin,
     handleUnlinkTelegram,
     runHuaweiSync,
     runStravaSync,
@@ -654,41 +610,6 @@ const SettingsScreen = ({ onLogout }) => {
     }
   };
 
-  const handleTelegramLoginConnect = useCallback(async () => {
-    setTelegramLoginLoading(true);
-
-    const result = await handleStartTelegramLogin({ fromApp: isNativeCapacitor() });
-    if (!result?.authUrl) {
-      setTelegramLoginLoading(false);
-      return;
-    }
-
-    if (isNativeCapacitor()) {
-      try {
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: result.authUrl });
-        startTelegramLoginPolling();
-        return;
-      } catch (_) {
-        // Fallback ниже
-      }
-    }
-
-    const popup = window.open(result.authUrl, 'planrunTelegramLogin', 'width=480,height=720');
-    if (!popup) {
-      window.location.href = result.authUrl;
-      return;
-    }
-
-    try {
-      popup.focus();
-    } catch (_) {
-      // Ignore focus errors
-    }
-
-    startTelegramLoginPolling();
-  }, [handleStartTelegramLogin, startTelegramLoginPolling]);
-
   const openTelegramBot = useCallback(async () => {
     if (telegramLinkCodeLoading || telegramLoginLoading) {
       return;
@@ -777,16 +698,6 @@ const SettingsScreen = ({ onLogout }) => {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [hasUnsavedChanges, saving]);
-
-  const handleLogout = async () => {
-    await onLogout();
-    if (isNativeCapacitor()) {
-      window.location.href = '/landing';
-    } else {
-      navigate('/login');
-    }
-  };
-
 
   const toggleDay = (field, day) => {
     setFormData(prev => {
@@ -942,7 +853,7 @@ const SettingsScreen = ({ onLogout }) => {
       if (permission === 'granted') {
         await refreshCurrentBrowserWebPushState();
         if (!options.silentSuccess) {
-          setMessage({ type: 'success', text: 'Разрешение браузера выдано. Теперь можно подключить этот браузер к web push.' });
+          setMessage({ type: 'success', text: 'Разрешение браузера выдано. Теперь можно подключить этот браузер к уведомлениям.' });
         }
         return true;
       } else if (permission === 'denied') {
@@ -992,12 +903,12 @@ const SettingsScreen = ({ onLogout }) => {
       setCurrentBrowserWebPushEndpoint(subscription?.endpoint || '');
       await loadProfile(currentApi, { silent: true });
       if (!options.silent) {
-        setMessage({ type: 'success', text: 'Web push подключён для этого браузера' });
+        setMessage({ type: 'success', text: 'Уведомления в браузере подключены для этого браузера' });
       }
       return true;
     } catch (error) {
       if (!options.silent) {
-        setMessage({ type: 'error', text: error.message || 'Не удалось подключить web push' });
+        setMessage({ type: 'error', text: error.message || 'Не удалось подключить уведомления в браузере' });
       }
       return false;
     } finally {
@@ -1036,7 +947,7 @@ const SettingsScreen = ({ onLogout }) => {
       setCurrentBrowserWebPushSubscribed(false);
       setCurrentBrowserWebPushEndpoint('');
       await loadProfile(currentApi, { silent: true });
-      setMessage({ type: 'success', text: 'Этот браузер отключён от web push' });
+      setMessage({ type: 'success', text: 'Этот браузер отключён от уведомлений в браузере' });
       return true;
     } catch (error) {
       setMessage({ type: 'error', text: error.message || 'Не удалось отключить этот браузер' });
@@ -1183,7 +1094,7 @@ const SettingsScreen = ({ onLogout }) => {
 
     if (channelKey === 'web_push') {
       if (!webPushChannel.delivery_ready) {
-        setMessage({ type: 'error', text: 'Web push ещё не настроен на сервере.' });
+        setMessage({ type: 'error', text: 'Уведомления в браузере ещё не настроены на сервере.' });
         return false;
       }
       if (isIOSWebPushInstallRequired) {
@@ -1191,7 +1102,7 @@ const SettingsScreen = ({ onLogout }) => {
         return false;
       }
       if (!browserNotificationsSupported) {
-        setMessage({ type: 'error', text: 'Этот браузер не поддерживает web push.' });
+        setMessage({ type: 'error', text: 'Этот браузер не поддерживает уведомления в браузере.' });
         return false;
       }
       if (browserNotificationPermission === 'denied') {
@@ -1199,7 +1110,7 @@ const SettingsScreen = ({ onLogout }) => {
         return false;
       }
       if (!webPushChannel.public_key) {
-        setMessage({ type: 'error', text: 'Web push ещё не настроен на сервере.' });
+        setMessage({ type: 'error', text: 'Уведомления в браузере ещё не настроены на сервере.' });
         return false;
       }
       if (currentBrowserWebPushSubscribed) {
@@ -1222,7 +1133,7 @@ const SettingsScreen = ({ onLogout }) => {
         if (channel.available) {
           return true;
         }
-        setMessage({ type: 'error', text: 'Push на телефон можно подключить только в приложении.' });
+        setMessage({ type: 'error', text: 'Уведомления на телефон можно подключить только в приложении.' });
         return false;
       }
 
@@ -1231,7 +1142,7 @@ const SettingsScreen = ({ onLogout }) => {
       }
 
       if (!currentApi) {
-        setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
+        setMessage({ type: 'error', text: 'Клиент сервиса не готов. Попробуйте обновить страницу.' });
         return false;
       }
 
@@ -1241,17 +1152,17 @@ const SettingsScreen = ({ onLogout }) => {
         const result = await registerPushNotifications(currentApi);
 
         if (!result?.ok) {
-          setMessage({ type: 'error', text: result?.reason || 'Не удалось подключить push на телефон.' });
+          setMessage({ type: 'error', text: result?.reason || 'Не удалось подключить уведомления на телефон.' });
           return false;
         }
 
-        setMessage({ type: 'success', text: 'Разрешение на push получено. Устройство подключается к уведомлениям.' });
+        setMessage({ type: 'success', text: 'Разрешение на уведомления получено. Устройство подключается к уведомлениям.' });
         setTimeout(() => {
           loadProfile(currentApi, { silent: true }).catch(() => {});
         }, 1200);
         return true;
       } catch (error) {
-        setMessage({ type: 'error', text: error?.message || 'Не удалось подключить push на телефон.' });
+        setMessage({ type: 'error', text: error?.message || 'Не удалось подключить уведомления на телефон.' });
         return false;
       } finally {
         setNotificationActionLoading('');
@@ -1268,7 +1179,7 @@ const SettingsScreen = ({ onLogout }) => {
 
     if (channelKey === 'email') {
       if (!channel.available) {
-        setMessage({ type: 'error', text: 'Укажите email в профиле, чтобы получать письма.' });
+        setMessage({ type: 'error', text: 'Укажите адрес почты в профиле, чтобы получать письма.' });
         return false;
       }
       return true;
@@ -1341,15 +1252,15 @@ const SettingsScreen = ({ onLogout }) => {
 
   const channelMeta = {
     mobile_push: {
-      label: 'Push на телефон',
-      shortLabel: 'Push',
-      description: 'FCM для Android и iOS',
+      label: 'Уведомления на телефон',
+      shortLabel: 'Телефон',
+      description: 'Системные уведомления Android и iOS',
       Icon: SmartphoneIcon,
     },
     web_push: {
       label: 'Уведомления в браузере',
       shortLabel: 'Браузер',
-      description: 'Разрешение браузера и web push',
+      description: 'Разрешение браузера и уведомления для сайта',
       Icon: BrowserWindowIcon,
     },
     telegram: {
@@ -1360,8 +1271,8 @@ const SettingsScreen = ({ onLogout }) => {
       logoSrc: '/integrations/telegram.svg',
     },
     email: {
-      label: 'Email',
-      shortLabel: 'Email',
+      label: 'Почта',
+      shortLabel: 'Почта',
       description: 'Письма на адрес профиля',
       Icon: MailIcon,
     },
@@ -1666,7 +1577,7 @@ const SettingsScreen = ({ onLogout }) => {
               </div>
 
               <div className="form-group">
-                <label>Email <span className="required">*</span></label>
+                <label>Эл. почта <span className="required">*</span></label>
                 <input
                   type="email"
                   value={formData.email || ''}
@@ -1728,6 +1639,148 @@ const SettingsScreen = ({ onLogout }) => {
                 </div>
               </div>
 
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Макс ЧСС</label>
+                  <input
+                    type="number"
+                    min="120"
+                    max="230"
+                    value={formData.max_hr || ''}
+                    onChange={(e) => handleInputChange('max_hr', e.target.value)}
+                    placeholder={formData?.hr_zones_data?.detected_max_hr ? `${formData.hr_zones_data.detected_max_hr} (авто)` : '190'}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>ЧСС покоя</label>
+                  <input
+                    type="number"
+                    min="30"
+                    max="120"
+                    value={formData.rest_hr || ''}
+                    onChange={(e) => handleInputChange('rest_hr', e.target.value)}
+                    placeholder="60"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const serverData = formData?.hr_zones_data || {};
+                const inputMaxHr = formData.max_hr ? parseInt(formData.max_hr, 10) : 0;
+                const validInput = inputMaxHr >= 120 && inputMaxHr <= 230;
+                const detectedMaxHr = serverData.detected_max_hr || 0;
+                const formulaMaxHr = serverData.formula_max_hr || 0;
+
+                // Приоритет: тренировки > ручной > формула
+                let effectiveMaxHr, source;
+                if (detectedMaxHr) {
+                  effectiveMaxHr = detectedMaxHr;
+                  source = 'detected';
+                } else if (validInput) {
+                  effectiveMaxHr = inputMaxHr;
+                  source = 'manual';
+                } else if (formulaMaxHr) {
+                  effectiveMaxHr = formulaMaxHr;
+                  source = 'formula';
+                } else {
+                  return null;
+                }
+
+                // Ручной ввод переопределяет, если он отличается от авто
+                if (validInput && source === 'detected' && inputMaxHr !== detectedMaxHr) {
+                  effectiveMaxHr = inputMaxHr;
+                  source = 'override';
+                }
+
+                const zoneNames = ['Восстановительная', 'Аэробная', 'Темповая', 'Пороговая', 'Максимальная'];
+                const zonePcts = [[0.50, 0.60], [0.60, 0.70], [0.70, 0.80], [0.80, 0.90], [0.90, 1.00]];
+
+                // ЧСС покоя: ручной ввод или из серверных данных
+                const inputRestHr = formData.rest_hr ? parseInt(formData.rest_hr, 10) : 0;
+                const effectiveRestHr = (inputRestHr >= 35 && inputRestHr < effectiveMaxHr)
+                  ? inputRestHr
+                  : (serverData.effective_rest_hr || 0);
+                const useKarvonen = effectiveRestHr >= 35 && effectiveRestHr < effectiveMaxHr;
+
+                const zones = zoneNames.map((name, i) => {
+                  let minHr, maxHr;
+                  if (useKarvonen) {
+                    // Формула Карвонена: RestHR + (MaxHR - RestHR) × %
+                    const hrr = effectiveMaxHr - effectiveRestHr;
+                    minHr = Math.round(effectiveRestHr + hrr * zonePcts[i][0]);
+                    maxHr = Math.round(effectiveRestHr + hrr * zonePcts[i][1]);
+                  } else {
+                    minHr = Math.round(effectiveMaxHr * zonePcts[i][0]);
+                    maxHr = Math.round(effectiveMaxHr * zonePcts[i][1]);
+                  }
+                  return { zone: i + 1, name, min_hr: minHr, max_hr: maxHr };
+                });
+
+                const methodLabel = useKarvonen ? ', Карвонен' : '';
+                const sourceLabel = source === 'detected' ? `из тренировок (${effectiveMaxHr} уд/м${methodLabel})`
+                  : source === 'override' ? `${effectiveMaxHr} уд/м (вручную, авто: ${detectedMaxHr}${methodLabel})`
+                  : source === 'manual' ? `${effectiveMaxHr} уд/м (вручную${methodLabel})`
+                  : source === 'formula' ? `по формуле 220−возраст (${effectiveMaxHr} уд/м${methodLabel})`
+                  : '';
+
+                return (
+                  <div className="hr-zones-display">
+                    <div className="hr-zones-header">
+                      <span>Зоны ЧСС</span>
+                      <span className="hr-zones-source">{sourceLabel}</span>
+                    </div>
+                    <div className="hr-zones-table">
+                      {zones.map(z => (
+                        <div key={z.zone} className={`hr-zone-row hr-zone-${z.zone}`}>
+                          <span className="hr-zone-num">Z{z.zone}</span>
+                          <span className="hr-zone-name">{z.name}</span>
+                          <span className="hr-zone-range">{z.min_hr}–{z.max_hr}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {(() => {
+                const realRanges = formData?.hr_zones_data?.real_hr_ranges;
+                if (!realRanges) return null;
+                const buckets = [
+                  { key: 'easy', label: 'Лёгкий бег', pace: '≥5:30/км' },
+                  { key: 'moderate', label: 'Умеренный', pace: '5:00–5:29/км' },
+                  { key: 'intense', label: 'Интенсивный', pace: '<5:00/км' },
+                ];
+                const hasBuckets = buckets.some(b => realRanges[b.key]);
+                if (!hasBuckets) return null;
+                const trendArrow = (t) => t === 'improving' ? ' ↓' : t === 'worsening' ? ' ↑' : '';
+                const trendLabel = (t) => t === 'improving' ? 'снижается' : t === 'worsening' ? 'растёт' : '';
+                return (
+                  <div className="hr-zones-display" style={{ marginTop: 8 }}>
+                    <div className="hr-zones-header">
+                      <span>Реальный пульс из тренировок</span>
+                      <span className="hr-zones-source">за 6 недель</span>
+                    </div>
+                    <div className="hr-zones-table">
+                      {buckets.map(b => {
+                        const d = realRanges[b.key];
+                        if (!d) return null;
+                        return (
+                          <div key={b.key} className="hr-zone-row hr-zone-2">
+                            <span className="hr-zone-name">{b.label} ({b.pace})</span>
+                            <span className="hr-zone-range">
+                              {d.p25}–{d.p75} уд/м{trendArrow(d.trend)}
+                              {d.trend && d.trend !== 'stable' && <small style={{ opacity: 0.7 }}> ({trendLabel(d.trend)})</small>}
+                              <small style={{ opacity: 0.5 }}> ({d.count} тр.)</small>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="form-group">
                 <label>Часовой пояс</label>
                 <select
@@ -1778,15 +1831,15 @@ const SettingsScreen = ({ onLogout }) => {
               <div className="settings-section settings-app-lock-section">
                 <h2>Блокировка приложения</h2>
                 <p className="settings-app-lock-desc">
-                  PIN обязателен для разблокировки. Отпечаток пальца — опционально, для быстрого входа.
+                  ПИН-код обязателен для разблокировки. Отпечаток пальца — опционально, для быстрого входа.
                 </p>
                 <div className="settings-biometric-row">
                   <p>
                     {!pinEnabled
                       ? 'Блокировка выключена'
                       : biometricEnabled
-                        ? 'Включена (PIN + отпечаток)'
-                        : 'Включена (PIN)'}
+                        ? 'Включена (ПИН-код + отпечаток)'
+                        : 'Включена (ПИН-код)'}
                   </p>
                   <div className="settings-app-lock-actions">
                     {!pinEnabled ? (
@@ -1919,33 +1972,33 @@ const SettingsScreen = ({ onLogout }) => {
               </div>
 
               {/* Матрица событий — только доступные каналы */}
-	              <div className="notification-groups">
-	                {visibleNotificationGroups.map((group) => (
-	                  <div key={group.key} className="notification-group">
-	                    <div className="notification-group-heading">
-	                      <h3>{group.label}</h3>
-	                    </div>
-	                    <div className="notification-matrix notification-matrix--desktop">
-	                      <div className="notification-matrix-header notification-matrix-row">
-	                        <div className="notification-event-copy">Событие</div>
-	                        {availableChannels.map((channelKey) => (
-	                          <div key={`${group.key}-${channelKey}-head`} className="notification-channel-head">
-	                            {channelMeta[channelKey].shortLabel}
+                <div className="notification-groups">
+                  {visibleNotificationGroups.map((group) => (
+                    <div key={group.key} className="notification-group">
+                      <div className="notification-group-heading">
+                        <h3>{group.label}</h3>
+                      </div>
+                      <div className="notification-matrix notification-matrix--desktop">
+                        <div className="notification-matrix-header notification-matrix-row">
+                          <div className="notification-event-copy">Событие</div>
+                          {availableChannels.map((channelKey) => (
+                            <div key={`${group.key}-${channelKey}-head`} className="notification-channel-head">
+                              {channelMeta[channelKey].shortLabel}
                           </div>
                         ))}
                       </div>
 
-	                      {group.events.map((event) => (
-	                        <div key={event.event_key} className="notification-matrix-row">
-	                          <div className="notification-event-copy">
-	                            <strong>{event.label}</strong>
-	                            {event.locked && <em>Обязательно</em>}
-	                          </div>
-	                          {availableChannels.map((channelKey) => {
-	                            const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
+                        {group.events.map((event) => (
+                          <div key={event.event_key} className="notification-matrix-row">
+                            <div className="notification-event-copy">
+                              <strong>{event.label}</strong>
+                              {event.locked && <em>Обязательно</em>}
+                            </div>
+                            {availableChannels.map((channelKey) => {
+                              const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
 
-	                            return (
-	                              <label key={`${event.event_key}-${channelKey}`} className={`notification-toggle ${disabled ? 'is-disabled' : ''}`}>
+                              return (
+                                <label key={`${event.event_key}-${channelKey}`} className={`notification-toggle ${disabled ? 'is-disabled' : ''}`}>
                                 <input
                                   type="checkbox"
                                   checked={checked}
@@ -1955,96 +2008,96 @@ const SettingsScreen = ({ onLogout }) => {
                                 <span>{supportsChannel ? channelMeta[channelKey].shortLabel : '—'}</span>
                               </label>
                             );
-	                          })}
-	                        </div>
-	                      ))}
-	                    </div>
+                            })}
+                          </div>
+                        ))}
+                      </div>
 
-	                    <div className="notification-mobile-list">
-	                      {group.events.map((event) => {
-	                        const mobileChannels = getEventMobileChannels(event, availableChannels);
-	                        const summary = getNotificationMobileSummary(event, notificationSettings.schedule);
-	                        const isExpanded = expandedNotificationEventKey === event.event_key;
+                      <div className="notification-mobile-list">
+                        {group.events.map((event) => {
+                          const mobileChannels = getEventMobileChannels(event, availableChannels);
+                          const summary = getNotificationMobileSummary(event, notificationSettings.schedule);
+                          const isExpanded = expandedNotificationEventKey === event.event_key;
 
-	                        return (
-	                          <div
-	                            key={`${group.key}-${event.event_key}-mobile`}
-	                            className={`notification-mobile-item ${isExpanded ? 'is-expanded' : ''}`}
-	                          >
-	                            <button
-	                              type="button"
-	                              className="notification-mobile-item-head"
-	                              onClick={() => toggleNotificationEventExpanded(event.event_key)}
-	                              aria-expanded={isExpanded}
-	                            >
-	                              <div className="notification-mobile-item-copy">
-	                                <strong>{event.label}</strong>
-	                                {summary ? <span>{summary}</span> : null}
-	                              </div>
-	                              <div className="notification-mobile-item-meta">
-	                                <div className="notification-mobile-channel-icons" aria-hidden="true">
-	                                    {mobileChannels.map(({ channelKey, isActive }) => {
-	                                      return (
-	                                        <span
-	                                          key={`${event.event_key}-${channelKey}-icon`}
-	                                          className={`notification-mobile-channel-chip notification-mobile-channel-chip--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                          title={channelMeta[channelKey].label}
-	                                        >
-	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-chip-icon', 16)}
-	                                        </span>
-	                                      );
-	                                    })}
-	                                </div>
-	                                <span className={`notification-mobile-expand-indicator ${isExpanded ? 'is-open' : ''}`} aria-hidden="true" />
-	                              </div>
-	                            </button>
+                          return (
+                            <div
+                              key={`${group.key}-${event.event_key}-mobile`}
+                              className={`notification-mobile-item ${isExpanded ? 'is-expanded' : ''}`}
+                            >
+                              <button
+                                type="button"
+                                className="notification-mobile-item-head"
+                                onClick={() => toggleNotificationEventExpanded(event.event_key)}
+                                aria-expanded={isExpanded}
+                              >
+                                <div className="notification-mobile-item-copy">
+                                  <strong>{event.label}</strong>
+                                  {summary ? <span>{summary}</span> : null}
+                                </div>
+                                <div className="notification-mobile-item-meta">
+                                  <div className="notification-mobile-channel-icons" aria-hidden="true">
+                                      {mobileChannels.map(({ channelKey, isActive }) => {
+                                        return (
+                                          <span
+                                            key={`${event.event_key}-${channelKey}-icon`}
+                                            className={`notification-mobile-channel-chip notification-mobile-channel-chip--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
+                                            title={channelMeta[channelKey].label}
+                                          >
+                                            {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-chip-icon', 16)}
+                                          </span>
+                                        );
+                                      })}
+                                  </div>
+                                  <span className={`notification-mobile-expand-indicator ${isExpanded ? 'is-open' : ''}`} aria-hidden="true" />
+                                </div>
+                              </button>
 
-	                            {isExpanded && (
-	                              <div className="notification-mobile-item-body">
-	                                {availableChannels.map((channelKey) => {
-	                                  const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
-	                                  if (!supportsChannel) {
-	                                    return null;
-	                                  }
+                              {isExpanded && (
+                                <div className="notification-mobile-item-body">
+                                  {availableChannels.map((channelKey) => {
+                                    const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
+                                    if (!supportsChannel) {
+                                      return null;
+                                    }
 
-	                                  const isActive = isNotificationChannelEffectivelyActive(event, channelKey, checked);
-	                                  const statusText = getNotificationChannelStatusText(event, channelKey, checked);
+                                    const isActive = isNotificationChannelEffectivelyActive(event, channelKey, checked);
+                                    const statusText = getNotificationChannelStatusText(event, channelKey, checked);
 
-	                                  return (
-	                                    <label
-	                                      key={`${event.event_key}-${channelKey}-mobile-toggle`}
-	                                      className={`notification-mobile-channel-row ${disabled ? 'is-disabled' : ''} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                    >
-	                                      <div className="notification-mobile-channel-copy">
-	                                        <span
-	                                          className={`notification-mobile-channel-icon notification-mobile-channel-icon--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                          aria-hidden="true"
-	                                        >
-	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-row-icon', 18)}
-	                                        </span>
-	                                        <div className="notification-mobile-channel-text">
-	                                          <strong>{channelMeta[channelKey].label}</strong>
-	                                          <span>{statusText}</span>
-	                                        </div>
-	                                      </div>
-	                                      <input
-	                                        type="checkbox"
-	                                        checked={checked}
-	                                        disabled={disabled}
-	                                        onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
-	                                      />
-	                                    </label>
-	                                  );
-	                                })}
-	                              </div>
-	                            )}
-	                          </div>
-	                        );
-	                      })}
-	                    </div>
-	                  </div>
-	                ))}
-	              </div>
+                                    return (
+                                      <label
+                                        key={`${event.event_key}-${channelKey}-mobile-toggle`}
+                                        className={`notification-mobile-channel-row ${disabled ? 'is-disabled' : ''} ${isActive ? 'is-active' : 'is-inactive'}`}
+                                      >
+                                        <div className="notification-mobile-channel-copy">
+                                          <span
+                                            className={`notification-mobile-channel-icon notification-mobile-channel-icon--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
+                                            aria-hidden="true"
+                                          >
+                                            {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-row-icon', 18)}
+                                          </span>
+                                          <div className="notification-mobile-channel-text">
+                                            <strong>{channelMeta[channelKey].label}</strong>
+                                            <span>{statusText}</span>
+                                          </div>
+                                        </div>
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={disabled}
+                                          onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
+                                        />
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
             </div>
           </div>
           );
@@ -2128,7 +2181,7 @@ const SettingsScreen = ({ onLogout }) => {
                     </small>
                     {process.env.NODE_ENV === 'development' && (
                       <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: race_distance = "{formData.race_distance}" (type: {typeof formData.race_distance})
+                        {`Debug: race_distance = "${formData.race_distance}" (type: ${typeof formData.race_distance})`}
                       </small>
                     )}
                   </div>
@@ -2245,11 +2298,11 @@ const SettingsScreen = ({ onLogout }) => {
                 <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
                   Выберите уровень, который лучше всего описывает ваш опыт в беге
                 </small>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: experience_level = "{formData.experience_level}" (type: {typeof formData.experience_level})
-                  </small>
-                )}
+                  {process.env.NODE_ENV === 'development' && (
+                    <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
+                      {`Debug: experience_level = "${formData.experience_level}" (type: ${typeof formData.experience_level})`}
+                    </small>
+                  )}
               </div>
 
               <div className="form-row">
@@ -2360,7 +2413,7 @@ const SettingsScreen = ({ onLogout }) => {
                 </select>
                 {process.env.NODE_ENV === 'development' && (
                   <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: ofp_preference = "{formData.ofp_preference}" (type: {typeof formData.ofp_preference})
+                    {`Debug: ofp_preference = "${formData.ofp_preference}" (type: ${typeof formData.ofp_preference})`}
                   </small>
                 )}
               </div>
@@ -2379,7 +2432,7 @@ const SettingsScreen = ({ onLogout }) => {
                 </select>
                 {process.env.NODE_ENV === 'development' && (
                   <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: training_time_pref = "{formData.training_time_pref}" (type: {typeof formData.training_time_pref})
+                    {`Debug: training_time_pref = "${formData.training_time_pref}" (type: ${typeof formData.training_time_pref})`}
                   </small>
                 )}
               </div>
@@ -2408,16 +2461,31 @@ const SettingsScreen = ({ onLogout }) => {
                   value={formData.training_mode || 'ai'}
                   onChange={(e) => handleInputChange('training_mode', e.target.value)}
                 >
-                  <option value="ai">AI план</option>
+                  <option value="ai">План с ИИ</option>
                   <option value="coach">С тренером</option>
-                  <option value="both">AI + тренер</option>
+                  <option value="both">ИИ + тренер</option>
                   <option value="self">Самостоятельно</option>
                 </select>
                 {process.env.NODE_ENV === 'development' && (
                   <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: training_mode = "{formData.training_mode}" (type: {typeof formData.training_mode})
+                    {`Debug: training_mode = "${formData.training_mode}" (type: ${typeof formData.training_mode})`}
                   </small>
                 )}
+              </div>
+
+              <div className="form-group">
+                <label>Стиль ИИ-тренера</label>
+                <select
+                  value={formData.coach_style || 'motivational'}
+                  onChange={(e) => handleInputChange('coach_style', e.target.value)}
+                >
+                  <option value="motivational">Мотивирующий</option>
+                  <option value="analytical">Аналитический</option>
+                  <option value="minimal">Лаконичный</option>
+                </select>
+                <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
+                  Как тренер общается с вами в чате
+                </small>
               </div>
 
               <div className="form-group">
@@ -2459,13 +2527,13 @@ const SettingsScreen = ({ onLogout }) => {
                     >
                       <option value="">Не указано</option>
                       <option value="start_running">Начать бегать</option>
-                      <option value="couch_to_5k">Couch to 5K</option>
+                      <option value="couch_to_5k">Постепенный выход на 5 км</option>
                       <option value="regular_running">Регулярный бег</option>
                       <option value="custom">Своя программа</option>
                     </select>
                     {process.env.NODE_ENV === 'development' && (
                       <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: health_program = "{formData.health_program}" (type: {typeof formData.health_program})
+                        {`Debug: health_program = "${formData.health_program}" (type: ${typeof formData.health_program})`}
                       </small>
                     )}
                   </div>
@@ -2515,7 +2583,7 @@ const SettingsScreen = ({ onLogout }) => {
                 <small>Введите темп в формате минуты:секунды (например, 7:00 означает 7 минут на километр)</small>
                 {process.env.NODE_ENV === 'development' && (
                   <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: easy_pace_min = "{formData.easy_pace_min}", easy_pace_sec = "{formData.easy_pace_sec}"
+                    {`Debug: easy_pace_min = "${formData.easy_pace_min}", easy_pace_sec = "${formData.easy_pace_sec}"`}
                   </small>
                 )}
               </div>
@@ -2552,7 +2620,7 @@ const SettingsScreen = ({ onLogout }) => {
                     </small>
                     {process.env.NODE_ENV === 'development' && (
                       <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: last_race_distance = "{formData.last_race_distance}" (type: {typeof formData.last_race_distance})
+                        {`Debug: last_race_distance = "${formData.last_race_distance}" (type: ${typeof formData.last_race_distance})`}
                       </small>
                     )}
                   </div>
@@ -2665,7 +2733,7 @@ const SettingsScreen = ({ onLogout }) => {
                       onChange={(e) => handleInputChange('privacy_show_email', e.target.checked)}
                     />
                     <div className="privacy-content">
-                      <strong>Email</strong>
+                      <strong>Эл. почта</strong>
                       <small>Адрес электронной почты</small>
                     </div>
                   </label>
@@ -2677,7 +2745,7 @@ const SettingsScreen = ({ onLogout }) => {
                     />
                     <div className="privacy-content">
                       <strong>Тренер</strong>
-                      <small>Блок «Тренер» и planRUN AI</small>
+                      <small>Блок «Тренер» и planRUN ИИ</small>
                     </div>
                   </label>
                   <label className="privacy-option">
@@ -2867,7 +2935,7 @@ const SettingsScreen = ({ onLogout }) => {
               <h2>Подключить</h2>
 
               {/* Подключено — горизонтальные карточки: логотип | кнопки */}
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
+              {(formData.telegram_id || (!hiddenProviders.includes('huawei') && integrationsStatus.huawei) || integrationsStatus.strava || integrationsStatus.polar || (!hiddenProviders.includes('garmin') && integrationsStatus.garmin) || (!hiddenProviders.includes('coros') && integrationsStatus.coros)) && (
                 <div className="integrations-connected-section">
                   <p className="integrations-connected-label">Подключено:</p>
                   <div className="integrations-connected-row">
@@ -2881,7 +2949,7 @@ const SettingsScreen = ({ onLogout }) => {
                         </div>
                       </div>
                     )}
-                    {integrationsStatus.huawei && (
+                    {!hiddenProviders.includes('huawei') && integrationsStatus.huawei && (
                       <div className="integration-connected-card">
                         <div className="integration-connected-card__logo">
                           <img src="/integrations/huawei.svg" alt="Huawei Health" />
@@ -2982,7 +3050,7 @@ const SettingsScreen = ({ onLogout }) => {
                         </div>
                       </div>
                     )}
-                    {integrationsStatus.garmin && (
+                    {!hiddenProviders.includes('garmin') && integrationsStatus.garmin && (
                       <div className="integration-connected-card">
                         <div className="integration-connected-card__logo">
                           <img src="/integrations/garmin.svg" alt="Garmin" />
@@ -3019,7 +3087,7 @@ const SettingsScreen = ({ onLogout }) => {
                         </div>
                       </div>
                     )}
-                    {integrationsStatus.coros && (
+                    {!hiddenProviders.includes('coros') && integrationsStatus.coros && (
                       <div className="integration-connected-card">
                         <div className="integration-connected-card__logo">
                           <img src="/integrations/coros.svg" alt="COROS" />
@@ -3061,9 +3129,9 @@ const SettingsScreen = ({ onLogout }) => {
               )}
 
               {/* Не подключено — логотипы-кнопки для подключения */}
-              {(!formData.telegram_id || !integrationsStatus.huawei || !integrationsStatus.strava || !integrationsStatus.polar || !integrationsStatus.garmin || !integrationsStatus.coros) && (
+              {(!formData.telegram_id || (!hiddenProviders.includes('huawei') && !integrationsStatus.huawei) || !integrationsStatus.strava || !integrationsStatus.polar || (!hiddenProviders.includes('garmin') && !integrationsStatus.garmin) || (!hiddenProviders.includes('coros') && !integrationsStatus.coros)) && (
               <>
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
+              {(formData.telegram_id || (!hiddenProviders.includes('huawei') && integrationsStatus.huawei) || integrationsStatus.strava || integrationsStatus.polar || (!hiddenProviders.includes('garmin') && integrationsStatus.garmin) || (!hiddenProviders.includes('coros') && integrationsStatus.coros)) && (
                 <p className="integrations-disconnected-label">Подключить:</p>
               )}
               <div className="integrations-logos">
@@ -3092,7 +3160,7 @@ const SettingsScreen = ({ onLogout }) => {
                     <span>{isTelegramConnecting ? 'Открываем...' : 'Telegram'}</span>
                   </div>
                 )}
-                {!integrationsStatus.huawei && (
+                {!hiddenProviders.includes('huawei') && !integrationsStatus.huawei && (
                   <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
                     const currentApi = api || useAuthStore.getState().api;
                     if (!currentApi) return;
@@ -3151,7 +3219,9 @@ const SettingsScreen = ({ onLogout }) => {
                               setIntegrationsStatus(prev => ({ ...prev, strava: true }));
                               runStravaSync(currentApi);
                             }
-                          } catch {}
+                          } catch (error) {
+                            void error;
+                          }
                         }, 3000);
                         stravaPollTimeoutRef.current = setTimeout(() => {
                           if (stravaPollRef.current) clearInterval(stravaPollRef.current);
@@ -3187,7 +3257,7 @@ const SettingsScreen = ({ onLogout }) => {
                     <span>Polar</span>
                   </div>
                 )}
-                {!integrationsStatus.garmin && (
+                {!hiddenProviders.includes('garmin') && !integrationsStatus.garmin && (
                   <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
                     const currentApi = api || useAuthStore.getState().api;
                     if (!currentApi) return;
@@ -3206,7 +3276,7 @@ const SettingsScreen = ({ onLogout }) => {
                     <span>Garmin</span>
                   </div>
                 )}
-                {!integrationsStatus.coros && (
+                {!hiddenProviders.includes('coros') && !integrationsStatus.coros && (
                   <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
                     const currentApi = api || useAuthStore.getState().api;
                     if (!currentApi) return;

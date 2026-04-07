@@ -2,7 +2,7 @@
  * Экран "Забыли пароль?" — отправка ссылки на email
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePasswordResetRequest } from '../hooks/usePasswordResetRequest';
 import './LoginScreen.css';
@@ -33,12 +33,12 @@ const ForgotPasswordScreen = () => {
         {!sent ? (
           <form onSubmit={handleSubmit} className="login-form">
             <p className="forgot-hint" style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-              Введите email или логин, указанные при регистрации. Мы отправим ссылку для сброса пароля на email.
+              Введите почту или логин, указанные при регистрации. Мы отправим ссылку для сброса пароля на почту.
             </p>
             <input
               type="text"
               className="login-input"
-              placeholder="Email или логин"
+              placeholder="Почта или логин"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"

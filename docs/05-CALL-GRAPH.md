@@ -130,6 +130,26 @@ api/strava_webhook.php
   -> useWorkoutRefreshStore polling notices new data version
 ```
 
+## 6b. Целевой пульс (HR targets)
+
+```text
+Генерация плана:
+  plan_saver.php → resolveTargetHrForDay() → UserProfileService.getTargetHrForWorkoutType()
+    → INSERT training_plan_days с target_hr_min/max
+
+Ручное добавление/обновление:
+  WeekService.addTrainingDay/updateTrainingDayById → enrichWithTargetHr()
+    → UserProfileService.getTargetHrForWorkoutType()
+
+Авто-пересчёт после импорта:
+  strava_webhook.php → importWorkouts() → UserProfileService.recalculateHrTargetsForFutureDays()
+  WorkoutController.saveResult() → UserProfileService.recalculateHrTargetsForFutureDays()
+
+AI-контекст:
+  ChatContextBuilder.buildContextForUser() → formatHrZones()
+    → UserProfileService.getHrZonesData() → detectRealHrRanges()
+```
+
 ## 7. Push и web push уведомления
 
 ```text

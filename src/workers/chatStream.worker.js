@@ -32,7 +32,7 @@ self.onmessage = async (e) => {
     let buffer = '';
     let fullContent = '';
 
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -54,7 +54,9 @@ self.onmessage = async (e) => {
           if (obj.plan_updated) {
             self.postMessage({ type: 'plan_updated' });
           }
-        } catch (_) {}
+        } catch (error) {
+          void error;
+        }
       }
     }
     if (buffer.trim()) {
@@ -71,7 +73,9 @@ self.onmessage = async (e) => {
         if (obj.plan_updated) {
           self.postMessage({ type: 'plan_updated' });
         }
-      } catch (_) {}
+      } catch (error) {
+        void error;
+      }
     }
 
     self.postMessage({ type: 'done', fullContent });

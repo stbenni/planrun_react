@@ -23,7 +23,7 @@ const DEFAULT_CATALOG = [
   {
     key: 'chat',
     label: 'Чат',
-    description: 'Сообщения от пользователей, администрации и AI',
+    description: 'Сообщения от пользователей, администрации и ИИ',
     events: [
       {
         event_key: 'chat.admin_message',
@@ -39,13 +39,13 @@ const DEFAULT_CATALOG = [
       },
       {
         event_key: 'chat.ai_message',
-        label: 'Сообщение от AI-тренера',
-        description: 'Когда AI присылает новый ответ вне открытого чата',
+        label: 'Сообщение от ИИ-тренера',
+        description: 'Когда ИИ присылает новый ответ вне открытого чата',
         channels: NOTIFICATION_CHANNELS,
       },
       {
         event_key: 'admin.new_user_message',
-        label: 'Новое сообщение в admin-чате',
+        label: 'Новое сообщение в чате администрации',
         description: 'Когда пользователь пишет администрации',
         channels: NOTIFICATION_CHANNELS,
         roles: ['admin'],
@@ -55,7 +55,7 @@ const DEFAULT_CATALOG = [
   {
     key: 'plan',
     label: 'План и адаптация',
-    description: 'Изменения плана, заметки и AI-обзоры',
+    description: 'Изменения плана, заметки и обзоры ИИ',
     events: [
       {
         event_key: 'plan.coach_updated',
@@ -78,14 +78,14 @@ const DEFAULT_CATALOG = [
       },
       {
         event_key: 'plan.weekly_review',
-        label: 'Недельный AI-обзор',
+        label: 'Недельный обзор ИИ',
         description: 'Еженедельное сообщение с разбором плана',
         channels: NOTIFICATION_CHANNELS,
       },
       {
         event_key: 'plan.weekly_adaptation',
         label: 'Недельная адаптация',
-        description: 'AI адаптировал план на следующую неделю',
+        description: 'ИИ адаптировал план на следующую неделю',
         channels: NOTIFICATION_CHANNELS,
       },
       {
@@ -97,7 +97,7 @@ const DEFAULT_CATALOG = [
       {
         event_key: 'plan.recalculated',
         label: 'План пересчитан',
-        description: 'AI завершил пересчёт плана',
+        description: 'ИИ завершил пересчёт плана',
         channels: NOTIFICATION_CHANNELS,
       },
       {
@@ -108,7 +108,7 @@ const DEFAULT_CATALOG = [
       },
       {
         event_key: 'performance.vdot_updated',
-        label: 'VDOT обновлён',
+        label: 'Индекс формы (VDOT) обновлён',
         description: 'После контрольной тренировки или забега',
         channels: NOTIFICATION_CHANNELS,
       },
@@ -121,7 +121,7 @@ const DEFAULT_CATALOG = [
     events: [
       {
         event_key: 'system.auth_verification_code',
-        label: 'Код подтверждения email',
+        label: 'Код подтверждения почты',
         description: 'Письмо при регистрации',
         channels: ['email'],
         locked: true,

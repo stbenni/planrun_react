@@ -3,7 +3,7 @@
  * Показывает дни месяца с тренировками, привязанными к конкретным датам
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import DayModal from './DayModal';
 import { RunningIcon, ZapIcon, FlameIcon, OtherIcon, SbuIcon, TargetIcon, BarChartIcon, FlagIcon, ClipboardListIcon, RestIcon, CompletedIcon, WalkingIcon, HikingIcon, CyclingIcon, SwimmingIcon } from '../common/Icons';

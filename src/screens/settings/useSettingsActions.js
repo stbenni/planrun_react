@@ -185,7 +185,7 @@ export function useSettingsActions({
 
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов' });
       return;
     }
 
@@ -197,28 +197,7 @@ export function useSettingsActions({
         uploadFormData.append('csrf_token', nextCsrfToken);
       }
 
-      const token = await currentApi.getToken();
-      const uploadUrl = `${currentApi.baseUrl}/api_wrapper.php?action=upload_avatar`;
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: 'include',
-        body: uploadFormData,
-      });
-
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(
-          response.status === 405
-            ? 'Метод не разрешён. Проверьте настройки сервера.'
-            : (text.slice(0, 100) || 'Ошибка загрузки аватара')
-        );
-      }
+      const data = await currentApi.request('upload_avatar', uploadFormData, 'POST');
 
       if (!data.success || !data.data) {
         throw new Error(data.error || 'Ошибка загрузки аватара');
@@ -242,7 +221,7 @@ export function useSettingsActions({
   const handleRemoveAvatar = useCallback(async () => {
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов' });
       return;
     }
 
@@ -269,7 +248,7 @@ export function useSettingsActions({
   const handleUnlinkTelegram = useCallback(async () => {
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов' });
       return;
     }
 
@@ -296,7 +275,7 @@ export function useSettingsActions({
   const handleStartTelegramLogin = useCallback(async (options = {}) => {
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов' });
       return null;
     }
 
@@ -320,7 +299,7 @@ export function useSettingsActions({
   const handleGenerateTelegramLinkCode = useCallback(async () => {
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов' });
       return null;
     }
 

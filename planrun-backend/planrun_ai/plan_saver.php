@@ -13,8 +13,30 @@
 require_once __DIR__ . '/../db_config.php';
 require_once __DIR__ . '/../cache_config.php';
 require_once __DIR__ . '/plan_normalizer.php';
+require_once __DIR__ . '/../services/UserProfileService.php';
 
 const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek', 'control'];
+
+/**
+ * Получить target_hr_min/max для типа тренировки.
+ * Возвращает [min, max] или [null, null].
+ */
+function resolveTargetHrForDay(mysqli $db, int $userId, string $type): array {
+    static $cache = [];
+    $key = "{$userId}:{$type}";
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+    try {
+        $svc = new UserProfileService($db);
+        $hr = $svc->getTargetHrForWorkoutType($userId, $type);
+        $cache[$key] = $hr ? [(int) $hr['min'], (int) $hr['max']] : [null, null];
+    } catch (Throwable $e) {
+        error_log("resolveTargetHrForDay error: " . $e->getMessage());
+        $cache[$key] = [null, null];
+    }
+    return $cache[$key];
+}
 
 /**
  * Сохранение плана тренировок в БД.
@@ -75,15 +97,17 @@ function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPrefe
                     $type = 'rest';
                 }
 
+                [$hrMin, $hrMax] = resolveTargetHrForDay($db, $userId, $type);
+
                 $stmt = $db->prepare(
-                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date, target_hr_min, target_hr_max)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 );
                 $dow  = $day['day_of_week'];
                 $desc = $day['description'];
                 $isKey = $day['is_key_workout'] ? 1 : 0;
                 $date = $day['date'];
-                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
+                $stmt->bind_param('iiissisii', $userId, $weekId, $dow, $type, $desc, $isKey, $date, $hrMin, $hrMax);
                 $stmt->execute();
 
                 if ($stmt->error) {
@@ -262,15 +286,17 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
                     $type = 'rest';
                 }
 
+                [$hrMin, $hrMax] = resolveTargetHrForDay($db, $userId, $type);
+
                 $stmt = $db->prepare(
-                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date, target_hr_min, target_hr_max)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 );
                 $dow  = $day['day_of_week'];
                 $desc = $day['description'];
                 $isKey = $day['is_key_workout'] ? 1 : 0;
                 $date = $day['date'];
-                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
+                $stmt->bind_param('iiissisii', $userId, $weekId, $dow, $type, $desc, $isKey, $date, $hrMin, $hrMax);
                 $stmt->execute();
 
                 if ($stmt->error) {

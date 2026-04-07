@@ -3,7 +3,7 @@
  * при навигации меняется только контент (Outlet).
  */
 
-import React, { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import TopHeader from './common/TopHeader';
 import BottomNav from './common/BottomNav';
@@ -23,9 +23,13 @@ const AppLayout = ({ onLogout }) => {
   const needsOnboarding = !!(user && !user.onboarding_completed);
   const showBottomNav = true;
   const isChatPage = location.pathname.startsWith('/chat');
-  const { isKeyboardOpen, viewportHeight } = useMobileKeyboardState({ enabled: isChatPage });
-  const shouldShowTopHeader = !(isChatPage && isKeyboardOpen);
-  const shouldShowBottomNav = showBottomNav && !(isChatPage && isKeyboardOpen);
+  const {
+    isKeyboardOpen,
+    viewportHeight,
+    keyboardInset,
+    bottomSafeAreaInset,
+  } = useMobileKeyboardState({ enabled: isChatPage });
+  const keyboardSettlingInitializedRef = useRef(false);
 
   // Автоматическое обновление данных (Strava webhook, Telegram и т.д.)
   // Браузер: polling каждые 30 сек. Мобилка: проверка при resume + push.
@@ -44,13 +48,29 @@ const AppLayout = ({ onLogout }) => {
   useEffect(() => {
     if (!isChatPage) {
       document.body.classList.remove('chat-keyboard-open');
+      document.body.classList.remove('chat-keyboard-settling');
+      keyboardSettlingInitializedRef.current = false;
       return undefined;
     }
 
     document.body.classList.toggle('chat-keyboard-open', isKeyboardOpen);
+    if (!keyboardSettlingInitializedRef.current) {
+      keyboardSettlingInitializedRef.current = true;
+      return () => {
+        document.body.classList.remove('chat-keyboard-open');
+        document.body.classList.remove('chat-keyboard-settling');
+      };
+    }
+
+    document.body.classList.add('chat-keyboard-settling');
+    const settlingTimeoutId = window.setTimeout(() => {
+      document.body.classList.remove('chat-keyboard-settling');
+    }, 320);
 
     return () => {
+      window.clearTimeout(settlingTimeoutId);
       document.body.classList.remove('chat-keyboard-open');
+      document.body.classList.remove('chat-keyboard-settling');
     };
   }, [isChatPage, isKeyboardOpen]);
 
@@ -61,8 +81,8 @@ const AppLayout = ({ onLogout }) => {
 
     if (!isChatPage) {
       root.style.removeProperty('--chat-runtime-viewport-height');
-      root.style.removeProperty('--chat-runtime-top-offset');
-      root.style.removeProperty('--chat-runtime-bottom-clearance');
+      root.style.removeProperty('--chat-runtime-keyboard-inset');
+      root.style.removeProperty('--chat-runtime-bottom-safe-area-inset');
       return undefined;
     }
 
@@ -72,24 +92,23 @@ const AppLayout = ({ onLogout }) => {
       root.style.removeProperty('--chat-runtime-viewport-height');
     }
 
-    if (isKeyboardOpen) {
-      root.style.setProperty('--chat-runtime-top-offset', 'env(safe-area-inset-top, 0px)');
-      root.style.setProperty('--chat-runtime-bottom-clearance', '0px');
+    root.style.setProperty('--chat-runtime-keyboard-inset', `${Math.max(0, keyboardInset || 0)}px`);
+    if (bottomSafeAreaInset === null || bottomSafeAreaInset === undefined) {
+      root.style.removeProperty('--chat-runtime-bottom-safe-area-inset');
     } else {
-      root.style.removeProperty('--chat-runtime-top-offset');
-      root.style.removeProperty('--chat-runtime-bottom-clearance');
+      root.style.setProperty('--chat-runtime-bottom-safe-area-inset', `${Math.max(0, bottomSafeAreaInset)}px`);
     }
 
     return () => {
       root.style.removeProperty('--chat-runtime-viewport-height');
-      root.style.removeProperty('--chat-runtime-top-offset');
-      root.style.removeProperty('--chat-runtime-bottom-clearance');
+      root.style.removeProperty('--chat-runtime-keyboard-inset');
+      root.style.removeProperty('--chat-runtime-bottom-safe-area-inset');
     };
-  }, [isChatPage, isKeyboardOpen, viewportHeight]);
+  }, [bottomSafeAreaInset, isChatPage, keyboardInset, viewportHeight]);
 
   return (
     <>
-      {shouldShowTopHeader && <TopHeader />}
+      <TopHeader />
       <Notifications api={api} isAdmin={isAdmin} user={user} />
       <PlanGeneratingBanner />
       {needsOnboarding && (
@@ -103,7 +122,7 @@ const AppLayout = ({ onLogout }) => {
           <AppTabsContent onLogout={onLogout} />
         </div>
       </PageTransition>
-      {shouldShowBottomNav && <BottomNav />}
+      {showBottomNav && <BottomNav />}
     </>
   );
 };

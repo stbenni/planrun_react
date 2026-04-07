@@ -30,7 +30,373 @@ class UserProfileService extends BaseService {
         }
         unset($userData['password']);
 
+        // Добавляем автоопределённый max_hr и зоны ЧСС
+        $hrData = $this->getHrZonesData($userId, $userData);
+        $userData['hr_zones_data'] = $hrData;
+
         return $userData;
+    }
+
+    /**
+     * Расчёт пульсовых зон и автоопределение max_hr из тренировок.
+     */
+    public function getHrZonesData(int $userId, ?array $userData = null): array {
+        if ($userData === null) {
+            require_once __DIR__ . '/../user_functions.php';
+            $userData = getUserData($userId, null, false) ?: [];
+        }
+
+        $profileMaxHr = !empty($userData['max_hr']) ? (int) $userData['max_hr'] : null;
+        $restHr = !empty($userData['rest_hr']) ? (int) $userData['rest_hr'] : null;
+
+        // Автоопределение из тренировок (IQR-фильтр артефактов, затем макс из реальных)
+        $detectedMaxHr = null;
+        $detectedFrom = null;
+        $stmt = $this->db->prepare(
+            "SELECT max_heart_rate, DATE(start_time) as dt, ROUND(distance_km, 1) as km,
+                    avg_heart_rate
+             FROM workouts
+             WHERE user_id = ? AND max_heart_rate > 100 AND max_heart_rate < 230
+               AND LOWER(COALESCE(activity_type, '')) IN ('running', 'trail running', 'treadmill')
+             ORDER BY max_heart_rate DESC
+             LIMIT 30"
+        );
+        if ($stmt) {
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $allWorkouts = [];
+            while ($r = $res->fetch_assoc()) {
+                $allWorkouts[] = $r;
+            }
+            $stmt->close();
+
+            if (count($allWorkouts) >= 5) {
+                // Шаг 1: собрать все max_hr, отфильтровать артефакты датчика
+                // Артефакт: max_hr > avg_hr * 1.35 (нереальный скачок) или max_hr > 215
+                $cleaned = [];
+                foreach ($allWorkouts as $w) {
+                    $maxHr = (int) $w['max_heart_rate'];
+                    $avgHr = (int) ($w['avg_heart_rate'] ?? 0);
+                    // Если avg_hr известен и max > avg*1.20 — скорее всего артефакт датчика
+                    // (реальный max на тренировке обычно в пределах +15-20% от среднего)
+                    if ($avgHr > 100 && $maxHr > $avgHr * 1.20) {
+                        continue;
+                    }
+                    // Жёсткий потолок — значения > 210 почти всегда артефакт для взрослых
+                    if ($maxHr > 210) {
+                        continue;
+                    }
+                    $cleaned[] = $w;
+                }
+
+                // Шаг 2: из очищенных берём максимум (это реальный max_hr)
+                if (!empty($cleaned)) {
+                    $detectedMaxHr = (int) $cleaned[0]['max_heart_rate'];
+                    $detectedFrom = $cleaned[0]['dt'] ?? null;
+                }
+            }
+        }
+
+        // Формула 220 - возраст
+        $formulaMaxHr = null;
+        $age = null;
+        if (!empty($userData['birth_year'])) {
+            $age = (int) date('Y') - (int) $userData['birth_year'];
+            $formulaMaxHr = 220 - $age;
+        }
+
+        // Эффективный max_hr: тренировки > профиль > формула
+        // Автоопределение из тренировок — самое точное, ручной ввод — переопределение
+        if ($detectedMaxHr) {
+            $effectiveMaxHr = $profileMaxHr ?? $detectedMaxHr;
+            $source = $profileMaxHr ? 'override' : 'detected';
+        } elseif ($profileMaxHr) {
+            $effectiveMaxHr = $profileMaxHr;
+            $source = 'profile';
+        } elseif ($formulaMaxHr) {
+            $effectiveMaxHr = $formulaMaxHr;
+            $source = 'formula';
+        } else {
+            $effectiveMaxHr = 0;
+            $source = 'unknown';
+        }
+
+        // Автоопределение ЧСС покоя из тренировок (если не задан вручную)
+        $detectedRestHr = null;
+        if (!$restHr) {
+            $restStmt = $this->db->prepare(
+                "SELECT avg_heart_rate
+                 FROM workouts
+                 WHERE user_id = ? AND avg_heart_rate > 40 AND avg_heart_rate < 120
+                   AND LOWER(COALESCE(activity_type, '')) IN ('running', 'trail running', 'treadmill')
+                 ORDER BY avg_heart_rate ASC
+                 LIMIT 10"
+            );
+            if ($restStmt) {
+                $restStmt->bind_param('i', $userId);
+                $restStmt->execute();
+                $restRes = $restStmt->get_result();
+                $lowHrs = [];
+                while ($rr = $restRes->fetch_assoc()) {
+                    $lowHrs[] = (int) $rr['avg_heart_rate'];
+                }
+                $restStmt->close();
+                // Берём минимальный средний пульс из лёгких тренировок и вычитаем ~30% как оценку покоя
+                if (count($lowHrs) >= 3) {
+                    $detectedRestHr = (int) round($lowHrs[0] * 0.55); // ~55% от самого низкого среднего пульса на бегу
+                    if ($detectedRestHr < 40) $detectedRestHr = null;
+                }
+            }
+        }
+        $effectiveRestHr = $restHr ?? $detectedRestHr;
+        $useKarvonen = $effectiveRestHr !== null && $effectiveRestHr >= 35 && $effectiveRestHr < $effectiveMaxHr;
+        $zoneMethod = $useKarvonen ? 'karvonen' : 'percent_max';
+
+        // Зоны ЧСС: Карвонен (с ЧСС покоя) или простой % от max_hr
+        $zones = [];
+        if ($effectiveMaxHr > 0) {
+            $zoneDefinitions = [
+                ['name' => 'Восстановительная', 'min_pct' => 0.50, 'max_pct' => 0.60],
+                ['name' => 'Аэробная',          'min_pct' => 0.60, 'max_pct' => 0.70],
+                ['name' => 'Темповая',           'min_pct' => 0.70, 'max_pct' => 0.80],
+                ['name' => 'Пороговая',          'min_pct' => 0.80, 'max_pct' => 0.90],
+                ['name' => 'Максимальная',       'min_pct' => 0.90, 'max_pct' => 1.00],
+            ];
+            foreach ($zoneDefinitions as $i => $zd) {
+                if ($useKarvonen) {
+                    // Формула Карвонена: RestHR + (MaxHR - RestHR) × Intensity%
+                    $hrr = $effectiveMaxHr - $effectiveRestHr;
+                    $minHr = (int) round($effectiveRestHr + $hrr * $zd['min_pct']);
+                    $maxHr = (int) round($effectiveRestHr + $hrr * $zd['max_pct']);
+                } else {
+                    $minHr = (int) round($effectiveMaxHr * $zd['min_pct']);
+                    $maxHr = (int) round($effectiveMaxHr * $zd['max_pct']);
+                }
+                $zones[] = [
+                    'zone' => $i + 1,
+                    'name' => $zd['name'],
+                    'min_hr' => $minHr,
+                    'max_hr' => $maxHr,
+                ];
+            }
+        }
+
+        // Реальные пульсовые диапазоны по интенсивности (из тренировок)
+        $realHrByIntensity = $this->detectRealHrRanges($userId);
+
+        return [
+            'max_hr' => $profileMaxHr,
+            'rest_hr' => $restHr,
+            'effective_rest_hr' => $effectiveRestHr,
+            'detected_max_hr' => $detectedMaxHr,
+            'detected_from_date' => $detectedFrom,
+            'formula_max_hr' => $formulaMaxHr,
+            'effective_max_hr' => $effectiveMaxHr,
+            'source' => $source,
+            'zone_method' => $zoneMethod,
+            'age' => $age,
+            'zones' => $zones,
+            'real_hr_ranges' => $realHrByIntensity,
+        ];
+    }
+
+    /**
+     * Определить реальные пульсовые диапазоны по интенсивности из тренировок.
+     * Скользящее окно: последние 6 недель (актуальная форма).
+     * Тренд: сравнение последних 3 недель vs предыдущих 3 недель.
+     */
+    private function detectRealHrRanges(int $userId): array
+    {
+        $ranges = [];
+        try {
+            $sixWeeksAgo = date('Y-m-d', strtotime('-42 days'));
+            $threeWeeksAgo = date('Y-m-d', strtotime('-21 days'));
+
+            $stmt = $this->db->prepare("
+                SELECT avg_heart_rate, avg_pace, distance_km, DATE(start_time) as dt
+                FROM workouts
+                WHERE user_id = ? AND avg_heart_rate > 80 AND avg_heart_rate < 220
+                  AND distance_km >= 3 AND avg_pace IS NOT NULL AND avg_pace != ''
+                  AND LOWER(COALESCE(activity_type, '')) IN ('running', 'trail running', 'treadmill')
+                  AND start_time >= ?
+                ORDER BY start_time DESC
+            ");
+            if (!$stmt) return [];
+
+            $stmt->bind_param('is', $userId, $sixWeeksAgo);
+            $stmt->execute();
+            $res = $stmt->get_result();
+
+            // Разделяем по интенсивности И по периоду (recent vs prev)
+            $buckets = [
+                'easy'     => ['recent' => [], 'prev' => []],
+                'moderate' => ['recent' => [], 'prev' => []],
+                'intense'  => ['recent' => [], 'prev' => []],
+            ];
+
+            while ($r = $res->fetch_assoc()) {
+                $paceSec = $this->paceToSeconds($r['avg_pace']);
+                if ($paceSec === null) continue;
+                $hr = (int) $r['avg_heart_rate'];
+                $period = ($r['dt'] >= $threeWeeksAgo) ? 'recent' : 'prev';
+
+                if ($paceSec >= 330) {
+                    $buckets['easy'][$period][] = $hr;
+                } elseif ($paceSec >= 300) {
+                    $buckets['moderate'][$period][] = $hr;
+                } else {
+                    $buckets['intense'][$period][] = $hr;
+                }
+            }
+            $stmt->close();
+
+            foreach ($buckets as $type => $periods) {
+                $all = array_merge($periods['recent'], $periods['prev']);
+                if (count($all) < 3) continue;
+
+                sort($all);
+                $entry = [
+                    'avg' => (int) round(array_sum($all) / count($all)),
+                    'min' => $all[0],
+                    'max' => end($all),
+                    'p25' => $all[(int) floor(count($all) * 0.25)],
+                    'p75' => $all[(int) floor(count($all) * 0.75)],
+                    'count' => count($all),
+                ];
+
+                // Тренд: сравниваем средний ЧСС за последние 3 недели vs предыдущие 3 недели
+                if (count($periods['recent']) >= 2 && count($periods['prev']) >= 2) {
+                    $recentAvg = array_sum($periods['recent']) / count($periods['recent']);
+                    $prevAvg = array_sum($periods['prev']) / count($periods['prev']);
+                    $diff = round($recentAvg - $prevAvg);
+                    if (abs($diff) >= 3) {
+                        // Отрицательный diff = пульс снизился = улучшение
+                        $entry['trend'] = $diff < 0 ? 'improving' : 'worsening';
+                        $entry['trend_diff'] = $diff;
+                        $entry['recent_avg'] = (int) round($recentAvg);
+                        $entry['prev_avg'] = (int) round($prevAvg);
+                    } else {
+                        $entry['trend'] = 'stable';
+                    }
+                }
+
+                $ranges[$type] = $entry;
+            }
+        } catch (Throwable $e) {
+            // не критично
+        }
+        return $ranges;
+    }
+
+    /**
+     * Конвертировать строку темпа "M:SS" в секунды.
+     */
+    private function paceToSeconds(?string $pace): ?int
+    {
+        if (!$pace || !preg_match('/^(\d+):(\d{2})$/', trim($pace), $m)) {
+            return null;
+        }
+        return (int) $m[1] * 60 + (int) $m[2];
+    }
+
+    /**
+     * Целевой пульс для типа тренировки.
+     * Приоритет: реальные данные (p25-p75) > зоны Карвонена.
+     *
+     * @return array{min: int, max: int}|null
+     */
+    public function getTargetHrForWorkoutType(int $userId, string $workoutType): ?array
+    {
+        $hrData = $this->getHrZonesData($userId);
+        $real = $hrData['real_hr_ranges'] ?? [];
+        $zones = $hrData['zones'] ?? [];
+
+        // Маппинг тип тренировки → bucket реальных данных / зоны
+        return match ($workoutType) {
+            'easy', 'long' => $this->resolveHr($real['easy'] ?? null, $zones, [1, 2]),
+            'tempo'        => $this->resolveHr($real['moderate'] ?? null, $zones, [2, 3]),
+            'interval', 'fartlek', 'control' => $this->resolveHr($real['intense'] ?? null, $zones, [3, 4]),
+            'race'         => $this->resolveHr(null, $zones, [3, 5]),
+            default        => null, // rest, other, sbu, free, marathon
+        };
+    }
+
+    /**
+     * Разрешить HR: реальные данные (p25-p75) > зоны.
+     * @param array|null $realBucket  Реальные данные из detectRealHrRanges
+     * @param array      $zones      5-зонная модель
+     * @param int[]      $zoneRange  [fromZone, toZone] (1-based)
+     */
+    private function resolveHr(?array $realBucket, array $zones, array $zoneRange): ?array
+    {
+        // Приоритет 1: реальные данные
+        if ($realBucket && !empty($realBucket['p25']) && !empty($realBucket['p75'])) {
+            return ['min' => (int) $realBucket['p25'], 'max' => (int) $realBucket['p75']];
+        }
+        // Приоритет 2: зоны
+        if (empty($zones)) return null;
+        $fromZone = $zoneRange[0];
+        $toZone = $zoneRange[1];
+        $minHr = null;
+        $maxHr = null;
+        foreach ($zones as $z) {
+            $num = $z['zone'] ?? 0;
+            if ($num >= $fromZone && $num <= $toZone) {
+                if ($minHr === null || $z['min_hr'] < $minHr) $minHr = $z['min_hr'];
+                if ($maxHr === null || $z['max_hr'] > $maxHr) $maxHr = $z['max_hr'];
+            }
+        }
+        return ($minHr && $maxHr) ? ['min' => $minHr, 'max' => $maxHr] : null;
+    }
+
+    /**
+     * Пересчитать target_hr для будущих дней плана.
+     * Вызывается после импорта тренировок (Strava и т.д.).
+     * @return int Количество обновлённых строк.
+     */
+    public function recalculateHrTargetsForFutureDays(int $userId): int
+    {
+        $hrData = $this->getHrZonesData($userId);
+        $real = $hrData['real_hr_ranges'] ?? [];
+        $zones = $hrData['zones'] ?? [];
+
+        $today = date('Y-m-d');
+        $stmt = $this->db->prepare(
+            "SELECT id, type FROM training_plan_days WHERE user_id = ? AND date >= ?"
+        );
+        if (!$stmt) return 0;
+        $stmt->bind_param('is', $userId, $today);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+
+        if (empty($rows)) return 0;
+
+        $update = $this->db->prepare(
+            "UPDATE training_plan_days SET target_hr_min = ?, target_hr_max = ? WHERE id = ?"
+        );
+        if (!$update) return 0;
+
+        $updated = 0;
+        foreach ($rows as $row) {
+            $hr = $this->getTargetHrForWorkoutType($userId, $row['type']);
+            $hrMin = $hr ? $hr['min'] : null;
+            $hrMax = $hr ? $hr['max'] : null;
+            $id = (int) $row['id'];
+            $update->bind_param('iii', $hrMin, $hrMax, $id);
+            $update->execute();
+            if ($update->affected_rows > 0) $updated++;
+        }
+        $update->close();
+
+        // Сбросить кэш плана
+        if ($updated > 0) {
+            require_once __DIR__ . '/../user_functions.php';
+            clearUserCache($userId);
+        }
+
+        return $updated;
     }
 
     /**
@@ -98,6 +464,32 @@ class UserProfileService extends BaseService {
             }
             $updateFields[] = 'birth_year = ?';
             $updateValues[] = $birthYear;
+            $types .= 'i';
+        }
+
+        if (array_key_exists('max_hr', $data)) {
+            $maxHr = $normalizeNull($data['max_hr']);
+            if ($maxHr !== null) {
+                $maxHr = (int)$maxHr;
+                if ($maxHr < 120 || $maxHr > 230) {
+                    $this->throwValidationException('Макс ЧСС должен быть от 120 до 230');
+                }
+            }
+            $updateFields[] = 'max_hr = ?';
+            $updateValues[] = $maxHr;
+            $types .= 'i';
+        }
+
+        if (array_key_exists('rest_hr', $data)) {
+            $restHr = $normalizeNull($data['rest_hr']);
+            if ($restHr !== null) {
+                $restHr = (int)$restHr;
+                if ($restHr < 30 || $restHr > 120) {
+                    $this->throwValidationException('ЧСС покоя должен быть от 30 до 120');
+                }
+            }
+            $updateFields[] = 'rest_hr = ?';
+            $updateValues[] = $restHr;
             $types .= 'i';
         }
 
@@ -225,6 +617,15 @@ class UserProfileService extends BaseService {
         $this->addNullableStringField($data, 'health_notes', $updateFields, $updateValues, $types, $normalizeNull);
         $this->addNullableStringField($data, 'device_type', $updateFields, $updateValues, $types, $normalizeNull);
 
+        if (isset($data['coach_style'])) {
+            $style = $data['coach_style'];
+            if (in_array($style, ['motivational', 'analytical', 'minimal'], true)) {
+                $updateFields[] = 'coach_style = ?';
+                $updateValues[] = $style;
+                $types .= 's';
+            }
+        }
+
         if (isset($data['weight_goal_kg'])) {
             $val = $normalizeNull($data['weight_goal_kg']);
             $updateFields[] = 'weight_goal_kg = ?';
@@ -308,6 +709,46 @@ class UserProfileService extends BaseService {
 
         $this->addNullableStringField($data, 'last_race_time', $updateFields, $updateValues, $types, $normalizeNull);
         $this->addNullableStringField($data, 'last_race_date', $updateFields, $updateValues, $types, $normalizeNull);
+
+        if (isset($data['planning_benchmark_distance'])) {
+            $val = $normalizeNull($data['planning_benchmark_distance']);
+            if ($val !== null && !in_array($val, ['5k', '10k', 'half', 'marathon', 'other'], true)) {
+                $val = null;
+            }
+            $updateFields[] = 'planning_benchmark_distance = ?';
+            $updateValues[] = $val;
+            $types .= 's';
+        }
+
+        if (isset($data['planning_benchmark_distance_km'])) {
+            $val = $normalizeNull($data['planning_benchmark_distance_km']);
+            $updateFields[] = 'planning_benchmark_distance_km = ?';
+            $updateValues[] = $val !== null ? (float)$val : null;
+            $types .= 'd';
+        }
+
+        $this->addNullableStringField($data, 'planning_benchmark_time', $updateFields, $updateValues, $types, $normalizeNull);
+        $this->addNullableStringField($data, 'planning_benchmark_date', $updateFields, $updateValues, $types, $normalizeNull);
+
+        if (isset($data['planning_benchmark_type'])) {
+            $val = $normalizeNull($data['planning_benchmark_type']);
+            if ($val !== null && !in_array($val, ['race', 'control', 'hard_workout', 'easy_workout'], true)) {
+                $val = null;
+            }
+            $updateFields[] = 'planning_benchmark_type = ?';
+            $updateValues[] = $val;
+            $types .= 's';
+        }
+
+        if (isset($data['planning_benchmark_effort'])) {
+            $val = $normalizeNull($data['planning_benchmark_effort']);
+            if ($val !== null && !in_array($val, ['max', 'hard', 'steady', 'easy'], true)) {
+                $val = null;
+            }
+            $updateFields[] = 'planning_benchmark_effort = ?';
+            $updateValues[] = $val;
+            $types .= 's';
+        }
 
         // --- Аватар ---
         if (isset($data['avatar_path'])) {
@@ -409,6 +850,17 @@ class UserProfileService extends BaseService {
 
         require_once __DIR__ . '/../user_functions.php';
         clearUserCache($userId);
+
+        // Пересчёт целевого HR для будущих дней при смене пульсовых параметров
+        if (array_key_exists('max_hr', $data) || array_key_exists('rest_hr', $data)) {
+            try {
+                require_once __DIR__ . '/../cache_config.php';
+                Cache::delete("training_plan_{$userId}");
+                $this->recalculateHrTargetsForFutureDays($userId);
+            } catch (Throwable $e) {
+                error_log("updateProfile HR recalc error user={$userId}: " . $e->getMessage());
+            }
+        }
 
         return $this->getProfile($userId);
     }

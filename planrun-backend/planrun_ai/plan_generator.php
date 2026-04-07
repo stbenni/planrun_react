@@ -44,7 +44,10 @@ function generatePlanViaPlanRunAI($userId) {
             weight_goal_kg, weight_goal_date, health_program, health_plan_weeks,
             current_running_level, running_experience, easy_pace_sec,
             is_first_race_at_distance, last_race_distance, last_race_distance_km,
-            last_race_time, last_race_date, device_type
+            last_race_time, last_race_date,
+            planning_benchmark_distance, planning_benchmark_distance_km, planning_benchmark_time,
+            planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort,
+            device_type
         FROM users 
         WHERE id = ?
     ");
@@ -313,7 +316,10 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
             weight_goal_kg, weight_goal_date, health_program, health_plan_weeks,
             current_running_level, running_experience, easy_pace_sec,
             is_first_race_at_distance, last_race_distance, last_race_distance_km,
-            last_race_time, last_race_date, device_type
+            last_race_time, last_race_date,
+            planning_benchmark_distance, planning_benchmark_distance_km, planning_benchmark_time,
+            planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort,
+            device_type
         FROM users WHERE id = ?
     ");
     $stmt->bind_param('i', $userId);
@@ -620,7 +626,10 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
             weight_goal_kg, weight_goal_date, health_program, health_plan_weeks,
             current_running_level, running_experience, easy_pace_sec,
             is_first_race_at_distance, last_race_distance, last_race_distance_km,
-            last_race_time, last_race_date, device_type
+            last_race_time, last_race_date,
+            planning_benchmark_distance, planning_benchmark_distance_km, planning_benchmark_time,
+            planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort,
+            device_type
         FROM users WHERE id = ?
     ");
     $stmt->bind_param('i', $userId);
@@ -933,21 +942,4 @@ function detectCurrentPhase(array $userData, string $goalType, int $keptWeeks): 
         'peak_volume_km' => $mc['peak_volume_km'],
         'start_volume_km' => $mc['start_volume_km'],
     ];
-}
-
-/**
- * Парсинг ответа от PlanRun AI API
- *
- * @param string $response JSON ответ от PlanRun AI API
- * @return array Распарсенный план
- */
-function parsePlanRunAIResponse($response) {
-    // PlanRun AI API уже возвращает валидный JSON, просто парсим
-    $plan = json_decode($response, true);
-    
-    if (!$plan) {
-        throw new Exception("Не удалось распарсить ответ от PlanRun AI API");
-    }
-    
-    return $plan;
 }

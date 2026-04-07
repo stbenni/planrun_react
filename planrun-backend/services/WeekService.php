@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/BaseService.php';
+require_once __DIR__ . '/UserProfileService.php';
 require_once __DIR__ . '/../repositories/WeekRepository.php';
 require_once __DIR__ . '/../repositories/ExerciseRepository.php';
 require_once __DIR__ . '/../validators/WeekValidator.php';
@@ -20,6 +21,27 @@ class WeekService extends BaseService {
         $this->repository = new WeekRepository($db);
         $this->exerciseRepo = new ExerciseRepository($db);
         $this->validator = new WeekValidator();
+    }
+
+    /**
+     * Обогатить данные дня целевым пульсом на основе типа тренировки.
+     */
+    private function enrichWithTargetHr(array $data, int $userId): array {
+        if (!empty($data['target_hr_min']) && !empty($data['target_hr_max'])) {
+            return $data;
+        }
+        $type = $data['type'] ?? 'rest';
+        try {
+            $svc = new UserProfileService($this->db);
+            $hr = $svc->getTargetHrForWorkoutType($userId, $type);
+            if ($hr) {
+                $data['target_hr_min'] = (int) $hr['min'];
+                $data['target_hr_max'] = (int) $hr['max'];
+            }
+        } catch (Throwable $e) {
+            error_log("enrichWithTargetHr error: " . $e->getMessage());
+        }
+        return $data;
     }
     
     /**
@@ -115,6 +137,8 @@ class WeekService extends BaseService {
                 );
             }
             
+            // Обогащаем целевым пульсом
+            $data = $this->enrichWithTargetHr($data, $userId);
             // Используем репозиторий
             $result = $this->repository->addTrainingDay($data, $userId);
             
@@ -175,14 +199,18 @@ class WeekService extends BaseService {
 
             $weekId = (int) $week['id'];
 
-            $result = $this->repository->addTrainingDay([
+            $dayData = $this->enrichWithTargetHr([
                 'week_id' => $weekId,
                 'day_of_week' => $dayOfWeek,
                 'type' => $data['type'],
                 'description' => $data['description'] ?? null,
                 'date' => $date,
-                'is_key_workout' => isset($data['is_key_workout']) ? (int)(bool)$data['is_key_workout'] : 0
+                'is_key_workout' => isset($data['is_key_workout']) ? (int)(bool)$data['is_key_workout'] : 0,
+                'target_hr_min' => $data['target_hr_min'] ?? null,
+                'target_hr_max' => $data['target_hr_max'] ?? null
             ], $userId);
+
+            $result = $this->repository->addTrainingDay($dayData, $userId);
             $dayId = (int) $result['insert_id'];
 
             require_once __DIR__ . '/../cache_config.php';
@@ -217,6 +245,8 @@ class WeekService extends BaseService {
         if (!$this->validator->validateUpdateTrainingDay($payload)) {
             $this->throwValidationException('Ошибка валидации', $this->validator->getErrors());
         }
+
+        $data = $this->enrichWithTargetHr($data, $userId);
         $this->repository->updateTrainingDayById((int) $dayId, $userId, $data);
         require_once __DIR__ . '/../cache_config.php';
         Cache::delete("training_plan_{$userId}");

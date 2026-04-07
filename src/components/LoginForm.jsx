@@ -4,7 +4,7 @@
  * На native: recovery-данные обновляются только для явно включённых способов входа.
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import useAuthStore from '../stores/useAuthStore';
 import PinAuthService from '../services/PinAuthService';
 import CredentialBackupService from '../services/CredentialBackupService';
@@ -47,7 +47,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username || !password) {
-      setError('Введите логин или email и пароль');
+      setError('Введите логин или почту и пароль');
       return;
     }
     if (loginCooldown.isCoolingDown) return;
@@ -120,11 +120,11 @@ const LoginForm = ({ onSuccess, onLogin }) => {
         <p className="login-subtitle">Сброс пароля</p>
         {!forgotSent ? (
           <form onSubmit={handleForgotSubmit} className="login-form">
-            <p className="login-forgot-hint">Введите email или логин, указанные при регистрации. Отправим ссылку на email.</p>
+            <p className="login-forgot-hint">Введите почту или логин, указанные при регистрации. Отправим ссылку на почту.</p>
             <input
               type="text"
               className="login-input"
-              placeholder="Email или логин"
+              placeholder="Почта или логин"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -158,7 +158,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
     return (
       <div className="login-content login-content--inline login-content--login">
         <h1 className="login-title">PlanRun</h1>
-        <p className="login-subtitle">Введите PIN для сохранения восстановления входа</p>
+        <p className="login-subtitle">Введите ПИН-код для сохранения восстановления входа</p>
         <div className="login-form">
           <PinInput
             length={4}
@@ -181,7 +181,7 @@ const LoginForm = ({ onSuccess, onLogin }) => {
         <input
           type="text"
           className="login-input"
-          placeholder="Логин или email"
+          placeholder="Логин или почта"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoCapitalize="none"

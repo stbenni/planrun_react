@@ -2,8 +2,6 @@
  * Компонент карточки достижения
  */
 
-import React from 'react';
-
 const AchievementCard = ({ icon, Icon, title, description, achieved }) => {
   return (
     <div className={`achievement-card ${achieved ? 'achieved' : ''}`}>

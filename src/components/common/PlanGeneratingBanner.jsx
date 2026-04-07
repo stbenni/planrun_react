@@ -4,7 +4,7 @@
  * Логика генерации и поллинга — в usePlanStore (единый источник правды).
  */
 
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import usePlanStore from '../../stores/usePlanStore';
 import useAuthStore from '../../stores/useAuthStore';

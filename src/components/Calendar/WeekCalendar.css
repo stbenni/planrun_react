@@ -641,6 +641,28 @@
   background: var(--primary-400);
 }
 
+.week-day-key-dot--key {
+  background: var(--warning-500, #f59e0b);
+}
+[data-theme="dark"] .week-day-key-dot--key {
+  background: var(--warning-400, #fbbf24);
+}
+
+.week-day-ai-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.week-day-ai-dot--exceeded {
+  background: var(--success-500, #22c55e);
+}
+[data-theme="dark"] .week-day-ai-dot--exceeded {
+  background: var(--success-400, #4ade80);
+}
+
 .week-day-icon-square {
   width: 100%;
   aspect-ratio: 1;

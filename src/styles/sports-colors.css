@@ -75,6 +75,10 @@
   --bg-secondary: #F8FAFC;
   --bg-tertiary: #F1F5F9;
   --app-background-base: #F4F7FB;
+  --app-safe-area-top: var(--native-safe-area-top, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  --app-safe-area-right: var(--native-safe-area-right, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  --app-safe-area-bottom: var(--native-safe-area-bottom, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  --app-safe-area-left: var(--native-safe-area-left, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
   --app-background-image:
     radial-gradient(circle at 12% 18%, rgba(252, 76, 2, 0.10) 0%, rgba(252, 76, 2, 0) 28%),
     radial-gradient(circle at 84% 12%, rgba(255, 107, 61, 0.06) 0%, rgba(255, 107, 61, 0) 22%),
@@ -203,13 +207,13 @@
   --page-top-desktop: 88px;
 
   /* Высота TopHeader на мобилке (для ограничения попапов) */
-  --mobile-header-height: calc(64px + env(safe-area-inset-top, 0px));
+  --mobile-header-height: calc(64px + var(--app-safe-area-top));
   /* Высота нижней навигации (мобильные) — 100vh минус это значение для чата */
   --bottom-nav-height: 78px;
   /* Парящий навбар: отступ от краёв экрана (Liquid Glass) */
   --bottom-nav-floating-gap: 12px;
   /* Отступ контента снизу: ровно чтобы последний блок не уходил под парящий навбар (без лишнего зазора) */
-  --mobile-content-padding-bottom: calc(var(--bottom-nav-floating-gap) + var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  --mobile-content-padding-bottom: calc(var(--bottom-nav-floating-gap) + var(--bottom-nav-height) + var(--app-safe-area-bottom));
   /* Веб-shell на мобиле: реальный clearance под сайтoвый bottom-nav без лишнего запаса */
   --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px);
   /* Финальный зазор внутри самой страницы на мобиле: без повторного резерва места под навбар */
@@ -497,7 +501,7 @@
 html.native-app {
   --bottom-nav-height: 78px;
   --bottom-nav-floating-gap: 8px;
-  --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px + env(safe-area-inset-bottom, 0px));
+  --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px + var(--app-safe-area-bottom));
 }
 
 /* ========================================

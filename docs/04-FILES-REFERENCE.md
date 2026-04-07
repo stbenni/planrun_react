@@ -329,7 +329,6 @@
 |------|------:|---------:|------------|
 | `planrun-backend/planrun_ai/create_empty_plan.php` | 89 | 1 | Создание пустого календаря `free`-дней для режима самостоятельных тренировок с пересборкой недель от ближайшего понедельника. |
 | `planrun-backend/planrun_ai/description_parser.php` | 117 | 1 | Парсер текстовых описаний ОФП/СБУ обратно в структурированные exercises для сохранения в БД. |
-| `planrun-backend/planrun_ai/generate_plan_async.php` | 179 | 0 | CLI entrypoint старого standalone worker-path: generate/recalculate/next-plan, сохранение плана и добавление review в чат. |
 | `planrun-backend/planrun_ai/plan_generator.php` | 954 | 9 | Legacy orchestration генерации, пересчёта и next-plan сценариев: prompt, вызов AI, JSON repair и сбор контекста из БД. |
 | `planrun-backend/planrun_ai/plan_normalizer.php` | 630 | 12 | Нормализует сырой LLM JSON, пересчитывает даты, строит `description`, derived distances и enforce'ит preferred-days расписание. |
 | `planrun-backend/planrun_ai/plan_review_generator.php` | 117 | 2 | Строит краткую рецензию уже сохранённого плана через chat LLM и готовит её для отправки в пользовательский чат. |
@@ -367,11 +366,6 @@
 | Файл | Строк | Символов | Назначение |
 |------|------:|---------:|------------|
 | `planrun-backend/scripts/backfill_avatar_variants.php` | 54 | 0 | Генерирует недостающие уменьшенные варианты пользовательских аватаров. |
-| `planrun-backend/scripts/check_chat_debug.php` | 40 | 0 | Локальная отладка chat/AI сценариев и связанных SQL/API-проверок. |
-| `planrun-backend/scripts/check_login.php` | 62 | 0 | Ручная диагностика login flow и auth-конфигурации. |
-| `planrun-backend/scripts/check_password_reset.php` | 46 | 0 | Ручная проверка сценария сброса пароля и письма восстановления. |
-| `planrun-backend/scripts/check_push.php` | 92 | 0 | Диагностика push-канала и токенов доставки. |
-| `planrun-backend/scripts/check_strava.php` | 117 | 0 | Точечная диагностика привязки Strava, токенов и импорта активностей. |
 | `planrun-backend/scripts/cleanup_expired_refresh_tokens.php` | 32 | 0 | Периодическая очистка просроченных refresh tokens. |
 | `planrun-backend/scripts/eval_plan_generation.php` | 445 | 10 | Batch-eval AI генерации плана на реальных пользователях и synthetic fixtures с сохранением артефактов. |
 | `planrun-backend/scripts/generate_web_push_vapid_keys.php` | 12 | 0 | Генерация VAPID ключей для browser web push. |
@@ -405,9 +399,8 @@
 | `planrun-backend/scripts/process_notification_delivery_queue.php` | 84 | 0 | Доставка уведомлений, которые были отложены из-за quiet hours. |
 | `planrun-backend/scripts/process_notification_email_digest.php` | 101 | 0 | Сбор и отправка ежедневных email-дайджестов по queued notification items. |
 | `planrun-backend/scripts/push_workout_reminders.php` | 171 | 1 | Cron напоминаний о сегодняшней/завтрашней тренировке с извлечением summary из `weeks_data`. |
-| `planrun-backend/scripts/seed_coaches_avatars.php` | 155 | 0 | Наполняет профили тренеров тестовыми/стартовыми аватарами. |
-| `planrun-backend/scripts/seed_coaches.php` | 223 | 0 | Инициализирует стартовые coach-related записи и демонстрационные данные. |
 | `planrun-backend/scripts/send_test_push.php` | 68 | 0 | Отправка тестового push-уведомления по выбранному токену/пользователю. |
+| `planrun-backend/scripts/backfill_hr_targets.php` | 35 | 0 | Backfill `target_hr_min`/`target_hr_max` для будущих дней планов всех пользователей. |
 | `planrun-backend/scripts/strava_backfill_athlete_ids.php` | 60 | 0 | Backfill `external_athlete_id` для существующих Strava integration tokens. |
 | `planrun-backend/scripts/strava_daily_health_check.php` | 100 | 0 | Регулярная проверка Strava-интеграции: refresh токенов, athlete id и webhook subscription. |
 | `planrun-backend/scripts/strava_register_webhook.php` | 46 | 0 | Ручная регистрация или перепривязка Strava webhook subscription. |

@@ -181,11 +181,11 @@
 /* Мобильная: ниже статус-бара и шапки (header + safe-area), выше нижней нав-панели */
 @media (max-width: 640px) {
   .notifications-container {
-    top: calc(64px + env(safe-area-inset-top, 0px) + 12px);
-    right: max(16px, env(safe-area-inset-right, 0px));
-    left: max(16px, env(safe-area-inset-left, 0px));
+    top: calc(64px + var(--app-safe-area-top) + 12px);
+    right: max(16px, var(--app-safe-area-right));
+    left: max(16px, var(--app-safe-area-left));
     max-width: none;
-    max-height: calc(100vh - 64px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 88px - 24px);
+    max-height: calc(100vh - 64px - var(--app-safe-area-top) - var(--app-safe-area-bottom) - 88px - 24px);
     overflow-y: auto;
   }
 

@@ -63,7 +63,8 @@ const useAuthStore = create(
                   return;
                 }
               }
-            } catch (_) {
+            } catch (error) {
+              void error;
             } finally {
               set({ _credentialRecoveryInProgress: false });
             }
@@ -105,7 +106,9 @@ const useAuthStore = create(
                 localStorage.setItem('auth_token', stored.accessToken);
                 localStorage.setItem('refresh_token', stored.refreshToken);
               }
-            } catch (_) {}
+            } catch (error) {
+              void error;
+            }
 
             if ((pinEnabled || biometricEnabled) && !passwordReauthBypass) {
               set({ isLocked: true, _lockEnabled: true, loading: false });
@@ -173,7 +176,7 @@ const useAuthStore = create(
         const onBackground = () => set({ lastActiveAt: Date.now() });
         const onForeground = () => {
           checkAndLockSync();
-          const { isAuthenticated, isLocked, api, _lockEnabled } = get();
+          const { isAuthenticated, api, _lockEnabled } = get();
           if (!api) return;
           // Проактивный refresh токенов — и когда разблокировано, и когда заблокировано.
           // При locked: обновляем токены в storage до разблокировки, чтобы биометрия/PIN
@@ -498,7 +501,7 @@ const useAuthStore = create(
     {
       name: 'auth-storage',
       // Намеренно не персистим user/api: авторизация через сессию (cookies) или JWT при инициализации.
-      partialize: (state) => ({})
+      partialize: () => ({})
     }
   )
 );

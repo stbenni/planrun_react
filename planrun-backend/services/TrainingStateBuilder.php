@@ -18,7 +18,9 @@ class TrainingStateBuilder {
                 id, goal_type, race_distance, race_date, race_target_time,
                 target_marathon_date, target_marathon_time, training_start_date,
                 experience_level, weekly_base_km, easy_pace_sec,
-                last_race_distance, last_race_distance_km, last_race_time, last_race_date
+                last_race_distance, last_race_distance_km, last_race_time, last_race_date,
+                planning_benchmark_distance, planning_benchmark_distance_km, planning_benchmark_time,
+                planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort
             FROM users
             WHERE id = ?
             LIMIT 1
@@ -68,13 +70,31 @@ class TrainingStateBuilder {
 
         $planningBenchmarkDistKm = $this->parseDistanceKm($user['planning_benchmark_distance'] ?? null, $user['planning_benchmark_distance_km'] ?? null);
         $planningBenchmarkTimeSec = $this->parseTimeSec($user['planning_benchmark_time'] ?? null);
+        $planningBenchmarkDate = $user['planning_benchmark_date'] ?? null;
+        $planningBenchmarkWeeksOld = null;
+        if ($planningBenchmarkDate) {
+            $planningBenchmarkTs = strtotime($planningBenchmarkDate);
+            if ($planningBenchmarkTs !== false) {
+                $planningBenchmarkWeeksOld = (time() - $planningBenchmarkTs) / (7 * 86400);
+            }
+        }
+        $planningBenchmarkType = (string) ($user['planning_benchmark_type'] ?? '');
+        $planningBenchmarkEffort = (string) ($user['planning_benchmark_effort'] ?? '');
+        $planningBenchmarkLooksLikePerformance = $planningBenchmarkType === ''
+            || in_array($planningBenchmarkType, ['race', 'control'], true)
+            || ($planningBenchmarkType === 'hard_workout' && in_array($planningBenchmarkEffort, ['', 'max', 'hard'], true));
+        if (in_array($planningBenchmarkEffort, ['steady', 'easy'], true)) {
+            $planningBenchmarkLooksLikePerformance = false;
+        }
         if ($planningBenchmarkDistKm > 0 && $planningBenchmarkTimeSec > 0) {
-            $vdot = estimateVDOT($planningBenchmarkDistKm, $planningBenchmarkTimeSec);
-            $vdotSource = 'benchmark_override';
-            $vdotSourceDetail = 'явный ориентир текущей формы из причины пересчёта';
-            $vdotWeeksOld = 0.0;
-            $sourceDistanceKm = $planningBenchmarkDistKm;
-            $sourceTimeSec = $planningBenchmarkTimeSec;
+            if ($planningBenchmarkLooksLikePerformance) {
+                $vdot = estimateVDOT($planningBenchmarkDistKm, $planningBenchmarkTimeSec);
+                $vdotSource = 'benchmark_override';
+                $vdotSourceDetail = 'явный ориентир текущей формы от пользователя';
+                $vdotWeeksOld = $planningBenchmarkWeeksOld;
+                $sourceDistanceKm = $planningBenchmarkDistKm;
+                $sourceTimeSec = $planningBenchmarkTimeSec;
+            }
         }
 
         $lastRaceDistKm = $this->parseDistanceKm($user['last_race_distance'] ?? null, $user['last_race_distance_km'] ?? null);
@@ -85,7 +105,9 @@ class TrainingStateBuilder {
             $lastRaceWeeksOld = (time() - strtotime($lastRaceDate)) / (7 * 86400);
         }
 
-        if (!$vdot && $lastRaceDistKm > 0 && $lastRaceTimeSec > 0 && $lastRaceWeeksOld !== null && $lastRaceWeeksOld <= 8) {
+        $hasLastRaceBenchmark = $lastRaceDistKm > 0 && $lastRaceTimeSec > 0;
+
+        if (!$vdot && $hasLastRaceBenchmark && $lastRaceWeeksOld !== null && $lastRaceWeeksOld <= 8) {
             $vdot = estimateVDOT($lastRaceDistKm, $lastRaceTimeSec);
             $vdotSource = 'last_race';
             $vdotSourceDetail = 'свежий результат забега/контрольной';
@@ -102,7 +124,7 @@ class TrainingStateBuilder {
                 $vdotSourceDetail = $best['vdot_source_detail'] ?? null;
                 $sourceDistanceKm = isset($best['distance_km']) ? (float) $best['distance_km'] : null;
                 $sourceTimeSec = isset($best['time_sec']) ? (int) $best['time_sec'] : null;
-            } elseif ($lastRaceDistKm > 0 && $lastRaceTimeSec > 0) {
+            } elseif ($hasLastRaceBenchmark) {
                 $vdot = estimateVDOT($lastRaceDistKm, $lastRaceTimeSec);
                 $vdotSource = 'last_race_stale';
                 $vdotSourceDetail = 'устаревший race/control fallback';
@@ -110,6 +132,17 @@ class TrainingStateBuilder {
                 $sourceDistanceKm = $lastRaceDistKm;
                 $sourceTimeSec = $lastRaceTimeSec;
             }
+        }
+
+        if (!$vdot && $hasLastRaceBenchmark) {
+            $vdot = estimateVDOT($lastRaceDistKm, $lastRaceTimeSec);
+            $vdotSource = $lastRaceWeeksOld === null ? 'last_race_undated' : 'last_race_stale';
+            $vdotSourceDetail = $lastRaceWeeksOld === null
+                ? 'результат последнего забега без даты'
+                : 'устаревший race/control fallback';
+            $vdotWeeksOld = $lastRaceWeeksOld;
+            $sourceDistanceKm = $lastRaceDistKm;
+            $sourceTimeSec = $lastRaceTimeSec;
         }
 
         if (!$vdot && !empty($user['easy_pace_sec'])) {
@@ -294,10 +327,15 @@ class TrainingStateBuilder {
             'benchmark_override' => 'high',
             'best_result' => 'medium',
             'last_race_stale' => 'medium',
+            'last_race_undated' => 'medium',
             'easy_pace' => 'low',
             'target_time' => 'low',
             default => 'low',
         };
+
+        if ($source === 'benchmark_override' && $weeksOld !== null && $weeksOld > 8 && $confidence === 'high') {
+            $confidence = 'medium';
+        }
 
         if ($weeksOld !== null && $weeksOld > 12 && $confidence === 'medium') {
             $confidence = 'low';
@@ -482,6 +520,7 @@ class TrainingStateBuilder {
             'last_race' => 'свежий забег/контрольная',
             'best_result' => 'лучшие свежие тренировки',
             'last_race_stale' => 'устаревший результат забега',
+            'last_race_undated' => 'последний забег без даты',
             'easy_pace' => 'оценка по лёгкому темпу',
             'target_time' => 'оценка по целевому времени',
             default => 'нет надёжного источника',

@@ -3,7 +3,7 @@
  * Адаптирован из оригинального календаря с полной функциональностью
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Day from './Day';
 import { TrashIcon } from '../common/Icons';
 import { formatDateShort } from '../../utils/calendarHelpers';

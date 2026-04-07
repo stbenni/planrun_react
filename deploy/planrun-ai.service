@@ -12,8 +12,8 @@ EnvironmentFile=-/var/www/ai/planrun_ai_service/.env
 # Чат и планогенерация идут через standalone llama-server.
 # Имена переменных оставлены историческими, чтобы не переписывать Python-код.
 Environment=LMSTUDIO_BASE_URL=http://127.0.0.1:8081/v1
-Environment=LMSTUDIO_CHAT_MODEL=mistralai/ministral-3-14b-reasoning
-Environment=LMSTUDIO_PLAN_MODEL=mistralai/ministral-3-14b-reasoning
+Environment=LMSTUDIO_CHAT_MODEL=qwen3-14b
+Environment=LMSTUDIO_PLAN_MODEL=qwen3-14b
 Environment=PLANRUN_STRUCTURED_OUTPUT=false
 
 # RAG: эмбеддинги остаются в LM Studio

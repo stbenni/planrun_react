@@ -3,7 +3,7 @@
  * Использует Zustand для управления состоянием
  */
 
-import React, { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
 import { isNativeCapacitor } from './services/TokenStorageService';
@@ -17,6 +17,7 @@ import AppErrorBoundary from './components/common/AppErrorBoundary';
 import { preloadAuthenticatedModules, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { startAppUpdatePolling } from './utils/appUpdate';
+import { applyTheme, getSystemTheme, getThemePreference } from './screens/settings/settingsUtils';
 import './App.css';
 
 // Lazy для страниц вне основных вкладок
@@ -24,6 +25,7 @@ const UserProfileScreen = lazyWithRetry(() => import('./screens/UserProfileScree
 const ForgotPasswordScreen = lazyWithRetry(() => import('./screens/ForgotPasswordScreen'), 'ForgotPasswordScreen');
 const ResetPasswordScreen = lazyWithRetry(() => import('./screens/ResetPasswordScreen'), 'ResetPasswordScreen');
 const PrivacyPolicyScreen = lazyWithRetry(() => import('./screens/PrivacyPolicyScreen'), 'PrivacyPolicyScreen');
+const AgreementScreen = lazyWithRetry(() => import('./screens/AgreementScreen'), 'AgreementScreen');
 
 function ScrollToTop() {
   const { pathname, search } = useLocation();
@@ -50,6 +52,78 @@ function App() {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    const syncTheme = () => {
+      const themePreference = getThemePreference();
+      applyTheme(themePreference === 'system' ? getSystemTheme() : themePreference);
+    };
+    const syncThemeIfSystem = () => {
+      if (getThemePreference() === 'system') {
+        syncTheme();
+      }
+    };
+
+    syncTheme();
+
+    let removeMediaListener = () => {};
+    let removeFocusListener = () => {};
+    let removeVisibilityListener = () => {};
+    let appStateListenerHandle = null;
+
+    if (typeof window?.matchMedia === 'function') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => {
+        syncThemeIfSystem();
+      };
+
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleChange);
+        removeMediaListener = () => mediaQuery.removeEventListener('change', handleChange);
+      } else {
+        mediaQuery.addListener(handleChange);
+        removeMediaListener = () => mediaQuery.removeListener(handleChange);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      const handleFocus = () => {
+        syncThemeIfSystem();
+      };
+      window.addEventListener('focus', handleFocus);
+      removeFocusListener = () => window.removeEventListener('focus', handleFocus);
+    }
+
+    if (typeof document !== 'undefined') {
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          syncThemeIfSystem();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      removeVisibilityListener = () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    if (isNativeCapacitor()) {
+      import('@capacitor/app')
+        .then(({ App: CapacitorApp }) => CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) {
+            syncThemeIfSystem();
+          }
+        }))
+        .then((listenerHandle) => {
+          appStateListenerHandle = listenerHandle;
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      removeMediaListener();
+      removeFocusListener();
+      removeVisibilityListener();
+      appStateListenerHandle?.remove?.();
+    };
+  }, []);
 
   useEffect(() => {
     return startAppUpdatePolling();
@@ -98,7 +172,9 @@ function App() {
             // Навигируем на Settings — существующий useEffect в SettingsScreen обработает
             window.location.href = `/settings?tab=integrations${connected ? '&connected=' + encodeURIComponent(connected) : ''}${error ? '&error=' + encodeURIComponent(error) : ''}`;
           }
-        } catch {}
+        } catch (error) {
+          void error;
+        }
       }).then(h => { listenerHandle = h; });
     }).catch(() => {});
     return () => { listenerHandle?.remove?.(); };
@@ -106,10 +182,6 @@ function App() {
 
   const maintenanceMode = siteSettings?.maintenance_mode === '1';
   const registrationEnabled = siteSettings?.registration_enabled !== '0';
-
-  const handleLogin = async (username, password, useJwt = false) => {
-    return await useAuthStore.getState().login(username, password, useJwt);
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -200,6 +272,10 @@ function App() {
         <Route
           path="/privacy"
           element={<PrivacyPolicyScreen />}
+        />
+        <Route
+          path="/agreement"
+          element={<AgreementScreen />}
         />
         <Route
           path="/dashboard"

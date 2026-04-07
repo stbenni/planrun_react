@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import useAuthStore from '../stores/useAuthStore';
@@ -219,7 +219,7 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
               </h1>
 
               <p className="landing-hero-subtitle">
-                Тренируйся с AI или выбери тренера.
+                Тренируйся с ИИ или выбери тренера.
                 <br />
                 <span className="landing-hero-subtitle-accent">От первых 5 км до марафона</span>
               </p>
@@ -231,7 +231,7 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
                 </span>
                 <span className="landing-feature-pill">
                   <span className="landing-feature-pill-dot" aria-hidden />
-                  AI или живой тренер
+                  ИИ или живой тренер
                 </span>
                 <span className="landing-feature-pill">
                   <span className="landing-feature-pill-dot" aria-hidden />
@@ -268,7 +268,7 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
           <div className="landing-hero-image-desktop-glow" />
           <img
             src="/hero-image.png"
-            alt="Тренер и AI-ассистент planRUN"
+            alt="Тренер и ИИ-ассистент planRUN"
             className="landing-hero-image-desktop-img landing-hero-image-shadow"
           />
         </motion.div>
@@ -281,7 +281,7 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
         >
           <img
             src="/hero-image.png"
-            alt="Тренер и AI-ассистент planRUN"
+            alt="Тренер и ИИ-ассистент planRUN"
             className="landing-hero-image-mobile-img"
           />
         </motion.div>
@@ -289,6 +289,9 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
         <div className="landing-footer-bar">
           <Link to="/privacy" className="landing-privacy-link">
             Политика конфиденциальности
+          </Link>
+          <Link to="/agreement" className="landing-privacy-link">
+            Пользовательское соглашение
           </Link>
           <div className="landing-copyright">© 2026 planRUN</div>
         </div>

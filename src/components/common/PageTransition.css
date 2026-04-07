@@ -19,7 +19,7 @@
 /* Мобильное приложение: отступы под хедер и под нижний навбар */
 @media (max-width: 1023px) {
   .page-transition-content {
-    padding-top: calc(64px + env(safe-area-inset-top, 0px) + 12px);
+    padding-top: calc(64px + var(--app-safe-area-top) + 12px);
     padding-bottom: var(--mobile-shell-bottom-clearance, var(--mobile-content-padding-bottom, 100px));
     min-height: 100vh;
     box-sizing: border-box;
@@ -27,32 +27,46 @@
 
   /* Чат: строго между хедером и навбаром — margin-top под хедер, height = оставшееся место */
   .page-transition-content--chat {
+    --chat-fallback-viewport-height: 100vh;
     --chat-default-bottom-nav-clearance: calc(var(--bottom-nav-floating-gap) + 72px);
-    --chat-bottom-nav-clearance: var(--chat-runtime-bottom-clearance, var(--chat-default-bottom-nav-clearance));
-    --chat-top-offset: var(--chat-runtime-top-offset, var(--mobile-header-height));
+    --chat-bottom-nav-clearance: var(--chat-default-bottom-nav-clearance);
+    --chat-top-offset: var(--mobile-header-height);
     margin-top: var(--chat-top-offset);
     padding-top: 0;
     padding-bottom: 0;
-    height: calc(100vh - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+    height: calc(var(--chat-fallback-viewport-height) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
     min-height: 0;
-    max-height: calc(100vh - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+    max-height: calc(var(--chat-fallback-viewport-height) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
     display: flex;
     flex-direction: column;
     overflow: hidden;
     box-sizing: border-box;
   }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .page-transition-content--chat {
+      transition: margin-top 220ms cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: margin-top;
+    }
+  }
+
   html.native-app .page-transition-content--chat {
     --chat-default-bottom-nav-clearance: var(--mobile-content-padding-bottom);
   }
   @supports (height: 100dvh) {
     .page-transition-content--chat {
-      height: calc(100dvh - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
-      max-height: calc(100dvh - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+      --chat-fallback-viewport-height: 100dvh;
+      height: calc(var(--chat-fallback-viewport-height) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+      max-height: calc(var(--chat-fallback-viewport-height) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
     }
   }
   body.chat-page-active .page-transition-content--chat {
-    height: calc(var(--chat-runtime-viewport-height, 100vh) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
-    max-height: calc(var(--chat-runtime-viewport-height, 100vh) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+    height: calc(var(--chat-runtime-viewport-height, var(--chat-fallback-viewport-height)) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+    max-height: calc(var(--chat-runtime-viewport-height, var(--chat-fallback-viewport-height)) - var(--chat-top-offset) - var(--chat-bottom-nav-clearance));
+  }
+  body.chat-page-active.chat-conversation-active .page-transition-content--chat {
+    --chat-top-offset: 0px;
+    --chat-bottom-nav-clearance: 0px;
   }
   .page-transition-content--chat .app-tabs-content {
     flex: 1 1 0;

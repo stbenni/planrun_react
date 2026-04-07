@@ -188,19 +188,24 @@ class WorkoutService extends BaseService {
             $dayNames = [1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat', 7 => 'sun'];
             $dayName = $dayNames[$dayOfWeek];
             
-            $planStmt = $this->db->prepare("SELECT id, type, description, date, is_key_workout FROM training_plan_days WHERE user_id = ? AND date = ? ORDER BY id");
+            $planStmt = $this->db->prepare("SELECT id, type, description, date, is_key_workout, target_hr_min, target_hr_max FROM training_plan_days WHERE user_id = ? AND date = ? ORDER BY id");
             $planStmt->bind_param("is", $userId, $date);
             $planStmt->execute();
             $planResult = $planStmt->get_result();
             $planBlocks = [];
             while ($planRow = $planResult->fetch_assoc()) {
                 $pid = (int)$planRow['id'];
-                $planDays[] = [
+                $dayEntry = [
                     'id' => $pid,
                     'type' => $planRow['type'],
                     'description' => $planRow['description'],
                     'is_key_workout' => (bool)($planRow['is_key_workout'] ?? 0),
                 ];
+                if (!empty($planRow['target_hr_min']) && !empty($planRow['target_hr_max'])) {
+                    $dayEntry['target_hr_min'] = (int) $planRow['target_hr_min'];
+                    $dayEntry['target_hr_max'] = (int) $planRow['target_hr_max'];
+                }
+                $planDays[] = $dayEntry;
                 if ($planDayId === null) {
                     $planDayId = $pid;
                     $planType = $planRow['type'];
@@ -759,6 +764,7 @@ class WorkoutService extends BaseService {
             );
             if ($insertStmt->execute()) {
                 $workoutId = (int)$this->db->insert_id;
+                $w['_imported_id'] = $workoutId; // запоминаем для postWorkoutAnalysis
                 $imported++;
                 $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
                 $this->saveWorkoutLaps($workoutId, $w['laps'] ?? null);
@@ -784,9 +790,50 @@ class WorkoutService extends BaseService {
             $this->launchWorkoutShareWorkerAsync();
         }
 
+        // Trigger post-workout AI analysis for each imported workout
+        if ($imported > 0 && (int) env('PROACTIVE_COACH_ENABLED', 0) === 1) {
+            try {
+                require_once __DIR__ . '/ProactiveCoachService.php';
+                $coach = new ProactiveCoachService($this->db);
+
+                // Собираем все успешно импортированные тренировки (с _imported_id)
+                foreach ($workouts as $w) {
+                    $wId = $w['_imported_id'] ?? null;
+                    if ($wId === null) continue; // пропущенные/дубликаты
+
+                    $wDate = isset($w['start_time'])
+                        ? date('Y-m-d', is_numeric($w['start_time']) ? $w['start_time'] : strtotime($w['start_time']))
+                        : null;
+                    if (!$wDate) continue;
+
+                    try {
+                        $coach->postWorkoutAnalysis($userId, $wDate, 0, $wId);
+                    } catch (Throwable $e) {
+                        // Ошибка одной тренировки не должна блокировать остальные
+                        Logger::debug('WorkoutService: post-workout analysis failed for workout', [
+                            'workoutId' => $wId, 'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            } catch (Throwable $e) {
+                // Non-critical — don't fail the import
+            }
+        }
+
+        // Пересчёт целевого пульса после импорта (новые HR данные могут сместить диапазоны)
+        if ($imported > 0) {
+            try {
+                require_once __DIR__ . '/UserProfileService.php';
+                $ups = new UserProfileService($this->db);
+                $ups->recalculateHrTargetsForFutureDays($userId);
+            } catch (Throwable $e) {
+                error_log("importWorkouts HR recalc error: " . $e->getMessage());
+            }
+        }
+
         return ['imported' => $imported, 'skipped' => $skipped];
     }
-    
+
     /**
      * Сохранить прогресс тренировки (старая функция save)
      * 
@@ -933,7 +980,10 @@ class WorkoutService extends BaseService {
                 $deleteStmt->close();
 
                 $this->deleteWorkoutShareCards((int) $userId, (int) $workoutId, WorkoutShareCardCacheService::KIND_MANUAL);
-                
+
+                require_once __DIR__ . '/../cache_config.php';
+                Cache::delete("training_plan_{$userId}");
+
                 return ['success' => true, 'message' => 'Запись о тренировке удалена'];
             } else {
                 // Удаление автоматически загруженной тренировки из workouts
@@ -978,7 +1028,10 @@ class WorkoutService extends BaseService {
                     $this->db->commit();
 
                     $this->deleteWorkoutShareCards((int) $userId, (int) $workoutId, WorkoutShareCardCacheService::KIND_WORKOUT);
-                    
+
+                    require_once __DIR__ . '/../cache_config.php';
+                    Cache::delete("training_plan_{$userId}");
+
                     return ['success' => true, 'message' => 'Тренировка и все связанные данные удалены'];
                 } catch (Exception $e) {
                     $this->db->rollback();

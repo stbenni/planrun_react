@@ -131,18 +131,12 @@
 | `strava_register_webhook.php` | Ручная регистрация или перепривязка webhook subscription |
 | `strava_daily_health_check.php` | Периодическая проверка токенов, `external_athlete_id` и webhook subscription |
 | `strava_backfill_athlete_ids.php` | Backfill `external_athlete_id` для уже существующих Strava интеграций |
-| `check_strava.php` | Точечная диагностика Strava-интеграции |
-
 ### 4.4 Статистика и техобслуживание
 
 | Скрипт | Что делает |
 |--------|------------|
 | `update_vdot_from_training.php` | Вычисляет лучшую свежую тренировку и обновляет `last_race_*` у пользователя |
 | `cleanup_expired_refresh_tokens.php` | Удаляет просроченные refresh tokens |
-| `check_login.php` | Ручная проверка login flow |
-| `check_password_reset.php` | Диагностика сценария password reset |
-| `check_push.php` | Диагностика push-конфигурации |
-| `check_chat_debug.php` | Диагностика чата и отладочных сценариев |
 
 ## 5. Seed, backfill и миграции
 
@@ -150,8 +144,6 @@
 
 | Скрипт | Что делает |
 |--------|------------|
-| `seed_coaches.php` | Начальное заполнение coach-related данных |
-| `seed_coaches_avatars.php` | Наполнение аватаров тренеров |
 | `backfill_avatar_variants.php` | Генерация недостающих avatar variants |
 
 ### Миграции схемы и данных

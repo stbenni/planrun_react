@@ -36,6 +36,7 @@
   pointer-events: none;
   z-index: 0;
   border-radius: 0 0 20px 20px;
+  transition: opacity 140ms ease;
 }
 
 [data-theme="dark"] .top-header {
@@ -482,11 +483,21 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
     z-index: 1100;
   }
 
+  body.chat-page-active.chat-conversation-active .top-header,
   body.chat-page-active.chat-keyboard-open .top-header {
-    transform: translateY(calc(-100% - env(safe-area-inset-top, 0px)));
+    transform: translateY(calc(-100% - var(--app-safe-area-top)));
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+    box-shadow: none;
+    border-bottom-color: transparent;
+  }
+
+  body.chat-page-active.chat-conversation-active .top-header::after,
+  body.chat-page-active.chat-conversation-active .top-header-mobile::before,
+  body.chat-page-active.chat-keyboard-open .top-header::after,
+  body.chat-page-active.chat-keyboard-open .top-header-mobile::before {
+    opacity: 0;
   }
 }
 
@@ -495,8 +506,8 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
 .top-header-mobile {
   display: flex !important;
   min-height: 64px;
-  height: calc(64px + env(safe-area-inset-top, 0px));
-  padding-top: env(safe-area-inset-top, 0);
+  height: calc(64px + var(--app-safe-area-top));
+  padding-top: var(--app-safe-area-top);
   align-items: center;
   background: var(--glass-bg) !important;
   backdrop-filter: blur(var(--glass-blur));
@@ -512,10 +523,87 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
   opacity: 0.4;
   height: 1px;
   box-shadow: 0 4px 12px rgba(252, 76, 2, 0.15);
+  transition: opacity 140ms ease;
 }
 
 .top-header-mobile::after {
   background: transparent;
+}
+
+html.native-app .top-header-mobile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 1.8%, rgba(255, 255, 255, 0.98)) 0%,
+      rgba(248, 250, 252, 0.98) 100%
+    ) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 7%, rgba(226, 232, 240, 0.9));
+  box-shadow:
+    0 10px 22px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+html.native-app[data-theme="dark"] .top-header-mobile {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 1.2%, rgba(18, 24, 33, 0.98)) 0%,
+      rgba(12, 16, 22, 0.98) 100%
+    ) !important;
+  border-bottom-color: color-mix(in srgb, var(--primary-500) 5%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html.native-app .header-avatar-btn,
+html.native-app .header-avatar-dropdown {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.native-app .header-avatar-btn {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2.4%, rgba(255, 255, 255, 0.99)) 0%,
+      rgba(247, 250, 252, 0.99) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+html.native-app[data-theme="dark"] .header-avatar-btn {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2%, rgba(22, 27, 33, 0.98)) 0%,
+      rgba(16, 20, 25, 0.98) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 18px rgba(0, 0, 0, 0.28);
+}
+
+html.native-app .header-avatar-dropdown {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 2.2%, rgba(255, 255, 255, 0.99)) 0%,
+      rgba(248, 250, 252, 0.99) 100%
+    );
+}
+
+html.native-app[data-theme="dark"] .header-avatar-dropdown {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary-500) 1.8%, rgba(22, 27, 33, 0.985)) 0%,
+      rgba(15, 19, 24, 0.985) 100%
+    );
 }
 
 .top-header-mobile .top-header-container {
@@ -599,7 +687,7 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
 }
 
 .app-drawer-inner {
-  padding: env(safe-area-inset-top, 0) 0 max(16px, env(safe-area-inset-bottom));
+  padding: var(--app-safe-area-top) 0 max(16px, var(--app-safe-area-bottom));
   overflow-y: auto;
   flex: 1;
 }

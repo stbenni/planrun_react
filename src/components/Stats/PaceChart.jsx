@@ -3,7 +3,7 @@
  * Выше = быстрее (меньше мин/км), ниже = медленнее.
  */
 
-import React, { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { ZapIcon } from '../common/Icons';
 

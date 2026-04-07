@@ -105,7 +105,7 @@ class GoalProgressService extends BaseService {
     public function processAllUsers(?string $date = null): int {
         $date = $date ?: date('Y-m-d');
         $stmt = $this->db->prepare(
-            "SELECT id FROM users WHERE onboarding_completed = 1 AND (banned IS NULL OR banned = 0)"
+            "SELECT id FROM users WHERE onboarding_completed = 1 AND banned = 0"
         );
         $stmt->execute();
         $result = $stmt->get_result();

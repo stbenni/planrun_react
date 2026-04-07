@@ -24,10 +24,9 @@ export function getDateForDay(startDate, dayOfWeek) {
 /**
  * Получить CSS класс типа тренировки
  * @param {string} type - Тип тренировки (rest, long, interval, tempo, easy, etc.)
- * @param {boolean} isKey - Является ли ключевой тренировкой
  * @returns {string} CSS класс
  */
-export function getTrainingClass(type, isKey = false) {
+export function getTrainingClass(type) {
   // Выделение только для контрольных; ключевые (tempo, interval, long и т.д.) больше не выделяются
   if (type === 'control') return 'control';
   
@@ -71,14 +70,14 @@ export function getShortDescription(fullText, type) {
   let html = '<div class="short-desc">';
   
   switch (type) {
-    case 'rest':
+    case 'rest': {
       // Для отдыха показываем просто "ПОЛНЫЙ ОТДЫХ" или "ОТДЫХ"
       const title = /ПОЛНЫЙ ОТДЫХ/i.test(fullText) ? 'ПОЛНЫЙ ОТДЫХ' : 'ОТДЫХ';
       html += `<div class="short-desc-title"><strong>${escapeHtml(title)}</strong></div>`;
       html += '</div>';
       return html;
-      
-    case 'tempo':
+    }
+    case 'tempo': {
       // Для темповых извлекаем дистанцию, пульс и темп
       const tempoShort = 'ТЕМПОВЫЙ';
       let tempoDistance = '';
@@ -111,8 +110,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'easy':
+    }
+    case 'easy': {
       // Для легкого бега
       let easyDistance = '';
       let easyPace = '';
@@ -152,8 +151,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'long':
+    }
+    case 'long': {
       // Для длительных: дистанция, темп, пульс
       let longDistance = '';
       let longPace = '';
@@ -187,8 +186,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'interval':
+    }
+    case 'interval': {
       // Для интервалов: количество и дистанция
       html += '<div class="short-desc-title"><strong>ИНТЕРВАЛЫ</strong></div>';
       html += '<div class="short-desc-details">';
@@ -202,8 +201,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'other':
+    }
+    case 'other': {
       // Для ОФП в календаре: только длительность
       html += '<div class="short-desc-title"><strong>ОФП</strong></div>';
       html += '<div class="short-desc-details">';
@@ -218,8 +217,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'sbu':
+    }
+    case 'sbu': {
       // Для СБУ: показываем название и краткое описание
       html += '<div class="short-desc-title"><strong>СБУ</strong></div>';
       html += '<div class="short-desc-details">';
@@ -234,8 +233,8 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'race':
+    }
+    case 'race': {
       // Для контрольных: дистанция и цель
       html += '<div class="short-desc-title"><strong>КОНТРОЛЬНАЯ</strong></div>';
       html += '<div class="short-desc-details">';
@@ -249,18 +248,19 @@ export function getShortDescription(fullText, type) {
       
       html += '</div></div>';
       return html;
-      
-    case 'free':
+    }
+    case 'free': {
       // Пустой день (режим «самостоятельно») — без подписи
       html += '<div class="short-desc-details">—</div></div>';
       return html;
-      
-    default:
+    }
+    default: {
       // Для остальных берем первые 80 символов
       const short = plainText.length > 80 ? plainText.substring(0, 80) + '...' : plainText;
       html += `<div class="short-desc-details">${escapeHtml(short)}</div>`;
       html += '</div>';
       return html;
+    }
   }
 }
 

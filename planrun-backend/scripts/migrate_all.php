@@ -259,4 +259,45 @@ foreach (['push_workouts_enabled', 'push_chat_enabled', 'push_workout_hour'] as 
     }
 }
 
+$planningBenchmarkColumns = [
+    'planning_benchmark_distance' => "ALTER TABLE users ADD COLUMN planning_benchmark_distance VARCHAR(24) NULL AFTER last_race_date",
+    'planning_benchmark_distance_km' => "ALTER TABLE users ADD COLUMN planning_benchmark_distance_km DECIMAL(6,2) NULL AFTER planning_benchmark_distance",
+    'planning_benchmark_time' => "ALTER TABLE users ADD COLUMN planning_benchmark_time VARCHAR(16) NULL AFTER planning_benchmark_distance_km",
+    'planning_benchmark_date' => "ALTER TABLE users ADD COLUMN planning_benchmark_date DATE NULL AFTER planning_benchmark_time",
+    'planning_benchmark_type' => "ALTER TABLE users ADD COLUMN planning_benchmark_type VARCHAR(24) NULL AFTER planning_benchmark_date",
+    'planning_benchmark_effort' => "ALTER TABLE users ADD COLUMN planning_benchmark_effort VARCHAR(16) NULL AFTER planning_benchmark_type",
+];
+
+foreach ($planningBenchmarkColumns as $col => $sql) {
+    $check = $db->query("SHOW COLUMNS FROM users LIKE '$col'");
+    if ($check && $check->num_rows === 0) {
+        if ($db->query($sql)) {
+            echo "OK: users $col\n";
+        }
+    }
+}
+
+// --- target_hr_min / target_hr_max в training_plan_days ---
+$colCheck = $db->query("SHOW COLUMNS FROM training_plan_days LIKE 'target_hr_min'");
+if ($colCheck && $colCheck->num_rows === 0) {
+    if ($db->query("ALTER TABLE training_plan_days ADD COLUMN target_hr_min SMALLINT UNSIGNED NULL DEFAULT NULL AFTER is_key_workout")) {
+        echo "OK: training_plan_days.target_hr_min\n";
+    }
+    if ($db->query("ALTER TABLE training_plan_days ADD COLUMN target_hr_max SMALLINT UNSIGNED NULL DEFAULT NULL AFTER target_hr_min")) {
+        echo "OK: training_plan_days.target_hr_max\n";
+    }
+} else {
+    echo "SKIP: training_plan_days target_hr columns already exist\n";
+}
+
+// --- banned flag in users ---
+$colCheck = $db->query("SHOW COLUMNS FROM users LIKE 'banned'");
+if ($colCheck && $colCheck->num_rows === 0) {
+    if ($db->query("ALTER TABLE users ADD COLUMN banned TINYINT(1) NOT NULL DEFAULT 0")) {
+        echo "OK: users.banned\n";
+    }
+} else {
+    echo "SKIP: users.banned already exists\n";
+}
+
 echo "All migrations done.\n";

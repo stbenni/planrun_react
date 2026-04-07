@@ -3,7 +3,7 @@
  * Разметка: [тип тренировки] [дата + параметры], SVG-иконки вместо эмодзи
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon } from './RecentWorkoutIcons';
 
 const TYPE_NAMES = {
@@ -22,7 +22,7 @@ const TYPE_NAMES = {
   rest: 'Отдых',
 };
 
-const RecentWorkoutsList = ({ workouts, api, onWorkoutClick }) => {
+const RecentWorkoutsList = ({ workouts, onWorkoutClick }) => {
   const [showAll, setShowAll] = useState(false);
   
   if (!workouts || workouts.length === 0) {

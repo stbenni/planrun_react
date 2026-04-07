@@ -130,7 +130,11 @@ if ($aspectType === 'create' || $aspectType === 'update') {
     require_once __DIR__ . '/../planrun-backend/services/WorkoutService.php';
     $provider = new StravaProvider($db);
     $provider->ensureIntegrationHealthy($userId);
-    $onError = function ($httpCode, $response, $msg) use ($log, $objectId, $userId) {
+    $lastHttpCode = 0;
+    $lastErrorMsg = '';
+    $onError = function ($httpCode, $response, $msg) use ($log, $objectId, $userId, &$lastHttpCode, &$lastErrorMsg) {
+        $lastHttpCode = (int) $httpCode;
+        $lastErrorMsg = substr((string) $msg, 0, 500);
         $log('fetch failed activity_id=' . $objectId . ' user_id=' . $userId . ' http=' . $httpCode . ' msg=' . substr((string)$msg, 0, 150));
     };
     $workout = $provider->fetchSingleActivity($objectId, $userId, $onError);
@@ -138,6 +142,20 @@ if ($aspectType === 'create' || $aspectType === 'update') {
         $service = new WorkoutService($db);
         $service->importWorkouts($userId, [$workout], 'strava');
         $log('imported activity_id=' . $objectId . ' user_id=' . $userId);
+
+        // Пересчёт целевого пульса для будущих тренировок
+        try {
+            require_once __DIR__ . '/../planrun-backend/services/UserProfileService.php';
+            $ups = new UserProfileService($db);
+            $updated = $ups->recalculateHrTargetsForFutureDays($userId);
+            if ($updated) $log('recalculated HR targets for ' . $updated . ' future days, user_id=' . $userId);
+        } catch (Throwable $hrErr) {
+            $log('HR recalc error user_id=' . $userId . ' err=' . substr($hrErr->getMessage(), 0, 100));
+        }
+
+        // Если тренировка была в очереди ретраев — помечаем выполненной
+        $doneStmt = $db->prepare("UPDATE strava_webhook_retry_queue SET status='completed', finished_at=NOW() WHERE strava_activity_id=? AND user_id=? AND status IN ('pending','processing')");
+        if ($doneStmt) { $doneStmt->bind_param('ii', $objectId, $userId); $doneStmt->execute(); $doneStmt->close(); }
 
         // Silent push — мобилка обновит данные без ожидания resume
         try {
@@ -152,6 +170,26 @@ if ($aspectType === 'create' || $aspectType === 'update') {
         }
     } else {
         $log('fetchSingleActivity failed activity_id=' . $objectId . ' user_id=' . $userId);
+
+        // Ставим в очередь на повтор (первый ретрай через 60 сек)
+        $retryStmt = $db->prepare("
+            INSERT INTO strava_webhook_retry_queue
+                (user_id, strava_activity_id, aspect_type, status, attempts, next_retry_at, last_error, last_http_code)
+            VALUES (?, ?, ?, 'pending', 0, DATE_ADD(NOW(), INTERVAL 60 SECOND), ?, ?)
+            ON DUPLICATE KEY UPDATE
+                status = IF(status IN ('completed','failed'), 'pending', status),
+                attempts = IF(status IN ('completed','failed'), 0, attempts),
+                next_retry_at = IF(status IN ('completed','failed'), DATE_ADD(NOW(), INTERVAL 60 SECOND), next_retry_at),
+                last_error = VALUES(last_error),
+                last_http_code = VALUES(last_http_code),
+                updated_at = NOW()
+        ");
+        if ($retryStmt) {
+            $retryStmt->bind_param('iissi', $userId, $objectId, $aspectType, $lastErrorMsg, $lastHttpCode);
+            $retryStmt->execute();
+            $retryStmt->close();
+            $log('queued for retry activity_id=' . $objectId . ' user_id=' . $userId);
+        }
     }
     exit;
 }

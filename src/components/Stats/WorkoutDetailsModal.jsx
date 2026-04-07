@@ -3,7 +3,7 @@
  * Вкладки: Обзор | Круги | Графики
  */
 
-import React, {
+import {
   useState,
   useEffect,
   useRef,
@@ -261,6 +261,7 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
 /* ────── Tab definitions ────── */
 const TABS = [
   { key: 'overview', label: 'Обзор' },
+  { key: 'ai', label: 'ИИ-анализ' },
   { key: 'details', label: 'Данные' },
   { key: 'laps', label: 'Круги' },
   { key: 'charts', label: 'Графики' },
@@ -272,6 +273,8 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [timelineHoverIndex, setTimelineHoverIndex] = useState(null);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
 
   const displayedWorkouts = useMemo(() => {
     const workouts = dayData?.workouts ?? [];
@@ -290,7 +293,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
   /* ── Timeline loading ── */
   const [timelineData, setTimelineData] = useState({});
   const [lapsData, setLapsData] = useState({});
-  const [loadingTimeline, setLoadingTimeline] = useState({});
+  const [, setLoadingTimeline] = useState({});
   const loadedWorkoutsRef = useRef(new Set());
 
   useEffect(() => {
@@ -864,10 +867,38 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
   const workoutDate = workout?.start_time ? new Date(workout.start_time) : (date ? new Date(date + 'T12:00:00') : null);
   const activityLabel = getWorkoutDisplayType(workout) ? getActivityTypeLabel(getWorkoutDisplayType(workout)) : null;
 
+  const loadAiAnalysis = useCallback(async () => {
+    if (!api || !date || aiAnalysis || aiAnalysisLoading) return;
+    setAiAnalysisLoading(true);
+    try {
+      const res = await api.analyzeWorkoutAi(date, 0);
+      const data = res?.data || res;
+      setAiAnalysis(data);
+    } catch {
+      setAiAnalysis({ error: true });
+    } finally {
+      setAiAnalysisLoading(false);
+    }
+  }, [api, date, aiAnalysis, aiAnalysisLoading]);
+
+  useEffect(() => {
+    if (activeTab === 'ai' && !aiAnalysis && !aiAnalysisLoading) {
+      loadAiAnalysis();
+    }
+  }, [activeTab, aiAnalysis, aiAnalysisLoading, loadAiAnalysis]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAiAnalysis(null);
+      setAiAnalysisLoading(false);
+    }
+  }, [isOpen]);
+
   // Available tabs
   const availableTabs = useMemo(() => {
     if (!workout) return [];
     return TABS.filter(t => {
+      if (t.key === 'ai') return !workout.is_manual;
       if (t.key === 'details') return !workout.is_manual;
       if (t.key === 'laps') return hasLaps;
       if (t.key === 'charts') return hasTimeline && !workout.is_manual;
@@ -1079,6 +1110,67 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
                     </button>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ── Tab: AI-анализ ── */}
+            {activeTab === 'ai' && (
+              <div className="wd-tab-content wd-ai-analysis">
+                {aiAnalysisLoading && (
+                  <div className="wd-ai-loading">
+                    <LogoLoading size="sm" />
+                    <p className="wd-ai-loading-text">ИИ анализирует тренировку...</p>
+                  </div>
+                )}
+                {aiAnalysis && !aiAnalysis.error && (
+                  <>
+                    {aiAnalysis.ai_narrative && (
+                      <div className="wd-ai-narrative">
+                        <p>{aiAnalysis.ai_narrative}</p>
+                      </div>
+                    )}
+                    {aiAnalysis.pace_analysis?.splits?.length > 0 && (
+                      <div className="wd-ai-splits">
+                        <h4 className="wd-ai-section-title">Темп по км</h4>
+                        <div className="wd-ai-splits-list">
+                          {aiAnalysis.pace_analysis.splits.map(s => (
+                            <div key={s.km} className="wd-ai-split-row">
+                              <span className="wd-ai-split-km">{s.km} км</span>
+                              <span className="wd-ai-split-pace">{s.pace}</span>
+                              {s.avg_hr && <span className="wd-ai-split-hr">{s.avg_hr} уд</span>}
+                            </div>
+                          ))}
+                        </div>
+                        {aiAnalysis.pace_analysis.split_type && (
+                          <p className="wd-ai-split-type">
+                            {aiAnalysis.pace_analysis.split_type === 'negative_split' ? 'Негативный сплит — ускорение к финишу' :
+                             aiAnalysis.pace_analysis.split_type === 'positive_split' ? 'Позитивный сплит — замедление к финишу' :
+                             'Ровный темп'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {aiAnalysis.hr_zones?.length > 0 && (
+                      <div className="wd-ai-zones">
+                        <h4 className="wd-ai-section-title">Зоны ЧСС</h4>
+                        <div className="wd-ai-zones-list">
+                          {aiAnalysis.hr_zones.map(z => (
+                            <div key={z.zone} className="wd-ai-zone-row">
+                              <span className="wd-ai-zone-name">{z.zone}</span>
+                              <div className="wd-ai-zone-bar-wrap">
+                                <div className="wd-ai-zone-bar" style={{ width: `${Math.min(z.percent, 100)}%` }} />
+                              </div>
+                              <span className="wd-ai-zone-pct">{z.percent}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {aiAnalysis?.error && (
+                  <div className="wd-ai-error">Не удалось загрузить анализ</div>
+                )}
               </div>
             )}
 

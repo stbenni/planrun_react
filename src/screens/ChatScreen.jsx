@@ -4,7 +4,7 @@
  * Для админов: + вкладка «Администраторский» — ответы пользователям
  */
 
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, lazy, Suspense } from 'react';
 import useAuthStore from '../stores/useAuthStore';
 import { useChatUnread } from '../hooks/useChatUnread';
 import { useIsTabActive } from '../hooks/useIsTabActive';
@@ -14,16 +14,27 @@ import { useChatDirectories } from './chat/useChatDirectories';
 import { useChatMessageLists } from './chat/useChatMessageLists';
 import { useChatSubmitHandlers } from './chat/useChatSubmitHandlers';
 import { useChatNavigation } from './chat/useChatNavigation';
+import ChatComposer from './chat/ChatComposer';
 import { formatChatTime } from './chat/chatTime';
 import { BotIcon, MailIcon, TAB_ADMIN, TAB_ADMIN_MODE, TAB_AI, UsersIcon } from './chat/chatConstants';
-import { CloseIcon } from '../components/common/Icons';
+import { CloseIcon, ThumbsUpIcon, ThumbsDownIcon, SearchIcon, EllipsisVerticalIcon } from '../components/common/Icons';
 import { getQuickReplies, SUGGESTED_PROMPTS } from './chat/chatQuickReplies';
+import { getProactiveTypeLabel } from '../utils/proactiveMessages';
 import './ChatScreen.css';
+
+const ReactMarkdown = lazy(() => import('react-markdown'));
 
 const TOOL_LABELS = {
   get_training_day: 'Смотрю план…',
   get_week_plan: 'Проверяю неделю…',
   get_plan_overview: 'Анализирую план…',
+  get_plan: 'Загружаю план…',
+  get_day_details: 'Смотрю день…',
+  get_workouts: 'Загружаю тренировки…',
+  get_stats: 'Загружаю статистику…',
+  get_profile: 'Смотрю профиль…',
+  get_training_load: 'Считаю нагрузку…',
+  race_prediction: 'Прогнозирую результат…',
   update_training_day: 'Обновляю тренировку…',
   add_training_day: 'Добавляю тренировку…',
   delete_training_day: 'Удаляю тренировку…',
@@ -34,13 +45,140 @@ const TOOL_LABELS = {
   recalculate_plan: 'Пересчитываю план…',
   generate_next_plan: 'Генерирую новый план…',
   get_date: 'Проверяю дату…',
-  get_user_profile: 'Смотрю профиль…',
-  get_stats_summary: 'Загружаю статистику…',
-  get_recent_workouts: 'Смотрю тренировки…',
-  get_goal_info: 'Проверяю цель…',
-  search_exercises: 'Ищу упражнения…',
+  analyze_workout: 'Анализирую тренировку…',
+  get_training_trends: 'Загружаю тренды…',
+  compare_periods: 'Сравниваю периоды…',
+  get_weekly_review: 'Обзор недели…',
+  get_goal_progress: 'Проверяю прогресс…',
+  get_race_strategy: 'Готовлю стратегию…',
+  explain_plan_logic: 'Объясняю план…',
+  report_health_issue: 'Обрабатываю…',
+  update_profile: 'Обновляю профиль…',
 };
 const getToolLabel = (name) => TOOL_LABELS[name] || 'Работаю…';
+
+const FEEDBACK_KEY = 'planrun_chat_feedback';
+function getFeedback(msgId) {
+  try { const data = JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '{}'); return data[msgId] || null; } catch { return null; }
+}
+function setFeedbackStorage(msgId, value) {
+  try {
+    const data = JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '{}');
+    data[msgId] = value;
+    localStorage.setItem(FEEDBACK_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
+
+function AiMessageContent({ content }) {
+  if (!content) return null;
+  const hasMarkdown = /[*_#`|>-]{2,}|\[[^\]]+\]|\n[-*] |\n\d+\. |\n#{1,3} /.test(content);
+  if (!hasMarkdown) return content;
+  return (
+    <Suspense fallback={content}>
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p>{children}</p>,
+          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </Suspense>
+  );
+}
+
+function MessageFeedback({ msgId }) {
+  const [feedback, setFeedback] = useState(() => getFeedback(msgId));
+  const handleFeedback = useCallback((val) => {
+    const next = feedback === val ? null : val;
+    setFeedback(next);
+    setFeedbackStorage(msgId, next);
+  }, [feedback, msgId]);
+  return (
+    <span className="chat-feedback">
+      <button type="button" className={`chat-feedback-btn${feedback === 'up' ? ' chat-feedback-btn--active' : ''}`} onClick={() => handleFeedback('up')} aria-label="Полезно" title="Полезно">
+        <ThumbsUpIcon size={14} />
+      </button>
+      <button type="button" className={`chat-feedback-btn${feedback === 'down' ? ' chat-feedback-btn--active' : ''}`} onClick={() => handleFeedback('down')} aria-label="Не полезно" title="Не полезно">
+        <ThumbsDownIcon size={14} />
+      </button>
+    </span>
+  );
+}
+
+function ChatHeaderOverflowMenu({ items, label = 'Действия чата' }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const visibleItems = items.filter(Boolean);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handleClickOutside = (event) => {
+      const target = event.target;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside, { passive: true });
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [open]);
+
+  if (!visibleItems.length) return null;
+
+  const handleSelect = (item) => {
+    if (item.disabled) return;
+    setOpen(false);
+    item.onSelect?.();
+  };
+
+  return (
+    <div className={`chat-header-menu${open ? ' is-open' : ''}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="chat-header-action-btn chat-header-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <EllipsisVerticalIcon size={18} />
+      </button>
+      {open && (
+        <div ref={menuRef} className="chat-header-menu-dropdown" role="menu" aria-label={label}>
+          {visibleItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              className={`chat-header-menu-item${item.danger ? ' chat-header-menu-item--danger' : ''}`}
+              onClick={() => handleSelect(item)}
+              disabled={item.disabled}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ChatScreen = () => {
   const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
@@ -60,15 +198,16 @@ const ChatScreen = () => {
     loadDirectDialogs,
     loadChatUsers,
   } = useChatDirectories(api, isAdmin);
-  const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [streamPhase, setStreamPhase] = useState(null);
   const [recalcMessage, setRecalcMessage] = useState(null);
   const [nextPlanMessage, setNextPlanMessage] = useState(null);
   const [chatAdminSending, setChatAdminSending] = useState(false);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  const inputRef = useRef(null);
+  const composerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const scrollAreaRef = useRef(null);
@@ -83,6 +222,12 @@ const ChatScreen = () => {
   const prevTabActiveRef = useRef(isTabActive);
   const shouldStickToBottomRef = useRef(true);
   const forceScrollOnNextChangeRef = useRef(false);
+  const writeInputValue = useCallback((nextValue, { moveCaretToEnd = false } = {}) => {
+    composerRef.current?.setValue?.(nextValue, { moveCaretToEnd });
+  }, []);
+  const clearInputValue = useCallback(() => {
+    composerRef.current?.clear?.();
+  }, []);
   const {
     adminSection,
     contactUserForDialog,
@@ -103,6 +248,8 @@ const ChatScreen = () => {
     scrollToMessageId,
     selectedChat,
     selectedChatUser,
+    contextFromUrl,
+    contextDateFromUrl,
   } = useChatNavigation({
     api,
     chatUsers,
@@ -112,6 +259,8 @@ const ChatScreen = () => {
     userTimezone,
   });
   const prevMobileListVisibleRef = useRef(mobileListVisible);
+  const isComposerVisible = isTabActive && !mobileListVisible;
+  const isUserDialogPending = isUserDialog && !contactUserForDialog;
   const {
     messages,
     setMessages,
@@ -134,6 +283,7 @@ const ChatScreen = () => {
     : isUserDialog
       ? userDialogMessages
       : messages;
+  const isMobileConversationView = !mobileListVisible && (!isAdminMode || Boolean(selectedChatUser));
   const handleBeforeSend = useCallback(() => {
     forceScrollOnNextChangeRef.current = true;
     shouldStickToBottomRef.current = true;
@@ -144,7 +294,9 @@ const ChatScreen = () => {
     sendDirect,
     handleAdminChatSend,
     handleClearAiChat,
+    handleClearAdminDialog,
     handleClearDirectDialog,
+    handleClearAdminConversation,
     handleMarkAllRead: performMarkAllRead,
   } = useChatSubmitHandlers({
     api,
@@ -155,9 +307,7 @@ const ChatScreen = () => {
     selectedChatUser,
     sending,
     chatAdminSending,
-    input,
-    inputRef,
-    setInput,
+    clearInputValue,
     setSending,
     setChatAdminSending,
     setError,
@@ -170,27 +320,129 @@ const ChatScreen = () => {
     setRecalcMessage,
     setNextPlanMessage,
     loadDirectDialogs,
+    loadChatUsers,
     loadChatAdminMessages,
     onBeforeSend: handleBeforeSend,
   });
+  const hasSearchQuery = searchQuery.trim().length > 0;
+  const toggleSearch = useCallback(() => {
+    setSearchOpen((prev) => !prev);
+  }, []);
+  const filteredActiveMessages = useMemo(() => {
+    if (!hasSearchQuery) return activeMessages;
+    const normalizedQuery = searchQuery.toLowerCase();
+    return activeMessages.filter((message) => (message.content || '').toLowerCase().includes(normalizedQuery));
+  }, [activeMessages, hasSearchQuery, searchQuery]);
+  const visibleMessages = hasSearchQuery ? filteredActiveMessages : activeMessages;
+  const hasSearchResults = visibleMessages.length > 0;
+  const hasSearchMiss = hasSearchQuery && activeMessages.length > 0 && !hasSearchResults;
+  const commonSearchMenuItem = {
+    id: 'toggle-search',
+    label: searchOpen ? 'Закрыть поиск' : 'Поиск по сообщениям',
+    onSelect: toggleSearch,
+  };
+  const adminModeHeaderMenuItems = selectedChatUser?.id ? [
+    commonSearchMenuItem,
+    {
+      id: 'clear-admin-thread',
+      label: 'Очистить диалог',
+      onSelect: handleClearAdminConversation,
+      disabled: chatAdminLoading || chatAdminMessages.length === 0,
+      danger: true,
+    },
+  ] : [];
+  const directDialogHeaderMenuItems = [
+    commonSearchMenuItem,
+    {
+      id: 'clear-direct-dialog',
+      label: 'Очистить диалог',
+      onSelect: handleClearDirectDialog,
+      disabled: sending || userDialogLoading || userDialogMessages.length === 0,
+      danger: true,
+    },
+  ];
+  const aiHeaderMenuItems = [
+    commonSearchMenuItem,
+    {
+      id: 'clear-ai-chat',
+      label: 'Очистить диалог',
+      onSelect: handleClearAiChat,
+      disabled: sending || messages.length === 0,
+      danger: true,
+    },
+  ];
+  const adminHeaderMenuItems = [
+    commonSearchMenuItem,
+    {
+      id: 'clear-admin-chat',
+      label: 'Очистить диалог',
+      onSelect: handleClearAdminDialog,
+      disabled: loading || messages.length === 0,
+      danger: true,
+    },
+  ];
+
+  const renderHeaderActions = useCallback((clearHandler, clearDisabled, clearTitle = 'Очистить диалог') => (
+    <div className="chat-header-actions">
+      <button type="button" className="chat-header-action-btn" onClick={toggleSearch} title="Поиск по сообщениям" aria-label="Поиск по сообщениям">
+        <SearchIcon size={18} />
+      </button>
+      <button type="button" className="chat-clear-btn" onClick={clearHandler} disabled={clearDisabled} title={clearTitle}>
+        Очистить диалог
+      </button>
+    </div>
+  ), [toggleSearch]);
+
+  const renderSearchBar = useCallback(() => {
+    if (!searchOpen) return null;
+
+    return (
+      <div className="chat-search-bar">
+        <SearchIcon size={16} />
+        <input
+          type="text"
+          className="chat-search-input"
+          placeholder="Поиск по сообщениям…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          autoFocus
+        />
+        {hasSearchQuery && (
+          <span className="chat-search-count">{visibleMessages.length} из {activeMessages.length}</span>
+        )}
+        <button type="button" className="chat-search-close" onClick={() => { setSearchOpen(false); setSearchQuery(''); }} aria-label="Закрыть поиск">
+          <CloseIcon size={16} />
+        </button>
+      </div>
+    );
+  }, [activeMessages.length, hasSearchQuery, searchOpen, searchQuery, visibleMessages.length]);
 
   useEffect(() => {
-    setInput('');
+    clearInputValue();
     setError(null);
+    setSearchQuery('');
+    setSearchOpen(false);
     shouldStickToBottomRef.current = true;
     forceScrollOnNextChangeRef.current = false;
     setIsPinnedToBottom(true);
     streamAbortRef.current?.abort();
     setStreamPhase(null);
-    if (inputRef.current) {
-      inputRef.current.value = '';
+  }, [clearInputValue, selectedChat, setError]);
+
+  useEffect(() => {
+    document.body.classList.toggle('chat-conversation-active', isMobileConversationView);
+
+    return () => {
+      document.body.classList.remove('chat-conversation-active');
+    };
+  }, [isMobileConversationView]);
+
+  useEffect(() => {
+    if (mobileListVisible && searchOpen) {
+      setSearchOpen(false);
+      setSearchQuery('');
     }
-    requestAnimationFrame(() => {
-      if (inputRef.current) {
-        inputRef.current.value = '';
-      }
-    });
-  }, [selectedChat, setError]);
+  }, [mobileListVisible, searchOpen]);
 
   const cleanupPendingAsync = useCallback(() => {
     cancelAnimationFrame(scrollRafRef.current);
@@ -229,17 +481,31 @@ const ChatScreen = () => {
     shouldStickToBottomRef.current = true;
     setIsPinnedToBottom(true);
     cancelAnimationFrame(scrollRafRef.current);
+
+    const scrollScrollAreaToLatest = (scrollBehavior) => {
+      const el = scrollAreaRef.current;
+      if (el) {
+        const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        el.scrollTo({ top: targetTop, behavior: scrollBehavior });
+        return true;
+      }
+
+      const endMarker = messagesEndRef.current;
+      if (endMarker) {
+        endMarker.scrollIntoView({ behavior: scrollBehavior, block: 'end', inline: 'nearest' });
+        return true;
+      }
+
+      return false;
+    };
+
     scrollRafRef.current = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const endMarker = messagesEndRef.current;
-        if (endMarker) {
-          endMarker.scrollIntoView({ behavior, block: 'end', inline: 'nearest' });
-          return;
-        }
-
-        const el = scrollAreaRef.current;
-        if (el) {
-          el.scrollTo({ top: el.scrollHeight, behavior });
+        const didScroll = scrollScrollAreaToLatest(behavior);
+        if (didScroll && behavior === 'auto') {
+          requestAnimationFrame(() => {
+            scrollScrollAreaToLatest('auto');
+          });
         }
       });
     });
@@ -378,14 +644,17 @@ const ChatScreen = () => {
   useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return undefined;
 
-    const scrollEl = scrollAreaRef.current;
     const messagesEl = messagesContainerRef.current;
-    if (!scrollEl || !messagesEl) return undefined;
+    if (!messagesEl) return undefined;
 
     let resizeRafId = 0;
     const scheduleAutoScroll = () => {
       cancelAnimationFrame(resizeRafId);
       resizeRafId = requestAnimationFrame(() => {
+        if (document.body.classList.contains('chat-keyboard-settling')) {
+          return;
+        }
+
         if (shouldStickToBottomRef.current) {
           scrollToBottom();
         }
@@ -396,7 +665,6 @@ const ChatScreen = () => {
       scheduleAutoScroll();
     });
 
-    resizeObserver.observe(scrollEl);
     resizeObserver.observe(messagesEl);
 
     return () => {
@@ -412,6 +680,18 @@ const ChatScreen = () => {
     contactUserForDialog?.id,
   ]);
 
+  // Auto-send contextual message from DayModal / WorkoutDetailsModal
+  const contextHandledRef = useRef(false);
+  useEffect(() => {
+    if (!contextFromUrl || !contextDateFromUrl || !isAiChat || !api || contextHandledRef.current || !isTabActive) return;
+    if (sending || messages.length === 0) return;
+    contextHandledRef.current = true;
+    const msg = contextFromUrl === 'workout'
+      ? `Как прошла тренировка ${contextDateFromUrl}?`
+      : `Расскажи о тренировке на ${contextDateFromUrl}`;
+    writeInputValue(msg, { moveCaretToEnd: true });
+  }, [contextFromUrl, contextDateFromUrl, isAiChat, api, isTabActive, sending, messages.length, writeInputValue]);
+
   const [markAllReadLoading, setMarkAllReadLoading] = useState(false);
   const handleMarkAllRead = useCallback(async () => {
     if (!api) return;
@@ -424,10 +704,6 @@ const ChatScreen = () => {
       setMarkAllReadLoading(false);
     }
   }, [api, isAdmin, performMarkAllRead]);
-
-  const handleInputSync = useCallback((event) => {
-    setInput(event.currentTarget.value);
-  }, []);
 
   // Для админов: вкладки Личный | Администраторский в header
   const adminSectionTabs = isAdmin && (
@@ -584,19 +860,15 @@ const ChatScreen = () => {
               <span className="chat-main-header-icon" aria-hidden="true"><UsersIcon size={20} /></span>
               <div>
                 <h3 className="chat-main-header-title">Чат с {selectedChatUser.username}</h3>
-                <p className="chat-main-header-subtitle">Ответ от администрации</p>
               </div>
             </div>
-            <button
-              type="button"
-              className="chat-refresh-btn"
-              onClick={() => loadChatAdminMessages(selectedChatUser.id)}
-              disabled={chatAdminLoading}
-              title="Обновить"
-            >
-              {chatAdminLoading ? '…' : '↻'}
-            </button>
+            {isMobileConversationView ? (
+              <ChatHeaderOverflowMenu items={adminModeHeaderMenuItems} />
+            ) : (
+              renderHeaderActions(handleClearAdminConversation, chatAdminLoading || chatAdminMessages.length === 0)
+            )}
           </div>
+          {renderSearchBar()}
           <div ref={messagesContainerRef} className="chat-messages">
           {chatAdminLoading ? (
             <div className="chat-loading">
@@ -606,9 +878,14 @@ const ChatScreen = () => {
             </div>
           ) : chatAdminMessages.length === 0 ? (
             <div className="chat-empty">Сообщений пока нет. Напишите первым.</div>
+          ) : hasSearchMiss ? (
+            <div className="chat-empty">
+              <p>Ничего не найдено.</p>
+              <p className="chat-empty-hint">Попробуйте изменить запрос.</p>
+            </div>
           ) : (
             <>
-              {chatAdminMessages.map((msg) => (
+              {visibleMessages.map((msg) => (
                 <div key={msg.id} className={`chat-message chat-message--${msg.sender_type} chat-admin-message`}>
                   {msg.sender_type === 'user' && (
                     <div className="chat-message-avatar chat-message-avatar--other">
@@ -643,22 +920,14 @@ const ChatScreen = () => {
             </button>
           </div>
         )}
-        <form className="chat-input-form" onSubmit={handleAdminChatSend}>
-          <input
-            ref={inputRef}
-            type="text"
-            className="chat-input"
-            placeholder="Напишите сообщение..."
-            onInput={handleInputSync}
-            disabled={chatAdminSending || chatAdminLoading}
-            maxLength={4000}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button type="submit" className="chat-send-btn" disabled={chatAdminSending || chatAdminLoading || !input.trim()}>
-            {chatAdminSending ? '…' : '➤'}
-          </button>
-        </form>
+        <ChatComposer
+          ref={composerRef}
+          placeholder="Напишите сообщение..."
+          disabled={chatAdminSending || chatAdminLoading}
+          submitting={chatAdminSending}
+          visible={isComposerVisible}
+          onSubmitText={handleAdminChatSend}
+        />
       </>
     ) : (
       <div className="chat-select-prompt">
@@ -667,18 +936,18 @@ const ChatScreen = () => {
     )
   ) : isUserDialog ? (
     <>
-      {contactUserLoading && (
+      {(contactUserLoading || isUserDialogPending) && (
         <div className="chat-loading" style={{ padding: 'var(--space-4)' }}>
           <div className="skeleton-line" style={{ width: '60%', height: 14 }}></div>
           <div className="skeleton-line" style={{ width: '40%', height: 14 }}></div>
         </div>
       )}
-      {!contactUserLoading && Number(contactUserForDialog?.id) === myUserId && (
+      {!contactUserLoading && !isUserDialogPending && Number(contactUserForDialog?.id) === myUserId && (
         <div className="chat-error" role="alert">
           Вы не можете написать себе. Перейдите в другой чат.
         </div>
       )}
-      {!contactUserLoading && (
+      {!contactUserLoading && !isUserDialogPending && (
       <div ref={scrollAreaRef} className="chat-main-scroll-area" onScroll={handleScrollAreaScroll}>
         <div className="chat-main-header">
           <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
@@ -692,15 +961,15 @@ const ChatScreen = () => {
             </span>
             <div>
               <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
-              <p className="chat-main-header-subtitle">Личное сообщение</p>
             </div>
           </div>
-          {userDialogMessages.length > 0 && (
-            <button type="button" className="chat-clear-btn" onClick={handleClearDirectDialog} disabled={sending || userDialogLoading} title="Очистить диалог">
-              Очистить
-            </button>
+          {isMobileConversationView ? (
+            <ChatHeaderOverflowMenu items={directDialogHeaderMenuItems} />
+          ) : (
+            renderHeaderActions(handleClearDirectDialog, sending || userDialogLoading || userDialogMessages.length === 0)
           )}
         </div>
+        {renderSearchBar()}
         <div ref={messagesContainerRef} className="chat-messages">
         {userDialogLoading ? (
           <div className="chat-loading">
@@ -712,9 +981,14 @@ const ChatScreen = () => {
           <div className="chat-empty">
             <p>Напишите сообщение пользователю {contactUserForDialog?.username || 'пользователю'}. Оно будет доставлено в его чат.</p>
           </div>
+        ) : hasSearchMiss ? (
+          <div className="chat-empty">
+            <p>Ничего не найдено.</p>
+            <p className="chat-empty-hint">Попробуйте изменить запрос.</p>
+          </div>
         ) : (
           <>
-            {userDialogMessages.map((msg) => {
+            {visibleMessages.map((msg) => {
               const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
               const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
               return (
@@ -766,23 +1040,15 @@ const ChatScreen = () => {
           </button>
         </div>
       )}
-      {!contactUserLoading && (
-      <form className="chat-input-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          className="chat-input"
-          placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
-          onInput={handleInputSync}
-          disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
-          maxLength={4000}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button type="submit" className="chat-send-btn" disabled={sending || userDialogLoading || !input.trim() || Number(contactUserForDialog?.id) === myUserId} title={sending ? 'Отправка…' : 'Отправить'}>
-          {sending ? '…' : '➤'}
-        </button>
-      </form>
+      {!contactUserLoading && !isUserDialogPending && (
+      <ChatComposer
+        ref={composerRef}
+        placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
+        disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
+        submitting={sending}
+        visible={isComposerVisible}
+        onSubmitText={handleSubmit}
+      />
       )}
     </>
   ) : selectedChat ? (
@@ -794,20 +1060,15 @@ const ChatScreen = () => {
             <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.Icon && <currentChat.Icon size={20} />}</span>
             <div>
               <h3 className="chat-main-header-title">{currentChat?.label}</h3>
-              <p className="chat-main-header-subtitle">{currentChat?.description}</p>
             </div>
           </div>
-          {isAiChat && (
-            <button type="button" className="chat-clear-btn" onClick={handleClearAiChat} disabled={sending} title="Очистить чат">
-              Очистить
-            </button>
-          )}
-          {isAdminChat && (
-            <button type="button" className="chat-refresh-btn" onClick={loadMessages} disabled={loading} title="Обновить">
-              {loading ? '…' : '↻'}
-            </button>
+          {isAiChat && !isMobileConversationView && renderHeaderActions(handleClearAiChat, sending || messages.length === 0)}
+          {isAdminChat && !isMobileConversationView && renderHeaderActions(handleClearAdminDialog, loading || messages.length === 0)}
+          {isMobileConversationView && (isAiChat || isAdminChat) && (
+            <ChatHeaderOverflowMenu items={isAiChat ? aiHeaderMenuItems : adminHeaderMenuItems} />
           )}
         </div>
+        {renderSearchBar()}
         <div ref={messagesContainerRef} className="chat-messages">
         {loading ? (
           <div className="chat-loading">
@@ -827,7 +1088,7 @@ const ChatScreen = () => {
             ) : (
               <>
                 <div className="chat-empty-icon"><BotIcon size={40} /></div>
-                <p className="chat-empty-title">AI-тренер</p>
+                <p className="chat-empty-title">ИИ-тренер</p>
                 <p className="chat-empty-hint">Спросите о плане, тренировках или попросите скорректировать расписание</p>
                 <div className="chat-suggested-prompts">
                   {SUGGESTED_PROMPTS.map((prompt) => (
@@ -844,9 +1105,14 @@ const ChatScreen = () => {
               </>
             )}
           </div>
+        ) : hasSearchMiss ? (
+          <div className="chat-empty">
+            <p>Ничего не найдено.</p>
+            <p className="chat-empty-hint">Попробуйте изменить запрос.</p>
+          </div>
         ) : (
           <>
-            {messages.map((msg) => {
+            {visibleMessages.map((msg) => {
               const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
               const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
               const msgMeta = typeof msg.metadata === 'string' ? (() => { try { return JSON.parse(msg.metadata); } catch { return null; } })() : msg.metadata;
@@ -870,15 +1136,15 @@ const ChatScreen = () => {
                 )}
                 <div className="chat-message-bubble">
                   {isProactive && (
-                    <div className="chat-proactive-label">Тренер обратил внимание</div>
+                    <div className="chat-proactive-label">{getProactiveTypeLabel(msgMeta?.proactive_type, 'Тренер обратил внимание')}</div>
                   )}
                   {isFromOtherUser && msg.sender_username && (
                     <div className="chat-message-sender-name">{msg.sender_username}</div>
                   )}
-                  <div className="chat-message-content">
+                  <div className={`chat-message-content${msg.sender_type === 'ai' && msg.content ? ' chat-message-content--md' : ''}`}>
                     {msg.content ? (
-                      msg.content
-                    ) : streamPhase && msg.id?.startsWith('temp-ai-') ? (
+                      msg.sender_type === 'ai' ? <AiMessageContent content={msg.content} /> : msg.content
+                    ) : streamPhase && String(msg.id ?? '').startsWith('temp-ai-') ? (
                       <span className="chat-message-status">
                         {streamPhase === 'connecting' && (
                           <span className="chat-typing-dots" aria-hidden="true">
@@ -907,7 +1173,12 @@ const ChatScreen = () => {
                       '…'
                     )}
                   </div>
-                  {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
+                  <div className="chat-message-footer">
+                    {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
+                    {msg.sender_type === 'ai' && msg.content && !String(msg.id ?? '').startsWith('temp-ai-') && (
+                      <MessageFeedback msgId={msg.id} />
+                    )}
+                  </div>
                 </div>
                 {isFromMe && (
                   <div className="chat-message-avatar chat-message-avatar--user">
@@ -921,7 +1192,7 @@ const ChatScreen = () => {
               </div>
             );
             })}
-            {isAiChat && !streamPhase && !sending && messages.length > 0 && (() => {
+            {isAiChat && !hasSearchQuery && !streamPhase && !sending && messages.length > 0 && (() => {
               const lastMsg = messages[messages.length - 1];
               if (lastMsg?.sender_type !== 'ai' || !lastMsg?.content) return null;
               const replies = getQuickReplies(lastMsg.content);
@@ -962,22 +1233,16 @@ const ChatScreen = () => {
           </button>
         </div>
       )}
-      <form className="chat-input-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          className="chat-input"
-          placeholder="Напишите сообщение..."
-          onInput={handleInputSync}
-          disabled={sending || loading || !!streamPhase}
-          maxLength={4000}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || !input.trim()} title={sending || streamPhase ? 'Отправка…' : 'Отправить'}>
-          {sending || streamPhase ? '…' : '➤'}
-        </button>
-      </form>
+      <ChatComposer
+        ref={composerRef}
+        placeholder="Напишите сообщение..."
+        disabled={sending || loading}
+        submitting={sending}
+        showStopButton={Boolean(streamPhase)}
+        visible={isComposerVisible}
+        onStop={() => streamAbortRef.current?.abort()}
+        onSubmitText={handleSubmit}
+      />
     </>
   ) : (
     <div className="chat-select-prompt">

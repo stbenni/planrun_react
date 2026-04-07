@@ -42,15 +42,22 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
 
 ЗАДАЧА:
 1. Для каждого дня с type=interval, fartlek или control — добавь поле "notes" с текстовым описанием тренировки.
-   Пример для interval: "Разминка 2 км. 5×1000м в темпе 4:40, пауза 400м трусцой. Заминка 1.5 км"
-   Пример для tempo (threshold): "Разминка 2 км. Темповый бег 5 км в темпе 5:10. Заминка 1.5 км"
-   Пример для tempo (MP-run): "Разминка 2 км. MP-run: бег 12 км в марафонском темпе 4:59. Заминка 1.5 км"
-   Пример для tempo (HMP-run): "Разминка 2 км. HMP-run: бег 8 км в темпе полумарафона 4:35. Заминка 1.5 км"
+   Пример для interval: "Разминка 2 км. 5×1000м в темпе 4:40, пауза 400м трусцой. Заминка 1.5 км. Пульс на ускорениях до 175"
+   Пример для tempo (threshold): "Разминка 2 км. Темповый бег 5 км в темпе 5:10, пульс 160–172. Заминка 1.5 км"
+   Пример для tempo (MP-run): "Разминка 2 км. MP-run: бег 12 км в марафонском темпе 4:59, пульс 152–165. Заминка 1.5 км"
+   Пример для tempo (HMP-run): "Разминка 2 км. HMP-run: бег 8 км в темпе полумарафона 4:35, пульс 165–175. Заминка 1.5 км"
    Пример для tempo (R-pace): "Разминка 2 км. R-pace: 6×300м в темпе 3:47, пауза 300м шагом. Заминка 1.5 км"
-   Пример для long: "Длительный бег 18 км. Последние 3 км можно в марафонском темпе"
-2. Для 2-3 дней в неделю (не каждый) — добавь полезный совет в "notes" (1 строка).
-3. Если есть health_notes — учти их в notes (например: "Бегать по ровной поверхности", "Упражнения для колена после тренировки").
-4. Для rest-дней можно добавить "notes" типа "Активное восстановление: прогулка 30 мин" (не для каждого).
+   Пример для easy: "Лёгкий бег 8 км, пульс {easy_range}" (подставь реальный диапазон из профиля)
+   Пример для long: "Длительный бег 18 км, пульс {easy_range}. Последние 3 км можно в марафонском темпе"
+2. ЦЕЛЕВОЙ ПУЛЬС — ОБЯЗАТЕЛЬНО для каждой беговой тренировки.
+   ⚠ ПРИОРИТЕТ: «Реальный пульс (6нед)» из профиля > зоны Z1-Z5. НЕ ИСПОЛЬЗУЙ зоны Z1-Z5, если есть реальные данные!
+   - easy/long → диапазон из «easy» (например: easy: 155–167 → пиши «пульс 155–167»)
+   - tempo → диапазон из «moderate» (например: moderate: 168–174 → пиши «пульс 168–174»)
+   - interval/fartlek → диапазон из «intense» (на ускорениях)
+   - rest → пульс не указывай
+3. Для 2-3 дней в неделю (не каждый) — добавь полезный совет в "notes" (1 строка).
+4. Если есть health_notes — учти их в notes (например: "Бегать по ровной поверхности", "Упражнения для колена после тренировки").
+5. Для rest-дней можно добавить "notes" типа "Активное восстановление: прогулка 30 мин" (не для каждого).
 
 СТРОГИЕ ПРАВИЛА:
 - ⚠ ЯЗЫК: ВСЕ notes ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. Никакого английского.
@@ -193,6 +200,12 @@ function buildCompactProfile(array $user, array $state): string
         "- Темпы: Easy {$easyPace}, Tempo {$tempoPace}, Interval {$intervalPace}",
     ];
 
+    // Зоны ЧСС
+    $hrZones = buildHrZonesBlock($user);
+    if ($hrZones !== '') {
+        $lines[] = $hrZones;
+    }
+
     if ($healthNotes !== '') {
         $lines[] = "- Здоровье: {$healthNotes}";
     }
@@ -201,6 +214,66 @@ function buildCompactProfile(array $user, array $state): string
     }
 
     return implode("\n", $lines);
+}
+
+/**
+ * Построить блок зон ЧСС для промпта генерации плана.
+ */
+function buildHrZonesBlock(array $user): string
+{
+    try {
+        $db = getDBConnection();
+        if (!$db) return '';
+
+        require_once __DIR__ . '/../../services/UserProfileService.php';
+        $profileService = new UserProfileService($db);
+        $userId = (int) ($user['id'] ?? 0);
+        if ($userId < 1) return '';
+
+        $hrData = $profileService->getHrZonesData($userId, $user);
+        $maxHr = $hrData['effective_max_hr'] ?? 0;
+        if ($maxHr < 120) return '';
+
+        $zones = $hrData['zones'] ?? [];
+        if (empty($zones)) return '';
+
+        $zoneLabels = [];
+        foreach ($zones as $z) {
+            $zoneLabels[] = "Z{$z['zone']}:{$z['min_hr']}-{$z['max_hr']}";
+        }
+
+        $sourceLabel = match($hrData['source'] ?? '') {
+            'detected' => 'из тренировок',
+            'override' => 'ручной',
+            'profile' => 'ручной',
+            'formula' => '220−возраст',
+            default => '',
+        };
+
+        $line = "- ЧСС макс: {$maxHr} ({$sourceLabel}). Зоны: " . implode(', ', $zoneLabels);
+
+        // Реальные пульсовые данные (6 недель)
+        $real = $hrData['real_hr_ranges'] ?? [];
+        if (!empty($real)) {
+            $parts = [];
+            foreach (['easy', 'moderate', 'intense'] as $key) {
+                if (empty($real[$key])) continue;
+                $r = $real[$key];
+                $p = "{$key}: {$r['p25']}–{$r['p75']}";
+                $trend = $r['trend'] ?? null;
+                if ($trend === 'improving') $p .= '↓';
+                elseif ($trend === 'worsening') $p .= '↑';
+                $parts[] = $p;
+            }
+            if (!empty($parts)) {
+                $line .= ". Реальный пульс (6нед): " . implode(', ', $parts);
+            }
+        }
+
+        return $line;
+    } catch (Throwable $e) {
+        return '';
+    }
 }
 
 if (!function_exists('formatPaceSec')) {

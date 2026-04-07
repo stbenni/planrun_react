@@ -308,6 +308,12 @@ class RegistrationService extends BaseService {
             'last_race_distance_km' => ['value' => $data['last_race_distance_km'] ?? null, 'type' => 'd'],
             'last_race_time' => ['value' => $data['last_race_time'] ?? null, 'type' => 's'],
             'last_race_date' => ['value' => $data['last_race_date'] ?? null, 'type' => 's'],
+            'planning_benchmark_distance' => ['value' => $data['planning_benchmark_distance'] ?? null, 'type' => 's'],
+            'planning_benchmark_distance_km' => ['value' => $data['planning_benchmark_distance_km'] ?? null, 'type' => 'd'],
+            'planning_benchmark_time' => ['value' => $data['planning_benchmark_time'] ?? null, 'type' => 's'],
+            'planning_benchmark_date' => ['value' => $data['planning_benchmark_date'] ?? null, 'type' => 's'],
+            'planning_benchmark_type' => ['value' => $data['planning_benchmark_type'] ?? null, 'type' => 's'],
+            'planning_benchmark_effort' => ['value' => $data['planning_benchmark_effort'] ?? null, 'type' => 's'],
             'training_mode' => ['value' => $data['training_mode'] ?? 'ai', 'type' => 's'],
             'onboarding_completed' => ['value' => 1, 'type' => 'i'],
         ];

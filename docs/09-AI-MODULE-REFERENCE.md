@@ -278,7 +278,6 @@ prepareWeeklyAnalysis.php
 
 | Файл | Почему важен |
 |------|--------------|
-| [generate_plan_async.php](../planrun-backend/planrun_ai/generate_plan_async.php) | Старый standalone entrypoint до queue/processor orchestration; до сих пор полезен как reference сценариев generate/recalculate/next_plan |
 | [plan_review_generator.php](../planrun-backend/planrun_ai/plan_review_generator.php) | Объясняет, как plan summary превращается в chat review после сохранения |
 | [description_parser.php](../planrun-backend/planrun_ai/description_parser.php) | Мост между текстовым `description` и structured OFP/SBU exercises |
 | [text_generator.php](../planrun-backend/planrun_ai/text_generator.php) | Старый helper для коротких описаний из exercises |

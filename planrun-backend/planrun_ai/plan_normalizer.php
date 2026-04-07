@@ -95,6 +95,24 @@ function calculateFartlekTotalKm(array $day): float {
 }
 
 /**
+ * Заменяет дистанции в notes, если они сильно расходятся с фактической distance_km.
+ * LLM-обогащение может подставлять пиковые/целевые значения вместо фактических.
+ */
+function sanitizeNotesDistance(string $notes, float $actualKm): string {
+    return preg_replace_callback(
+        '/(?:бег|бега|пробежка|дистанция)\s+(\d+(?:[.,]\d+)?)\s*(?:км|km)/iu',
+        function (array $m) use ($actualKm) {
+            $noteKm = (float) str_replace(',', '.', $m[1]);
+            if ($noteKm > 0 && abs($noteKm - $actualKm) > max(1.0, $actualKm * 0.15)) {
+                return str_replace($m[1], number_format($actualKm, 1, '.', ''), $m[0]);
+            }
+            return $m[0];
+        },
+        $notes
+    );
+}
+
+/**
  * Строит description из структурированных полей (новый формат LLM).
  *
  * Формат description совпадает с regex-шаблонами AddTrainingModal.jsx.
@@ -120,6 +138,7 @@ function buildDescriptionFromFields(array $day): string {
             }
             $notes = $day['notes'] ?? '';
             if ($notes !== '') {
+                $notes = sanitizeNotesDistance($notes, (float) $dist);
                 $lines[] = $notes;
             }
             return implode("\n", $lines);
@@ -346,9 +365,10 @@ function normalizeTrainingDay(array $day, string $computedDate, int $dayOfWeek):
             $type = 'easy';
             $day['type'] = $type;
         } else {
+            $restNotes = trim($day['notes'] ?? $day['description'] ?? '');
             return [
                 'date' => $date, 'day_of_week' => $dayOfWeek, 'type' => 'rest',
-                'description' => '', 'distance_km' => null, 'duration_minutes' => null,
+                'description' => $restNotes, 'distance_km' => null, 'duration_minutes' => null,
                 'pace' => null, 'is_key_workout' => false, 'exercises' => [],
             ];
         }

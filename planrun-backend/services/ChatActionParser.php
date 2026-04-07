@@ -18,12 +18,16 @@ class ChatActionParser {
 
     private const ACTION_TOOLS = [
         'move_training_day', 'update_training_day', 'delete_training_day',
-        'swap_training_days', 'add_training_day',
+        'swap_training_days', 'add_training_day', 'copy_day',
+        'log_workout', 'recalculate_plan', 'generate_next_plan',
+        'update_profile', 'report_health_issue',
     ];
 
     private const WRITE_TOOLS = [
         'move_training_day', 'update_training_day', 'delete_training_day',
-        'swap_training_days',
+        'swap_training_days', 'add_training_day', 'copy_day',
+        'log_workout', 'recalculate_plan', 'generate_next_plan',
+        'update_profile', 'report_health_issue',
     ];
 
     public function __construct($db, ChatToolRegistry $toolRegistry, ChatConfirmationHandler $confirmationHandler) {
@@ -265,12 +269,22 @@ class ChatActionParser {
     // ── English term replacement ──
 
     private function replaceEnglishTerms(string $text): string {
+        $text = preg_replace('/\(\s*taper\s*\)/iu', '', $text);
+        $text = preg_replace('/\(\s*carb\s*loading\s*\)/iu', '', $text);
+        $text = preg_replace('/\(\s*negative\s*split\s*\)/iu', '', $text);
+        $text = preg_replace('/\(\s*fartlek\s*\)/iu', '', $text);
+
         $terms = [
             'slightly faster than race pace' => 'чуть быстрее гоночного темпа',
             'today\'s workout' => 'сегодняшняя тренировка', 'today\'s training' => 'сегодняшняя тренировка',
             'today\'s plan' => 'план на сегодня', 'Weekly volume' => 'Недельный объём',
             'weekly plan' => 'недельный план', 'tempo run' => 'темповый бег',
             'long run' => 'длительный бег', 'easy run' => 'лёгкий бег',
+            'taper period' => 'период снижения нагрузки', 'tapering' => 'снижение нагрузки', 'taper' => 'снижение нагрузки',
+            'carb loading' => 'углеводная загрузка', 'carbo loading' => 'углеводная загрузка',
+            'negative split' => 'отрицательный сплит', 'positive split' => 'положительный сплит',
+            'hill repeats' => 'повторы в гору', 'hill repeat' => 'повтор в гору',
+            'fartlek' => 'фартлек', 'strides' => 'ускорения',
             'finish strong' => 'финишировать мощно', 'warm up' => 'разминка',
             'cool down' => 'заминка', 'cooldown' => 'заминка', 'warm-up' => 'разминка',
             'recovery' => 'восстановление', 'especially' => 'особенно',

@@ -234,7 +234,6 @@ PlanGenerationProcessorService::processViaSkeleton()
 | `plan_validator.php` | `collectNormalizedPlanValidationIssues`, `validateNormalizedPlanAgainstTrainingState`, `shouldRunCorrectiveRegeneration`, `scoreValidationIssues` | Сводит доменные validators в единый quality gate над нормализованным планом |
 | `plan_saver.php` | `saveTrainingPlan`, `saveRecalculatedPlan` | Транзакционно пересобирает `training_plan_weeks`, `training_plan_days`, `training_day_exercises`, удаляя старую активную структуру |
 | `plan_review_generator.php` | `buildPlanSummaryForReview`, `generatePlanReview` | После сохранения генерирует human-readable review плана и отправляет его в чат пользователя |
-| `generate_plan_async.php` | CLI entrypoint | Старый standalone worker-path: читает CLI args, вызывает генерацию, сохраняет план и пишет review в чат |
 | `description_parser.php` | `parseOfpSbuDescription` | Парсит текстовое описание ОФП/СБУ обратно в структуру упражнений |
 | `text_generator.php` | `generateTextFromExercises`, `generateSimpleDescription` | Вспомогательная генерация короткого описания тренировки из exercises; сейчас это side-helper, а не главный путь |
 | `create_empty_plan.php` | `createEmptyPlan` | Генерирует пустой календарь `free`-дней для сценария самостоятельных тренировок |
@@ -322,6 +321,7 @@ PlanGenerationProcessorService::processViaSkeleton()
 | AI-чат | `controllers/ChatController.php`, `services/ChatService.php`, `services/ChatActionParser.php`, `services/ChatToolRegistry.php`, `services/ChatContextBuilder.php`, `repositories/ChatRepository.php` |
 | Уведомления | `controllers/PushController.php`, `controllers/UserController.php`, `services/NotificationDispatcher.php`, `services/NotificationSettingsService.php`, `services/PushNotificationService.php`, `services/WebPushNotificationService.php` |
 | Coach-модуль | `controllers/CoachController.php`, `controllers/AdminController.php`, `repositories/NotificationRepository.php`, `services/PlanNotificationService.php` |
+| Зоны ЧСС и целевой пульс | `services/UserProfileService.php`, `planrun_ai/plan_saver.php`, `services/WeekService.php`, `api/strava_webhook.php` — см. [HR_ZONES_SYSTEM.md](HR_ZONES_SYSTEM.md) |
 
 ## Где смотреть детали
 

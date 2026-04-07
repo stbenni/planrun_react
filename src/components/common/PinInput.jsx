@@ -4,7 +4,7 @@
  * При showKeypad — экранная цифровая клавиатура, без вызова нативной.
  */
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import './PinInput.css';
 
 const KEYPAD_LAYOUT = [
@@ -14,11 +14,11 @@ const KEYPAD_LAYOUT = [
   ['', '0', 'back'],
 ];
 
-const PinInput = ({ length = 4, value = '', onChange, onComplete, disabled, error, placeholder = '••••', autoFocus = true, showKeypad = false, keypadExtra }) => {
+const PinInput = ({ length = 4, value = '', onChange, onComplete, disabled, error, autoFocus = true, showKeypad = false, keypadExtra }) => {
   const inputRef = useRef(null);
   const [localValue, setLocalValue] = useState(value);
 
-  const len = 4;
+  const len = Math.max(1, Number(length) || 4);
 
   useEffect(() => {
     setLocalValue(value);
@@ -78,7 +78,7 @@ const PinInput = ({ length = 4, value = '', onChange, onComplete, disabled, erro
         readOnly={showKeypad}
         tabIndex={showKeypad ? -1 : 0}
         className="pin-input__field"
-        aria-label="PIN-код"
+        aria-label="ПИН-код"
       />
       <div
         className="pin-input__dots"

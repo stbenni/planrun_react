@@ -2,8 +2,6 @@
  * Компонент графика прогресса по неделям
  */
 
-import React from 'react';
-
 const WeeklyProgressChart = ({ data }) => {
   if (!data || data.length === 0) {
     return <div className="chart-empty">Нет данных для графика</div>;

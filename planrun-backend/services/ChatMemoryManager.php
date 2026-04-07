@@ -21,7 +21,7 @@ class ChatMemoryManager {
     public function __construct($db) {
         $this->db = $db;
         $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'qwen3-14b');
     }
 
     /**
@@ -92,16 +92,18 @@ PROMPT;
                     ['role' => 'user', 'content' => "Извлеки факты из диалога:\n\n" . mb_substr($dialogText, 0, 8000)],
                 ],
                 'stream' => false, 'max_tokens' => 600, 'temperature' => 0.1,
+                'chat_template_kwargs' => ['enable_thinking' => false],
             ]),
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 45, CURLOPT_CONNECTTIMEOUT => 5,
         ]);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
         curl_close($ch);
 
         if ($httpCode !== 200 || $response === false) {
-            Logger::warning('Memory extraction LLM call failed', ['http' => $httpCode, 'error' => curl_error($ch)]);
+            Logger::warning('Memory extraction LLM call failed', ['http' => $httpCode, 'error' => $curlErr]);
             return [];
         }
 

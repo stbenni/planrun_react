@@ -1,7 +1,6 @@
 /**
  * Индикатор загрузки: логотип planRUN с shimmer-анимацией (как в скелетонах)
  */
-import React from 'react';
 import './LogoLoading.css';
 
 const LogoLoading = ({ className = '', size = 'default' }) => (

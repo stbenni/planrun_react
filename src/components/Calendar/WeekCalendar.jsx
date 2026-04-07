@@ -6,10 +6,10 @@
  * Карточка дня: план (без отметки выполненности) + блок выполненных тренировок.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import useAuthStore from '../../stores/useAuthStore';
 import WorkoutCard from './WorkoutCard';
-import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
+import { OFPIcon, SbuIcon, CompletedIcon } from './WeekCalendarIcons';
 import { ActivityTypeIcon, DistanceIcon, TimeIcon, PaceIcon, CloseIcon, PenLineIcon } from '../common/Icons';
 import LogoLoading from '../common/LogoLoading';
 import { getPlanDayForDate, getDayCompletionStatus } from '../../utils/calendarHelpers';
@@ -44,7 +44,12 @@ const EMPTY_DAYS = { mon: null, tue: null, wed: null, thu: null, fri: null, sat:
 function normalizeDayActivities(rawDayData) {
   if (!rawDayData) return [];
   const list = Array.isArray(rawDayData) ? rawDayData : [rawDayData];
-  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({ type: d.type, is_key_workout: !!(d.is_key_workout || d.key) }));
+  return list.filter((d) => d && typeof d.type === 'string').map((d) => ({
+    type: d.type,
+    is_key_workout: !!(d.is_key_workout || d.key),
+    target_hr_min: d.target_hr_min || null,
+    target_hr_max: d.target_hr_max || null,
+  }));
 }
 
 /** Первый не-rest тип дня (для класса ячейки). */
@@ -124,7 +129,7 @@ function getVirtualCurrentWeek() {
 
 const MOBILE_BREAKPOINT = '(max-width: 640px)';
 
-const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate, initialDateKey = null }) => {
+const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onTrainingAdded, initialDate, initialDateKey = null }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -144,7 +149,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   });
   const [dayDetails, setDayDetails] = useState({});
-  const [loadingDays, setLoadingDays] = useState(false);
+  const [, setLoadingDays] = useState(false);
   const [isSwiping, setIsSwiping] = useState(false);
   const [showCopyWeek, setShowCopyWeek] = useState(false);
   const [copyWeekTarget, setCopyWeekTarget] = useState('');
@@ -214,7 +219,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
       const dayActivities = planDayForDate?.items
         ? planDayForDate.items
             .filter((d) => d && typeof d.type === 'string')
-            .map((d) => ({ type: d.type, is_key_workout: !!(d.is_key_workout || d.key) }))
+            .map((d) => ({ type: d.type, is_key_workout: !!(d.is_key_workout || d.key), target_hr_min: d.target_hr_min || null, target_hr_max: d.target_hr_max || null }))
         : normalizeDayActivities(rawDay);
       const cellType = firstNonRestType(dayActivities);
       const dayData = dayActivities.length
@@ -279,19 +284,6 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
     loadDayDataForDate(selectedDate);
   }, [plan, selectedDate, loadDayDataForDate]);
 
-  const handleDeletePlanDay = async (dayId) => {
-    if (!dayId || !api?.deleteTrainingDay) return;
-    if (!window.confirm('Удалить эту тренировку из плана?')) return;
-    try {
-      await api.deleteTrainingDay(dayId);
-      onTrainingAdded?.();
-      await loadDayDataForDate(selectedDate);
-    } catch (err) {
-      console.error('Error deleting plan day:', err);
-      alert('Ошибка удаления: ' + (err?.message || 'Не удалось удалить тренировку'));
-    }
-  };
-
   const goToPreviousWeek = () => {
     if (!currentWeek?.start_date) return;
     const prevStart = addDays(currentWeek.start_date, -7);
@@ -325,15 +317,6 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
       alert(e.message || 'Ошибка копирования недели');
     }
     setCopyingWeek(false);
-  };
-
-  const goToCurrentWeek = () => {
-    const mondayStr = getMondayOfToday();
-    const t = new Date();
-    t.setHours(0, 0, 0, 0);
-    const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-    setCurrentWeek(getWeekForStartDate(plan, mondayStr));
-    setSelectedDate(todayStr);
   };
 
   // Week notes
@@ -580,6 +563,18 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
               {day.dayActivities.some(a => a.type === 'control') && (
                 <span className="week-day-key-dot" title="Контрольная тренировка" />
               )}
+              {day.dayActivities.some(a => a.is_key_workout) && !day.dayActivities.some(a => a.type === 'control') && (
+                <span className="week-day-key-dot week-day-key-dot--key" title="Ключевая тренировка" />
+              )}
+              {day.status === 'completed' && (() => {
+                const actual = workoutsListByDate?.[day.date] || [];
+                const actualKm = actual.reduce((s, w) => s + (parseFloat(w.distance_km) || 0), 0);
+                const plannedKm = day.dayData?.distance_km ? parseFloat(day.dayData.distance_km) : 0;
+                if (actualKm > 0 && plannedKm > 0 && actualKm > plannedKm * 1.15) {
+                  return <span className="week-day-ai-dot week-day-ai-dot--exceeded" title="Перевыполнение плана" />;
+                }
+                return null;
+              })()}
             </div>
 
             <div className="week-day-icons-grid">

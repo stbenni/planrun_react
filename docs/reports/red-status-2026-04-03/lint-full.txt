@@ -1,0 +1,474 @@
+
+> planrun-web@1.2.3 lint
+> eslint src --ext js,jsx
+
+
+/var/www/planrun/src/App.jsx
+    6:8   error  'React' is defined but never used                 no-unused-vars
+  175:17  error  Empty block statement                             no-empty
+  184:9   error  'handleLogin' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/api/ApiClient.js
+  235:19  error  'AsyncStorage' is not defined                     no-undef
+  237:21  error  'AsyncStorage' is not defined                     no-undef
+  240:19  error  'AsyncStorage' is not defined                     no-undef
+  241:19  error  'AsyncStorage' is not defined                     no-undef
+  304:23  error  'AsyncStorage' is not defined                     no-undef
+  305:36  error  'AsyncStorage' is not defined                     no-undef
+  380:22  error  'AsyncStorage' is not defined                     no-undef
+  449:22  error  'pinEnabled' is assigned a value but never used   no-unused-vars
+  641:21  error  Empty block statement                             no-empty
+  797:22  error  '_ignoredUrl' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/api/chatApi.js
+  61:14  error  Unexpected constant condition  no-constant-condition
+
+/var/www/planrun/src/components/AppLayout.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/AppTabsContent.jsx
+   11:8   error    'React' is defined but never used                                                                          no-unused-vars
+   11:37  error    'useRef' is defined but never used                                                                         no-unused-vars
+  115:6   warning  React Hook useMemo has a missing dependency: 'isActive'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/Calendar/Calendar.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Calendar/DayModal.jsx
+    7:8    error    'React' is defined but never used                                                                                                 no-unused-vars
+   43:142  error    'onEditTraining' is defined but never used                                                                                        no-unused-vars
+  143:9    error    'handleDeletePlanDay' is assigned a value but never used                                                                          no-unused-vars
+  174:6    warning  React Hook useEffect has missing dependencies: 'loadDayData' and 'loadNotes'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/Calendar/MonthlyCalendar.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Calendar/ResultModal.jsx
+    9:8   error    'React' is defined but never used                                                                                                          no-unused-vars
+   39:10  error    'runDistance' is assigned a value but never used                                                                                           no-unused-vars
+   77:9   error    'simpleRunPlanDays' is assigned a value but never used                                                                                     no-unused-vars
+   81:9   error    'runType' is assigned a value but never used                                                                                               no-unused-vars
+   82:9   error    'hasRun' is assigned a value but never used                                                                                                no-unused-vars
+  158:6   warning  React Hook useEffect has missing dependencies: 'loadDayPlan' and 'loadExistingResult'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/Calendar/RouteMap.jsx
+   6:8   error    'React' is defined but never used                                                                           no-unused-vars
+  20:6   warning  React Hook useEffect has a missing dependency: 'loadMap'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  42:13  error    'zoom' is assigned a value but never used                                                                   no-unused-vars
+  43:13  error    'width' is assigned a value but never used                                                                  no-unused-vars
+  44:13  error    'height' is assigned a value but never used                                                                 no-unused-vars
+
+/var/www/planrun/src/components/Calendar/Week.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Calendar/WeekCalendar.jsx
+    9:8    error    'React' is defined but never used                                                                                                         no-unused-vars
+   12:10   error    'RunIcon' is defined but never used                                                                                                       no-unused-vars
+  132:210  error    'onEditTraining' is defined but never used                                                                                                no-unused-vars
+  132:243  error    'currentWeekNumber' is defined but never used                                                                                             no-unused-vars
+  152:10   error    'loadingDays' is assigned a value but never used                                                                                          no-unused-vars
+  287:9    error    'handleDeletePlanDay' is assigned a value but never used                                                                                  no-unused-vars
+  335:9    error    'goToCurrentWeek' is assigned a value but never used                                                                                      no-unused-vars
+  441:6    warning  React Hook useEffect has missing dependencies: 'goToNextWeek' and 'goToPreviousWeek'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/Calendar/WorkoutCard.jsx
+    6:8   error  'React' is defined but never used               no-unused-vars
+    7:49  error  'RunningIcon' is defined but never used         no-unused-vars
+    7:72  error  'MapPinIcon' is defined but never used          no-unused-vars
+   64:61  error  Unnecessary escape character: \-                no-useless-escape
+   97:3   error  'dayDetail' is assigned a value but never used  no-unused-vars
+  131:9   error  'config' is assigned a value but never used     no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/CoachTipWidget.jsx
+  1:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/Dashboard.jsx
+   28:10   error  'toLocalDateString' is defined but never used          no-unused-vars
+   29:33   error  'getDefaultLayout' is defined but never used           no-unused-vars
+   29:154  error  'orderToLayout' is defined but never used              no-unused-vars
+   33:23   error  'BotIcon' is defined but never used                    no-unused-vars
+  256:9    error  'handleExpandSlot' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/DashboardStatsWidget.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/DashboardWeekStrip.jsx
+   6:8   error  'React' is defined but never used            no-unused-vars
+  83:10  error  'getDayTypeLabel' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/ProfileQuickMetricsWidget.jsx
+   7:8   error  'React' is defined but never used                     no-unused-vars
+  13:63  error  'plan' is assigned a value but never used             no-unused-vars
+  13:76  error  'progressDataMap' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/components/Dashboard/RacePredictionWidget.jsx
+  7:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/LoginForm.jsx
+  7:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/LoginModal.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/ParticlesBackground.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/AchievementCard.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/ActivityHeatmap.jsx
+    5:8  error  'React' is defined but never used                                                                                                                                                            no-unused-vars
+   53:3  error  React Hook "useEffect" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?  react-hooks/rules-of-hooks
+  160:9  error  'calendarDays' is assigned a value but never used                                                                                                                                            no-unused-vars
+
+/var/www/planrun/src/components/Stats/DistanceChart.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/HeartRateChart.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/PaceChart.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/RecentWorkoutsList.jsx
+   6:8   error  'React' is defined but never used  no-unused-vars
+  25:41  error  'api' is defined but never used    no-unused-vars
+
+/var/www/planrun/src/components/Stats/StatsUtils.js
+  350:55  error  'allResults' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/WeeklyProgressChart.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/WorkoutDetailsModal.jsx
+    6:8   error  'React' is defined but never used                     no-unused-vars
+  296:10  error  'loadingTimeline' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/components/Stats/WorkoutShareCard.jsx
+    6:8  error  'React' is defined but never used                          no-unused-vars
+  260:3  error  'staticMapAttribution' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/components/Trainers/ApplyCoachForm.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/ChatNotificationButton.jsx
+  8:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/Icons.jsx
+  7:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/LockScreen.jsx
+   6:8  error    'React' is defined but never used                                                                                        no-unused-vars
+  43:6  warning  React Hook useEffect has a missing dependency: 'handleBiometricLogin'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/common/LogoLoading.jsx
+  4:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/PageTransition.jsx
+  7:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/PinInput.jsx
+   7:8   error  'React' is defined but never used                 no-unused-vars
+  17:21  error  'length' is assigned a value but never used       no-unused-vars
+  17:84  error  'placeholder' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/PinSetupModal.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/PlanGeneratingBanner.jsx
+   7:8  error    'React' is defined but never used                                                                                  no-unused-vars
+  24:6  warning  React Hook useEffect has a missing dependency: 'initPlanStatus'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/components/common/PublicHeader.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/SkeletonScreen.jsx
+  1:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/components/common/TopHeader.jsx
+    7:8  error    'React' is defined but never used                                                                                       no-unused-vars
+  102:6  warning  React Hook useLayoutEffect has a missing dependency: 'updateNavPill'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  133:6  warning  React Hook useLayoutEffect has a missing dependency: 'updateNavPill'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  161:6  warning  React Hook useEffect has a missing dependency: 'setDrawerOpen'. Either include it or remove the dependency array        react-hooks/exhaustive-deps
+
+/var/www/planrun/src/main.jsx
+  31:11  error  Empty block statement  no-empty
+
+/var/www/planrun/src/screens/AdminScreen.jsx
+    6:8   error    'React' is defined but never used                                                                                                 no-unused-vars
+  238:17  error    Empty block statement                                                                                                             no-empty
+  377:6   warning  React Hook useEffect has missing dependencies: 'api', 'loadUsers', and 'tab'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/screens/AgreementScreen.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/AthletesOverviewScreen.jsx
+   7:8   error  'React' is defined but never used          no-unused-vars
+  97:16  error  'user' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/screens/CalendarScreen.jsx
+   35:188  error    'hideHeader' is assigned a value but never used                                                                           no-unused-vars
+  100:10   error    'refreshing' is assigned a value but never used                                                                           no-unused-vars
+  153:6    warning  React Hook useCallback has a missing dependency: 'loadPlan'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  168:6    warning  React Hook useCallback has a missing dependency: 'loadPlan'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  223:6    warning  React Hook useEffect has a missing dependency: 'loadPlan'. Either include it or remove the dependency array               react-hooks/exhaustive-deps
+  234:6    warning  React Hook useEffect has missing dependencies: 'loadPlan' and 'plan'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  343:9    error    'onRefresh' is assigned a value but never used                                                                            no-unused-vars
+
+/var/www/planrun/src/screens/ChatScreen.jsx
+  74:28  error  Unnecessary escape character: \[  no-useless-escape
+
+/var/www/planrun/src/screens/DashboardScreen.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/ForgotPasswordScreen.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/LandingScreen.jsx
+  1:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/LoginScreen.jsx
+  6:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/PrivacyPolicyScreen.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/RegisterScreen.jsx
+    6:8   error    'React' is defined but never used                                                                                                                                                     no-unused-vars
+   33:73  error    'minimalOnly' is defined but never used                                                                                                                                               no-unused-vars
+  208:6   warning  React Hook useEffect has missing dependencies: 'currentApi', 'formData.goal_type', and 'formData.planning_benchmark_distance_km'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/screens/ResetPasswordScreen.jsx
+  5:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/SettingsScreen.jsx
+     6:8    error    'React' is defined but never used                                                                                                                                no-unused-vars
+    96:10   error    'summarizeWebPushUserAgent' is defined but never used                                                                                                            no-unused-vars
+   131:10   error    'formatWebPushEndpointSuffix' is defined but never used                                                                                                          no-unused-vars
+   252:10   error    'currentBrowserWebPushEndpoint' is assigned a value but never used                                                                                               no-unused-vars
+   458:6    warning  React Hook useEffect has a missing dependency: 'setSearchParams'. Either include it or remove the dependency array                                               react-hooks/exhaustive-deps
+   659:9    error    'handleTelegramLoginConnect' is assigned a value but never used                                                                                                  no-unused-vars
+   770:6    warning  React Hook useEffect has missing dependencies: 'handleSave' and 'loading'. Either include them or remove the dependency array                                    react-hooks/exhaustive-deps
+   783:9    error    'handleLogout' is assigned a value but never used                                                                                                                no-unused-vars
+  1497:6    warning  React Hook useEffect has missing dependencies: 'currentUser?.role', 'loadCoachPricing', and 'loadMyCoaches'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  2066:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2067:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2068:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2069:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2070:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2071:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2072:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2073:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2074:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2075:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2076:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2077:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2082:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2083:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2084:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2085:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2086:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2087:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2088:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2089:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2091:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2092:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2102:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2103:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2104:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2105:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2107:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2108:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2109:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2110:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2111:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2113:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2114:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2115:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2116:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2117:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2118:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2119:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2120:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2121:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2122:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2123:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2124:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2125:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2126:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2127:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2128:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2129:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2130:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2131:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2132:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2133:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2134:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2135:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2136:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2137:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2138:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2139:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2140:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2141:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2142:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2143:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2144:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2146:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2147:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2148:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2149:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2150:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2151:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2152:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2154:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2155:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2157:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2158:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2159:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2160:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2161:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2162:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2163:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2164:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2165:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2166:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2167:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2168:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2169:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2170:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2171:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2172:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2173:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2174:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2175:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2176:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2177:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2178:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2179:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2180:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2181:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2182:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2183:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2184:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2185:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2186:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2187:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2188:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2189:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2190:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2191:1    error    Mixed spaces and tabs                                                                                                                                            no-mixed-spaces-and-tabs
+  2275:48   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2275:73   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2394:47   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2394:75   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2507:45   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2507:71   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2526:49   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2526:79   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2562:44   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2562:69   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2627:49   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2627:75   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2677:44   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2677:69   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2677:88   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2677:113  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2714:53   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  2714:83   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                  react/no-unescaped-entities
+  3313:35   error    Empty block statement                                                                                                                                            no-empty
+
+/var/www/planrun/src/screens/StatsScreen.jsx
+  148:6  warning  React Hook useEffect has a missing dependency: 'rawData'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/screens/TrainersScreen.jsx
+  8:8  error  'React' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/UserProfileScreen.jsx
+  101:9   error  'cancelled' is assigned a value but never used  no-unused-vars
+  435:9   error  'canEdit' is assigned a value but never used    no-unused-vars
+  577:91  error  Empty block statement                           no-empty
+
+/var/www/planrun/src/screens/chat/useChatNavigation.js
+  188:9  warning  The 'chats' conditional could make the dependencies of useMemo Hook (at line 300) change on every render. To fix this, wrap the initialization of 'chats' in its own useMemo() Hook  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/screens/chat/useChatSubmitHandlers.js
+  13:3  error  'sending' is defined but never used  no-unused-vars
+
+/var/www/planrun/src/screens/settings/useCoachPricing.js
+  15:13  error  Empty block statement  no-empty
+
+/var/www/planrun/src/screens/settings/useMyCoaches.js
+  15:13  error  Empty block statement  no-empty
+
+/var/www/planrun/src/screens/settings/useSettingsProfile.js
+  70:6  warning  React Hook useCallback has a missing dependency: 'setHasUnsavedChanges'. Either include it or remove the dependency array. If 'setHasUnsavedChanges' changes too often, find the parent component that defines it and wrap that definition in useCallback  react-hooks/exhaustive-deps
+
+/var/www/planrun/src/services/ChatStreamWorker.js
+  16:22  error  Promise executor functions should not be async  no-async-promise-executor
+
+/var/www/planrun/src/services/CredentialBackupService.js
+  268:19  error  Empty block statement  no-empty
+  297:21  error  Empty block statement  no-empty
+
+/var/www/planrun/src/services/TokenStorageService.js
+  131:17  error  Empty block statement  no-empty
+  143:17  error  Empty block statement  no-empty
+  161:17  error  Empty block statement  no-empty
+  188:17  error  Empty block statement  no-empty
+  200:19  error  Empty block statement  no-empty
+
+/var/www/planrun/src/stores/useAuthStore.js
+   66:25  error  Empty block statement                          no-empty
+  108:25  error  Empty block statement                          no-empty
+  176:36  error  'isLocked' is assigned a value but never used  no-unused-vars
+  501:20  error  'state' is defined but never used              no-unused-vars
+
+/var/www/planrun/src/stores/usePlanStore.js
+  296:75  error  Empty block statement  no-empty
+  312:75  error  Empty block statement  no-empty
+  349:75  error  Empty block statement  no-empty
+  365:75  error  Empty block statement  no-empty
+
+/var/www/planrun/src/utils/calendarHelpers.js
+   30:40  error  'isKey' is assigned a value but never used    no-unused-vars
+   76:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   83:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   84:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   85:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   86:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   89:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   93:7   error  Unexpected lexical declaration in case block  no-case-declarations
+   97:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  103:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  117:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  118:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  119:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  120:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  123:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  127:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  131:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  144:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  158:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  159:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  160:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  163:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  167:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  171:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  177:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  196:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  212:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  228:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  243:7   error  Unexpected lexical declaration in case block  no-case-declarations
+  260:7   error  Unexpected lexical declaration in case block  no-case-declarations
+
+/var/www/planrun/src/utils/modulePreloader.js
+  49:45  error  'role' is assigned a value but never used  no-unused-vars
+
+/var/www/planrun/src/workers/chatStream.worker.js
+  35:12  error  Unexpected constant condition  no-constant-condition
+  57:21  error  Empty block statement          no-empty
+  74:19  error  Empty block statement          no-empty
+
+✖ 319 problems (297 errors, 22 warnings)
+

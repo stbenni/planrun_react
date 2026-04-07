@@ -3,7 +3,7 @@
  * Доступ только для пользователей с role === 'admin'
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import LogoLoading from '../components/common/LogoLoading';
@@ -26,10 +26,10 @@ const GOAL_TYPE_LABELS = {
 };
 
 const TRAINING_MODE_LABELS = {
-  ai: 'AI',
+  ai: 'ИИ',
   self: 'Самостоятельно',
   coach: 'Живой тренер',
-  both: 'AI + тренер',
+  both: 'ИИ + тренер',
 };
 
 const COACH_SPECIALIZATION_LABELS = {
@@ -235,7 +235,9 @@ export default function AdminScreen() {
       const res = await api.request('get_csrf_token', {}, 'GET');
       const token = res?.csrf_token ?? res?.data?.csrf_token;
       if (token) setCsrfToken(token);
-    } catch (_) {}
+    } catch (error) {
+      void error;
+    }
   }, [api]);
 
   const loadUsers = useCallback(async () => {
@@ -374,7 +376,7 @@ export default function AdminScreen() {
 
   useEffect(() => {
     if (tab === TAB_USERS && api) loadUsers();
-  }, [usersPage, usersSearchDebounced]);
+  }, [api, loadUsers, tab, usersPage, usersSearchDebounced]);
 
   const handleUpdateUserRole = async (userId, newRole) => {
     if (!api || !csrfToken) return;
@@ -595,7 +597,7 @@ export default function AdminScreen() {
             <input
               type="search"
               className="admin-search"
-              placeholder="Поиск по логину или email..."
+              placeholder="Поиск по логину или почте..."
               value={usersSearch}
               onChange={(e) => setUsersSearch(e.target.value)}
             />
@@ -610,7 +612,7 @@ export default function AdminScreen() {
                     <tr>
                       <th>ID</th>
                       <th>Логин</th>
-                      <th>Email</th>
+                      <th>Эл. почта</th>
                       <th>Роль</th>
                       <th>Режим</th>
                       <th>Цель</th>
@@ -734,7 +736,7 @@ export default function AdminScreen() {
             </label>
           </div>
           <div className="admin-form-group">
-            <label>Email для связи</label>
+            <label>Почта для связи</label>
             <input
               type="email"
               value={settings.contact_email}

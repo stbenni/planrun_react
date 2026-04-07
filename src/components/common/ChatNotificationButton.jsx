@@ -5,7 +5,6 @@
  * Для админов с непрочитанными — открывает вкладку «Администраторский»
  */
 
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatUnread } from '../../hooks/useChatUnread';
 import useAuthStore from '../../stores/useAuthStore';

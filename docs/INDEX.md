@@ -19,6 +19,8 @@
 | [11-BACKEND-OPS-REFERENCE.md](11-BACKEND-OPS-REFERENCE.md) | справочник | Root PHP helper-файлы, config/bootstrap, providers, cron/worker scripts, миграции и ops-инфраструктура |
 | [12-BACKEND-APPLICATION-REFERENCE.md](12-BACKEND-APPLICATION-REFERENCE.md) | справочник | Глубокий ручной разбор контроллеров, сервисов, репозиториев, side effects и application-инвариантов backend |
 | [13-FRONTEND-COMPONENT-REFERENCE.md](13-FRONTEND-COMPONENT-REFERENCE.md) | справочник | Глубокий ручной разбор экранов, app shell, модалок, крупных UI-подсистем и фронтенд-инвариантов |
+| [14-DEEP-AI-INTEGRATION.md](14-DEEP-AI-INTEGRATION.md) | обзор | Глубокая AI-интеграция: LLM tools, чат-бот, контекст, tool calling |
+| [HR_ZONES_SYSTEM.md](HR_ZONES_SYSTEM.md) | обзор | Система зон ЧСС: расчёт, хранение, авто-пересчёт, отображение |
 
 ## Как пользоваться
 

@@ -38,13 +38,17 @@ if ($method !== 'POST') {
 }
 
 $secret = (function_exists('env') ? env('COROS_PUSH_SECRET', '') : '') ?: '';
-if ($secret !== '') {
-    $hdr = $_SERVER['HTTP_X_PLANRUN_COROS_SECRET'] ?? '';
-    if (!is_string($hdr) || !hash_equals($secret, $hdr)) {
-        http_response_code(403);
-        echo json_encode(['ok' => false, 'error' => 'forbidden']);
-        exit;
-    }
+if ($secret === '') {
+    error_log('coros_workout_push: COROS_PUSH_SECRET not configured, rejecting request');
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'webhook_secret_not_configured']);
+    exit;
+}
+$hdr = $_SERVER['HTTP_X_PLANRUN_COROS_SECRET'] ?? '';
+if (!is_string($hdr) || !hash_equals($secret, $hdr)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'forbidden']);
+    exit;
 }
 
 $raw = file_get_contents('php://input');

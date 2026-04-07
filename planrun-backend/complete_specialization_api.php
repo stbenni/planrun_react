@@ -200,6 +200,30 @@ try {
         $lastRaceDate = (strlen($d) === 7 && preg_match('/^\d{4}-\d{2}$/', $d)) ? $d . '-01' : $d;
     }
 
+    $allowedBenchmarkDistances = ['5k', '10k', 'half', 'marathon', 'other'];
+    $planningBenchmarkDistance = !empty($input['planning_benchmark_distance']) && in_array($input['planning_benchmark_distance'], $allowedBenchmarkDistances, true)
+        ? $input['planning_benchmark_distance'] : null;
+    $planningBenchmarkDistanceKm = (!empty($input['planning_benchmark_distance_km']) && $planningBenchmarkDistance === 'other') ? (float)$input['planning_benchmark_distance_km'] : null;
+    $planningBenchmarkTime = !empty($input['planning_benchmark_time']) ? $input['planning_benchmark_time'] : null;
+    $planningBenchmarkDate = null;
+    if (!empty($input['planning_benchmark_date'])) {
+        $d = trim((string)$input['planning_benchmark_date']);
+        $planningBenchmarkDate = (strlen($d) === 7 && preg_match('/^\d{4}-\d{2}$/', $d)) ? $d . '-01' : $d;
+    }
+    $allowedBenchmarkTypes = ['race', 'control', 'hard_workout', 'easy_workout'];
+    $planningBenchmarkType = !empty($input['planning_benchmark_type']) && in_array($input['planning_benchmark_type'], $allowedBenchmarkTypes, true)
+        ? $input['planning_benchmark_type'] : null;
+    $allowedBenchmarkEfforts = ['max', 'hard', 'steady', 'easy'];
+    $planningBenchmarkEffort = !empty($input['planning_benchmark_effort']) && in_array($input['planning_benchmark_effort'], $allowedBenchmarkEfforts, true)
+        ? $input['planning_benchmark_effort'] : null;
+
+    if ($planningBenchmarkDistance === null && $lastRaceDistance !== null) {
+        $planningBenchmarkDistance = $lastRaceDistance;
+        $planningBenchmarkDistanceKm = $lastRaceDistanceKm;
+        $planningBenchmarkTime = $lastRaceTime;
+        $planningBenchmarkDate = $lastRaceDate;
+    }
+
     if ($trainingMode !== 'self' && $gender === null) {
         echo json_encode(['success' => false, 'error' => 'Пожалуйста, выберите пол'], JSON_UNESCAPED_UNICODE);
         exit;
@@ -303,6 +327,12 @@ try {
         'last_race_distance_km' => ['value' => $lastRaceDistanceKm, 'type' => 'd'],
         'last_race_time' => ['value' => $lastRaceTime, 'type' => 's'],
         'last_race_date' => ['value' => $lastRaceDate, 'type' => 's'],
+        'planning_benchmark_distance' => ['value' => $planningBenchmarkDistance, 'type' => 's'],
+        'planning_benchmark_distance_km' => ['value' => $planningBenchmarkDistanceKm, 'type' => 'd'],
+        'planning_benchmark_time' => ['value' => $planningBenchmarkTime, 'type' => 's'],
+        'planning_benchmark_date' => ['value' => $planningBenchmarkDate, 'type' => 's'],
+        'planning_benchmark_type' => ['value' => $planningBenchmarkType, 'type' => 's'],
+        'planning_benchmark_effort' => ['value' => $planningBenchmarkEffort, 'type' => 's'],
         'training_mode' => ['value' => $trainingMode, 'type' => 's'],
         'onboarding_completed' => ['value' => 1, 'type' => 'i']
     ];

@@ -2,7 +2,7 @@
  * ApplyCoachForm — 5-шаговая анкета «Стать тренером»
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
 import {

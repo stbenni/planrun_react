@@ -4,13 +4,13 @@
  * Структура как на дашборде: прогресс «X из Y» + прогресс-бар + 3 карточки
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
 import LogoLoading from '../common/LogoLoading';
 import '../Dashboard/Dashboard.css';
 
-const ProfileQuickMetricsWidget = ({ api, viewContext = null, plan = null, progressDataMap = null, weekProgress = { completed: 0, total: 0 } }) => {
+const ProfileQuickMetricsWidget = ({ api, viewContext = null, weekProgress = { completed: 0, total: 0 } }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 

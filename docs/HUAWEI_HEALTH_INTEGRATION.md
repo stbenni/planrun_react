@@ -46,7 +46,7 @@
 1. В настройках приложения найдите **OAuth 2.0** или **Redirect URI**.
 2. Добавьте callback URL:
    ```
-   https://your-domain.com/api/oauth_callback.php?provider=huawei
+   https://your-domain.com/api/oauth_callback.php
    ```
 3. URL должен совпадать с `HUAWEI_HEALTH_REDIRECT_URI` в `.env`.
 
@@ -59,7 +59,7 @@
 ```env
 HUAWEI_HEALTH_CLIENT_ID=ваш_client_id
 HUAWEI_HEALTH_CLIENT_SECRET=ваш_client_secret
-HUAWEI_HEALTH_REDIRECT_URI=https://your-domain.com/api/oauth_callback.php?provider=huawei
+HUAWEI_HEALTH_REDIRECT_URI=https://your-domain.com/api/oauth_callback.php
 HUAWEI_HEALTH_SCOPES=https://www.huawei.com/healthkit/activity.read https://www.huawei.com/healthkit/historydata.open.month
 ```
 
@@ -70,6 +70,7 @@ HUAWEI_HEALTH_SCOPES=https://www.huawei.com/healthkit/activity.read https://www.
 - **Синхронизация в облако**: в приложении Huawei Health на устройстве пользователя включить **Me → Privacy management → Sync data to cloud**.
 - **Ограничения по регионам**: Health Kit может быть недоступен в некоторых странах.
 - **REST API**: точный endpoint для activity records уточнять в [документации Health Kit](https://developer.huawei.com/consumer/en/hms/huaweihealth/).
+- **Как callback понимает, что это Huawei**: PlanRun передаёт идентификатор провайдера внутри подписанного `state`, поэтому `redirect_uri` можно указывать без query-параметров.
 - **Мобильное приложение PlanRun**: для Android/iOS OAuth запускается через In-App Browser, а callback возвращает пользователя в приложение через `planrun://oauth-callback` после обработки на `api/oauth_callback.php`.
 
 ---

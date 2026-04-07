@@ -3,7 +3,7 @@
  * Два квадрата: дата + минималистичная SVG (бег / ОФП / СБУ)
  */
 
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { RunIcon, OFPIcon, SbuIcon, CompletedIcon } from '../Calendar/WeekCalendarIcons';
 import '../Calendar/WeekCalendar.css';
 
@@ -78,27 +78,6 @@ function getWeekDaysFromPlan(plan, progressDataMap) {
     });
   }
   return days;
-}
-
-function getDayTypeLabel(dayData, status) {
-  if (!dayData) return '—';
-  if (dayData.type === 'rest') return 'Отдых';
-  if (status === 'completed') return 'Выполнено';
-  if (dayData.type === 'free') return '—';
-  const labels = {
-    long: 'Длительный',
-    'long-run': 'Длительный',
-    easy: 'Легкий',
-    interval: 'Интервалы',
-    tempo: 'Темп',
-    fartlek: 'Фартлек',
-    race: 'Соревнование',
-    other: 'ОФП',
-    sbu: 'СБУ',
-    walking: 'Ходьба',
-    hiking: 'Поход',
-  };
-  return labels[dayData.type] || dayData.text || 'Тренировка';
 }
 
 /** Порядок и подписи для легенды типов тренировок (цвета из sports-colors.css / WeekCalendar.css) */

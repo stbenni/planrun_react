@@ -2,8 +2,8 @@
 set -euo pipefail
 
 BIN="${PLANRUN_LLAMASERVER_BIN:-/var/www/ai/planrun_ai_service/llama.cpp/build-cuda/bin/llama-server}"
-MODEL="${PLANRUN_LLAMASERVER_MODEL:-/home/st_benni/.lmstudio/models/lmstudio-community/Ministral-3-14B-Reasoning-2512-GGUF/Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf}"
-ALIAS="${PLANRUN_LLAMASERVER_ALIAS:-mistralai/ministral-3-14b-reasoning}"
+MODEL="${PLANRUN_LLAMASERVER_MODEL:-/home/st_benni/.lmstudio/models/lmstudio-community/Qwen3-14B-GGUF/Qwen3-14B-Q4_K_M.gguf}"
+ALIAS="${PLANRUN_LLAMASERVER_ALIAS:-qwen3-14b}"
 HOST="${PLANRUN_LLAMASERVER_HOST:-127.0.0.1}"
 PORT="${PLANRUN_LLAMASERVER_PORT:-8081}"
 CTX="${PLANRUN_LLAMASERVER_CTX:-32768}"

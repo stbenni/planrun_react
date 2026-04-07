@@ -293,7 +293,7 @@ const usePlanStore = create((set, get) => ({
 
       const poll = async (attempts = 0) => {
         if (attempts >= 40) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch (error) { void error; }
           await get().loadPlan();
           set({ recalculating: false, planStatus: { has_plan: true }, error: 'Время ожидания пересчёта истекло. План восстановлен.' });
           get()._updateGeneratingState();
@@ -309,7 +309,7 @@ const usePlanStore = create((set, get) => ({
           return true;
         }
         if (status?.error) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch (error) { void error; }
           await get().loadPlan();
           set({ recalculating: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           get()._updateGeneratingState();
@@ -346,7 +346,7 @@ const usePlanStore = create((set, get) => ({
 
       const poll = async (attempts = 0) => {
         if (attempts >= 50) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch (error) { void error; }
           await get().loadPlan();
           set({ generatingNext: false, planStatus: { has_plan: true }, error: 'Время ожидания генерации нового плана истекло. План восстановлен.' });
           get()._updateGeneratingState();
@@ -362,7 +362,7 @@ const usePlanStore = create((set, get) => ({
           return true;
         }
         if (status?.error) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch (error) { void error; }
           await get().loadPlan();
           set({ generatingNext: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           get()._updateGeneratingState();

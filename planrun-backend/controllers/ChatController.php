@@ -131,6 +131,21 @@ class ChatController extends BaseController {
     }
 
     /**
+     * Очистить диалог пользователя с администрацией
+     * POST chat_clear_admin_dialog
+     */
+    public function clearAdminDialog() {
+        if (!$this->requireAuth()) return;
+
+        try {
+            $deleted = $this->chatService->clearAdminTabDialog($this->currentUserId);
+            $this->returnSuccess(['deleted' => $deleted]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Пользователь: отправить сообщение администрации
      * POST chat_send_message_to_admin { "content": "..." }
      */
@@ -273,6 +288,29 @@ class ChatController extends BaseController {
             $this->returnSuccess(['deleted' => $deleted]);
         } catch (InvalidArgumentException $e) {
             $this->returnError($e->getMessage(), 400);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Админ: очистить весь диалог пользователя
+     * POST chat_admin_clear_conversation
+     */
+    public function clearAdminConversation() {
+        if (!$this->requireAdmin()) return;
+
+        $data = $this->getJsonBody();
+        $targetUserId = (int)($data['user_id'] ?? $data['target_user_id'] ?? 0);
+
+        if ($targetUserId <= 0) {
+            $this->returnError('Не указан ID пользователя', 400);
+            return;
+        }
+
+        try {
+            $deleted = $this->chatService->clearAdminConversation($targetUserId);
+            $this->returnSuccess(['deleted' => $deleted]);
         } catch (Exception $e) {
             $this->handleException($e);
         }

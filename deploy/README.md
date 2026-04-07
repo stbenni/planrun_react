@@ -5,10 +5,16 @@
 ## Nginx (рекомендуется)
 
 - **apply-nginx.sh** — генерирует конфиг из `planrun.nginx.conf.template` для `planrun.ru`/`www.planrun.ru` (SPA из `dist/` + `/api` через PHP-FPM), подставляет `{{PROJECT_ROOT}}`, `{{BOT_ROOT}}` и сокет PHP-FPM, копирует в `sites-available/planrun`, включает сайт и перезагружает Nginx. Запуск из корня проекта: `sudo ./deploy/apply-nginx.sh`. Сокет FPM подставляется автоматически (php8.3/8.2); свой: `PHP_FPM_SOCK=unix:/run/php/php8.2-fpm.sock sudo ./deploy/apply-nginx.sh`. При нестандартном пути к Telegram-боту можно задать `BOT_ROOT=/var/www/planrun-bot`.
+- После применения конфига Nginx раздаёт Android APK из `build/android/` по URL вида:
+  - `https://planrun.ru/downloads/planrun-debug.apk`
+  - `https://planrun.ru/downloads/planrun-release.apk`
 
 ## Apache (альтернатива)
 
 - **apply-apache.sh** — генерирует Apache vhost из `planrun.apache.conf.template`, копирует в `sites-available/planrun-ssl.conf`, перезагружает Apache. Запуск: `sudo ./deploy/apply-apache.sh` из корня проекта.
+- После применения конфига Apache URL для APK такие же:
+  - `https://planrun.ru/downloads/planrun-debug.apk`
+  - `https://planrun.ru/downloads/planrun-release.apk`
 
 ## Общее
 
@@ -103,13 +109,10 @@ php scripts/plan_generation_worker.php --daemon --sleep=10
 - Если хотите вести chat через общий orchestration layer, используйте `CHAT_USE_PLANRUN_AI=1`
 - Если нужен прямой chat в backend без PlanRun AI, `LMSTUDIO_BASE_URL` можно оставить на `:1234` или переключить на `http://127.0.0.1:8081/v1` только после проверки tool-calling сценариев
 
-## Proxy / Xray / Strava note (2026-03-24)
+## Strava / outbound note (2026-03-24)
 
 - Сервер в LAN: `192.168.0.6`.
 - Прямой внешний IP сервера: `93.90.41.237`.
-- В shell-сессиях пользователя `st_benni` заданы `HTTP_PROXY`/`HTTPS_PROXY` через локальный `xray` (`127.0.0.1:10809`; также доступны `127.0.0.1:10808` SOCKS и LAN-порты `192.168.0.6:10808/10809`).
-- При выходе через этот proxy внешний IP виден как `45.148.117.13`.
-- Важно: это не transparent tunnel всего сервера. Default route остаётся обычным (`via 192.168.0.1`), policy routing и firewall redirect всего исходящего трафика в `xray` не настроены. Через туннель идут только приложения/сессии, которые уважают `HTTP_PROXY`/`HTTPS_PROXY` или явно используют proxy.
 - Для Strava отдельный `STRAVA_PROXY` в `planrun-backend/.env` оказался вредным: refresh token и webhook/sync падали по timeout.
 - Рабочее состояние на 2026-03-24: `STRAVA_PROXY=` (пусто), Strava-интеграция работает напрямую, две пропавшие walking-активности успешно импортировались после отключения отдельного proxy.
 - Если Strava снова начнёт блокироваться на прямом выходе, сначала перепроверьте `php scripts/check_strava.php`, и только потом возвращайтесь к отдельному proxy. Справка по отдельному Strava-proxy: `docs/STRAVA_PROXY_SETUP.md`.

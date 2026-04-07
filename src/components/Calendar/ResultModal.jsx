@@ -6,7 +6,7 @@
  * ОФП/СБУ — запланированные + свои.
  */
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Modal from '../common/Modal';
 import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
 import {
@@ -36,7 +36,6 @@ const createRunBlock = (planDay, extraId) => ({
 
 const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave }) => {
   const [runBlocks, setRunBlocks] = useState([]);
-  const [runDistance, setRunDistance] = useState('');
   const [runDuration, setRunDuration] = useState('');
   const [runPace, setRunPace] = useState('');
   const [runHR, setRunHR] = useState('');
@@ -74,12 +73,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const [fartlekCooldownKm, setFartlekCooldownKm] = useState('');
 
   const runPlanDays = (dayPlan.planDays || []).filter(pd => RUN_TYPES.includes(pd.type));
-  const simpleRunPlanDays = runPlanDays.filter(pd => SIMPLE_RUN_TYPES.includes(pd.type));
   const intervalPlanDay = runPlanDays.find(pd => pd.type === 'interval');
   const fartlekPlanDay = runPlanDays.find(pd => pd.type === 'fartlek');
-  const runPlanDay = runPlanDays[0];
-  const runType = runPlanDay?.type || null;
-  const hasRun = runPlanDays.length > 0 || runBlocks.length > 0;
   const ofpExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'ofp') ?? [];
   const sbuExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'sbu') ?? [];
   const hasOfpPlan = dayPlan.planDays?.some(pd => pd.type === 'other') || ofpExercises.length > 0;
@@ -159,7 +154,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   const resetAll = () => {
     setRunBlocks([]);
-    setRunDistance(''); setRunDuration(''); setRunPace(''); setRunHR('');
+    setRunDuration(''); setRunPace(''); setRunHR('');
     setFormData({ notes: '' });
     setDayPlan({ planDays: [], dayExercises: [] });
     setPlannedOfp([]); setPlannedSbu([]);
@@ -314,7 +309,6 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
         const hr = result.avg_heart_rate;
         const hasIntervalOrFartlek = planDays.some(pd => pd.type === 'interval' || pd.type === 'fartlek');
         if (hasIntervalOrFartlek) {
-          if (dist != null && dist !== '') setRunDistance(String(dist));
           if (timeRaw) { const sec = parseTime(timeRaw); setRunDuration(sec != null ? formatTime(sec) : String(timeRaw)); }
           if (paceVal) setRunPace(String(paceVal));
           if (hr) setRunHR(String(hr));

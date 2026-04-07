@@ -5,7 +5,7 @@
  * role=admin → табы «Каталог» + «Мои ученики» + «Запросы»
  */
 
-import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { useSwipeableTabs } from '../hooks/useSwipeableTabs';

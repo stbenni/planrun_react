@@ -330,7 +330,27 @@ class PlanSkeletonGenerator
     {
         $options = [];
 
-        if (!empty($state['weeks_to_goal'])) {
+        $goalDate = $state['race_date'] ?? null;
+        if ($goalDate) {
+            $goalTs = strtotime($goalDate);
+            $planStartDate = null;
+
+            if ($mode === 'recalculate' || $mode === 'next_plan') {
+                $planStartDate = $payload['cutoff_date']
+                    ?? (new DateTime())->modify('monday this week')->format('Y-m-d');
+            } elseif (!empty($this->lastUser['training_start_date'])) {
+                $planStartDate = $this->lastUser['training_start_date'];
+            }
+
+            if ($planStartDate && $goalTs) {
+                $startTs = strtotime($planStartDate);
+                if ($startTs && $goalTs > $startTs) {
+                    $options['weeks'] = (int) ceil(($goalTs - $startTs) / (7 * 86400));
+                }
+            }
+        }
+
+        if (empty($options['weeks']) && !empty($state['weeks_to_goal'])) {
             $options['weeks'] = $state['weeks_to_goal'];
         }
 
@@ -579,7 +599,7 @@ class PlanSkeletonGenerator
                    weight_goal_kg, weight_goal_date, health_program, health_plan_weeks,
                    current_running_level, running_experience, easy_pace_sec,
                    is_first_race_at_distance, last_race_distance, last_race_distance_km,
-                   last_race_time, last_race_date, device_type
+                   last_race_time, last_race_date, device_type, max_hr, rest_hr
             FROM users WHERE id = ?
         ");
         $stmt->bind_param('i', $userId);

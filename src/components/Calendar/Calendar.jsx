@@ -3,7 +3,6 @@
  * Адаптирован из оригинального календаря с полной функциональностью
  */
 
-import React from 'react';
 import Week from './Week';
 import '../../assets/css/calendar_v2.css';
 

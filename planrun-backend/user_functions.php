@@ -46,11 +46,14 @@ function getUserData($userId, $fields = null, $useCache = true) {
                    ofp_preference, preferred_days, preferred_ofp_days, sessions_per_week, 
                    has_treadmill, training_time_pref, easy_pace_sec, 
                    running_experience, last_race_date, last_race_time, last_race_distance, 
-                   last_race_distance_km, is_first_race_at_distance, weight_goal_kg, 
+                   last_race_distance_km, planning_benchmark_distance, planning_benchmark_distance_km,
+                   planning_benchmark_time, planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort,
+                   is_first_race_at_distance, weight_goal_kg, 
                    weight_goal_date, health_program, health_notes, current_running_level, 
-                   health_plan_weeks, device_type, avatar_path, privacy_level, public_token,
+                   health_plan_weeks, device_type, coach_style, avatar_path, privacy_level, public_token,
                    privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts,
-                   push_workouts_enabled, push_chat_enabled, push_workout_hour, push_workout_minute';
+                   push_workouts_enabled, push_chat_enabled, push_workout_hour, push_workout_minute,
+                   max_hr, rest_hr';
     }
     
     try {

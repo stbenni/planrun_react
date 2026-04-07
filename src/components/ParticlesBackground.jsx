@@ -3,7 +3,7 @@
  * Плавающие точки без линий, requestAnimationFrame, wrap по краям
  */
 
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 const rand = (min, max) => min + Math.random() * (max - min);
 

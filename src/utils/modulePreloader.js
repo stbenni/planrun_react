@@ -46,7 +46,7 @@ export const preloadScreenModulesDelayed = (delay = 300) => {
  * Предзагружает модули для авторизованного пользователя.
  * Основные вкладки уже предзагружены в AppTabsContent.
  */
-export const preloadAuthenticatedModules = (role = 'user') => {
+export const preloadAuthenticatedModules = () => {
   runWhenIdle(() => {
     // Только вспомогательные модули — основные уже предзагружены
     import('../screens/UserProfileScreen').catch(() => {});

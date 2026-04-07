@@ -3,8 +3,8 @@
  * Современный дизайн с крупными метриками и цветовой индикацией
  */
 
-import React, { useMemo } from 'react';
-import { CompletedIcon, CalendarIcon, RestIcon, RunningIcon, TimeIcon, MapPinIcon, OtherIcon, BarChartIcon, DistanceIcon, PaceIcon, XCircleIcon, PenLineIcon, TrashIcon } from '../common/Icons';
+import { useMemo } from 'react';
+import { TimeIcon, OtherIcon, BarChartIcon, DistanceIcon, PaceIcon, PenLineIcon, TrashIcon, HeartIcon } from '../common/Icons';
 import './WorkoutCard.css';
 
 const TYPE_NAMES = {
@@ -61,7 +61,7 @@ function stripRedundantTypePrefix(description, type) {
   const upper = trimmed.toUpperCase();
   const typeUpper = typeName.toUpperCase();
   if (!upper.startsWith(typeUpper)) return description;
-  const rest = trimmed.slice(typeName.length).replace(/^[\s:\-]+/, '').trim();
+  const rest = trimmed.slice(typeName.length).replace(/^[\s:-]+/, '').trim();
   return rest || description;
 }
 
@@ -94,7 +94,6 @@ const WorkoutCard = ({
   onPress,
   isToday = false,
   compact = false,
-  dayDetail = null, // {plan, planDays, dayExercises, workouts}
   workoutMetrics = null, // {distance, duration, pace} из workoutsData
   results = [], // Результаты из resultsData
   planDays = [], // [{ id, type, description, is_key_workout? }] — все тренировки дня
@@ -105,30 +104,6 @@ const WorkoutCard = ({
   maxDescriptionItems = null, // при числе (напр. 3) — показывать только первые N пунктов + «и др.» (для двух виджетов в строку)
 }) => {
   const items = (planDays && planDays.length > 0) ? planDays : null;
-  const statusConfig = {
-    completed: { 
-      border: 'var(--success-500)', 
-      Icon: CompletedIcon,
-      label: 'Выполнено'
-    },
-    planned: { 
-      border: 'var(--primary-500)', 
-      Icon: CalendarIcon,
-      label: 'Запланировано'
-    },
-    missed: { 
-      border: 'var(--accent-500)', 
-      Icon: XCircleIcon,
-      label: 'Пропущено'
-    },
-    rest: {
-      border: 'var(--gray-300)',
-      Icon: RestIcon,
-      label: 'Отдых'
-    }
-  };
-
-  const config = statusConfig[status] || statusConfig.planned;
   const isRest = status === 'rest' || !workout || workout?.type === 'free';
   const hasPlanDays = items && items.length > 0;
 
@@ -259,6 +234,11 @@ const WorkoutCard = ({
                   {TYPE_NAMES[planDay.type] || planDay.type || 'Тренировка'}
                   {planDay.type === 'control' && <span className="workout-card-key-badge">Контрольная</span>}
                 </span>
+                {planDay.target_hr_min && planDay.target_hr_max && (
+                  <span className="workout-card-hr-badge">
+                    <HeartIcon size={14} aria-hidden /> {planDay.target_hr_min}–{planDay.target_hr_max}
+                  </span>
+                )}
                 {canEdit && (
                   <div className="workout-card-plan-day-actions">
                     {onEditPlanDay && (

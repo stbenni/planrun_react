@@ -265,7 +265,7 @@ const StatsScreen = () => {
       <div className="stats-screen">
         <div className="stats-empty">
           <div className="empty-icon">⚠️</div>
-          <div className="empty-text">Клиент API не инициализирован</div>
+          <div className="empty-text">Клиент сервиса не готов</div>
         </div>
       </div>
     );

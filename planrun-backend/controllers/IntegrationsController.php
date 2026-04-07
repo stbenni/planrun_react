@@ -51,6 +51,7 @@ class IntegrationsController extends BaseController {
             'uid'  => $this->currentUserId,
             'ts'   => time(),
             'app'  => $fromApp ? 1 : 0,
+            'provider' => $providerId,
         ]));
         $secret = env('JWT_SECRET_KEY', 'oauth-state-fallback-' . md5(__DIR__));
         $hmac = hash_hmac('sha256', $payload, $secret);

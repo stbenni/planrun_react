@@ -3,7 +3,6 @@
  * Рендерится скрыто для захвата html2canvas
  */
 
-import React from 'react';
 import { HeartIcon } from '../common/Icons';
 
 const CARD_WIDTH = 420;
@@ -257,7 +256,6 @@ const ShareMetricTile = ({
 const ShareRoutePreview = ({
   timeline,
   staticMapUrl = null,
-  staticMapAttribution = null,
   marginTop = 20,
   height = 216,
   elevated = false,

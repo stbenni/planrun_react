@@ -4,7 +4,6 @@
  */
 
 import BiometricService from '../services/BiometricService';
-import PinAuthService from '../services/PinAuthService';
 import TokenStorageService, { isNativeCapacitor } from '../services/TokenStorageService';
 import { ApiError, buildApiError, extractRetryAfter } from './apiError';
 import {
@@ -93,6 +92,7 @@ import {
   chatGetDirectMessages as performChatGetDirectMessages,
   chatSendMessageToUser as performChatSendMessageToUser,
   chatClearDirectDialog as performChatClearDirectDialog,
+  chatClearAdminDialog as performChatClearAdminDialog,
   chatMarkRead as performChatMarkRead,
   chatClearAi as performChatClearAi,
   chatMarkAllRead as performChatMarkAllRead,
@@ -101,6 +101,7 @@ import {
   getAdminChatUsers as performGetAdminChatUsers,
   chatAdminGetMessages as performChatAdminGetMessages,
   chatAdminMarkConversationRead as performChatAdminMarkConversationRead,
+  chatAdminClearConversation as performChatAdminClearConversation,
   chatAddAIMessage as performChatAddAIMessage,
   chatAdminGetUnreadNotifications as performChatAdminGetUnreadNotifications,
   chatAdminBroadcast as performChatAdminBroadcast,
@@ -147,6 +148,13 @@ function getExpFromToken(token) {
   }
 }
 
+function getAsyncStorage() {
+  if (typeof globalThis === 'undefined') {
+    return null;
+  }
+  return globalThis.AsyncStorage || null;
+}
+
 class ApiClient {
   constructor(baseUrl = null) {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -160,10 +168,8 @@ class ApiClient {
       if (isNativeOrigin && envBase) {
         this.baseUrl = envBase.endsWith('/api') ? envBase : `${envBase.replace(/\/$/, '')}/api`;
       } else if (isNativeOrigin) {
-        this.baseUrl = 'https://planrun.ru/api';
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[ApiClient] Native origin without VITE_API_BASE_URL — используем fallback. Для продакшена задайте VITE_API_BASE_URL при сборке.');
-        }
+        console.error('[ApiClient] CRITICAL: Native origin without VITE_API_BASE_URL. Set VITE_API_BASE_URL in build config.');
+        this.baseUrl = 'https://planrun.ru/api'; // fallback — должен быть задан через VITE_API_BASE_URL
       } else if (typeof window !== 'undefined') {
         this.baseUrl = '/api';
       } else {
@@ -226,17 +232,16 @@ class ApiClient {
       // Для React Native используем AsyncStorage (асинхронно)
       // AsyncStorage должен быть импортирован в React Native версии
       try {
-        // В React Native версии нужно добавить: import AsyncStorage from '@react-native-async-storage/async-storage';
-        // Здесь используем глобальный AsyncStorage если доступен
-        if (typeof AsyncStorage !== 'undefined') {
+        const asyncStorage = getAsyncStorage();
+        if (asyncStorage) {
           if (token) {
-            await AsyncStorage.setItem('auth_token', token);
+            await asyncStorage.setItem('auth_token', token);
             if (refreshToken) {
-              await AsyncStorage.setItem('refresh_token', refreshToken);
+              await asyncStorage.setItem('refresh_token', refreshToken);
             }
           } else {
-            await AsyncStorage.removeItem('auth_token');
-            await AsyncStorage.removeItem('refresh_token');
+            await asyncStorage.removeItem('auth_token');
+            await asyncStorage.removeItem('refresh_token');
           }
         }
       } catch (error) {
@@ -297,10 +302,11 @@ class ApiClient {
         // игнорируем
       }
     }
-    if (!token && typeof AsyncStorage !== 'undefined') {
+    const asyncStorage = getAsyncStorage();
+    if (!token && asyncStorage) {
       try {
-        token = await AsyncStorage.getItem('auth_token');
-        const refreshToken = await AsyncStorage.getItem('refresh_token');
+        token = await asyncStorage.getItem('auth_token');
+        const refreshToken = await asyncStorage.getItem('refresh_token');
         if (token) {
           this.token = token;
           if (refreshToken) this.refreshToken = refreshToken;
@@ -374,8 +380,9 @@ class ApiClient {
     }
 
     try {
-      if (typeof AsyncStorage !== 'undefined') {
-        return await AsyncStorage.getItem('refresh_token');
+      const asyncStorage = getAsyncStorage();
+      if (asyncStorage) {
+        return await asyncStorage.getItem('refresh_token');
       }
     } catch (error) {
       console.error('Error getting refresh token:', error);
@@ -444,10 +451,7 @@ class ApiClient {
           // Синхронизация в BiometricService — иначе после refresh PIN/биометрия будут использовать устаревшие токены
           if (isNativeCapacitor()) {
             try {
-              const [pinEnabled, biometricEnabled] = await Promise.all([
-                PinAuthService.isPinEnabled(),
-                BiometricService.isBiometricEnabled()
-              ]);
+              const biometricEnabled = await BiometricService.isBiometricEnabled();
               if (biometricEnabled) {
                 await BiometricService.saveTokens(access_token, refresh_token).catch((e) => {
                   if (process.env.NODE_ENV !== 'production') {
@@ -540,8 +544,12 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    // Для POST запросов отправляем JSON в теле запроса
-    if (method === 'POST' && Object.keys(params).length > 0) {
+    // Для POST запросов отправляем JSON или FormData в теле запроса
+    if (method === 'POST' && params instanceof FormData) {
+      // FormData (файлы) — браузер сам выставит Content-Type с boundary
+      options.body = params;
+      delete headers['Content-Type'];
+    } else if (method === 'POST' && Object.keys(params).length > 0) {
       // Отправляем как JSON, так как updateProfile использует getJsonBody()
       options.body = JSON.stringify(params);
       headers['Content-Type'] = 'application/json';
@@ -636,7 +644,9 @@ class ApiClient {
         let errorData = {};
         try {
           errorData = await response.json();
-        } catch (_) {}
+        } catch (error) {
+          void error;
+        }
         throw buildApiError({
           response,
           data: errorData,
@@ -792,7 +802,8 @@ class ApiClient {
       const timeoutMs = action === 'generate_workout_share_card' ? 30000 : REQUEST_TIMEOUT_MS;
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const { url: _ignoredUrl, ...requestOptions } = options;
+        const requestOptions = { ...options };
+        delete requestOptions.url;
         return await fetch(finalUrl, { ...requestOptions, headers: requestHeaders, signal: controller.signal });
       } finally {
         clearTimeout(timeoutId);
@@ -1129,6 +1140,10 @@ class ApiClient {
     return performGetWorkoutTimeline(this, workoutId);
   }
 
+  async analyzeWorkoutAi(date, workoutIndex = 0) {
+    return this.request(`analyze_workout_ai&date=${encodeURIComponent(date)}&workout_index=${workoutIndex}`);
+  }
+
   async getWorkoutShareMap(workoutId, options = {}) {
     return performGetWorkoutShareMap(this, workoutId, options);
   }
@@ -1406,6 +1421,13 @@ class ApiClient {
   }
 
   /**
+   * Очистить диалог пользователя с администрацией
+   */
+  async chatClearAdminDialog() {
+    return performChatClearAdminDialog(this);
+  }
+
+  /**
    * Отметить сообщения как прочитанные
    * @param {number} conversationId
    */
@@ -1466,6 +1488,14 @@ class ApiClient {
    */
   async chatAdminMarkConversationRead(userId) {
     return performChatAdminMarkConversationRead(this, userId);
+  }
+
+  /**
+   * Админ: очистить диалог пользователя
+   * @param {number} userId - ID пользователя
+   */
+  async chatAdminClearConversation(userId) {
+    return performChatAdminClearConversation(this, userId);
   }
 
   /**

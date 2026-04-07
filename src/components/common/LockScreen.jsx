@@ -3,7 +3,7 @@
  * Показывается при запуске, когда включены PIN или биометрия.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FingerprintIcon } from './Icons';
 import PinInput from './PinInput';
@@ -52,11 +52,11 @@ const LockScreen = () => {
       if (result?.success) {
         return;
       }
-      setError(result?.error || 'Неверный PIN');
+      setError(result?.error || 'Неверный ПИН-код');
       setIsNetworkError(result?.isNetworkError ?? false);
       if (!result?.isNetworkError) setPinValue('');
     } catch (err) {
-      setError(err.message || 'Ошибка входа по PIN');
+      setError(err.message || 'Ошибка входа по ПИН-коду');
       setPinValue('');
     } finally {
       setPinLoading(false);
@@ -103,7 +103,7 @@ const LockScreen = () => {
 
         {pinEnabled && (
           <div className="biometric-section pin-section">
-            <p className="pin-section-hint">Введите PIN-код</p>
+            <p className="pin-section-hint">Введите ПИН-код</p>
             <PinInput
               length={4}
               value={pinValue}

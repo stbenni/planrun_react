@@ -6,9 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "npx vite build",
+    "build:maps": "GENERATE_SOURCEMAP=true npx vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext js,jsx",
-    "apk": "rm -f public/planrun.apk && npm run build && npx cap sync android && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleRelease && cd .. && cp android/app/build/outputs/apk/release/app-release.apk test.apk && cp test.apk public/planrun.apk && npm run build"
+    "android:sync": "npm run build && npx cap sync android && node scripts/fix-capacitor-cordova-gradle.js",
+    "android:debug": "npm run android:sync && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleDebug && cd .. && mkdir -p build/android && cp android/app/build/outputs/apk/debug/app-debug.apk build/android/planrun-debug.apk",
+    "android:install": "npm run android:debug && adb install -r build/android/planrun-debug.apk",
+    "android:release": "npm run android:sync && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleRelease && cd .. && mkdir -p build/android && cp android/app/build/outputs/apk/release/app-release.apk build/android/planrun-release.apk",
+    "android:publish-debug": "npm run android:debug && mkdir -p dist/downloads && cp build/android/planrun-debug.apk dist/downloads/planrun-debug.apk",
+    "android:publish-release": "npm run android:release && mkdir -p dist/downloads && cp build/android/planrun-release.apk dist/downloads/planrun-release.apk",
+    "apk": "npm run android:release"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",
@@ -31,6 +38,7 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-leaflet": "^5.0.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.20.0",
     "zustand": "^5.0.10"
   },

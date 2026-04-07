@@ -85,6 +85,8 @@ class StatsController extends BaseController {
             $userId = $this->calendarUserId;
             $user = getUserData($userId, 'id, goal_type, race_date, race_distance, race_target_time, '
                 . 'last_race_distance, last_race_distance_km, last_race_time, last_race_date, '
+                . 'planning_benchmark_distance, planning_benchmark_distance_km, planning_benchmark_time, '
+                . 'planning_benchmark_date, planning_benchmark_type, planning_benchmark_effort, '
                 . 'easy_pace_sec, weekly_base_km, experience_level');
 
             if (!$user) {

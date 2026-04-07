@@ -2,7 +2,7 @@
  * Экран смены пароля по токену
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import getAuthClient from '../api/getAuthClient';
 import { getAuthErrorMessage, getAuthRetryAfter } from '../utils/authError';

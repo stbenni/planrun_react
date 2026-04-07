@@ -265,7 +265,9 @@ class CredentialBackupService {
             }
           }
         }
-      } catch (_) {}
+      } catch (error) {
+        void error;
+      }
     }
 
     if (!username || !password) {
@@ -294,7 +296,9 @@ class CredentialBackupService {
       if (storage) {
         try {
           await storage.remove(KEY_SECURE);
-        } catch (_) {}
+        } catch (error) {
+          void error;
+        }
       }
       return true;
     } catch {

@@ -2,7 +2,7 @@
  * Компонент графика пульса по времени с адаптивностью и tooltip
  */
 
-import React, { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { HeartIcon } from '../common/Icons';
 

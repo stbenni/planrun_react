@@ -4,11 +4,11 @@
  * При наличии dayExercises показываем единый вид карточек (план + упражнения), иначе — planHtml
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
-import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon, CloseIcon, PenLineIcon } from '../common/Icons';
+import { CalendarIcon, DistanceIcon, TimeIcon, PaceIcon, ActivityTypeIcon, XCircleIcon, TrashIcon, CloseIcon, PenLineIcon, BotIcon } from '../common/Icons';
 import '../../assets/css/calendar_v2.css';
 import './DayModal.modern.css';
 import './AddTrainingModal.css';
@@ -40,7 +40,7 @@ const formatDurationDisplay = (minutesOrSeconds, isSeconds = false) => {
   return s > 0 ? `${s}с` : null;
 };
 
-const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, viewContext = null, onOpenResultModal, onTrainingAdded, onEditTraining, refreshKey, openWorkoutDetailsInitially = false }) => {
+const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = false, viewContext = null, onOpenResultModal, onTrainingAdded, refreshKey, openWorkoutDetailsInitially = false }) => {
   const [dayData, setDayData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -137,19 +137,6 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
       setDayData(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDeletePlanDay = async (dayId) => {
-    if (!dayId || !api?.deleteTrainingDay) return;
-    if (!window.confirm('Удалить эту тренировку из плана?')) return;
-    try {
-      await api.deleteTrainingDay(dayId, viewContext || undefined);
-      await loadDayData();
-      onTrainingAdded?.();
-    } catch (err) {
-      console.error('Error deleting plan day:', err);
-      alert('Ошибка удаления: ' + (err?.message || 'Не удалось удалить тренировку'));
     }
   };
 
@@ -562,6 +549,21 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
                 onClick={() => { onClose(); navigate(`/chat?contact=${encodeURIComponent(viewContext.slug)}`); }}
               >
                 Написать атлету
+              </button>
+            </div>
+          )}
+          {!viewContext?.slug && !loading && !error && date && (dayData?.planDays?.length > 0 || hasCompletedWorkouts) && (
+            <div className="day-modal-copy-row">
+              <button
+                type="button"
+                className="btn btn-ghost btn--sm day-modal-ask-coach"
+                onClick={() => {
+                  onClose();
+                  const ctx = hasCompletedWorkouts ? 'workout' : 'day';
+                  navigate(`/chat?context=${ctx}&date=${encodeURIComponent(date)}`);
+                }}
+              >
+                <BotIcon size={16} /> Спросить тренера
               </button>
             </div>
           )}

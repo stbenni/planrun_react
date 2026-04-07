@@ -98,8 +98,6 @@ const UserProfileScreen = () => {
   const [coachRequestError, setCoachRequestError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-
     const loadUserProfile = async () => {
       if (!username) {
         setLoading(false);
@@ -136,9 +134,6 @@ const UserProfileScreen = () => {
     };
 
     loadUserProfile();
-    return () => {
-      cancelled = true;
-    };
   }, [api, username, token]);
 
   const viewContext = React.useMemo(() => {
@@ -432,7 +427,6 @@ const UserProfileScreen = () => {
 
   const isOwner = access.is_owner;
   const canView = access.can_view;
-  const canEdit = access.can_edit;
   const goalText = formatGoalText(profileUser);
   const showEmail = isOwner || (profileUser.privacy_show_email !== 0 && profileUser.privacy_show_email !== '0');
   const showTrainer = isOwner || (profileUser.privacy_show_trainer !== 0 && profileUser.privacy_show_trainer !== '0');
@@ -534,7 +528,7 @@ const UserProfileScreen = () => {
                 {(profileUser.training_mode === 'ai' || profileUser.training_mode === 'both') && (
                   <span className="profile-ai-trainer">
                     <span className="profile-ai-trainer-logo">
-                      <span className="logo-plan">plan</span><span className="logo-run">RUN</span> <span className="logo-ai">AI</span>
+                      <span className="logo-plan">plan</span><span className="logo-run">RUN</span> <span className="logo-ai">ИИ</span>
                     </span>
                   </span>
                 )}
@@ -574,7 +568,7 @@ const UserProfileScreen = () => {
             )}
             {(() => {
               let specs = [];
-              try { specs = JSON.parse(profileUser.coach_specialization || '[]'); } catch {}
+              try { specs = JSON.parse(profileUser.coach_specialization || '[]'); } catch (error) { void error; }
               return specs.length > 0 ? (
                 <div className="coach-profile-specs">
                   {specs.map((s) => (

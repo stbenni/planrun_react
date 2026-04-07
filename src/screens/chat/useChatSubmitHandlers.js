@@ -10,11 +10,8 @@ export function useChatSubmitHandlers({
   selectedChat,
   contactUserForDialog,
   selectedChatUser,
-  sending,
   chatAdminSending,
-  input,
-  inputRef,
-  setInput,
+  clearInputValue,
   setSending,
   setChatAdminSending,
   setError,
@@ -27,23 +24,12 @@ export function useChatSubmitHandlers({
   setRecalcMessage,
   setNextPlanMessage,
   loadDirectDialogs,
+  loadChatUsers,
   loadChatAdminMessages,
   onBeforeSend,
 }) {
   // Ref чтобы sendContent не зависел от sending/input (избегаем stale closure)
   const sendingRef = useRef(false);
-
-  const readInputValue = useCallback(() => {
-    const domValue = inputRef?.current?.value;
-    return typeof domValue === 'string' ? domValue : input;
-  }, [input, inputRef]);
-
-  const clearInputValue = useCallback(() => {
-    if (inputRef?.current) {
-      inputRef.current.value = '';
-    }
-    setInput('');
-  }, [inputRef, setInput]);
 
   /**
    * Ядро отправки — принимает текст напрямую.
@@ -188,7 +174,7 @@ export function useChatSubmitHandlers({
         setMessages((prev) => prev.map((message) => (
           message.id === aiPlaceholder.id ? { ...message, sender_type: 'ai', content: fullContent } : message
         )));
-        if (!fullContent) setError('AI не вернул ответ. Попробуйте ещё раз.');
+        if (!fullContent) setError('ИИ не вернул ответ. Попробуйте ещё раз.');
       })
       .catch((error) => {
         if (error?.name === 'AbortError') return;
@@ -226,12 +212,11 @@ export function useChatSubmitHandlers({
     user,
   ]);
 
-  /** Form submit — берёт текст из input state */
-  const handleSubmit = useCallback((event) => {
-    event.preventDefault();
-    const content = readInputValue().trim();
+  /** Submit from composer or imperative send */
+  const handleSubmit = useCallback((rawContent) => {
+    const content = String(rawContent || '').trim();
     if (content) sendContent(content);
-  }, [readInputValue, sendContent]);
+  }, [sendContent]);
 
   /** Прямая отправка по клику (quick-reply pills, suggested prompts) */
   const sendDirect = useCallback((text) => {
@@ -239,9 +224,8 @@ export function useChatSubmitHandlers({
     if (content) sendContent(content);
   }, [sendContent]);
 
-  const handleAdminChatSend = useCallback(async (event) => {
-    event.preventDefault();
-    const content = readInputValue().trim();
+  const handleAdminChatSend = useCallback(async (rawContent) => {
+    const content = String(rawContent || '').trim();
     if (!api || !selectedChatUser || !content || chatAdminSending) return;
     onBeforeSend?.();
     clearInputValue();
@@ -261,20 +245,30 @@ export function useChatSubmitHandlers({
     clearInputValue,
     loadChatAdminMessages,
     onBeforeSend,
-    readInputValue,
     selectedChatUser,
     setChatAdminSending,
     setError,
   ]);
 
   const handleClearAiChat = useCallback(async () => {
-    if (!api || !window.confirm('Очистить историю чата с AI? Это действие нельзя отменить.')) return;
+    if (!api || !window.confirm('Очистить историю чата с ИИ? Это действие нельзя отменить.')) return;
     try {
       await api.chatClearAi();
       setMessages([]);
       setError(null);
     } catch (error) {
       setError(error.message || 'Не удалось очистить чат');
+    }
+  }, [api, setError, setMessages]);
+
+  const handleClearAdminDialog = useCallback(async () => {
+    if (!api || !window.confirm('Очистить диалог с администрацией? Это действие нельзя отменить.')) return;
+    try {
+      await api.chatClearAdminDialog();
+      setMessages([]);
+      setError(null);
+    } catch (error) {
+      setError(error.message || 'Не удалось очистить диалог');
     }
   }, [api, setError, setMessages]);
 
@@ -290,6 +284,20 @@ export function useChatSubmitHandlers({
       setError(error.message || 'Не удалось очистить диалог');
     }
   }, [api, contactUserForDialog, loadDirectDialogs, setError, setUserDialogMessages]);
+
+  const handleClearAdminConversation = useCallback(async () => {
+    if (!api || !selectedChatUser?.id) return;
+    if (!window.confirm(`Очистить диалог с ${selectedChatUser.username || 'пользователем'}? Это действие нельзя отменить.`)) return;
+    try {
+      await api.chatAdminClearConversation(selectedChatUser.id);
+      setChatAdminSending(false);
+      await loadChatAdminMessages(selectedChatUser.id);
+      await loadChatUsers?.();
+      setError(null);
+    } catch (error) {
+      setError(error.message || 'Не удалось очистить диалог');
+    }
+  }, [api, loadChatAdminMessages, loadChatUsers, selectedChatUser, setChatAdminSending, setError]);
 
   const handleMarkAllRead = useCallback(async (isAdmin) => {
     if (!api) return;
@@ -310,7 +318,9 @@ export function useChatSubmitHandlers({
     sendDirect,
     handleAdminChatSend,
     handleClearAiChat,
+    handleClearAdminDialog,
     handleClearDirectDialog,
+    handleClearAdminConversation,
     handleMarkAllRead,
   };
 }

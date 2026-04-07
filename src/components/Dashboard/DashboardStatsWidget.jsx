@@ -3,7 +3,7 @@
  * Внешний вид как у быстрых метрик: те же SVG-иконки и стиль карточек.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { processStatsData } from '../Stats/StatsUtils';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from './DashboardMetricIcons';
 import LogoLoading from '../common/LogoLoading';

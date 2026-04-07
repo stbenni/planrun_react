@@ -79,6 +79,10 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
                 if ($day['is_key_workout']) {
                     $item['key'] = true;
                 }
+                if (!empty($day['target_hr_min']) && !empty($day['target_hr_max'])) {
+                    $item['target_hr_min'] = (int) $day['target_hr_min'];
+                    $item['target_hr_max'] = (int) $day['target_hr_max'];
+                }
                 
                 if ($days[$dayName] === null) {
                     $days[$dayName] = [$item];

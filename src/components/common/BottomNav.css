@@ -53,6 +53,7 @@
     radial-gradient(circle at right center, rgba(252, 76, 2, 0.05), transparent 22%);
   pointer-events: none;
   z-index: 0;
+  transition: opacity 140ms ease;
 }
 
 .bottom-nav::after {
@@ -64,6 +65,7 @@
   pointer-events: none;
   z-index: 0;
   opacity: 0.65;
+  transition: opacity 140ms ease;
 }
 
 /* Таблетка: фиксированные 8px сверху/снизу, min-height чтобы не схлопывалась на Android */
@@ -263,6 +265,36 @@
     right: var(--bottom-nav-floating-gap, 12px);
     bottom: var(--bottom-nav-floating-gap, 12px);
   }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bottom-nav {
+      transition:
+        transform 300ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 180ms ease,
+        visibility 180ms ease,
+        bottom 300ms cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform, opacity;
+    }
+  }
+
+  body.chat-page-active.chat-conversation-active .bottom-nav,
+  body.chat-page-active.chat-keyboard-open .bottom-nav {
+    transform: translateY(calc(100% + var(--app-safe-area-bottom) + 18px));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    box-shadow: none;
+    border-color: transparent;
+  }
+
+  body.chat-page-active.chat-conversation-active .bottom-nav::before,
+  body.chat-page-active.chat-conversation-active .bottom-nav::after,
+  body.chat-page-active.chat-conversation-active .bottom-nav .nav-pill,
+  body.chat-page-active.chat-keyboard-open .bottom-nav::before,
+  body.chat-page-active.chat-keyboard-open .bottom-nav::after,
+  body.chat-page-active.chat-keyboard-open .bottom-nav .nav-pill {
+    opacity: 0;
+  }
 }
 
 /* На реальных мобильных устройствах — явно те же значения (fallback для Android) */
@@ -308,7 +340,7 @@ html.native-app .bottom-nav {
   padding-bottom: 6px;
   height: 72px;
   min-height: 72px;
-  bottom: calc(var(--bottom-nav-floating-gap, 12px) + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--bottom-nav-floating-gap, 12px) + var(--app-safe-area-bottom));
   align-items: center;
   display: flex;
   justify-content: space-around;

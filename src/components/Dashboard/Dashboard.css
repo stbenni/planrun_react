@@ -919,6 +919,7 @@ body.dashboard-customizer-dragging {
 .dashboard-row-two .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-metrics-grid),
+.dashboard-row-two .dashboard-module-card:has(.coach-tip-widget),
 .dashboard-row-two .dashboard-module-card:has(.race-prediction),
 .dashboard-row-two .dashboard-module-card:has(.training-load),
 .dashboard-row-two .dashboard-module-card:has(.dashboard-module-link-card),
@@ -927,7 +928,7 @@ body.dashboard-customizer-dragging {
 }
 
 /* Hover только у «обычных» карточек без оформления — не трогаем виджеты с контейнером */
-.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):not(:has(.race-prediction)):not(:has(.training-load)):hover {
+.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):not(:has(.coach-tip-widget)):not(:has(.race-prediction)):not(:has(.training-load)):hover {
   box-shadow: none;
 }
 
@@ -937,6 +938,7 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-module-card:has(.dashboard-metrics-grid),
+.dashboard-module-card:has(.coach-tip-widget),
 .dashboard-module-card:has(.race-prediction),
 .dashboard-module-card:has(.training-load) {
   position: relative;
@@ -948,6 +950,7 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip)::before,
 .dashboard-module-card:has(.dashboard-stats-widget)::before,
 .dashboard-module-card:has(.dashboard-metrics-grid)::before,
+.dashboard-module-card:has(.coach-tip-widget)::before,
 .dashboard-module-card:has(.race-prediction)::before,
 .dashboard-module-card:has(.training-load)::before {
   content: "";
@@ -962,6 +965,7 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card--week-progress::before,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget)::before,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid)::before,
+[data-theme="dark"] .dashboard-module-card:has(.coach-tip-widget)::before,
 [data-theme="dark"] .dashboard-module-card:has(.race-prediction)::before,
 [data-theme="dark"] .dashboard-module-card:has(.training-load)::before {
   background: var(--card-surface-overlay);
@@ -981,6 +985,7 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip):hover,
 .dashboard-module-card:has(.dashboard-stats-widget):hover,
 .dashboard-module-card:has(.dashboard-metrics-grid):hover,
+.dashboard-module-card:has(.coach-tip-widget):hover,
 .dashboard-module-card:has(.race-prediction):hover,
 .dashboard-module-card:has(.training-load):hover {
   transform: translateY(-4px);
@@ -992,6 +997,7 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-week-strip):hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget):hover,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid):hover,
+[data-theme="dark"] .dashboard-module-card:has(.coach-tip-widget):hover,
 [data-theme="dark"] .dashboard-module-card:has(.race-prediction):hover,
 [data-theme="dark"] .dashboard-module-card:has(.training-load):hover {
   transform: translateY(-4px);
@@ -1748,6 +1754,23 @@ body.dashboard-customizer-dragging {
   box-shadow: var(--card-surface-shadow);
 }
 
+/* Виджет советов тренера — контейнер как у остальных data widgets */
+.dashboard-module-card:has(.coach-tip-widget) {
+  background: var(--card-surface-bg);
+  border: 1px solid var(--card-surface-border);
+  border-radius: var(--card-surface-radius);
+  padding: var(--dashboard-card-padding);
+  box-shadow: var(--card-surface-shadow);
+  backdrop-filter: var(--card-surface-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+}
+
+[data-theme="dark"] .dashboard-module-card:has(.coach-tip-widget) {
+  background: var(--card-surface-bg);
+  border-color: var(--card-surface-border);
+  box-shadow: var(--card-surface-shadow);
+}
+
 /* Виджет тренировочной нагрузки — контейнер (как у прогноза и статистики) */
 .dashboard-module-card:has(.training-load) {
   background: var(--card-surface-bg);
@@ -1801,6 +1824,7 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-week-strip),
 .dashboard-module-card:has(.dashboard-stats-widget),
 .dashboard-module-card:has(.dashboard-metrics-grid),
+.dashboard-module-card:has(.coach-tip-widget),
 .dashboard-module-card:has(.race-prediction),
 .dashboard-module-card:has(.training-load) {
   background: var(--card-surface-bg);
@@ -1813,6 +1837,7 @@ body.dashboard-customizer-dragging {
 [data-theme="dark"] .dashboard-module-card--week-progress,
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-stats-widget),
 [data-theme="dark"] .dashboard-module-card:has(.dashboard-metrics-grid),
+[data-theme="dark"] .dashboard-module-card:has(.coach-tip-widget),
 [data-theme="dark"] .dashboard-module-card:has(.race-prediction),
 [data-theme="dark"] .dashboard-module-card:has(.training-load) {
   background: var(--card-surface-bg);
@@ -3043,6 +3068,10 @@ body.dashboard-customizer-dragging {
 
   .dashboard-row-two .dashboard-module-card {
     min-height: 120px;
+  }
+
+  .dashboard-row-two .dashboard-module-card:has(.coach-tip-widget) {
+    padding: var(--dashboard-card-padding);
   }
 
   /* Кастомайзер на мобильных: узкая полоска по умолчанию, при наведении карточкой — плавно расширяется */

@@ -87,10 +87,13 @@ class WeekRepository extends BaseRepository {
      * Добавить день тренировки
      */
     public function addTrainingDay($data, $userId) {
-        $sql = "INSERT INTO training_plan_days 
-                (user_id, week_id, day_of_week, type, description, date, is_key_workout)
-                VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
+        $sql = "INSERT INTO training_plan_days
+                (user_id, week_id, day_of_week, type, description, date, is_key_workout, target_hr_min, target_hr_max)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $hrMin = $data['target_hr_min'] ?? null;
+        $hrMax = $data['target_hr_max'] ?? null;
+
         $params = [
             $userId,
             $data['week_id'],
@@ -98,10 +101,12 @@ class WeekRepository extends BaseRepository {
             $data['type'],
             $data['description'] ?? null,
             $data['date'] ?? null,
-            $data['is_key_workout'] ?? 0
+            $data['is_key_workout'] ?? 0,
+            $hrMin,
+            $hrMax
         ];
-        
-        return $this->execute($sql, $params, 'iiisssi');
+
+        return $this->execute($sql, $params, 'iiisssiii');
     }
 
     /**
@@ -109,11 +114,13 @@ class WeekRepository extends BaseRepository {
      * Пустое описание не затирает существующее (важно для ОФП/СБУ, где контент в description).
      */
     public function updateTrainingDayById($dayId, $userId, $data) {
-        $sql = "UPDATE training_plan_days SET type = ?, description = COALESCE(NULLIF(?, ''), description), is_key_workout = ? WHERE id = ? AND user_id = ?";
+        $sql = "UPDATE training_plan_days SET type = ?, description = COALESCE(NULLIF(?, ''), description), is_key_workout = ?, target_hr_min = ?, target_hr_max = ? WHERE id = ? AND user_id = ?";
         $type = $data['type'] ?? '';
         $description = isset($data['description']) ? (string) $data['description'] : '';
         $isKey = isset($data['is_key_workout']) ? (int) (bool) $data['is_key_workout'] : 0;
-        return $this->execute($sql, [$type, $description, $isKey, $dayId, $userId], 'ssiii');
+        $hrMin = $data['target_hr_min'] ?? null;
+        $hrMax = $data['target_hr_max'] ?? null;
+        return $this->execute($sql, [$type, $description, $isKey, $hrMin, $hrMax, $dayId, $userId], 'ssiiiii');
     }
 
     /**

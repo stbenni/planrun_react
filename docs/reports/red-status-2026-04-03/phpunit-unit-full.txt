@@ -1,0 +1,1493 @@
+PHPUnit 10.5.61 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.3.6
+Configuration: /var/www/planrun/planrun-backend/phpunit.xml
+
+EEEFEEEEEEEEEEEEEEEEEnormalizeTrainingPlan: preferences loaded, allowedRunDays=[2,3,7,4,6,1], allowedOfpDays=[]
+FnormalizeTrainingPlan: preferences=NULL — no schedule enforcement
+FnormalizeTrainingPlan: preferences=NULL — no schedule enforcement
+FnormalizeTrainingPlan: preferences=NULL — no schedule enforcement
+FnormalizeTrainingPlan: preferences=NULL — no schedule enforcement
+FnormalizeTrainingPlan: preferences loaded, allowedRunDays=[1,2,3,4], allowedOfpDays=[]
+FnormalizeTrainingPlan: preferences loaded, allowedRunDays=[1,2,3,4,6,7], allowedOfpDays=[]
+.EEEEEEEEEEEEEEEEEEEFFFFFFEEEEEE....  63 / 173 ( 36%)
+............................................................... 126 / 173 ( 72%)
+.....FF........................................                 173 / 173 (100%)
+
+Time: 00:00.226, Memory: 14.00 MB
+
+There were 45 errors:
+
+1) Tests\Unit\PlanGeneratorCorrectivePassTest::test_maybeApplyCorrectiveRegenerationToPlan_skipsSecondPassWithoutErrors
+Error: Call to undefined function Tests\Unit\maybeApplyCorrectiveRegenerationToPlan()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:91
+
+2) Tests\Unit\PlanGeneratorCorrectivePassTest::test_maybeApplyCorrectiveRegenerationToPlan_usesImprovedCorrectedPlan
+Error: Call to undefined function Tests\Unit\maybeApplyCorrectiveRegenerationToPlan()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:164
+
+3) Tests\Unit\PlanGeneratorCorrectivePassTest::test_decodeGeneratedPlanResponse_trimsWeeksLongerThanSkeleton
+Error: Call to undefined function Tests\Unit\decodeGeneratedPlanResponse()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:46
+
+4) Tests\Unit\PlanNormalizerTest::test_applyTrainingStatePaceRepairs_clampsSimpleRunPacesToPolicy
+Error: Call to undefined function Tests\Unit\applyTrainingStatePaceRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:250
+
+5) Tests\Unit\PlanNormalizerTest::test_applyControlWorkoutFallback_for_marathon_keeps_control_as_benchmark_not_mp_work
+Error: Call to undefined function Tests\Unit\applyControlWorkoutFallback()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:276
+
+6) Tests\Unit\PlanNormalizerTest::test_applyTrainingStatePaceRepairs_keeps_goal_specific_marathon_tempo_near_goal_pace
+Error: Call to undefined function Tests\Unit\applyTrainingStatePaceRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:312
+
+7) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateLoadRepairs_capsAggressiveSpikeWithoutBreakingLongRun
+Error: Call to undefined function Tests\Unit\applyTrainingStateLoadRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:345
+
+8) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateLoadRepairs_prefers_easy_and_long_cuts_before_interval
+Error: Call to undefined function Tests\Unit\applyTrainingStateLoadRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:400
+
+9) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateLoadRepairs_strengthensPreRaceAndRaceWeekTaper
+Error: Call to undefined function Tests\Unit\applyTrainingStateLoadRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:460
+
+10) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateLoadRepairs_can_retrim_easy_days_after_first_cutback_pass
+Error: Call to undefined function Tests\Unit\applyTrainingStateLoadRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:516
+
+11) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateMinimumDistanceRepairs_raises_short_easy_days_for_personal_override
+Error: Call to undefined function Tests\Unit\applyTrainingStateMinimumDistanceRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:553
+
+12) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_expands_generic_tempo_into_meaningful_structure
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:585
+
+13) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_enriches_generic_control_day
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:618
+
+14) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_adds_segments_for_missing_fartlek_structure
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:647
+
+15) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_adds_interval_structure_when_missing
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:673
+
+16) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_enriches_generic_tempo_day
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:701
+
+17) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_uses_week_contract_for_goal_specific_marathon_tempo
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:729
+
+18) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_respects_recalculate_week_offset_in_contract
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:763
+
+19) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateWorkoutDetailFallbacks_uses_shorter_interval_fallback_in_race_execution_week
+Error: Call to undefined function Tests\Unit\applyTrainingStateWorkoutDetailFallbacks()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:798
+
+20) Tests\Unit\PlanNormalizerTest::test_applyTrainingStateLoadRepairs_simplifies_race_week_long_and_tempo
+Error: Call to undefined function Tests\Unit\applyTrainingStateLoadRepairs()
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:860
+
+21) Tests\Unit\PlanValidatorTest::test_validateNormalizedPlanAgainstTrainingState_warnsOnAggressiveVolumeSpike
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:48
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:24
+
+22) Tests\Unit\PlanValidatorTest::test_validateNormalizedPlanAgainstTrainingState_warnsOnEasyPaceOutsideCorridor
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:48
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:59
+
+23) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_marksLargeTempoDeviationAsError
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:90
+
+24) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsTempoWithoutConcreteStructure
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:112
+
+25) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_allowsTempoWithConcreteNotesStructure
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:132
+
+26) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_allows_goal_specific_marathon_tempo_near_goal_pace
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:151
+
+27) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_allows_goal_specific_marathon_tempo_by_week_contract
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:176
+
+28) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsControlWithoutConcreteTask
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:209
+
+29) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsTempoStimulusTooSmallRelativeToTrainingState
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:230
+
+30) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsRunOutsidePreferredDays
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:262
+
+31) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flags_invalid_week_day_count_without_php_warning
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:289
+
+32) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsTooMuchIntensityForHealthGoal
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:315
+
+33) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_flagsWeakMarathonTaper
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:336
+
+34) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_doesNotWarnWhenShortRaceWeekMatchesSupplementaryCap
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:360
+
+35) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_allows_race_day_only_for_return_after_injury_race_week
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:385
+
+36) Tests\Unit\PlanValidatorTest::test_collectNormalizedPlanValidationIssues_still_flags_extra_quality_for_return_after_injury
+Error: Call to undefined function normalizePreferredDayKeys()
+
+/var/www/planrun/planrun-backend/planrun_ai/validators/schedule_validator.php:7
+/var/www/planrun/planrun-backend/planrun_ai/plan_validator.php:13
+/var/www/planrun/planrun-backend/tests/Unit/PlanValidatorTest.php:407
+
+37) Tests\Unit\PromptBuilderTrainingStateTest::test_buildTrainingStateBlock_includes_special_population_flags
+Error: Call to undefined function Tests\Unit\buildTrainingStateBlock()
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:78
+
+38) Tests\Unit\PromptBuilderTrainingStateTest::test_applyScheduleOverridesToUserData_extracts_long_and_rest_days_from_reason
+Error: Call to undefined function Tests\Unit\applyScheduleOverridesToUserData()
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:108
+
+39) Tests\Unit\PromptBuilderTrainingStateTest::test_applyScheduleOverridesToUserData_extracts_benchmark_and_easy_floor_from_reason
+Error: Call to undefined function Tests\Unit\applyScheduleOverridesToUserData()
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:124
+
+40) Tests\Unit\RecalculationContextTest::test_resolveRecalculationCutoffDateValue_returns_today_when_no_workout_today
+Error: Call to undefined function Tests\Unit\resolveRecalculationCutoffDateValue()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:12
+
+41) Tests\Unit\RecalculationContextTest::test_resolveRecalculationCutoffDateValue_returns_tomorrow_when_workout_today_exists
+Error: Call to undefined function Tests\Unit\resolveRecalculationCutoffDateValue()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:16
+
+42) Tests\Unit\RecalculationContextTest::test_isRunningRelevantWorkoutEntry_acceptsRunningPlanTypes
+Error: Call to undefined function Tests\Unit\isRunningRelevantWorkoutEntry()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:20
+
+43) Tests\Unit\RecalculationContextTest::test_isRunningRelevantWorkoutEntry_rejectsWalkingImports
+Error: Call to undefined function Tests\Unit\isRunningRelevantWorkoutEntry()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:29
+
+44) Tests\Unit\RecalculationContextTest::test_isRunningRelevantWorkoutEntry_keepsManualCompletedRunEvenWithoutTypedPlan
+Error: Call to undefined function Tests\Unit\isRunningRelevantWorkoutEntry()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:38
+
+45) Tests\Unit\RecalculationContextTest::test_resolveRecalculationCutoffDateValue_ignores_non_running_activity_for_today_rule
+Error: Call to undefined function Tests\Unit\isRunningRelevantWorkoutEntry()
+
+/var/www/planrun/planrun-backend/tests/Unit/RecalculationContextTest.php:55
+
+--
+
+There were 15 failures:
+
+1) Tests\Unit\PlanGeneratorCorrectivePassTest::test_decodeGeneratedPlanResponse_throwsWhenPlanIsShorterThanSkeleton
+Failed asserting that exception of type "Error" matches expected exception "Exception". Message was: "Call to undefined function Tests\Unit\decodeGeneratedPlanResponse()" at
+/var/www/planrun/planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:28
+.
+
+2) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_movesLongToLastPreferredWeekendDay
+Long run should move to Sunday as the latest preferred weekend day.
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'long'
++'rest'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:36
+
+3) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_alignsQualityDaysToSkeletonAndRecomputesDates
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'tempo'
++'interval'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:120
+
+4) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_enforcesLongAndRacePlacementFromSkeleton
+Friday should no longer contain the race after skeleton repair.
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'easy'
++'race'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:150
+
+5) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_coercesMissingSkeletonWorkoutType
+Missing quality workout should be coerced to the skeleton type.
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'tempo'
++'easy'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:179
+
+6) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_repairs_adjacent_key_workouts_when_no_skeleton
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'easy'
++'interval'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:840
+
+7) Tests\Unit\PlanNormalizerTest::test_normalizeTrainingPlan_movesLongToLatestPreferredDayWhenNoWeekendSelected
+Failed asserting that two strings are identical.
+--- Expected
++++ Actual
+@@ @@
+-'easy'
++'long'
+
+/var/www/planrun/planrun-backend/tests/Unit/PlanNormalizerTest.php:64
+
+8) Tests\Unit\PromptBuilderTrainingStateTest::test_buildPaceZonesBlock_prefersTrainingStateOverLegacyFallback
+Failed asserting that '\n
+═══ ТРЕНИРОВОЧНЫЕ ЗОНЫ (VDOT=39.2, формулы Daniels) ═══\n
+\n
+E  — Лёгкий бег (easy/long): 6:50 /км — RPE 3-4, разговорный темп\n
+     Диапазон easy: 6:50 - 6:12 /км\n
+     Длительная (long): 7:00 /км — нижняя граница easy\n
+M  — Марафонский темп: 5:38 /км — RPE 5-6, для MP-сегментов в длительной\n
+T  — Пороговый/Темповый (tempo): 5:16 /км — RPE 6-7, комфортно-тяжело, 20-40 мин\n
+I  — Интервальный (interval): 4:46 /км — RPE 8-9, отрезки 400м-2км, развивает VO2max\n
+R  — Повторный (repetition): 4:29 /км — RPE 9-10, отрезки 200-400м, развивает скорость и экономичность\n
+Rec — Восстановительная трусца: 7:15 /км — между интервалами\n
+\n
+╔══ ПРАВИЛА ПРИМЕНЕНИЯ ЗОН ══╗\n
+• Поле pace для easy/long: используй E-темп (6:50)\n
+• Поле pace для tempo: используй T-темп (5:16)\n
+• Поле interval_pace для interval: используй I-темп (4:46)\n
+• Для коротких ускорений (200-400м, strides): используй R-темп (4:29)\n
+• ЗАПРЕЩЕНО придумывать другие темпы. Используй ТОЛЬКО указанные зоны.\n
+╚════════════════════════════╝\n
+' [UTF-8](length: 1558) contains "5:00 – 5:20" [UTF-8](length: 13).
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:33
+
+9) Tests\Unit\PromptBuilderTrainingStateTest::test_buildTrainingPlanPrompt_includes_week_skeleton_block_when_present
+Failed asserting that 'Ты опытный тренер по бегу. Строй план по данным пользователя и научно обоснованным принципам: прогрессия нагрузки, восстановление, периодизация (где уместно), распределение интенсивности.\n
+Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста. Все решения опирай на указанные ниже данные пользователя и на принципы для выбранной цели.\n
+\n
+═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n
+\n
+Желаемое количество тренировок в неделю: 4\n
+\n
+═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n
+\n
+Цель: Подготовка к забегу\n
+Дистанция забега: 10 км\n
+Дата забега: 2026-05-17\n
+ДЕНЬ ЗАБЕГА: неделя 10, день индекс 6 (Воскресенье). Поставь type: "race" именно на этот индекс.\n
+\n
+Дата начала тренировок: 2026-03-09\n
+Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n
+Количество недель плана: 10. Сформируй ровно столько недель.\n
+\n
+═══ ПРЕДПОЧТЕНИЯ ═══\n
+\n
+Предпочитаемые дни для бега: Понедельник, Среда, Суббота, Воскресенье\n
+Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n
+\n
+═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА ═══\n
+\n
+Цель: подготовка к забегу.\n
+\n
+МАКРОЦИКЛ (10 недель, новичок — удлинённый базовый период):\n
+- Базовый (недели 1-3): Аэробный объём. Лёгкий бег + длительная. Без темповых/интервалов. Прирост объёма до 10%/нед. Длительная: 3→7 км. Ключевых: до 0/нед.\n
+- Развивающий (недели 4-6): 2 ключевые/нед (темп/интервалы). Длительная растёт. Объём +5-10%/нед. Длительная: 9→12 км. Ключевых: до 2/нед.\n
+- Пиковый (недели 7-8): Максимальная интенсивность. 3 ключевых/нед. Объём стабилен. Пиковая длительная. Длительная: 15→13 км. Ключевых: до 3/нед.\n
+- Подводка (недели 9-10): Объём -40-60% от пикового. 1 короткая интенсивная/нед. Последняя неделя — совсем лёгкая. Длительная: 9→8 км. Ключевых: до 1/нед.\n
+Разгрузочные недели: 3, 6 (объём -20%, убрать интенсивность, длительную сократить на 20%).\n
+\n
+ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ ПО НЕДЕЛЯМ (следуй этим числам!):\n
+нед1: 3 → нед2: 6 → нед3: 7 → нед4: 9 → нед5: 12 → нед6: 12 → нед7: 15 → нед8: 13 → нед9: 9 → нед10: забег (км)\n
+ПИКОВАЯ ДЛИТЕЛЬНАЯ: 16 км (неделя 7). ЭТО ОБЯЗАТЕЛЬНЫЙ МИНИМУМ.\n
+\n
+ОБЪЁМЫ: стартовый ~11 км/нед → пиковый ~18 км/нед.\n
+Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n
+\n
+ТРЕНИРОВКИ ДЛЯ 10 КМ:\n
+- Интервалы: 5-8x1000 м или 3-5x2000 м (отдых 400-800 м).\n
+- Темповый: 4-6 км в темповом темпе.\n
+- Длительная: 12-16 км в лёгком темпе.\n
+- Фартлек: 40-50 мин с ускорениями 2-3 мин через 2-3 мин трусцой.\n
+\n
+КАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n
+distance_km для интервалов/фартлека считает код — не заполняй.\n
+\n
+КОНТРОЛЬНЫЕ ЗАБЕГИ (type: "control"):\n
+Тест-забег на дистанцию короче целевой для замера прогресса. is_key_workout: true. pace: null.\n
+Ставить ИМЕННО в эти недели: 5.\n
+Дистанция контрольной: 3-5 км.\n
+\n
+НОВИЧОК: интервалы вводить не ранее недели 4-5. Начинать с 3-4x400 м. Контрольные забеги — не ранее недели 4, дистанция 1-2 км.\n
+\n
+\n
+═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ И ПРАВИЛА ПО ФАЗАМ ═══\n
+\n
+╔══ ЖЁСТКИЕ ОГРАНИЧЕНИЯ ПО ФАЗАМ ══╗\n
+│ Фаза      │ Допустимые типы                            │ Ключевых/нед │\n
+│───────────│────────────────────────────────────────────│──────────────│\n
+│ БАЗОВАЯ    │ easy, long, rest, other, sbu, free         │ 0-1 (long)   │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek, race  │              │\n
+│ РАЗВИВАЮЩАЯ│ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПИКОВАЯ    │ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПОДВОДКА   │ easy, long(сокращ.), tempo(сокращ.), rest  │ 1-2          │\n
+│            │ Объём интенсивных -50%, длительная -40%    │              │\n
+│ РАЗГРУЗКА  │ easy, long(сокращ.), rest, other(легче)    │ 0-1          │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek        │              │\n
+╚════════════════════════════════════════════════════════════════════════╝\n
+\n
+ПОДВОДКА (TAPER) ДЛЯ 10 КМ — 10-14 дней:\n
+- Неделя -2: объём -25-30% от пиковой. 1 короткий темповый (15 мин) или 3-4×1000м.\n
+- Неделя -1 (RACE WEEK): объём -35-40%. Easy 4-6 км × 2-3 дня. 1 день rest.\n
+  За день до забега — лёгкий 3-4 км с 3-4 страйдами или rest.\n
+  Забег (race) — в день забега.\n
+\n
+ТИПЫ КЛЮЧЕВЫХ (is_key_workout = true):\n
+- long   — аэробная база, жировой обмен, ментальная выносливость\n
+- tempo  — лактатный порог (пороговый темп, 20-40 мин)\n
+- interval — МПК (быстрые отрезки 400м-2км)\n
+- fartlek — скоростная выносливость (структурированный)\n
+- control — тест-забег\n
+- race   — соревнование\n
+\n
+НЕ ключевые (is_key_workout = false): easy, rest, other, sbu, free\n
+\n
+РАССТАНОВКА ПРИ 4 ТРЕНИРОВКАХ В НЕДЕЛЮ:\n
+- 2 ключевые: long + 1 интенсивная, 2 easy\n
+  Пример: Вт easy, Ср tempo, Пт easy, Сб long\n
+\n
+╔══ АБСОЛЮТНЫЕ ЗАПРЕТЫ ══╗\n
+│ 1. ДВЕ ключевые подряд — ЗАПРЕЩЕНО (минимум 1 day easy/rest между)  │\n
+│ 2. Интервалы/темп в БАЗОВОЙ фазе — ЗАПРЕЩЕНО                        │\n
+│ 3. Интервалы/темп в РАЗГРУЗОЧНОЙ неделе — ЗАПРЕЩЕНО                  │\n
+│ 4. Длительная >33 км — ЗАПРЕЩЕНО                                      │\n
+│ 5. Более 3 ключевых в одну неделю — ЗАПРЕЩЕНО                        │\n
+│ 6. Easy < 3 км — ЗАПРЕЩЕНО (кроме race week: допустимо от 3 км)  │\n
+│ 7. Прирост длительной > 3 км за неделю — ЗАПРЕЩЕНО                   │\n
+│ 8. Tempo без distance_km и pace — ЗАПРЕЩЕНО (только структ. поля)    │\n
+│ 9. Description для бега — ЗАПРЕЩЕНО (код строит автоматически)        │\n
+╚═══════════════════════════════════════════════════════════════════════╝\n
+\n
+ПРОГРЕССИЯ КЛЮЧЕВЫХ ТРЕНИРОВОК ОТ НЕДЕЛИ К НЕДЕЛЕ:\n
+Интервалы и темповые ДОЛЖНЫ усложняться по ходу плана. Не повторяй одну и ту же тренировку неделями!\n
+\n
+Интервалы — 3 способа прогрессии (выбери подходящий для фазы):\n
+  a) Увеличение повторов: 4×1000м → 5×1000м → 6×1000м (каждые 2-3 нед.)\n
+  b) Увеличение длины отрезка: 5×800м → 4×1200м → 3×1600м (объём интенсивной работы ≈ const)\n
+  c) Сокращение отдыха: 5×1000м, отдых 400м → 5×1000м, отдых 200м\n
+  Суммарный объём интенсивной работы: от 3-4 км (начало) до 5-8 км (пик). Не более 10% недельного объёма.\n
+\n
+Темповые — прогрессия длительности темповой части:\n
+  - Начало: 15-20 мин → Пик: 30-40 мин (для полумарафона/марафона до 50 мин)\n
+  - Альтернатива: пороговые интервалы — 3×1600м в пороговом темпе с 1 мин отдыха → 4×1600м → 5×1600м\n
+  - Темп остаётся пороговым (не ускоряй!), растёт только объём в темпе\n
+\n
+Фартлек — прогрессия структуры:\n
+  - Начало: 6×200м быстро / 200м трусцой → 8×200м / 200м → 4×400м / 200м → 3×800м / 400м\n
+  - В развивающей фазе: длиннее быстрые отрезки, короче восстановление\n
+\n
+\n
+═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n
+\n
+1. Расписание по дням:\n
+   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: Пн, Ср, Сб, Вс.\n
+   — ВЫХОДНЫЕ ДНИ (ОБЯЗАТЕЛЬНО type: rest): Вт, Чт, Пт. В эти дни ЗАПРЕЩЁН бег!\n
+   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n
+2. Объём и сложность — по уровню подготовки и weekly_base_km. ВАЖНО: для подготовки к забегу длительная должна достигать указанного минимума (см. ПИКОВАЯ ДЛИТЕЛЬНАЯ выше). Не занижай нагрузку — план должен РЕАЛЬНО подготовить к дистанции.\n
+3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n
+4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: "rest", все поля null.\n
+5. ЯЗЫК: Все notes и описания — ТОЛЬКО на русском. Запрещены: T-pace, M-pace, E-pace, I-pace, R-pace, cruise intervals, progressive long, dress rehearsal, medium-long, recovery run. Замены: пороговый темп, марафонский темп, лёгкий темп, быстрый темп, пороговые интервалы, прогрессивная длительная, генеральная репетиция, средне-длительная, восстановительный бег.\n
+\n
+╔══ МИНИМАЛЬНЫЕ ДИСТАНЦИИ И СТРУКТУРА ТРЕНИРОВОК ══╗\n
+│                                                                         │\n
+│ EASY (лёгкий бег):                                                      │\n
+│  - МИНИМУМ 3 км (для уровня пользователя). Пробежки короче — бессмысленны.│\n
+│  - Типичная дистанция: 8-12 км для марафонца, 6-10 км для полумарафонца, │\n
+│    3-5 км для начинающих (weekly_base < 15 км).                           │\n
+│  - Easy = 15-25% недельного объёма. При 50 км/нед → easy 8-12 км.        │\n
+│  - Easy темп: ВСЕГДА медленнее темпового на 1:00-1:30/км.                │\n
+│  - Все easy в одной неделе должны быть ПОХОЖЕЙ дистанции (±2 км).        │\n
+│                                                                         │\n
+│ TEMPO (темповый бег):                                                   │\n
+│  - ОБЯЗАТЕЛЬНО заполнять distance_km и pace структурированными полями.   │\n
+│  - distance_km = вся дистанция включая разминку и заминку.               │\n
+│  - pace = целевой темп темповой части.                                   │\n
+│  - Разминку и заминку описывать в notes (напр. "Разминка 2 км, заминка 1.5 км"). │\n
+│  - МИНИМУМ 6 км (включая разминку/заминку). Темповая часть: 3-12 км.     │\n
+│  - НИКОГДА не писать description текстом! Только distance_km + pace + notes. │\n
+│                                                                         │\n
+│ LONG (длительный бег):                                                  │\n
+│  - Прирост длительной: не более +2-3 км/нед (или +10%).                 │\n
+│  - Каждые 3-4 недели — разгрузочная длительная (на 30% короче пиковой).  │\n
+│  - Максимум: 33 км для марафона, 18-21 км для полумарафона.              │\n
+│                                                                         │\n
+│ RACE WEEK (последняя неделя перед забегом):                              │\n
+│  - Объём -50-60% от пиковой недели.                                     │\n
+│  - Easy: 3-6 км (допустимо ниже обычного минимума в race week).          │\n
+│  - Максимум 3-4 беговые тренировки + день забега.                       │\n
+│  - За 2 дня до забега — отдых (rest). За 1 день — лёгкий 3-4 км или rest.│\n
+│  - НИКАКИХ интервалов, темповых. Можно: 3-4 × 100м страйды (в notes).   │\n
+╚═════════════════════════════════════════════════════════════════════════╝\n
+\n
+═══ ЗАДАЧА ═══\n
+\n
+Сформируй персональный план по данным пользователя и по блоку «ПРИНЦИПЫ И СТРУКТУРА ПЛАНА» выше. Учитывай предпочтения по дням, объём (weekly_base_km, sessions_per_week), уровень подготовки и ограничения по здоровью.\n
+Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.) — все поля в каждом дне, неиспользуемые = null.\n
+НЕ генерируй поле "description" — код построит его автоматически. НЕ считай distance_km и duration_minutes для интервалов/фартлеков — код посчитает.\n
+\n
+═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n
+\n
+Верни один JSON-объект с ключом "weeks". В каждой неделе массив "days" из ровно 7 элементов (пн … вс).\n
+Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n
+\n
+КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n
+\n
+ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n
+{"type":"...","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРИМЕРЫ:\n
+\n
+easy: {"type":"easy","distance_km":8,"pace":"6:00","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+long: {"type":"long","distance_km":20,"pace":"6:20","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+tempo (distance_km = ВСЯ дистанция с разминкой и заминкой, pace = темп темповой части):\n
+{"type":"tempo","distance_km":10,"pace":"4:45","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":"Разминка 2 км, темповая часть 6 км, заминка 2 км","is_key_workout":true}\n
+\n
+interval (distance_km=null — код посчитает!):\n
+{"type":"interval","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":5,"interval_m":1000,"interval_pace":"4:20","rest_m":400,"rest_type":"jog","segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+fartlek (distance_km=null — код посчитает!):\n
+{"type":"fartlek","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":[{"reps":6,"distance_m":200,"pace":"4:30","recovery_m":200,"recovery_type":"jog"}],"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+rest: {"type":"rest","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРАВИЛА ФОРМАТА:\n
+- НЕ генерируй поле "description" — код построит автоматически.\n
+- distance_km: для easy/long/tempo/control/race — ОБЯЗАТЕЛЬНО. Для interval/fartlek — null (код посчитает).\n
+- pace: для easy/long — E-темп из зон. Для tempo — T-темп. Для interval/fartlek/control/race — null.\n
+- Ответ: только JSON. Начинается с { и заканчивается }. Без комментариев.\n
+\n
+⚠️ ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ГЕНЕРАЦИЕЙ:\n
+- Easy distance_km ≥ 3 (для данного пользователя; race week допустимо от 3 км)\n
+- Tempo distance_km ≥ 6 (включая разминку/заминку)\n
+- Long НЕ растёт более чем на 3 км в неделю\n
+- Все easy в одной неделе примерно одинаковые (±2 км)\n
+- Темпы СТРОГО из зон (E/M/T/I/R), НЕ из комфортного темпа\n
+' [UTF-8](length: 20789) contains "WEEK SKELETON" [ASCII](length: 13).
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:73
+
+10) Tests\Unit\PromptBuilderTrainingStateTest::test_buildTrainingPlanPrompt_marathon_explains_control_is_not_regular_mp_work
+Failed asserting that 'Ты опытный тренер по бегу. Строй план по данным пользователя и научно обоснованным принципам: прогрессия нагрузки, восстановление, периодизация (где уместно), распределение интенсивности.\n
+Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста. Все решения опирай на указанные ниже данные пользователя и на принципы для выбранной цели.\n
+\n
+═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n
+\n
+Уровень подготовки: Средний (6-12 месяцев регулярного бега)\n
+Текущий объем бега: 55 км в неделю\n
+Желаемое количество тренировок в неделю: 5\n
+\n
+═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n
+\n
+Цель: Подготовка к забегу\n
+Дистанция забега: 42.2 км (марафон)\n
+Дата забега: 2026-05-10\n
+ДЕНЬ ЗАБЕГА: неделя 18, день индекс 6 (Воскресенье). Поставь type: "race" именно на этот индекс.\n
+\n
+Дата начала тренировок: 2026-01-05\n
+Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n
+Количество недель плана: 18. Сформируй ровно столько недель.\n
+\n
+═══ ПРЕДПОЧТЕНИЯ ═══\n
+\n
+Предпочитаемые дни для бега: Понедельник, Вторник, Четверг, Суббота, Воскресенье\n
+Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n
+\n
+═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА ═══\n
+\n
+Цель: подготовка к забегу.\n
+\n
+МАКРОЦИКЛ (18 недель):\n
+- Базовый (недели 1-3): Ввод в план. Лёгкий бег + длительная. Допустим 1 фартлек со 2-й недели. Длительная: 23→25 км. Ключевых: до 1/нед.\n
+- Развивающий (недели 4-12): 2 ключевые/нед (темп/интервалы). Длительная растёт. Объём +5-10%/нед. Длительная: 21→26 км. Ключевых: до 2/нед.\n
+- Пиковый (недели 13-15): Максимальная интенсивность. 3 ключевых/нед. Объём стабилен. Пиковая длительная. Длительная: 33→27 км. Ключевых: до 3/нед.\n
+- Подводка (недели 16-18): Объём -40-60% от пикового. 1 короткая интенсивная/нед. Последняя неделя — совсем лёгкая. Длительная: 18→8 км. Ключевых: до 1/нед.\n
+Разгрузочные недели: 4, 8, 12 (объём -20%, убрать интенсивность, длительную сократить на 20%).\n
+\n
+ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ ПО НЕДЕЛЯМ (следуй этим числам!):\n
+нед1: 23 → нед2: 24 → нед3: 25 → нед4: 21 → нед5: 26 → нед6: 27 → нед7: 29 → нед8: 24 → нед9: 30 → нед10: 31 → нед11: 32 → нед12: 26 → нед13: 33 → нед14: 30 → нед15: 27 → нед16: 18 → нед17: 13 → нед18: забег (км)\n
+ПИКОВАЯ ДЛИТЕЛЬНАЯ: 33 км (неделя 13). ЭТО ОБЯЗАТЕЛЬНЫЙ МИНИМУМ.\n
+\n
+ОБЪЁМЫ: стартовый ~58 км/нед → пиковый ~90 км/нед.\n
+Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n
+\n
+ТРЕНИРОВКИ ДЛЯ МАРАФОНА:\n
+- Интервалы: 4-6x1600-2000 м (отдых 800 м трусцой).\n
+- Темповый: 8-12 км в темповом темпе.\n
+- Длительная: 22-35 км в лёгком/марафонском темпе.\n
+- Фартлек: 50-60 мин с ускорениями 3-5 мин через 2-3 мин.\n
+- Марафонский темп: 10-16 км в целевом марафонском темпе (внутри длительной или отдельно).\n
+\n
+КАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n
+distance_km для интервалов/фартлека считает код — не заполняй.\n
+\n
+КОНТРОЛЬНЫЕ ЗАБЕГИ (type: "control"):\n
+Тест-забег на дистанцию короче целевой для замера прогресса. is_key_workout: true. pace: null.\n
+Ставить ИМЕННО в эти недели: 3, 7, 11.\n
+Дистанция контрольной: 10-15 км в целевом марафонском темпе или 10 км на результат.\n
+\n
+\n
+═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ И ПРАВИЛА ПО ФАЗАМ ═══\n
+\n
+╔══ ЖЁСТКИЕ ОГРАНИЧЕНИЯ ПО ФАЗАМ ══╗\n
+│ Фаза      │ Допустимые типы                            │ Ключевых/нед │\n
+│───────────│────────────────────────────────────────────│──────────────│\n
+│ БАЗОВАЯ    │ easy, long, rest, other, sbu, free         │ 0-1 (long)   │\n
+│  (intermed │ + страйды 4-6×100м в конце easy (в notes)  │              │\n
+│  iate+)    │ + 1 короткий темповый (15 мин) к концу фазы│              │\n
+│            │ ЗАПРЕЩЕНЫ: interval, fartlek, race          │              │\n
+│ РАЗВИВАЮЩАЯ│ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПИКОВАЯ    │ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПОДВОДКА   │ easy, long(сокращ.), tempo(сокращ.), rest  │ 1-2          │\n
+│            │ Объём интенсивных -50%, длительная -40%    │              │\n
+│ РАЗГРУЗКА  │ easy, long(сокращ.), rest, other(легче)    │ 0-1          │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek        │              │\n
+╚════════════════════════════════════════════════════════════════════════╝\n
+\n
+ПОДВОДКА (TAPER) ДЛЯ МАРАФОНА — 3 недели:\n
+- Неделя -3: объём -20-25% от пиковой. Ключевые укорочены. Длительная 18-22 км.\n
+- Неделя -2: объём -35-40% от пиковой. Длительная 12-16 км. 1 лёгкий темповый (20 мин).\n
+- Неделя -1 (RACE WEEK): объём -50-60%. Easy 4-6 км × 3-4 дня. 1-2 дня rest.\n
+  За 2 дня до забега — rest. За день — лёгкий 3-4 км с 3-4 страйдами или rest.\n
+  Забег (race) — в день забега. Никаких интервалов/темповых.\n
+\n
+ТИПЫ КЛЮЧЕВЫХ (is_key_workout = true):\n
+- long   — аэробная база, жировой обмен, ментальная выносливость\n
+- tempo  — лактатный порог (пороговый темп, 20-40 мин)\n
+- interval — МПК (быстрые отрезки 400м-2км)\n
+- fartlek — скоростная выносливость (структурированный)\n
+- control — тест-забег\n
+- race   — соревнование\n
+\n
+НЕ ключевые (is_key_workout = false): easy, rest, other, sbu, free\n
+\n
+РАССТАНОВКА ПРИ 5 ТРЕНИРОВКАХ В НЕДЕЛЮ:\n
+- 2-3 ключевые: long + 1-2 интенсивные, 2-3 easy\n
+  Пример: Пн easy, Вт interval, Чт easy, Пт tempo, Сб long\n
+\n
+RECOVERY RUN (восстановительный бег) — для 5 тренировок/нед:\n
+- На следующий день после ключевой (interval/tempo/long) ставь УКОРОЧЕННЫЙ easy.\n
+  type: easy, но distance_km на 20-30% короче обычного easy. notes: "Восстановительный бег".\n
+  Темп — на 15-20 сек/км медленнее обычного easy (RPE 2-3, очень лёгко).\n
+- Это НЕ пропуск — это осознанное восстановление. Помогает вывести метаболиты и ускорить восстановление.\n
+\n
+\n
+╔══ АБСОЛЮТНЫЕ ЗАПРЕТЫ ══╗\n
+│ 1. ДВЕ ключевые подряд — ЗАПРЕЩЕНО (минимум 1 day easy/rest между)  │\n
+│ 2. Интервалы/фартлек в БАЗОВОЙ фазе — ЗАПРЕЩЕНО (короткий темп ОК)  │\n
+│ 3. Интервалы/темп в РАЗГРУЗОЧНОЙ неделе — ЗАПРЕЩЕНО                  │\n
+│ 4. Длительная >33 км — ЗАПРЕЩЕНО                                      │\n
+│ 5. Более 3 ключевых в одну неделю — ЗАПРЕЩЕНО                        │\n
+│ 6. Easy < 4 км — ЗАПРЕЩЕНО (кроме race week: допустимо от 3 км)  │\n
+│ 7. Прирост длительной > 3 км за неделю — ЗАПРЕЩЕНО                   │\n
+│ 8. Tempo без distance_km и pace — ЗАПРЕЩЕНО (только структ. поля)    │\n
+│ 9. Description для бега — ЗАПРЕЩЕНО (код строит автоматически)        │\n
+╚═══════════════════════════════════════════════════════════════════════╝\n
+\n
+ПРОГРЕССИЯ КЛЮЧЕВЫХ ТРЕНИРОВОК ОТ НЕДЕЛИ К НЕДЕЛЕ:\n
+Интервалы и темповые ДОЛЖНЫ усложняться по ходу плана. Не повторяй одну и ту же тренировку неделями!\n
+\n
+Интервалы — 3 способа прогрессии (выбери подходящий для фазы):\n
+  a) Увеличение повторов: 4×1000м → 5×1000м → 6×1000м (каждые 2-3 нед.)\n
+  b) Увеличение длины отрезка: 5×800м → 4×1200м → 3×1600м (объём интенсивной работы ≈ const)\n
+  c) Сокращение отдыха: 5×1000м, отдых 400м → 5×1000м, отдых 200м\n
+  Суммарный объём интенсивной работы: от 3-4 км (начало) до 5-8 км (пик). Не более 10% недельного объёма.\n
+\n
+Темповые — прогрессия длительности темповой части:\n
+  - Начало: 15-20 мин → Пик: 30-40 мин (для полумарафона/марафона до 50 мин)\n
+  - Альтернатива: пороговые интервалы — 3×1600м в пороговом темпе с 1 мин отдыха → 4×1600м → 5×1600м\n
+  - Темп остаётся пороговым (не ускоряй!), растёт только объём в темпе\n
+\n
+Фартлек — прогрессия структуры:\n
+  - Начало: 6×200м быстро / 200м трусцой → 8×200м / 200м → 4×400м / 200м → 3×800м / 400м\n
+  - В развивающей фазе: длиннее быстрые отрезки, короче восстановление\n
+\n
+СРЕДНЕ-ДЛИТЕЛЬНАЯ:\n
+- При 5+ тренировках: 1 средне-длительная в неделю (60-70% от длительной), тип easy.\n
+  Ставь в середине недели (Ср-Чт). is_key_workout: false.\n
+\n
+СПЕЦИФИЧЕСКИЕ ТРЕНИРОВКИ:\n
+- МАРАФОНСКИЕ СЕГМЕНТЫ В ДЛИТЕЛЬНОЙ: в развивающей/пиковой фазе,\n
+  последние 4-8 км длительной — в марафонском темпе. Указывай в notes.\n
+- ПРОГРЕССИВНАЯ ДЛИТЕЛЬНАЯ: длительная с ускорением. Первые 2/3 в лёгком темпе, последняя 1/3 ускоряясь до марафонского.\n
+  Тип: long. notes: "Прогрессивная: первые N км легко, последние N км ускоряясь до марафонского темпа".\n
+  Использовать в развивающей/пиковой фазе, чередуя с обычной длительной (не каждую неделю).\n
+- ПОРОГОВЫЕ ИНТЕРВАЛЫ: альтернатива непрерывному темповому бегу. 3-5 × 1600м в пороговом темпе с 60-90 сек отдыха.\n
+  Менее утомительны, чем 30+ мин непрерывного темпа. Хороши для начала развивающей фазы.\n
+  Тип: tempo. notes: "Пороговые интервалы: N×1600м в пороговом темпе, отдых 60с". distance_km = разминка + интервалы + заминка.\n
+- ГЕНЕРАЛЬНАЯ РЕПЕТИЦИЯ: за 3-4 недели до марафона, 10-15 км в марафонском темпе с гелями (имитация старта).\n
+  Тип: long или tempo. notes: "Генеральная репетиция: 12 км в марафонском темпе, приём гелей на 5 и 10 км".\n
+\n
+\n
+═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n
+\n
+1. Расписание по дням:\n
+   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: Пн, Вт, Чт, Сб, Вс.\n
+   — ВЫХОДНЫЕ ДНИ (ОБЯЗАТЕЛЬНО type: rest): Ср, Пт. В эти дни ЗАПРЕЩЁН бег!\n
+   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n
+2. Объём и сложность — по уровню подготовки и weekly_base_km. ВАЖНО: для подготовки к забегу длительная должна достигать указанного минимума (см. ПИКОВАЯ ДЛИТЕЛЬНАЯ выше). Не занижай нагрузку — план должен РЕАЛЬНО подготовить к дистанции.\n
+3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n
+4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: "rest", все поля null.\n
+5. ЯЗЫК: Все notes и описания — ТОЛЬКО на русском. Запрещены: T-pace, M-pace, E-pace, I-pace, R-pace, cruise intervals, progressive long, dress rehearsal, medium-long, recovery run. Замены: пороговый темп, марафонский темп, лёгкий темп, быстрый темп, пороговые интервалы, прогрессивная длительная, генеральная репетиция, средне-длительная, восстановительный бег.\n
+\n
+╔══ МИНИМАЛЬНЫЕ ДИСТАНЦИИ И СТРУКТУРА ТРЕНИРОВОК ══╗\n
+│                                                                         │\n
+│ EASY (лёгкий бег):                                                      │\n
+│  - МИНИМУМ 4 км (для уровня пользователя). Пробежки короче — бессмысленны.│\n
+│  - Типичная дистанция: 8-12 км для марафонца, 6-10 км для полумарафонца, │\n
+│    3-5 км для начинающих (weekly_base < 15 км).                           │\n
+│  - Easy = 15-25% недельного объёма. При 50 км/нед → easy 8-12 км.        │\n
+│  - Easy темп: ВСЕГДА медленнее темпового на 1:00-1:30/км.                │\n
+│  - Все easy в одной неделе должны быть ПОХОЖЕЙ дистанции (±2 км).        │\n
+│                                                                         │\n
+│ TEMPO (темповый бег):                                                   │\n
+│  - ОБЯЗАТЕЛЬНО заполнять distance_km и pace структурированными полями.   │\n
+│  - distance_km = вся дистанция включая разминку и заминку.               │\n
+│  - pace = целевой темп темповой части.                                   │\n
+│  - Разминку и заминку описывать в notes (напр. "Разминка 2 км, заминка 1.5 км"). │\n
+│  - МИНИМУМ 6 км (включая разминку/заминку). Темповая часть: 3-12 км.     │\n
+│  - НИКОГДА не писать description текстом! Только distance_km + pace + notes. │\n
+│                                                                         │\n
+│ LONG (длительный бег):                                                  │\n
+│  - Прирост длительной: не более +2-3 км/нед (или +10%).                 │\n
+│  - Каждые 3-4 недели — разгрузочная длительная (на 30% короче пиковой).  │\n
+│  - Максимум: 33 км для марафона, 18-21 км для полумарафона.              │\n
+│                                                                         │\n
+│ RACE WEEK (последняя неделя перед забегом):                              │\n
+│  - Объём -50-60% от пиковой недели.                                     │\n
+│  - Easy: 3-6 км (допустимо ниже обычного минимума в race week).          │\n
+│  - Максимум 3-4 беговые тренировки + день забега.                       │\n
+│  - За 2 дня до забега — отдых (rest). За 1 день — лёгкий 3-4 км или rest.│\n
+│  - НИКАКИХ интервалов, темповых. Можно: 3-4 × 100м страйды (в notes).   │\n
+╚═════════════════════════════════════════════════════════════════════════╝\n
+\n
+═══ ЗАДАЧА ═══\n
+\n
+Сформируй персональный план по данным пользователя и по блоку «ПРИНЦИПЫ И СТРУКТУРА ПЛАНА» выше. Учитывай предпочтения по дням, объём (weekly_base_km, sessions_per_week), уровень подготовки и ограничения по здоровью.\n
+Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.) — все поля в каждом дне, неиспользуемые = null.\n
+НЕ генерируй поле "description" — код построит его автоматически. НЕ считай distance_km и duration_minutes для интервалов/фартлеков — код посчитает.\n
+\n
+═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n
+\n
+Верни один JSON-объект с ключом "weeks". В каждой неделе массив "days" из ровно 7 элементов (пн … вс).\n
+Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n
+\n
+КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n
+\n
+ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n
+{"type":"...","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРИМЕРЫ:\n
+\n
+easy: {"type":"easy","distance_km":8,"pace":"6:00","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+long: {"type":"long","distance_km":20,"pace":"6:20","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+tempo (distance_km = ВСЯ дистанция с разминкой и заминкой, pace = темп темповой части):\n
+{"type":"tempo","distance_km":10,"pace":"4:45","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":"Разминка 2 км, темповая часть 6 км, заминка 2 км","is_key_workout":true}\n
+\n
+interval (distance_km=null — код посчитает!):\n
+{"type":"interval","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":5,"interval_m":1000,"interval_pace":"4:20","rest_m":400,"rest_type":"jog","segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+fartlek (distance_km=null — код посчитает!):\n
+{"type":"fartlek","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":[{"reps":6,"distance_m":200,"pace":"4:30","recovery_m":200,"recovery_type":"jog"}],"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+rest: {"type":"rest","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРАВИЛА ФОРМАТА:\n
+- НЕ генерируй поле "description" — код построит автоматически.\n
+- distance_km: для easy/long/tempo/control/race — ОБЯЗАТЕЛЬНО. Для interval/fartlek — null (код посчитает).\n
+- pace: для easy/long — E-темп из зон. Для tempo — T-темп. Для interval/fartlek/control/race — null.\n
+- Ответ: только JSON. Начинается с { и заканчивается }. Без комментариев.\n
+\n
+⚠️ ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ГЕНЕРАЦИЕЙ:\n
+- Easy distance_km ≥ 4 (для данного пользователя; race week допустимо от 3 км)\n
+- Tempo distance_km ≥ 6 (включая разминку/заминку)\n
+- Long НЕ растёт более чем на 3 км в неделю\n
+- Все easy в одной неделе примерно одинаковые (±2 км)\n
+- Темпы СТРОГО из зон (E/M/T/I/R), НЕ из комфортного темпа\n
+' [UTF-8](length: 24237) contains "обычно должна быть type: tempo или частью long, а не control" [UTF-8](length: 88).
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:181
+
+11) Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+Failed asserting that 'Ты опытный тренер по бегу. Твоя задача — ПЕРЕСЧИТАТЬ существующий план тренировок.\n
+Пользователь УЖЕ тренируется по плану. Первые 16 недель СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ (оставшуюся часть).\n
+Это НЕ новый план с нуля. Ты должен учесть реальное текущее состояние бегуна: его объёмы, темпы, самочувствие, паузы.\n
+Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста.\n
+\n
+═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n
+\n
+Уровень подготовки: Средний (6-12 месяцев регулярного бега)\n
+Желаемое количество тренировок в неделю: 6\n
+\n
+═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n
+\n
+Цель: Подготовка к забегу\n
+Дистанция забега: 42.2 км (марафон)\n
+Дата забега: 2026-05-10\n
+ДЕНЬ ЗАБЕГА: неделя 9, день индекс 6 (Воскресенье). Поставь type: "race" именно на этот индекс.\n
+Целевое время: 03:30:00\n
+Целевой темп на забег: 4:59 /км\n
+\n
+Дата начала тренировок: 2026-03-10\n
+Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n
+Количество недель плана: 8. Сформируй ровно столько недель.\n
+\n
+═══ ПРЕДПОЧТЕНИЯ ═══\n
+\n
+Предпочитаемые дни для бега: Понедельник, Вторник, Среда, Четверг, Суббота, Воскресенье\n
+Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n
+\n
+═══ ТРЕНИРОВОЧНЫЕ ЗОНЫ (VDOT=41, формулы Daniels) ═══\n
+\n
+E  — Лёгкий бег (easy/long): 6:36 /км — RPE 3-4, разговорный темп\n
+     Диапазон easy: 6:36 - 6:00 /км\n
+     Длительная (long): 6:46 /км — нижняя граница easy\n
+M  — Марафонский темп: 5:27 /км — RPE 5-6, для MP-сегментов в длительной\n
+T  — Пороговый/Темповый (tempo): 5:05 /км — RPE 6-7, комфортно-тяжело, 20-40 мин\n
+I  — Интервальный (interval): 4:36 /км — RPE 8-9, отрезки 400м-2км, развивает VO2max\n
+R  — Повторный (repetition): 4:20 /км — RPE 9-10, отрезки 200-400м, развивает скорость и экономичность\n
+Rec — Восстановительная трусца: 7:01 /км — между интервалами\n
+\n
+╔══ ПРАВИЛА ПРИМЕНЕНИЯ ЗОН ══╗\n
+• Поле pace для easy/long: используй E-темп (6:36)\n
+• Поле pace для tempo: используй T-темп (5:05)\n
+• Поле interval_pace для interval: используй I-темп (4:36)\n
+• Для коротких ускорений (200-400м, strides): используй R-темп (4:20)\n
+• ЗАПРЕЩЕНО придумывать другие темпы. Используй ТОЛЬКО указанные зоны.\n
+╚════════════════════════════╝\n
+\n
+═══ ТЕКУЩЕЕ СОСТОЯНИЕ (для пересчёта) ═══\n
+\n
+Это пересчёт существующего плана. Пользователь уже тренировался, ниже — реальные данные.\n
+\n
+\n
+План: первые 16 нед. сохранены, генерировать 8 новых.\n
+\n
+ТЕКУЩАЯ ФАЗА МАКРОЦИКЛА:  (осталось  нед.)\n
+ВАЖНО: ПРОДОЛЖАЙ С ТЕКУЩЕЙ ФАЗЫ, не начинай макроцикл с нуля! Детали фаз — в блоке ПРИНЦИПЫ ниже.\n
+\n
+Оригинальная дата старта плана: 2026-03-10\n
+Новая дата старта плана: 2026-03-10\n
+Первая неделя нового плана — от этого понедельника. Нумерация недель начинается с 1.\n
+\n
+═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА (ПЕРЕСЧЁТ) ═══\n
+\n
+Цель: подготовка к забегу.\n
+\n
+ВАЖНО: Это ПЕРЕСЧЁТ. Макроцикл уже начат. НЕ СТРОЙ периодизацию с нуля!\n
+Текущая фаза: .\n
+\n
+СТРУКТУРА ОСТАВШИХСЯ ФАЗ (нумерация 1..N для генерации):\n
+- Развивающий (нед. 1-4):  Ключевых: до /нед.\n
+- Пиковый (нед. 5-6):  Ключевых: до /нед.\n
+- Подводка (нед. 7-8):  Ключевых: до /нед.\n
+\n
+Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n
+\n
+Разгрузочные недели (по новой нумерации): 3, 7 (объём -20%, убрать интенсивность).\n
+Контрольные забеги (по новой нумерации): нед. 4. Дистанция: 10-15 км в целевом марафонском темпе или 10 км на результат. type: control, pace: null.\n
+\n
+Используй рассчитанные зоны: interval_pace="4:36", темповый pace="5:05".\n
+\n
+ТРЕНИРОВКИ ДЛЯ МАРАФОНА:\n
+- Интервалы: 4-6x1600-2000 м (отдых 800 м трусцой).\n
+- Темповый: 8-12 км в темповом темпе.\n
+- Длительная: 22-35 км в лёгком/марафонском темпе.\n
+- Фартлек: 50-60 мин с ускорениями 3-5 мин через 2-3 мин.\n
+- Марафонский темп: 10-16 км в целевом марафонском темпе (внутри длительной или отдельно).\n
+\n
+distance_km для interval/fartlek: null (код посчитает). Для tempo/easy/long: ОБЯЗАТЕЛЬНО заполнять.\n
+\n
+\n
+═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ И ПРАВИЛА ПО ФАЗАМ ═══\n
+\n
+╔══ ЖЁСТКИЕ ОГРАНИЧЕНИЯ ПО ФАЗАМ ══╗\n
+│ Фаза      │ Допустимые типы                            │ Ключевых/нед │\n
+│───────────│────────────────────────────────────────────│──────────────│\n
+│ БАЗОВАЯ    │ easy, long, rest, other, sbu, free         │ 0-1 (long)   │\n
+│  (intermed │ + страйды 4-6×100м в конце easy (в notes)  │              │\n
+│  iate+)    │ + 1 короткий темповый (15 мин) к концу фазы│              │\n
+│            │ ЗАПРЕЩЕНЫ: interval, fartlek, race          │              │\n
+│ РАЗВИВАЮЩАЯ│ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПИКОВАЯ    │ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПОДВОДКА   │ easy, long(сокращ.), tempo(сокращ.), rest  │ 1-2          │\n
+│            │ Объём интенсивных -50%, длительная -40%    │              │\n
+│ РАЗГРУЗКА  │ easy, long(сокращ.), rest, other(легче)    │ 0-1          │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek        │              │\n
+╚════════════════════════════════════════════════════════════════════════╝\n
+\n
+ПОДВОДКА (TAPER) ДЛЯ МАРАФОНА — 3 недели:\n
+- Неделя -3: объём -20-25% от пиковой. Ключевые укорочены. Длительная 18-22 км.\n
+- Неделя -2: объём -35-40% от пиковой. Длительная 12-16 км. 1 лёгкий темповый (20 мин).\n
+- Неделя -1 (RACE WEEK): объём -50-60%. Easy 4-6 км × 3-4 дня. 1-2 дня rest.\n
+  За 2 дня до забега — rest. За день — лёгкий 3-4 км с 3-4 страйдами или rest.\n
+  Забег (race) — в день забега. Никаких интервалов/темповых.\n
+\n
+ТИПЫ КЛЮЧЕВЫХ (is_key_workout = true):\n
+- long   — аэробная база, жировой обмен, ментальная выносливость\n
+- tempo  — лактатный порог (пороговый темп, 20-40 мин)\n
+- interval — МПК (быстрые отрезки 400м-2км)\n
+- fartlek — скоростная выносливость (структурированный)\n
+- control — тест-забег\n
+- race   — соревнование\n
+\n
+НЕ ключевые (is_key_workout = false): easy, rest, other, sbu, free\n
+\n
+РАССТАНОВКА ПРИ 6 ТРЕНИРОВКАХ В НЕДЕЛЮ:\n
+- 2-3 ключевые + easy между ними\n
+  Пример: Пн easy, Вт interval, Ср easy, Чт tempo, Пт easy, Сб long, Вс rest\n
+\n
+RECOVERY RUN (восстановительный бег) — для 6 тренировок/нед:\n
+- На следующий день после ключевой (interval/tempo/long) ставь УКОРОЧЕННЫЙ easy.\n
+  type: easy, но distance_km на 20-30% короче обычного easy. notes: "Восстановительный бег".\n
+  Темп — на 15-20 сек/км медленнее обычного easy (RPE 2-3, очень лёгко).\n
+- Это НЕ пропуск — это осознанное восстановление. Помогает вывести метаболиты и ускорить восстановление.\n
+\n
+\n
+╔══ АБСОЛЮТНЫЕ ЗАПРЕТЫ ══╗\n
+│ 1. ДВЕ ключевые подряд — ЗАПРЕЩЕНО (минимум 1 day easy/rest между)  │\n
+│ 2. Интервалы/фартлек в БАЗОВОЙ фазе — ЗАПРЕЩЕНО (короткий темп ОК)  │\n
+│ 3. Интервалы/темп в РАЗГРУЗОЧНОЙ неделе — ЗАПРЕЩЕНО                  │\n
+│ 4. Длительная >33 км — ЗАПРЕЩЕНО                                      │\n
+│ 5. Более 3 ключевых в одну неделю — ЗАПРЕЩЕНО                        │\n
+│ 6. Easy < 3 км — ЗАПРЕЩЕНО (кроме race week: допустимо от 3 км)  │\n
+│ 7. Прирост длительной > 3 км за неделю — ЗАПРЕЩЕНО                   │\n
+│ 8. Tempo без distance_km и pace — ЗАПРЕЩЕНО (только структ. поля)    │\n
+│ 9. Description для бега — ЗАПРЕЩЕНО (код строит автоматически)        │\n
+╚═══════════════════════════════════════════════════════════════════════╝\n
+\n
+ПРОГРЕССИЯ КЛЮЧЕВЫХ ТРЕНИРОВОК ОТ НЕДЕЛИ К НЕДЕЛЕ:\n
+Интервалы и темповые ДОЛЖНЫ усложняться по ходу плана. Не повторяй одну и ту же тренировку неделями!\n
+\n
+Интервалы — 3 способа прогрессии (выбери подходящий для фазы):\n
+  a) Увеличение повторов: 4×1000м → 5×1000м → 6×1000м (каждые 2-3 нед.)\n
+  b) Увеличение длины отрезка: 5×800м → 4×1200м → 3×1600м (объём интенсивной работы ≈ const)\n
+  c) Сокращение отдыха: 5×1000м, отдых 400м → 5×1000м, отдых 200м\n
+  Суммарный объём интенсивной работы: от 3-4 км (начало) до 5-8 км (пик). Не более 10% недельного объёма.\n
+\n
+Темповые — прогрессия длительности темповой части:\n
+  - Начало: 15-20 мин → Пик: 30-40 мин (для полумарафона/марафона до 50 мин)\n
+  - Альтернатива: пороговые интервалы — 3×1600м в пороговом темпе с 1 мин отдыха → 4×1600м → 5×1600м\n
+  - Темп остаётся пороговым (не ускоряй!), растёт только объём в темпе\n
+\n
+Фартлек — прогрессия структуры:\n
+  - Начало: 6×200м быстро / 200м трусцой → 8×200м / 200м → 4×400м / 200м → 3×800м / 400м\n
+  - В развивающей фазе: длиннее быстрые отрезки, короче восстановление\n
+\n
+СРЕДНЕ-ДЛИТЕЛЬНАЯ:\n
+- При 5+ тренировках: 1 средне-длительная в неделю (60-70% от длительной), тип easy.\n
+  Ставь в середине недели (Ср-Чт). is_key_workout: false.\n
+\n
+СПЕЦИФИЧЕСКИЕ ТРЕНИРОВКИ:\n
+- МАРАФОНСКИЕ СЕГМЕНТЫ В ДЛИТЕЛЬНОЙ: в развивающей/пиковой фазе,\n
+  последние 4-8 км длительной — в марафонском темпе. Указывай в notes.\n
+- ПРОГРЕССИВНАЯ ДЛИТЕЛЬНАЯ: длительная с ускорением. Первые 2/3 в лёгком темпе, последняя 1/3 ускоряясь до марафонского.\n
+  Тип: long. notes: "Прогрессивная: первые N км легко, последние N км ускоряясь до марафонского темпа".\n
+  Использовать в развивающей/пиковой фазе, чередуя с обычной длительной (не каждую неделю).\n
+- ПОРОГОВЫЕ ИНТЕРВАЛЫ: альтернатива непрерывному темповому бегу. 3-5 × 1600м в пороговом темпе с 60-90 сек отдыха.\n
+  Менее утомительны, чем 30+ мин непрерывного темпа. Хороши для начала развивающей фазы.\n
+  Тип: tempo. notes: "Пороговые интервалы: N×1600м в пороговом темпе, отдых 60с". distance_km = разминка + интервалы + заминка.\n
+- ГЕНЕРАЛЬНАЯ РЕПЕТИЦИЯ: за 3-4 недели до марафона, 10-15 км в марафонском темпе с гелями (имитация старта).\n
+  Тип: long или tempo. notes: "Генеральная репетиция: 12 км в марафонском темпе, приём гелей на 5 и 10 км".\n
+\n
+\n
+═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n
+\n
+1. Расписание по дням:\n
+   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: Пн, Вт, Ср, Чт, Сб, Вс.\n
+   — ВЫХОДНЫЕ ДНИ (ОБЯЗАТЕЛЬНО type: rest): Пт. В эти дни ЗАПРЕЩЁН бег!\n
+   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n
+2. Объём и сложность — по уровню подготовки и weekly_base_km. ВАЖНО: для подготовки к забегу длительная должна достигать указанного минимума (см. ПИКОВАЯ ДЛИТЕЛЬНАЯ выше). Не занижай нагрузку — план должен РЕАЛЬНО подготовить к дистанции.\n
+3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n
+4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: "rest", все поля null.\n
+5. ЯЗЫК: Все notes и описания — ТОЛЬКО на русском. Запрещены: T-pace, M-pace, E-pace, I-pace, R-pace, cruise intervals, progressive long, dress rehearsal, medium-long, recovery run. Замены: пороговый темп, марафонский темп, лёгкий темп, быстрый темп, пороговые интервалы, прогрессивная длительная, генеральная репетиция, средне-длительная, восстановительный бег.\n
+\n
+╔══ МИНИМАЛЬНЫЕ ДИСТАНЦИИ И СТРУКТУРА ТРЕНИРОВОК ══╗\n
+│                                                                         │\n
+│ EASY (лёгкий бег):                                                      │\n
+│  - МИНИМУМ 3 км (для уровня пользователя). Пробежки короче — бессмысленны.│\n
+│  - Типичная дистанция: 8-12 км для марафонца, 6-10 км для полумарафонца, │\n
+│    3-5 км для начинающих (weekly_base < 15 км).                           │\n
+│  - Easy = 15-25% недельного объёма. При 50 км/нед → easy 8-12 км.        │\n
+│  - Easy темп: ВСЕГДА медленнее темпового на 1:00-1:30/км.                │\n
+│  - Все easy в одной неделе должны быть ПОХОЖЕЙ дистанции (±2 км).        │\n
+│                                                                         │\n
+│ TEMPO (темповый бег):                                                   │\n
+│  - ОБЯЗАТЕЛЬНО заполнять distance_km и pace структурированными полями.   │\n
+│  - distance_km = вся дистанция включая разминку и заминку.               │\n
+│  - pace = целевой темп темповой части.                                   │\n
+│  - Разминку и заминку описывать в notes (напр. "Разминка 2 км, заминка 1.5 км"). │\n
+│  - МИНИМУМ 6 км (включая разминку/заминку). Темповая часть: 3-12 км.     │\n
+│  - НИКОГДА не писать description текстом! Только distance_km + pace + notes. │\n
+│                                                                         │\n
+│ LONG (длительный бег):                                                  │\n
+│  - Прирост длительной: не более +2-3 км/нед (или +10%).                 │\n
+│  - Каждые 3-4 недели — разгрузочная длительная (на 30% короче пиковой).  │\n
+│  - Максимум: 33 км для марафона, 18-21 км для полумарафона.              │\n
+│                                                                         │\n
+│ RACE WEEK (последняя неделя перед забегом):                              │\n
+│  - Объём -50-60% от пиковой недели.                                     │\n
+│  - Easy: 3-6 км (допустимо ниже обычного минимума в race week).          │\n
+│  - Максимум 3-4 беговые тренировки + день забега.                       │\n
+│  - За 2 дня до забега — отдых (rest). За 1 день — лёгкий 3-4 км или rest.│\n
+│  - НИКАКИХ интервалов, темповых. Можно: 3-4 × 100м страйды (в notes).   │\n
+╚═════════════════════════════════════════════════════════════════════════╝\n
+\n
+═══ ЗАДАЧА: ПЕРЕСЧЁТ ПЛАНА ═══\n
+\n
+Это КОРРЕКЦИЯ существующего плана, а не генерация с нуля.\n
+Первые 16 недель плана СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ.\n
+Сгенерируй ровно 8 недель (нумерация week_number от 1 до 8).\n
+Дата начала первой генерируемой недели: 2026-03-10.\n
+\n
+Учитывай ТЕКУЩЕЕ СОСТОЯНИЕ из блока выше: реальные объёмы, темпы, самочувствие.\n
+\n
+ПРИНЦИПЫ ПЕРЕСЧЁТА:\n
+1. Первые 1-2 недели — плавный возврат к нагрузке:\n
+   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n
+   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n
+   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n
+   - ПРИОРИТЕТ ВОЗВРАТА: сначала восстанавливай скоростную работу (интервалы, короткий темп) — VO2max теряется быстрее всего. Аэробная база сохраняется дольше.\n
+2. Далее — стандартная прогрессия (до +10%/нед), возвращение к обычной структуре.\n
+3. Если до забега мало времени — сжать фазы, но НЕ форсировать нагрузку.\n
+4. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n
+5. НЕ генерируй "description" — код построит автоматически. Поле description ЗАПРЕЩЕНО.\n
+6. Easy бег: МИНИМУМ 3 км (кроме race week). Все easy в неделе — одинаковой дистанции (±2 км).\n
+7. Tempo: ОБЯЗАТЕЛЬНО distance_km + pace. Разминку/заминку — в notes.\n
+8. НЕ добавляй поле "date" в дни — код вычислит даты автоматически из start_date.\n
+\n
+⚠️ КРИТИЧНО — РАСПИСАНИЕ (соблюдай СТРОГО при пересчёте!):\n
+- Беговые тренировки ТОЛЬКО в эти дни: Пн, Вт, Ср, Чт, Сб, Вс (6 дней).\n
+- ВЫХОДНЫЕ ДНИ (type: rest): Пт. В эти дни ЗАПРЕЩЁН бег!\n
+- Порядок дней в массиве days: [Пн(0), Вт(1), Ср(2), Чт(3), Пт(4), Сб(5), Вс(6)].\n
+- Каждая неделя = ровно 7 дней. Выходные дни = {"type":"rest",...все null}.\n
+\n
+═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n
+\n
+Верни один JSON-объект с ключом "weeks". В каждой неделе массив "days" из ровно 7 элементов (пн … вс).\n
+Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n
+\n
+КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n
+\n
+ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n
+{"type":"...","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРИМЕРЫ:\n
+\n
+easy: {"type":"easy","distance_km":8,"pace":"6:00","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+long: {"type":"long","distance_km":20,"pace":"6:20","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+tempo (distance_km = ВСЯ дистанция с разминкой и заминкой, pace = темп темповой части):\n
+{"type":"tempo","distance_km":10,"pace":"4:45","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":"Разминка 2 км, темповая часть 6 км, заминка 2 км","is_key_workout":true}\n
+\n
+interval (distance_km=null — код посчитает!):\n
+{"type":"interval","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":5,"interval_m":1000,"interval_pace":"4:20","rest_m":400,"rest_type":"jog","segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+fartlek (distance_km=null — код посчитает!):\n
+{"type":"fartlek","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":[{"reps":6,"distance_m":200,"pace":"4:30","recovery_m":200,"recovery_type":"jog"}],"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+rest: {"type":"rest","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРАВИЛА ФОРМАТА:\n
+- НЕ генерируй поле "description" — код построит автоматически.\n
+- distance_km: для easy/long/tempo/control/race — ОБЯЗАТЕЛЬНО. Для interval/fartlek — null (код посчитает).\n
+- pace: для easy/long — E-темп из зон. Для tempo — T-темп. Для interval/fartlek/control/race — null.\n
+- Ответ: только JSON. Начинается с { и заканчивается }. Без комментариев.\n
+\n
+⚠️ ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ГЕНЕРАЦИЕЙ:\n
+- Easy distance_km ≥ 3 (для данного пользователя; race week допустимо от 3 км)\n
+- Tempo distance_km ≥ 6 (включая разминку/заминку)\n
+- Long НЕ растёт более чем на 3 км в неделю\n
+- Все easy в одной неделе примерно одинаковые (±2 км)\n
+- Темпы СТРОГО из зон (E/M/T/I/R), НЕ из комфортного темпа\n
+' [UTF-8](length: 27471) contains "WORKOUT INTENT" [ASCII](length: 14).
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:222
+
+12) Tests\Unit\PromptBuilderTrainingStateTest::test_computeMacrocycle_marathon_control_weeks_are_rare
+Failed asserting that 3 is equal to 2 or is less than 2.
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:243
+
+13) Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_omits_training_state_and_week_skeleton
+Failed asserting that 'Ты опытный тренер по бегу. Твоя задача — ПЕРЕСЧИТАТЬ существующий план тренировок.\n
+Пользователь УЖЕ тренируется по плану. Первые 16 недель СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ (оставшуюся часть).\n
+Это НЕ новый план с нуля. Ты должен учесть реальное текущее состояние бегуна: его объёмы, темпы, самочувствие, паузы.\n
+Отвечай ТОЛЬКО валидным JSON без комментариев и лишнего текста.\n
+\n
+═══ ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ═══\n
+\n
+Желаемое количество тренировок в неделю: 6\n
+\n
+═══ ЦЕЛЬ ТРЕНИРОВОК ═══\n
+\n
+Цель: Подготовка к забегу\n
+Дистанция забега: 42.2 км (марафон)\n
+Дата забега: 2026-05-10\n
+ДЕНЬ ЗАБЕГА: неделя 9, день индекс 6 (Воскресенье). Поставь type: "race" именно на этот индекс.\n
+\n
+Дата начала тренировок: 2026-03-10\n
+Первая неделя плана — та, в которую попадает эта дата (понедельник этой недели = начало недели 1).\n
+Количество недель плана: 8. Сформируй ровно столько недель.\n
+\n
+═══ ПРЕДПОЧТЕНИЯ ═══\n
+\n
+Предпочитаемые дни для бега: Понедельник, Вторник, Среда, Четверг, Суббота, Воскресенье\n
+Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n
+\n
+═══ ТЕКУЩЕЕ СОСТОЯНИЕ (для пересчёта) ═══\n
+\n
+Это пересчёт существующего плана. Пользователь уже тренировался, ниже — реальные данные.\n
+\n
+\n
+План: первые 16 нед. сохранены, генерировать 8 новых.\n
+\n
+Оригинальная дата старта плана: 2026-03-10\n
+Новая дата старта плана: 2026-03-10\n
+Первая неделя нового плана — от этого понедельника. Нумерация недель начинается с 1.\n
+\n
+═══ ПРИНЦИПЫ И СТРУКТУРА ПЛАНА ═══\n
+\n
+Цель: подготовка к забегу.\n
+\n
+⚠⚠⚠ ВНИМАНИЕ — ПРОБЛЕМЫ С ЦЕЛЬЮ ПОЛЬЗОВАТЕЛЯ ⚠⚠⚠\n
+- НЕДОСТАТОЧНО ВРЕМЕНИ для безопасной подготовки к марафону. Прогрессия длительной (3→32 км) требует минимум 16 недель. У пользователя 9 недель. Снижай пиковую длительную и ОБЯЗАТЕЛЬНО предупреди бегуна о риске травмы.\n
+- КРАЙНЕ НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ: марафон при базе 0 км/нед за 9 недель. Безопасная подготовка к марафону требует минимум 16-20 недель при базе 25+ км/нед. Предложи бегуну более короткую дистанцию или сдвинуть дату забега.\n
+При генерации плана учитывай эти предупреждения и генерируй максимально безопасный план.\n
+Генерируй план максимально безопасный — лучше не достичь цели, чем получить травму.\n
+\n
+МАКРОЦИКЛ (9 недель, новичок — удлинённый базовый период):\n
+- Базовый (недели 1-3): Аэробный объём. Лёгкий бег + длительная. Без темповых/интервалов. Прирост объёма до 10%/нед. Длительная: 3→7 км. Ключевых: до 0/нед.\n
+- Развивающий (недели 4-6): 2 ключевые/нед (темп/интервалы). Длительная растёт. Объём +5-10%/нед. Длительная: 9→12 км. Ключевых: до 2/нед.\n
+- Пиковый (неделя 7): Максимальная интенсивность. 3 ключевых/нед. Объём стабилен. Пиковая длительная. Длительная: 18 км. Ключевых: до 3/нед.\n
+- Подводка (недели 8-9): Объём -40-60% от пикового. 1 короткая интенсивная/нед. Последняя неделя — совсем лёгкая. Длительная: 12→8 км. Ключевых: до 1/нед.\n
+Разгрузочные недели: 3, 6 (объём -20%, убрать интенсивность, длительную сократить на 20%).\n
+\n
+ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ ПО НЕДЕЛЯМ (следуй этим числам!):\n
+нед1: 3 → нед2: 6 → нед3: 7 → нед4: 9 → нед5: 12 → нед6: 12 → нед7: 18 → нед8: 12 → нед9: забег (км)\n
+ПИКОВАЯ ДЛИТЕЛЬНАЯ: 21 км (неделя 6). ЭТО ОБЯЗАТЕЛЬНЫЙ МИНИМУМ.\n
+\n
+ОБЪЁМЫ: стартовый ~16 км/нед → пиковый ~23 км/нед.\n
+Правило: прирост не более 10%/нед. 80% объёма в лёгком темпе, до 20% — ключевые тренировки.\n
+\n
+ТРЕНИРОВКИ ДЛЯ МАРАФОНА:\n
+- Интервалы: 4-6x1600-2000 м (отдых 800 м трусцой).\n
+- Темповый: 8-12 км в темповом темпе.\n
+- Длительная: 22-35 км в лёгком/марафонском темпе.\n
+- Фартлек: 50-60 мин с ускорениями 3-5 мин через 2-3 мин.\n
+- Марафонский темп: 10-16 км в целевом марафонском темпе (внутри длительной или отдельно).\n
+\n
+КАЖДАЯ КЛЮЧЕВАЯ ТРЕНИРОВКА (темп, интервалы, фартлек) включает разминку (1.5-2 км) и заминку (1-1.5 км).\n
+distance_km для интервалов/фартлека считает код — не заполняй.\n
+\n
+КОНТРОЛЬНЫЕ ЗАБЕГИ (type: "control"):\n
+Тест-забег на дистанцию короче целевой для замера прогресса. is_key_workout: true. pace: null.\n
+Ставить ИМЕННО в эти недели: 5.\n
+Дистанция контрольной: 10-15 км в целевом марафонском темпе или 10 км на результат.\n
+\n
+НОВИЧОК: интервалы вводить не ранее недели 4-5. Начинать с 3-4x400 м. Контрольные забеги — не ранее недели 4, дистанция 1-2 км.\n
+\n
+\n
+═══ КЛЮЧЕВЫЕ ТРЕНИРОВКИ И ПРАВИЛА ПО ФАЗАМ ═══\n
+\n
+╔══ ЖЁСТКИЕ ОГРАНИЧЕНИЯ ПО ФАЗАМ ══╗\n
+│ Фаза      │ Допустимые типы                            │ Ключевых/нед │\n
+│───────────│────────────────────────────────────────────│──────────────│\n
+│ БАЗОВАЯ    │ easy, long, rest, other, sbu, free         │ 0-1 (long)   │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek, race  │              │\n
+│ РАЗВИВАЮЩАЯ│ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПИКОВАЯ    │ ВСЕ типы допустимы                        │ 2-3          │\n
+│ ПОДВОДКА   │ easy, long(сокращ.), tempo(сокращ.), rest  │ 1-2          │\n
+│            │ Объём интенсивных -50%, длительная -40%    │              │\n
+│ РАЗГРУЗКА  │ easy, long(сокращ.), rest, other(легче)    │ 0-1          │\n
+│            │ ЗАПРЕЩЕНЫ: tempo, interval, fartlek        │              │\n
+╚════════════════════════════════════════════════════════════════════════╝\n
+\n
+ПОДВОДКА (TAPER) ДЛЯ МАРАФОНА — 3 недели:\n
+- Неделя -3: объём -20-25% от пиковой. Ключевые укорочены. Длительная 18-22 км.\n
+- Неделя -2: объём -35-40% от пиковой. Длительная 12-16 км. 1 лёгкий темповый (20 мин).\n
+- Неделя -1 (RACE WEEK): объём -50-60%. Easy 4-6 км × 3-4 дня. 1-2 дня rest.\n
+  За 2 дня до забега — rest. За день — лёгкий 3-4 км с 3-4 страйдами или rest.\n
+  Забег (race) — в день забега. Никаких интервалов/темповых.\n
+\n
+ТИПЫ КЛЮЧЕВЫХ (is_key_workout = true):\n
+- long   — аэробная база, жировой обмен, ментальная выносливость\n
+- tempo  — лактатный порог (пороговый темп, 20-40 мин)\n
+- interval — МПК (быстрые отрезки 400м-2км)\n
+- fartlek — скоростная выносливость (структурированный)\n
+- control — тест-забег\n
+- race   — соревнование\n
+\n
+НЕ ключевые (is_key_workout = false): easy, rest, other, sbu, free\n
+\n
+РАССТАНОВКА ПРИ 6 ТРЕНИРОВКАХ В НЕДЕЛЮ:\n
+- 2-3 ключевые + easy между ними\n
+  Пример: Пн easy, Вт interval, Ср easy, Чт tempo, Пт easy, Сб long, Вс rest\n
+\n
+RECOVERY RUN (восстановительный бег) — для 6 тренировок/нед:\n
+- На следующий день после ключевой (interval/tempo/long) ставь УКОРОЧЕННЫЙ easy.\n
+  type: easy, но distance_km на 20-30% короче обычного easy. notes: "Восстановительный бег".\n
+  Темп — на 15-20 сек/км медленнее обычного easy (RPE 2-3, очень лёгко).\n
+- Это НЕ пропуск — это осознанное восстановление. Помогает вывести метаболиты и ускорить восстановление.\n
+\n
+\n
+╔══ АБСОЛЮТНЫЕ ЗАПРЕТЫ ══╗\n
+│ 1. ДВЕ ключевые подряд — ЗАПРЕЩЕНО (минимум 1 day easy/rest между)  │\n
+│ 2. Интервалы/темп в БАЗОВОЙ фазе — ЗАПРЕЩЕНО                        │\n
+│ 3. Интервалы/темп в РАЗГРУЗОЧНОЙ неделе — ЗАПРЕЩЕНО                  │\n
+│ 4. Длительная >33 км — ЗАПРЕЩЕНО                                      │\n
+│ 5. Более 3 ключевых в одну неделю — ЗАПРЕЩЕНО                        │\n
+│ 6. Easy < 3 км — ЗАПРЕЩЕНО (кроме race week: допустимо от 3 км)  │\n
+│ 7. Прирост длительной > 3 км за неделю — ЗАПРЕЩЕНО                   │\n
+│ 8. Tempo без distance_km и pace — ЗАПРЕЩЕНО (только структ. поля)    │\n
+│ 9. Description для бега — ЗАПРЕЩЕНО (код строит автоматически)        │\n
+╚═══════════════════════════════════════════════════════════════════════╝\n
+\n
+ПРОГРЕССИЯ КЛЮЧЕВЫХ ТРЕНИРОВОК ОТ НЕДЕЛИ К НЕДЕЛЕ:\n
+Интервалы и темповые ДОЛЖНЫ усложняться по ходу плана. Не повторяй одну и ту же тренировку неделями!\n
+\n
+Интервалы — 3 способа прогрессии (выбери подходящий для фазы):\n
+  a) Увеличение повторов: 4×1000м → 5×1000м → 6×1000м (каждые 2-3 нед.)\n
+  b) Увеличение длины отрезка: 5×800м → 4×1200м → 3×1600м (объём интенсивной работы ≈ const)\n
+  c) Сокращение отдыха: 5×1000м, отдых 400м → 5×1000м, отдых 200м\n
+  Суммарный объём интенсивной работы: от 3-4 км (начало) до 5-8 км (пик). Не более 10% недельного объёма.\n
+\n
+Темповые — прогрессия длительности темповой части:\n
+  - Начало: 15-20 мин → Пик: 30-40 мин (для полумарафона/марафона до 50 мин)\n
+  - Альтернатива: пороговые интервалы — 3×1600м в пороговом темпе с 1 мин отдыха → 4×1600м → 5×1600м\n
+  - Темп остаётся пороговым (не ускоряй!), растёт только объём в темпе\n
+\n
+Фартлек — прогрессия структуры:\n
+  - Начало: 6×200м быстро / 200м трусцой → 8×200м / 200м → 4×400м / 200м → 3×800м / 400м\n
+  - В развивающей фазе: длиннее быстрые отрезки, короче восстановление\n
+\n
+СРЕДНЕ-ДЛИТЕЛЬНАЯ:\n
+- При 5+ тренировках: 1 средне-длительная в неделю (60-70% от длительной), тип easy.\n
+  Ставь в середине недели (Ср-Чт). is_key_workout: false.\n
+\n
+СПЕЦИФИЧЕСКИЕ ТРЕНИРОВКИ:\n
+- МАРАФОНСКИЕ СЕГМЕНТЫ В ДЛИТЕЛЬНОЙ: в развивающей/пиковой фазе,\n
+  последние 4-8 км длительной — в марафонском темпе. Указывай в notes.\n
+- ПРОГРЕССИВНАЯ ДЛИТЕЛЬНАЯ: длительная с ускорением. Первые 2/3 в лёгком темпе, последняя 1/3 ускоряясь до марафонского.\n
+  Тип: long. notes: "Прогрессивная: первые N км легко, последние N км ускоряясь до марафонского темпа".\n
+  Использовать в развивающей/пиковой фазе, чередуя с обычной длительной (не каждую неделю).\n
+- ПОРОГОВЫЕ ИНТЕРВАЛЫ: альтернатива непрерывному темповому бегу. 3-5 × 1600м в пороговом темпе с 60-90 сек отдыха.\n
+  Менее утомительны, чем 30+ мин непрерывного темпа. Хороши для начала развивающей фазы.\n
+  Тип: tempo. notes: "Пороговые интервалы: N×1600м в пороговом темпе, отдых 60с". distance_km = разминка + интервалы + заминка.\n
+- ГЕНЕРАЛЬНАЯ РЕПЕТИЦИЯ: за 3-4 недели до марафона, 10-15 км в марафонском темпе с гелями (имитация старта).\n
+  Тип: long или tempo. notes: "Генеральная репетиция: 12 км в марафонском темпе, приём гелей на 5 и 10 км".\n
+\n
+\n
+═══ ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (соблюдай строго) ═══\n
+\n
+1. Расписание по дням:\n
+   — Беговые тренировки ставить ТОЛЬКО в эти дни недели: Пн, Вт, Ср, Чт, Сб, Вс.\n
+   — ВЫХОДНЫЕ ДНИ (ОБЯЗАТЕЛЬНО type: rest): Пт. В эти дни ЗАПРЕЩЁН бег!\n
+   — ОФП в плане не включать (пользователь выбрал «не делать ОФП»). Дни без бега — только type: rest.\n
+2. Объём и сложность — по уровню подготовки и weekly_base_km. ВАЖНО: для подготовки к забегу длительная должна достигать указанного минимума (см. ПИКОВАЯ ДЛИТЕЛЬНАЯ выше). Не занижай нагрузку — план должен РЕАЛЬНО подготовить к дистанции.\n
+3. Даты НЕ нужны — код вычислит их автоматически из start_date и номера недели.\n
+4. В каждой неделе ровно 7 дней: порядок понедельник (индекс 0), вторник (1), …, воскресенье (6). День без тренировки — type: "rest", все поля null.\n
+5. ЯЗЫК: Все notes и описания — ТОЛЬКО на русском. Запрещены: T-pace, M-pace, E-pace, I-pace, R-pace, cruise intervals, progressive long, dress rehearsal, medium-long, recovery run. Замены: пороговый темп, марафонский темп, лёгкий темп, быстрый темп, пороговые интервалы, прогрессивная длительная, генеральная репетиция, средне-длительная, восстановительный бег.\n
+\n
+╔══ МИНИМАЛЬНЫЕ ДИСТАНЦИИ И СТРУКТУРА ТРЕНИРОВОК ══╗\n
+│                                                                         │\n
+│ EASY (лёгкий бег):                                                      │\n
+│  - МИНИМУМ 3 км (для уровня пользователя). Пробежки короче — бессмысленны.│\n
+│  - Типичная дистанция: 8-12 км для марафонца, 6-10 км для полумарафонца, │\n
+│    3-5 км для начинающих (weekly_base < 15 км).                           │\n
+│  - Easy = 15-25% недельного объёма. При 50 км/нед → easy 8-12 км.        │\n
+│  - Easy темп: ВСЕГДА медленнее темпового на 1:00-1:30/км.                │\n
+│  - Все easy в одной неделе должны быть ПОХОЖЕЙ дистанции (±2 км).        │\n
+│                                                                         │\n
+│ TEMPO (темповый бег):                                                   │\n
+│  - ОБЯЗАТЕЛЬНО заполнять distance_km и pace структурированными полями.   │\n
+│  - distance_km = вся дистанция включая разминку и заминку.               │\n
+│  - pace = целевой темп темповой части.                                   │\n
+│  - Разминку и заминку описывать в notes (напр. "Разминка 2 км, заминка 1.5 км"). │\n
+│  - МИНИМУМ 6 км (включая разминку/заминку). Темповая часть: 3-12 км.     │\n
+│  - НИКОГДА не писать description текстом! Только distance_km + pace + notes. │\n
+│                                                                         │\n
+│ LONG (длительный бег):                                                  │\n
+│  - Прирост длительной: не более +2-3 км/нед (или +10%).                 │\n
+│  - Каждые 3-4 недели — разгрузочная длительная (на 30% короче пиковой).  │\n
+│  - Максимум: 33 км для марафона, 18-21 км для полумарафона.              │\n
+│                                                                         │\n
+│ RACE WEEK (последняя неделя перед забегом):                              │\n
+│  - Объём -50-60% от пиковой недели.                                     │\n
+│  - Easy: 3-6 км (допустимо ниже обычного минимума в race week).          │\n
+│  - Максимум 3-4 беговые тренировки + день забега.                       │\n
+│  - За 2 дня до забега — отдых (rest). За 1 день — лёгкий 3-4 км или rest.│\n
+│  - НИКАКИХ интервалов, темповых. Можно: 3-4 × 100м страйды (в notes).   │\n
+╚═════════════════════════════════════════════════════════════════════════╝\n
+\n
+═══ ЗАДАЧА: ПЕРЕСЧЁТ ПЛАНА ═══\n
+\n
+Это КОРРЕКЦИЯ существующего плана, а не генерация с нуля.\n
+Первые 16 недель плана СОХРАНЕНЫ — ты генерируешь только ПРОДОЛЖЕНИЕ.\n
+Сгенерируй ровно 8 недель (нумерация week_number от 1 до 8).\n
+Дата начала первой генерируемой недели: 2026-03-10.\n
+\n
+Учитывай ТЕКУЩЕЕ СОСТОЯНИЕ из блока выше: реальные объёмы, темпы, самочувствие.\n
+\n
+ПРИНЦИПЫ ПЕРЕСЧЁТА:\n
+1. Первые 1-2 недели — плавный возврат к нагрузке:\n
+   - Начальный объём = средний реальный объём за последние 4 недели × коэффициент формы.\n
+   - Первая неделя — только лёгкий бег (easy) и длительная (сокращённая).\n
+   - Вторая неделя — можно вернуть 1 ключевую тренировку (облегчённую).\n
+   - ПРИОРИТЕТ ВОЗВРАТА: сначала восстанавливай скоростную работу (интервалы, короткий темп) — VO2max теряется быстрее всего. Аэробная база сохраняется дольше.\n
+2. Далее — стандартная прогрессия (до +10%/нед), возвращение к обычной структуре.\n
+3. Если до забега мало времени — сжать фазы, но НЕ форсировать нагрузку.\n
+4. Выдавай ТОЛЬКО структурированные поля (type, distance_km, pace и т.д.).\n
+5. НЕ генерируй "description" — код построит автоматически. Поле description ЗАПРЕЩЕНО.\n
+6. Easy бег: МИНИМУМ 3 км (кроме race week). Все easy в неделе — одинаковой дистанции (±2 км).\n
+7. Tempo: ОБЯЗАТЕЛЬНО distance_km + pace. Разминку/заминку — в notes.\n
+8. НЕ добавляй поле "date" в дни — код вычислит даты автоматически из start_date.\n
+\n
+⚠️ КРИТИЧНО — РАСПИСАНИЕ (соблюдай СТРОГО при пересчёте!):\n
+- Беговые тренировки ТОЛЬКО в эти дни: Пн, Вт, Ср, Чт, Сб, Вс (6 дней).\n
+- ВЫХОДНЫЕ ДНИ (type: rest): Пт. В эти дни ЗАПРЕЩЁН бег!\n
+- Порядок дней в массиве days: [Пн(0), Вт(1), Ср(2), Чт(3), Пт(4), Сб(5), Вс(6)].\n
+- Каждая неделя = ровно 7 дней. Выходные дни = {"type":"rest",...все null}.\n
+\n
+═══ ФОРМАТ ОТВЕТА (только этот JSON) ═══\n
+\n
+Верни один JSON-объект с ключом "weeks". В каждой неделе массив "days" из ровно 7 элементов (пн … вс).\n
+Тип дня (type): easy, long, tempo, interval, fartlek, control, rest, other (ОФП), sbu, race, free.\n
+\n
+КРИТИЧНО: Каждый день — объект со ВСЕМИ полями ниже. Неиспользуемые = null. Пропуск полей запрещён!\n
+\n
+ПОЛНЫЙ ШАБЛОН ДНЯ (все поля):\n
+{"type":"...","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРИМЕРЫ:\n
+\n
+easy: {"type":"easy","distance_km":8,"pace":"6:00","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+long: {"type":"long","distance_km":20,"pace":"6:20","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+tempo (distance_km = ВСЯ дистанция с разминкой и заминкой, pace = темп темповой части):\n
+{"type":"tempo","distance_km":10,"pace":"4:45","warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":"Разминка 2 км, темповая часть 6 км, заминка 2 км","is_key_workout":true}\n
+\n
+interval (distance_km=null — код посчитает!):\n
+{"type":"interval","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":5,"interval_m":1000,"interval_pace":"4:20","rest_m":400,"rest_type":"jog","segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+fartlek (distance_km=null — код посчитает!):\n
+{"type":"fartlek","distance_km":null,"pace":null,"warmup_km":2,"cooldown_km":1.5,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":[{"reps":6,"distance_m":200,"pace":"4:30","recovery_m":200,"recovery_type":"jog"}],"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":true}\n
+\n
+rest: {"type":"rest","distance_km":null,"pace":null,"warmup_km":null,"cooldown_km":null,"reps":null,"interval_m":null,"interval_pace":null,"rest_m":null,"rest_type":null,"segments":null,"exercises":null,"duration_minutes":null,"notes":null,"is_key_workout":false}\n
+\n
+ПРАВИЛА ФОРМАТА:\n
+- НЕ генерируй поле "description" — код построит автоматически.\n
+- distance_km: для easy/long/tempo/control/race — ОБЯЗАТЕЛЬНО. Для interval/fartlek — null (код посчитает).\n
+- pace: для easy/long — E-темп из зон. Для tempo — T-темп. Для interval/fartlek/control/race — null.\n
+- Ответ: только JSON. Начинается с { и заканчивается }. Без комментариев.\n
+\n
+⚠️ ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ГЕНЕРАЦИЕЙ:\n
+- Easy distance_km ≥ 3 (для данного пользователя; race week допустимо от 3 км)\n
+- Tempo distance_km ≥ 6 (включая разминку/заминку)\n
+- Long НЕ растёт более чем на 3 км в неделю\n
+- Все easy в одной неделе примерно одинаковые (±2 км)\n
+- Темпы СТРОГО из зон (E/M/T/I/R), НЕ из комфортного темпа\n
+' [UTF-8](length: 27959) contains "Конкретную структуру tempo/control/interval подбирай самостоятельно" [UTF-8](length: 108).
+
+/var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:164
+
+14) Tests\Unit\GoldenPlanPolicyTest::test_golden_plan_policy_cases with data set "return_after_break_health_easy_only" (['return_after_break_health_easy_only', 'health', ['2026-03-09', 5, ['mon', 'tue', 'thu', 'sat', 'sun'], 'intermediate', 'regular_running', 4, [['return_after_break']]], ['2026-03-09', 4], [['rest', 'easy', 'long']]])
+return_after_break_health_easy_only: unexpected type in skeleton
+Failed asserting that an array contains 'fartlek'.
+
+/var/www/planrun/planrun-backend/tests/Unit/GoldenPlanPolicyTest.php:57
+
+15) Tests\Unit\GoldenPlanPolicyTest::test_golden_plan_policy_cases with data set "weight_loss_intermediate_four_days_includes_fartlek" (['weight_loss_intermediate_four...artlek', 'weight_loss', ['2026-03-09', '2026-04-20', 4, ['mon', 'wed', 'fri', 'sun'], 'intermediate', 24], ['2026-03-09', 6], [['rest', 'easy', 'long', 'fartlek'], ['fartlek']]])
+weight_loss_intermediate_four_days_includes_fartlek: expected type fartlek not found in skeleton
+Failed asserting that an array has the key 'fartlek'.
+
+/var/www/planrun/planrun-backend/tests/Unit/GoldenPlanPolicyTest.php:81
+
+--
+
+1 test triggered 7 PHP warnings:
+
+1) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:3148
+Undefined array key "phase_label"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+2) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:3148
+Undefined array key "weeks_left_in_phase"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+3) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:2847
+Undefined array key "phase_label"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+4) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:2848
+Undefined array key "weeks_left_in_phase"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+5) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:2851
+Undefined array key "next_phase_label"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+6) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:2875
+Undefined array key "description"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block (3 times)
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+7) /var/www/planrun/planrun-backend/planrun_ai/prompt_builder.php:2875
+Undefined array key "max_key_workouts"
+
+Triggered by:
+
+* Tests\Unit\PromptBuilderTrainingStateTest::test_buildRecalculationPrompt_flexible_mode_includes_workout_intent_block (3 times)
+  /var/www/planrun/planrun-backend/tests/Unit/PromptBuilderTrainingStateTest.php:190
+
+ERRORS!
+Tests: 173, Assertions: 850, Errors: 45, Failures: 15, Warnings: 7.

@@ -3,7 +3,7 @@
  * Два шага: ввод PIN и подтверждение.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Modal from './Modal';
 import PinInput from './PinInput';
 import PinAuthService from '../../services/PinAuthService';
@@ -36,7 +36,7 @@ const PinSetupModal = ({ isOpen, onClose, onSuccess, tokens }) => {
 
   const handlePin1Next = () => {
     if (pin1.length !== 4) {
-      setError('PIN должен быть 4 цифры');
+      setError('ПИН-код должен состоять из 4 цифр');
       return;
     }
     setStep(2);
@@ -48,7 +48,7 @@ const PinSetupModal = ({ isOpen, onClose, onSuccess, tokens }) => {
     const valueToUse = pin ?? pin2Ref.current;
     setPin2(valueToUse);
     if (valueToUse !== pin1) {
-      setError('PIN не совпадает. Попробуйте снова.');
+      setError('ПИН-код не совпадает. Попробуйте снова.');
       return;
     }
     if (!tokens?.accessToken || !tokens?.refreshToken) {
@@ -66,7 +66,7 @@ const PinSetupModal = ({ isOpen, onClose, onSuccess, tokens }) => {
       onSuccess?.();
       handleClose();
     } catch (e) {
-      setError(e?.message || 'Ошибка сохранения PIN');
+      setError(e?.message || 'Ошибка сохранения ПИН-кода');
     } finally {
       setLoading(false);
     }
@@ -82,10 +82,10 @@ const PinSetupModal = ({ isOpen, onClose, onSuccess, tokens }) => {
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Установить PIN-код" size="small" variant="modern">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Установить ПИН-код" size="small" variant="modern">
       <div className="pin-setup-modal">
         <p className="pin-setup-modal__hint">
-          {step === 1 ? 'Придумайте PIN из 4 цифр' : 'Повторите PIN для подтверждения'}
+          {step === 1 ? 'Придумайте ПИН-код из 4 цифр' : 'Повторите ПИН-код для подтверждения'}
         </p>
         {step === 1 ? (
           <>

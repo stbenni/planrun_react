@@ -32,7 +32,7 @@ const normalizeWorkoutDetailsDayData = (raw) => {
   };
 };
 
-const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext = null, canEdit: externalCanEdit = true, isOwner: externalIsOwner = true, canView: externalCanView = true, hideHeader = false, viewMode: externalViewMode = null }) => {
+const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext = null, canEdit: externalCanEdit = true, isOwner: externalIsOwner = true, canView: externalCanView = true, viewMode: externalViewMode = null }) => {
   const isTabActive = useIsTabActive('/calendar');
   const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
   const location = useLocation();
@@ -97,7 +97,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [workoutsListByDate, setWorkoutsListByDate] = useState({}); // Отдельные тренировки по датам (для проверки типов)
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [resultModal, setResultModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [addTrainingModal, setAddTrainingModal] = useState({ isOpen: false, date: null, planDay: null, editResultData: null });
@@ -340,11 +340,6 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
     }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadPlan();
-  };
-
   const buildImmediateWorkoutDetailsDayData = useCallback((date, immediateDayData = null) => {
     const normalizedImmediate = normalizeWorkoutDetailsDayData(immediateDayData);
     if (normalizedImmediate) return normalizedImmediate;
@@ -502,7 +497,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
             </div>
             <div className="plan-completed-banner__text">
               <strong>План завершён!</strong>
-              <span>Создайте новый план — AI-тренер учтёт все ваши тренировки и прогресс.</span>
+              <span>Создайте новый план — ИИ-тренер учтёт все ваши тренировки и прогресс.</span>
             </div>
             <button className="btn btn-primary btn--sm" onClick={handleOpenNextPlan}>
               Создать новый план
@@ -643,7 +638,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
           <div className="modal" style={{ display: 'block' }} onClick={() => setShowNextPlanModal(false)}>
             <div className="modal-content recalc-confirm-modal" onClick={e => e.stopPropagation()}>
               <h3>Новый тренировочный план</h3>
-              <p>Предыдущий план завершён. AI-тренер создаст новый план, основываясь на всех ваших прошлых тренировках, прогрессе и текущей форме.</p>
+              <p>Предыдущий план завершён. ИИ-тренер создаст новый план, основываясь на всех ваших прошлых тренировках, прогрессе и текущей форме.</p>
               <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-2)' }}>
                 Расскажите, какие у вас цели на новый план (необязательно):
               </p>

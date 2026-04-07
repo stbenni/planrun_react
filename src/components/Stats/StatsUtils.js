@@ -347,7 +347,7 @@ export const processProgressData = (workoutsData, allResults, plan) => {
 /**
  * Обработка данных для вкладки "Достижения" - общие данные (все время)
  */
-export const processAchievementsData = (workoutsData, allResults) => {
+export const processAchievementsData = (workoutsData) => {
   const workoutsSummary = workoutsData?.workouts || {};
   const workoutsArray = Object.entries(workoutsSummary).map(([date, data]) => ({
     date,

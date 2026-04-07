@@ -371,7 +371,7 @@ class StatsService extends BaseService {
             'distance_km' => $bestSingle['distance_km'],
             'time_sec' => $bestSingle['time_sec'],
             'vdot' => $avgVdot,
-            'vdot_source_detail' => count($top) . ' quality efforts из ' . count($candidates) . ' тренировок за ' . $weeksWindow . ' нед.',
+            'vdot_source_detail' => count($top) . ' значимых результатов из ' . count($candidates) . ' тренировок за ' . $weeksWindow . ' нед.',
         ];
     }
 

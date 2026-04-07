@@ -9,7 +9,7 @@ export const TAB_USER_DIALOG = 'user_dialog';
 export const dialogId = (userId) => `dialog_${userId}`;
 
 export const SYSTEM_CHATS = [
-  { id: TAB_AI, label: 'AI-тренер', Icon: BotIcon, description: 'Персональные рекомендации по тренировкам' },
+  { id: TAB_AI, label: 'ИИ-тренер', Icon: BotIcon, description: 'Персональные рекомендации по тренировкам' },
   { id: TAB_ADMIN, label: 'От администрации', Icon: MailIcon, description: 'Сообщения от администрации сайта' },
 ];
 

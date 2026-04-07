@@ -4,7 +4,6 @@
  * Анимация применяется к внутреннему контенту через .page-transition-content.
  */
 
-import React from 'react';
 import './PageTransition.css';
 
 const PageTransition = ({ children }) => {

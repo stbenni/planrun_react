@@ -1,4 +1,3 @@
-import React from 'react';
 import './SkeletonScreen.css';
 
 const SkeletonScreen = ({ type = 'default' }) => {

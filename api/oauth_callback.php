@@ -24,11 +24,6 @@ if ($error) {
     exit;
 }
 
-if (!$providerId || !$code || !$state) {
-    header('Location: ' . $redirectBase . '&error=missing_params');
-    exit;
-}
-
 // --- Аутентификация: подписанный state (mobile) ИЛИ сессия (web) ---
 $userId = null;
 $isFromApp = false;
@@ -47,9 +42,17 @@ if (count($parts) === 2) {
             if (time() - (int)$data['ts'] < 600) {
                 $userId = (int)$data['uid'];
                 $isFromApp = !empty($data['app']);
+                if (!$providerId && !empty($data['provider']) && is_string($data['provider'])) {
+                    $providerId = $data['provider'];
+                }
             }
         }
     }
+}
+
+if (!$providerId || !$code || !$state) {
+    header('Location: ' . $redirectBase . '&error=missing_params');
+    exit;
 }
 
 // Fallback: сессионная аутентификация (web flow)

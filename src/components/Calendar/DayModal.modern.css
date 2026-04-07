@@ -1020,6 +1020,13 @@
   border-top-color: var(--gray-700);
 }
 
+.day-modal-ask-coach {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary-500);
+}
+
 .day-modal-copy-input {
   display: flex;
   gap: 8px;

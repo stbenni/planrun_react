@@ -25,14 +25,14 @@ import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
 import { DASHBOARD_MODULE_IDS, DASHBOARD_MODULE_LABELS } from './dashboardConfig';
-import { toLocalDateString } from './dashboardDateUtils';
-import { expandLayoutForMobile, getDefaultLayout, getStoredLayout, layoutExpandSlot, layoutInsertRow, layoutMergeIntoRow, layoutRemoveId, layoutToOrder, orderToLayout, saveLayout } from './dashboardLayout';
+import { expandLayoutForMobile, getStoredLayout, layoutInsertRow, layoutMergeIntoRow, layoutRemoveId, layoutToOrder, saveLayout } from './dashboardLayout';
 import { useDashboardPullToRefresh } from './useDashboardPullToRefresh';
 import { useDashboardData } from './useDashboardData';
 import SkeletonScreen from '../common/SkeletonScreen';
-import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon } from '../common/Icons';
+import { RunningIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import TrainingLoadWidget from './TrainingLoadWidget';
+import CoachTipWidget from './CoachTipWidget';
 import './Dashboard.css';
 
 /** Полоска-зона сброса «вставить перед строкой N» (для @dnd-kit) */
@@ -252,11 +252,6 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     return currentLayout[rowIndex]?.[slotIndex] ?? null;
   }, [activeDragId, layout, displayLayout, isMobileView]);
 
-  const handleExpandSlot = (rowIndex, slotIndex) => {
-    const next = layoutExpandSlot(layout, rowIndex, slotIndex);
-    setLayout(next);
-    saveLayout(next);
-  };
   const {
     hasAnyPlannedWorkout,
     handleRegeneratePlan,
@@ -345,7 +340,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           <div className="dashboard-empty-onboarding-icon" aria-hidden><CalendarIcon size={64} /></div>
           <h1 className="dashboard-empty-onboarding-title">Создайте план тренировок</h1>
           <p className="dashboard-empty-onboarding-text">
-            У вас пока нет плана. Настройте цели и режим тренировок — AI-тренер составит персональный план.
+            У вас пока нет плана. Настройте цели и режим тренировок — ИИ-тренер составит персональный план.
           </p>
           <button
             type="button"
@@ -686,6 +681,20 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                 <h2 className="section-title">Прогноз на забег</h2>
                 <div className="dashboard-module-card">
                   <RacePredictionWidget api={api} compact={row.type === 'double'} />
+                </div>
+              </div>
+            );
+          }
+          if (moduleId === 'coach_tip') {
+            return (
+              <div key="coach_tip" className={sectionClass}>
+                <h2 className="section-title">Совет тренера</h2>
+                <div className="dashboard-module-card">
+                  <CoachTipWidget
+                    api={api}
+                    compact={row.type === 'double'}
+                    isTabActive={isTabActive}
+                  />
                 </div>
               </div>
             );

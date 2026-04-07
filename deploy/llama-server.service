@@ -1,5 +1,5 @@
 [Unit]
-Description=PlanRun llama.cpp server (Ministral 14B Reasoning, port 8081)
+Description=PlanRun llama.cpp server (Qwen3-14B, port 8081)
 After=network.target
 
 [Service]

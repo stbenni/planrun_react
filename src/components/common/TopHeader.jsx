@@ -4,7 +4,7 @@
  * Справа: аватар с выпадающим меню (Профиль, Настройки тренировок, Уведомления, Конфиденциальность, Интеграции, Выйти)
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
 import { isNativeCapacitor } from '../../services/TokenStorageService';

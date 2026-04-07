@@ -350,6 +350,10 @@ try {
             planrunRouteControllerAction($db, WorkoutController::class, 'getWorkoutTimeline', $method);
             break;
 
+        case 'analyze_workout_ai':
+            planrunRouteControllerAction($db, WorkoutController::class, 'analyzeWorkoutAi', $method);
+            break;
+
         case 'get_workout_share_map':
             planrunRouteControllerAction($db, WorkoutController::class, 'getWorkoutShareMap', $method);
             break;
@@ -698,6 +702,10 @@ try {
             planrunRouteControllerAction($db, ChatController::class, 'clearAiChat', $method, 'POST');
             break;
 
+        case 'chat_clear_admin_dialog':
+            planrunRouteControllerAction($db, ChatController::class, 'clearAdminDialog', $method, 'POST');
+            break;
+
         case 'chat_mark_all_read':
             planrunRouteControllerAction($db, ChatController::class, 'markAllRead', $method, 'POST');
             break;
@@ -728,6 +736,10 @@ try {
 
         case 'chat_clear_direct_dialog':
             planrunRouteControllerAction($db, ChatController::class, 'clearDirectDialog', $method, 'POST');
+            break;
+
+        case 'chat_admin_clear_conversation':
+            planrunRouteControllerAction($db, ChatController::class, 'clearAdminConversation', $method, 'POST');
             break;
 
         case 'chat_admin_send_message':

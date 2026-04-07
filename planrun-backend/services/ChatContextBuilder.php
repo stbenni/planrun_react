@@ -29,8 +29,13 @@ class ChatContextBuilder {
         $parts = [];
         $parts[] = $this->formatProfile($user);
         $parts[] = $this->formatPlanSummary($plan, $userId);
+        $parts[] = $this->formatNextWeekSummary($plan, $userId);
+        $parts[] = $this->formatPaceZonesAndPhase($userId);
+        $parts[] = $this->formatHrZones($userId, $user);
         $parts[] = $this->formatStats($stats);
         $parts[] = $this->formatCoachingInsights($userId);
+        $parts[] = $this->formatRecentWorkouts($userId);
+        $parts[] = $this->formatActiveHealthIssues($userId);
         if ($memory !== '') {
             $parts[] = "═══ ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (из прошлых диалогов) ═══\n" . $memory;
         }
@@ -410,6 +415,165 @@ class ChatContextBuilder {
         return $rows;
     }
 
+    private function formatNextWeekSummary(?array $plan, int $userId): string {
+        if (empty($plan['weeks_data'])) return '';
+        $tz = $this->getUserTz($userId);
+        $today = new \DateTime('now', $tz);
+        $nextMonday = (clone $today)->modify('next monday');
+        $nextSunday = (clone $nextMonday)->modify('+6 days');
+
+        $nextWeekDays = [];
+        foreach ($plan['weeks_data'] as $week) {
+            foreach ($week['days'] ?? [] as $day) {
+                $date = $day['date'] ?? '';
+                if ($date >= $nextMonday->format('Y-m-d') && $date <= $nextSunday->format('Y-m-d')) {
+                    $nextWeekDays[] = $day;
+                }
+            }
+        }
+        if (empty($nextWeekDays)) return '';
+
+        $lines = ["═══ СЛЕДУЮЩАЯ НЕДЕЛЯ ({$nextMonday->format('d.m')} – {$nextSunday->format('d.m')}) ═══"];
+        $totalKm = 0;
+        foreach ($nextWeekDays as $d) {
+            $date = $d['date'] ?? '';
+            $type = $d['type'] ?? 'rest';
+            $dist = (float) ($d['distance_km'] ?? 0);
+            $desc = mb_substr($d['short_description'] ?? $d['description'] ?? '', 0, 60);
+            $totalKm += $dist;
+            $dow = $this->shortDow($date);
+            $lines[] = "{$dow} {$date}: {$type}" . ($dist > 0 ? " {$dist}км" : '') . ($desc ? " — {$desc}" : '');
+        }
+        $lines[] = "Итого: " . round($totalKm, 1) . " км";
+        return implode("\n", $lines);
+    }
+
+    private function formatPaceZonesAndPhase(int $userId): string {
+        $parts = [];
+        try {
+            require_once __DIR__ . '/TrainingStateBuilder.php';
+            $state = (new TrainingStateBuilder($this->db))->buildState($userId);
+            if (!empty($state['pace_zones'])) {
+                $zones = $state['pace_zones'];
+                $zoneLines = ["═══ ЗОНЫ ТЕМПА ═══"];
+                $zoneMap = [
+                    'easy' => 'Лёгкий', 'moderate' => 'Умеренный', 'tempo' => 'Темповый',
+                    'threshold' => 'Пороговый', 'interval' => 'Интервальный', 'repetition' => 'Повторный',
+                ];
+                foreach ($zones as $key => $val) {
+                    $label = $zoneMap[$key] ?? $key;
+                    if (is_array($val)) {
+                        $from = $val['from'] ?? $val['min'] ?? '';
+                        $to = $val['to'] ?? $val['max'] ?? '';
+                        $zoneLines[] = "{$label}: {$from} — {$to} мин/км";
+                    } else {
+                        $zoneLines[] = "{$label}: {$val} мин/км";
+                    }
+                }
+                $parts[] = implode("\n", $zoneLines);
+            }
+            if (!empty($state['macrocycle_phase'])) {
+                $phaseLabels = [
+                    'base' => 'Базовый период', 'build' => 'Развивающий период',
+                    'peak' => 'Пиковый период', 'taper' => 'Тейпер (сужение)',
+                    'recovery' => 'Восстановление', 'race' => 'Соревновательный',
+                ];
+                $ph = $state['macrocycle_phase'];
+                $label = $phaseLabels[$ph] ?? $ph;
+                $parts[] = "═══ ФАЗА МАКРОЦИКЛА ═══\nТекущая фаза: {$label}";
+            }
+        } catch (Throwable $e) {
+            // TrainingStateBuilder may not be available
+        }
+        return implode("\n\n", $parts);
+    }
+
+    /**
+     * Зоны ЧСС пользователя для контекста ИИ.
+     */
+    private function formatHrZones(int $userId, ?array $user): string {
+        try {
+            require_once __DIR__ . '/UserProfileService.php';
+            $profileService = new UserProfileService($this->db);
+            $hrData = $profileService->getHrZonesData($userId, $user);
+
+            $maxHr = $hrData['effective_max_hr'] ?? 0;
+            if ($maxHr < 120) return '';
+
+            $source = $hrData['source'] ?? 'unknown';
+            $sourceLabel = match($source) {
+                'detected' => 'из тренировок',
+                'override' => 'ручной (авто: ' . ($hrData['detected_max_hr'] ?? '?') . ')',
+                'profile' => 'ручной ввод',
+                'manual' => 'ручной ввод',
+                'formula' => 'по формуле 220−возраст',
+                default => '',
+            };
+
+            $zones = $hrData['zones'] ?? [];
+            if (empty($zones)) return '';
+
+            $zoneNames = [
+                1 => 'Восст.',
+                2 => 'Аэробная',
+                3 => 'Темповая',
+                4 => 'Пороговая',
+                5 => 'Макс.',
+            ];
+
+            $methodLabel = ($hrData['zone_method'] ?? '') === 'karvonen'
+                ? ', Карвонен, покой ' . ($hrData['effective_rest_hr'] ?? '?')
+                : '';
+            $lines = ["═══ ЗОНЫ ЧСС (макс {$maxHr} уд/м, {$sourceLabel}{$methodLabel}) ═══"];
+            foreach ($zones as $z) {
+                $num = $z['zone'] ?? 0;
+                $name = $zoneNames[$num] ?? "Z{$num}";
+                $lines[] = "Z{$num} {$name}: {$z['min_hr']}–{$z['max_hr']} уд/м";
+            }
+            // Реальные пульсовые данные из тренировок (6 недель) — приоритет над формулами
+            $realRanges = $hrData['real_hr_ranges'] ?? [];
+            if (!empty($realRanges)) {
+                $lines[] = "";
+                $lines[] = "РЕАЛЬНЫЙ ПУЛЬС ИЗ ТРЕНИРОВОК за 6 недель (используй ЭТИ данные для рекомендаций):";
+                $typeLabels = [
+                    'easy' => 'Лёгкий бег (≥5:30/км)',
+                    'moderate' => 'Умеренный (5:00–5:29/км)',
+                    'intense' => 'Интенсивный (<5:00/км)',
+                ];
+                foreach ($typeLabels as $key => $label) {
+                    if (empty($realRanges[$key])) continue;
+                    $r = $realRanges[$key];
+                    $line = "- {$label}: обычно {$r['p25']}–{$r['p75']} уд/м ({$r['count']} тренировок)";
+                    // Тренд
+                    $trend = $r['trend'] ?? null;
+                    if ($trend === 'improving') {
+                        $line .= " ↓ пульс снижается ({$r['trend_diff']} уд, было {$r['prev_avg']} → стало {$r['recent_avg']})";
+                    } elseif ($trend === 'worsening') {
+                        $line .= " ↑ пульс вырос (+{$r['trend_diff']} уд, было {$r['prev_avg']} → стало {$r['recent_avg']})";
+                    }
+                    $lines[] = $line;
+                }
+                $lines[] = "Указывай целевой пульс на основе РЕАЛЬНЫХ данных. Если тренд ↓ — отметь прогресс.";
+            } else {
+                $lines[] = "При описании тренировок указывай целевую зону ЧСС и диапазон пульса.";
+            }
+
+            return implode("\n", $lines);
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
+    private function shortDow(string $date): string {
+        $map = ['Mon' => 'Пн', 'Tue' => 'Вт', 'Wed' => 'Ср', 'Thu' => 'Чт', 'Fri' => 'Пт', 'Sat' => 'Сб', 'Sun' => 'Вс'];
+        try {
+            $d = new \DateTime($date);
+            return $map[$d->format('D')] ?? '';
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
     /**
      * Coaching insights: краткая сводка + сигналы для AI (пропуски, нагрузка, тренд).
      * Занимает 5-10 строк — экономим токены, но даём AI достаточно для умных ответов.
@@ -536,6 +700,77 @@ class ChatContextBuilder {
     }
 
     /**
+     * Recent workout history (last 4 workouts) for AI context — avoids extra tool calls.
+     */
+    private function formatRecentWorkouts(int $userId): string {
+        $tz = $this->getUserTz($userId);
+        $fourWeeksAgo = (new DateTime('now', $tz))->modify('-28 days')->format('Y-m-d');
+        $today = (new DateTime('now', $tz))->format('Y-m-d');
+        $workouts = $this->getWorkoutsHistory($userId, $fourWeeksAgo, $today, 4);
+        if (empty($workouts)) return '';
+
+        $lines = ["═══ ПОСЛЕДНИЕ ТРЕНИРОВКИ ═══"];
+        foreach (array_reverse($workouts) as $w) {
+            $date = $w['date'] ?? '';
+            $type = !empty($w['plan_type']) ? $this->getDayTypeRu($w['plan_type']) : ($w['activity_type'] ?? 'тренировка');
+            $km = round((float) ($w['distance_km'] ?? 0), 1);
+            $pace = $w['pace'] ?? '';
+            $hr = (int) ($w['avg_heart_rate'] ?? 0);
+            $source = $w['source'] ?? '';
+
+            $line = "{$date}: {$type}";
+            if ($km > 0) $line .= ", {$km} км";
+            if ($pace && $pace !== '0:00') $line .= ", темп {$pace}";
+            if ($hr > 0) $line .= ", ЧСС {$hr}";
+            if ($source && $source !== 'manual') $line .= " [{$source}]";
+            $lines[] = $line;
+        }
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Active health issues from user_health_events table.
+     */
+    private function formatActiveHealthIssues(int $userId): string {
+        if (!$this->tableExists('user_health_events')) return '';
+        $stmt = $this->db->prepare(
+            "SELECT issue_type, description, severity, affected_area, created_at
+             FROM user_health_events
+             WHERE user_id = ? AND resolved_at IS NULL
+             ORDER BY created_at DESC LIMIT 5"
+        );
+        if (!$stmt) return '';
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $issues = [];
+        while ($row = $result->fetch_assoc()) $issues[] = $row;
+        $stmt->close();
+
+        if (empty($issues)) return '';
+
+        $typeRu = ['illness' => 'Болезнь', 'injury' => 'Травма', 'fatigue' => 'Усталость', 'other' => 'Другое'];
+        $sevRu = ['mild' => 'лёгкая', 'moderate' => 'средняя', 'severe' => 'тяжёлая'];
+        $lines = ["═══ АКТИВНЫЕ ПРОБЛЕМЫ СО ЗДОРОВЬЕМ ═══"];
+        $lines[] = "⚠ ВАЖНО: Учитывай эти проблемы при рекомендациях!";
+        foreach ($issues as $issue) {
+            $type = $typeRu[$issue['issue_type']] ?? $issue['issue_type'];
+            $sev = $sevRu[$issue['severity']] ?? $issue['severity'];
+            $line = "{$type} ({$sev})";
+            if (!empty($issue['affected_area'])) $line .= " — {$issue['affected_area']}";
+            $line .= ": {$issue['description']}";
+            $line .= " (с " . date('d.m', strtotime($issue['created_at'])) . ")";
+            $lines[] = $line;
+        }
+        return implode("\n", $lines);
+    }
+
+    private function tableExists(string $table): bool {
+        $result = $this->db->query("SHOW TABLES LIKE '{$this->db->real_escape_string($table)}'");
+        return $result && $result->num_rows > 0;
+    }
+
+    /**
      * ACWR (Acute:Chronic Workload Ratio) — соотношение острой (7 дней) к хронической (28 дней) нагрузке.
      * Используем sRPE (session RPE): duration_minutes × (6 - rating) / 5, где rating 1=тяжело, 5=легко.
      * Если rating нет — используем дистанцию как proxy.
@@ -619,6 +854,69 @@ class ChatContextBuilder {
             'chronic' => round($chronicWeekly, 1),
             'zone' => $zone,
         ];
+    }
+
+    /**
+     * План vs факт по дням текущей недели (пн-вс): краткие строки для контекста.
+     */
+    private function getWeekDayByDayComparison(int $userId): array {
+        $tz = $this->getUserTz($userId);
+        $today = new DateTime('now', $tz);
+        $monday = (clone $today)->modify('monday this week');
+        $sunday = (clone $today)->modify('sunday this week');
+
+        $from = $monday->format('Y-m-d');
+        $to = $sunday->format('Y-m-d');
+
+        $plan = [];
+        $stmt = $this->db->prepare("SELECT date, type, description FROM training_plan_days WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date");
+        if ($stmt) {
+            $stmt->bind_param('iss', $userId, $from, $to);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) $plan[$row['date']] = $row;
+            $stmt->close();
+        }
+
+        $actual = [];
+        $sql = "(SELECT training_date AS d, distance_km FROM workout_log WHERE user_id = ? AND training_date BETWEEN ? AND ? AND is_completed = 1)
+                UNION ALL
+                (SELECT DATE(start_time) AS d, distance_km FROM workouts WHERE user_id = ? AND DATE(start_time) BETWEEN ? AND ?)
+                ORDER BY d";
+        $stmt2 = $this->db->prepare($sql);
+        if ($stmt2) {
+            $stmt2->bind_param('ississ', $userId, $from, $to, $userId, $from, $to);
+            $stmt2->execute();
+            $res2 = $stmt2->get_result();
+            while ($row = $res2->fetch_assoc()) {
+                $d = $row['d'];
+                if (!isset($actual[$d])) $actual[$d] = [];
+                $actual[$d][] = $row;
+            }
+            $stmt2->close();
+        }
+
+        $dows = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        $lines = [];
+        $cursor = clone $monday;
+        for ($i = 0; $i < 7; $i++) {
+            $d = $cursor->format('Y-m-d');
+            $dow = $dows[$i];
+            $p = $plan[$d] ?? null;
+            $a = $actual[$d] ?? [];
+
+            $planStr = $p ? ($p['type'] ?? '?') : '-';
+            if ($d > $today->format('Y-m-d')) {
+                $lines[] = "{$dow}: план={$planStr}";
+            } elseif (empty($a)) {
+                $lines[] = "{$dow}: план={$planStr}, факт=пропуск";
+            } else {
+                $totalKm = array_sum(array_column($a, 'distance_km'));
+                $lines[] = "{$dow}: план={$planStr}, факт=" . round($totalKm, 1) . "км";
+            }
+            $cursor->modify('+1 day');
+        }
+        return $lines;
     }
 
     /**
@@ -961,22 +1259,31 @@ class ChatContextBuilder {
             $stmt->close();
         }
 
-        // Результаты из таблицы workouts (импорт/Strava)
+        // Результаты из таблицы workouts (импорт/Strava) — avg_cadence вычисляется из timeline
         $stmtW = $this->db->prepare(
-            "SELECT distance_km, NULL AS result_time, avg_pace COLLATE utf8mb4_unicode_ci AS pace, duration_minutes,
-                    avg_heart_rate, max_heart_rate, NULL AS notes, NULL AS rating,
-                    1 AS is_completed, NULL AS avg_cadence, elevation_gain, calories,
-                    COALESCE(source, 'import') COLLATE utf8mb4_unicode_ci AS source,
-                    activity_type COLLATE utf8mb4_unicode_ci AS activity_type
-             FROM workouts
-             WHERE user_id = ? AND DATE(start_time) = ?
-             ORDER BY start_time ASC"
+            "SELECT w.id AS workout_id, w.distance_km, NULL AS result_time,
+                    w.avg_pace COLLATE utf8mb4_unicode_ci AS pace, w.duration_minutes,
+                    w.avg_heart_rate, w.max_heart_rate, NULL AS notes, NULL AS rating,
+                    1 AS is_completed, w.elevation_gain, w.calories,
+                    COALESCE(w.source, 'import') COLLATE utf8mb4_unicode_ci AS source,
+                    w.activity_type COLLATE utf8mb4_unicode_ci AS activity_type,
+                    (SELECT ROUND(AVG(wt.cadence)) FROM workout_timeline wt
+                     WHERE wt.workout_id = w.id AND wt.cadence IS NOT NULL AND wt.cadence > 0
+                    ) AS avg_cadence
+             FROM workouts w
+             WHERE w.user_id = ? AND DATE(w.start_time) = ?
+             ORDER BY (w.activity_type = 'running') DESC, w.start_time ASC"
         );
         if ($stmtW) {
             $stmtW->bind_param('is', $userId, $date);
             $stmtW->execute();
             $resW = $stmtW->get_result();
             while ($rowW = $resW->fetch_assoc()) {
+                // Сохраняем id для прямого выбора тренировки (workout_id → id)
+                if (isset($rowW['workout_id'])) {
+                    $rowW['id'] = (int) $rowW['workout_id'];
+                    unset($rowW['workout_id']);
+                }
                 $allWorkouts[] = $rowW;
             }
             $stmtW->close();
@@ -987,8 +1294,13 @@ class ChatContextBuilder {
         } elseif (count($allWorkouts) > 1) {
             // Несколько тренировок за день — возвращаем массив
             $result['workouts'] = $allWorkouts;
-            // Для обратной совместимости: workout = основная (самая длинная дистанция)
-            usort($allWorkouts, fn($a, $b) => ((float)($b['distance_km'] ?? 0)) <=> ((float)($a['distance_km'] ?? 0)));
+            // Для обратной совместимости: workout = основная (бег > остальные, затем по дистанции)
+            usort($allWorkouts, function($a, $b) {
+                $aRun = ($a['activity_type'] ?? '') === 'running' ? 1 : 0;
+                $bRun = ($b['activity_type'] ?? '') === 'running' ? 1 : 0;
+                if ($aRun !== $bRun) return $bRun <=> $aRun;
+                return ((float)($b['distance_km'] ?? 0)) <=> ((float)($a['distance_km'] ?? 0));
+            });
             $result['workout'] = $allWorkouts[0];
         }
 

@@ -4,7 +4,7 @@
  * Секция «Требуют внимания» сверху
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { getAvatarSrc } from '../utils/avatarUrl';
@@ -94,7 +94,7 @@ function getComplianceColor(completed, total) {
 
 export default function AthletesOverviewScreen() {
   const navigate = useNavigate();
-  const { api, user } = useAuthStore();
+  const { api } = useAuthStore();
   const [athletes, setAthletes] = useState([]);
   const [requestsCount, setRequestsCount] = useState(0);
   const [loading, setLoading] = useState(true);

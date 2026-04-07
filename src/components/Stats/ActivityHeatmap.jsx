@@ -2,7 +2,7 @@
  * Компонент Heatmap календаря (для мобильных)
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CloseIcon } from '../common/Icons';
 
 const ActivityHeatmap = ({ data }) => {
@@ -13,36 +13,32 @@ const ActivityHeatmap = ({ data }) => {
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
   const containerRef = useRef(null);
-
-  if (!data || !Array.isArray(data) || data.length === 0) {
-    return <div className="chart-empty">Нет данных для графика</div>;
-  }
-
-  const maxDistance = Math.max(...data.map(d => (d && d.distance) || 0), 1);
+  const normalizedData = Array.isArray(data)
+    ? data.filter((day) => day && day.date)
+    : [];
+  const maxDistance = Math.max(...normalizedData.map((day) => day.distance || 0), 1);
   
   // Группируем данные по месяцам
   const monthsData = [];
   const dataMap = {}; // Карта для быстрого доступа к данным по дате
   
-  data.forEach(day => {
-    if (day && day.date) {
-      dataMap[day.date] = day;
-      const date = new Date(day.date + 'T00:00:00');
-      if (!isNaN(date.getTime())) {
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        
-        let monthData = monthsData.find(m => m.key === monthKey);
-        if (!monthData) {
-          monthData = {
-            key: monthKey,
-            year: date.getFullYear(),
-            month: date.getMonth(),
-            days: []
-          };
-          monthsData.push(monthData);
-        }
-        monthData.days.push(day);
+  normalizedData.forEach((day) => {
+    dataMap[day.date] = day;
+    const date = new Date(day.date + 'T00:00:00');
+    if (!isNaN(date.getTime())) {
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      let monthData = monthsData.find(m => m.key === monthKey);
+      if (!monthData) {
+        monthData = {
+          key: monthKey,
+          year: date.getFullYear(),
+          month: date.getMonth(),
+          days: []
+        };
+        monthsData.push(monthData);
       }
+      monthData.days.push(day);
     }
   });
 
@@ -55,6 +51,10 @@ const ActivityHeatmap = ({ data }) => {
       setCurrentMonthIndex(monthsData.length - 1);
     }
   }, [monthsData.length, currentMonthIndex]);
+
+  if (normalizedData.length === 0) {
+    return <div className="chart-empty">Нет данных для графика</div>;
+  }
 
   // Обработчики свайпа (смахивания)
   const handleTouchStart = (e) => {
@@ -156,8 +156,6 @@ const ActivityHeatmap = ({ data }) => {
   if (!currentMonth) {
     return <div className="chart-empty">Нет данных для графика</div>;
   }
-
-  const calendarDays = getMonthCalendar(currentMonth.year, currentMonth.month);
 
   return (
     <div className="activity-heatmap">
@@ -314,15 +312,15 @@ const ActivityHeatmap = ({ data }) => {
         <div className="summary-item">
           <span className="summary-label">Средняя дистанция:</span>
           <span className="summary-value">
-            {data.length > 0 
-              ? (Math.round((data.reduce((sum, d) => sum + d.distance, 0) / data.length) * 10) / 10).toFixed(1)
+            {normalizedData.length > 0 
+              ? (Math.round((normalizedData.reduce((sum, d) => sum + d.distance, 0) / normalizedData.length) * 10) / 10).toFixed(1)
               : '0.0'} км
           </span>
         </div>
         <div className="summary-item">
           <span className="summary-label">Всего тренировок:</span>
           <span className="summary-value">
-            {data.reduce((sum, d) => sum + d.workouts, 0)}
+            {normalizedData.reduce((sum, d) => sum + d.workouts, 0)}
           </span>
         </div>
       </div>

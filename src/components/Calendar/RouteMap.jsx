@@ -3,7 +3,7 @@
  * В стиле Strava (карта с треком)
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MapPinIcon, MountainIcon, PaceIcon } from '../common/Icons';
 import LogoLoading from '../common/LogoLoading';
 import './RouteMap.css';
@@ -39,10 +39,6 @@ const RouteMap = ({ workout, gpxData, coordinates }) => {
       const centerLng = (minLng + maxLng) / 2;
       
       // Используем статический API OpenStreetMap
-      const zoom = 13;
-      const width = mapContainerRef.current.offsetWidth || 600;
-      const height = 300;
-      
       // OpenStreetMap без API ключа (для Mapbox задать VITE_MAPBOX_TOKEN в .env)
       // Для production нужно использовать свой API ключ
       const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng-0.01},${minLat-0.01},${maxLng+0.01},${maxLat+0.01}&layer=mapnik&marker=${centerLat},${centerLng}`;

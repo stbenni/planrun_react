@@ -4,7 +4,7 @@
  * В compact-режиме (два виджета в строку): две страницы — прогнозы и зоны, свайп/стрелка.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import LogoLoading from '../common/LogoLoading';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';

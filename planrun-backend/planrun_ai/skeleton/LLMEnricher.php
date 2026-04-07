@@ -20,7 +20,7 @@ class LLMEnricher
         int $maxTokens = 16384
     ) {
         $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'qwen3-14b');
         $this->maxTokens = $maxTokens;
     }
 
@@ -69,6 +69,7 @@ class LLMEnricher
             'temperature' => 0.3,
             'max_tokens' => $this->maxTokens,
             'stream' => false,
+            'chat_template_kwargs' => ['enable_thinking' => false],
         ], JSON_UNESCAPED_UNICODE);
 
         $ch = curl_init($url);

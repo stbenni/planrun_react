@@ -21,7 +21,7 @@ export function useSettingsProfile({
 
     if (!currentApi) {
       console.error('API client not initialized');
-      setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов. Попробуйте обновить страницу.' });
       setLoading(false);
       return;
     }
@@ -42,6 +42,7 @@ export function useSettingsProfile({
         const mappedProfile = mapProfileToFormData(userData);
         const newFormData = {
           ...mappedProfile,
+          hr_zones_data: userData.hr_zones_data || null,
           notification_settings: ensureNotificationChannelsEnabled(
             normalizeNotificationSettings(notificationData, mappedProfile.timezone)
           ),
@@ -82,18 +83,18 @@ export function useSettingsProfile({
     const currentApi = api || useAuthStore.getState().api;
 
     if (!currentApi) {
-      setMessage({ type: 'error', text: 'API не инициализирован. Попробуйте обновить страницу.' });
+      setMessage({ type: 'error', text: 'Клиент сервиса не готов. Попробуйте обновить страницу.' });
       return;
     }
 
     const emailVal = String(formData.email || '').trim();
     if (!emailVal) {
-      setMessage({ type: 'error', text: 'Email обязателен' });
+      setMessage({ type: 'error', text: 'Эл. почта обязательна' });
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(emailVal)) {
-      setMessage({ type: 'error', text: 'Некорректный формат email' });
+      setMessage({ type: 'error', text: 'Некорректный адрес эл. почты' });
       return;
     }
 
@@ -120,6 +121,8 @@ export function useSettingsProfile({
         birth_year: normalizeValue(formData.birth_year),
         height_cm: normalizeValue(formData.height_cm),
         weight_kg: normalizeValue(formData.weight_kg),
+        max_hr: normalizeValue(formData.max_hr),
+        rest_hr: normalizeValue(formData.rest_hr),
         timezone: formData.timezone,
         goal_type: formData.goal_type,
         race_distance: normalizeValue(formData.race_distance),
@@ -138,6 +141,7 @@ export function useSettingsProfile({
         training_time_pref: normalizeValue(formData.training_time_pref),
         ofp_preference: normalizeValue(formData.ofp_preference),
         training_mode: formData.training_mode,
+        coach_style: formData.coach_style || 'motivational',
         training_start_date: normalizeValue(formData.training_start_date),
         health_notes: normalizeValue(formData.health_notes),
         health_program: normalizeValue(formData.health_program),
@@ -175,6 +179,7 @@ export function useSettingsProfile({
         }
         const mergedPartialFormData = {
           ...(response?.user ? mapProfileToFormData(response.user) : formData),
+          hr_zones_data: response?.user?.hr_zones_data || formData.hr_zones_data || null,
           notification_settings: ensureNotificationChannelsEnabled(
             normalizeNotificationSettings(formData.notification_settings, response?.user?.timezone || formData.timezone)
           ),
@@ -198,6 +203,7 @@ export function useSettingsProfile({
         if (response.user && typeof response.user === 'object' && typeof authStore.updateUser === 'function') {
           const normalizedFormData = {
             ...mapProfileToFormData(response.user),
+            hr_zones_data: response.user.hr_zones_data || null,
             notification_settings: ensureNotificationChannelsEnabled(
               normalizeNotificationSettings(notificationResponse, response.user.timezone || formData.timezone)
             ),
@@ -207,6 +213,10 @@ export function useSettingsProfile({
               return currentFormData;
             }
             skipNextAutoSaveRef.current = true;
+            // Preserve hr_zones_data if backend didn't return it
+            if (!normalizedFormData.hr_zones_data && currentFormData.hr_zones_data) {
+              normalizedFormData.hr_zones_data = currentFormData.hr_zones_data;
+            }
             return normalizedFormData;
           });
 

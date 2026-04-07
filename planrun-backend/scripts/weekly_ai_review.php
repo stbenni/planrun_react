@@ -46,7 +46,7 @@ if (!$stmt) {
     exit(1);
 }
 
-$result = $stmt->get_result();
+$result = $stmt;
 $sent = 0;
 $adapted = 0;
 $errors = 0;
@@ -304,7 +304,7 @@ function collectReviewEnrichment(int $userId, $db): array {
  */
 function generateWeeklyReview(string $weekData, string $username): ?string {
     $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-    $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+    $model = env('LLM_CHAT_MODEL', 'qwen3-14b');
 
     if ($baseUrl === '' || $model === '') {
         error_log('weekly_ai_review: LLM_CHAT_BASE_URL or LLM_CHAT_MODEL not set');
@@ -334,7 +334,8 @@ PROMPT;
         ],
         'stream' => false,
         'max_tokens' => 800,
-        'temperature' => 0.5
+        'temperature' => 0.5,
+        'chat_template_kwargs' => ['enable_thinking' => false],
     ];
 
     $url = $baseUrl . '/chat/completions';

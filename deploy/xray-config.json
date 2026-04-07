@@ -1,0 +1,113 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-de",
+      "listen": "127.0.0.1",
+      "port": 11080,
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    },
+    {
+      "tag": "http-de",
+      "listen": "127.0.0.1",
+      "port": 11081,
+      "protocol": "http",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    },
+    {
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    },
+    {
+      "tag": "http-in",
+      "listen": "127.0.0.1",
+      "port": 10809,
+      "protocol": "http",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "to-de",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "hook.planrun.ru",
+            "port": 10443,
+            "users": [
+              {
+                "id": "867b4dee-56c4-459c-b8fc-072177d9b4e6",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "www.google.com",
+          "fingerprint": "chrome",
+          "publicKey": "zBAeA1YaQgJ1yNkHKkQpTtRJl1dHIQQxeDUIObeS0Uw",
+          "shortId": "9440a204"
+        },
+        "xhttpSettings": {
+          "path": "/s9m",
+          "mode": "auto",
+          "host": "www.google.com"
+        },
+        "sockopt": {
+          "tcpFastOpen": false,
+          "tcpNoDelay": true
+        }
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["socks-de", "http-de", "socks-in", "http-in"],
+        "outboundTag": "to-de"
+      }
+    ]
+  }
+}

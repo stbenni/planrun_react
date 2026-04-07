@@ -12,7 +12,8 @@ export function useCoachPricing(api, setMessage) {
       const res = await api.getCoachPricing();
       const data = res?.data ?? res;
       setCoachPricing(Array.isArray(data?.pricing) ? data.pricing : []);
-    } catch {
+    } catch (error) {
+      void error;
     } finally {
       setCoachPricingLoading(false);
     }
