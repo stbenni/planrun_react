@@ -26,7 +26,7 @@ class LLMEnricher
     ) {
         $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
         $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
-        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_ENRICHER_MAX_TOKENS', 1024, 256, 3072);
+        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_ENRICHER_MAX_TOKENS', 2048, 256, 4096);
         $this->timeoutSeconds = $this->getEnvInt('LLM_ENRICHER_TIMEOUT_SECONDS', 75, 10, 300);
         $this->connectTimeoutSeconds = $this->getEnvInt('LLM_ENRICHER_CONNECT_TIMEOUT_SECONDS', 5, 1, 60);
         $this->enableThinking = $this->getEnvBool('LLM_STRUCTURED_ENABLE_THINKING', false);
@@ -55,7 +55,7 @@ class LLMEnricher
         $enriched = $this->parseResponse($response);
         if ($enriched === null) {
             error_log('LLMEnricher: failed to parse response, retrying compact answer without thinking');
-            $fallback = $this->requestCompletion($prompt, false);
+            $fallback = $this->requestCompletion($this->buildJsonOnlyRetryPrompt($prompt), false);
             $fallbackContent = trim((string) ($fallback['content'] ?? ''));
             if ($fallbackContent !== '') {
                 $enriched = $this->parseResponse($fallbackContent);
@@ -150,6 +150,7 @@ class LLMEnricher
             'type' => 'json_schema',
             'json_schema' => [
                 'name' => 'enrichment_notes_response',
+                'strict' => true,
                 'schema' => [
                     'type' => 'object',
                     'properties' => [
@@ -172,6 +173,15 @@ class LLMEnricher
                 ],
             ],
         ];
+    }
+
+    private function buildJsonOnlyRetryPrompt(string $prompt): string
+    {
+        return "Повтори ответ в максимально компактном виде.\n"
+            . "Верни СТРОГО один JSON-объект без markdown, без пояснений, без <think>.\n"
+            . "Форма ответа: {\"notes\":[{\"week_number\":1,\"day_of_week\":1,\"notes\":\"...\"}]}.\n"
+            . "Если полный ответ получается длинным или ты не уверен, верни {\"notes\":[]}.\n\n"
+            . "Исходная задача:\n" . mb_substr($prompt, 0, 12000, 'UTF-8');
     }
 
     /**

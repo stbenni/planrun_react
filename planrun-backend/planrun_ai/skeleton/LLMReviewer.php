@@ -25,7 +25,7 @@ class LLMReviewer
     ) {
         $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
         $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
-        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_REVIEWER_MAX_TOKENS', 1024, 128, 2048);
+        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_REVIEWER_MAX_TOKENS', 1536, 128, 3072);
         $this->timeoutSeconds = $this->getEnvInt('LLM_REVIEWER_TIMEOUT_SECONDS', 45, 10, 300);
         $this->connectTimeoutSeconds = $this->getEnvInt('LLM_REVIEWER_CONNECT_TIMEOUT_SECONDS', 5, 1, 60);
         // Reviewer downstream uses only structured JSON, so reasoning mode adds noise and hurts parseability.
@@ -53,7 +53,7 @@ class LLMReviewer
         $result = $this->parseReviewResponse($response);
         if ($result === null) {
             error_log('LLMReviewer: failed to parse review response, retrying compact answer without thinking');
-            $fallback = $this->requestCompletion($prompt, false);
+            $fallback = $this->requestCompletion($this->buildJsonOnlyRetryPrompt($prompt), false);
             $fallbackContent = trim((string) ($fallback['content'] ?? ''));
             if ($fallbackContent !== '') {
                 $result = $this->parseReviewResponse($fallbackContent);
@@ -154,6 +154,7 @@ class LLMReviewer
             'type' => 'json_schema',
             'json_schema' => [
                 'name' => 'review_response',
+                'strict' => true,
                 'schema' => [
                     'type' => 'object',
                     'properties' => [
@@ -182,6 +183,15 @@ class LLMReviewer
                 ],
             ],
         ];
+    }
+
+    private function buildJsonOnlyRetryPrompt(string $prompt): string
+    {
+        return "Повтори ревью в максимально компактном виде.\n"
+            . "Верни СТРОГО один JSON-объект без markdown, без пояснений, без <think>.\n"
+            . "Форма ответа: {\"status\":\"ok\",\"issues\":[]} или {\"status\":\"has_issues\",\"issues\":[{\"week\":1,\"day_of_week\":1,\"type\":\"...\",\"description\":\"...\",\"fix_suggestion\":\"...\"}]}.\n"
+            . "Если критичных замечаний нет или ответ получается слишком длинным, верни {\"status\":\"ok\",\"issues\":[]}.\n\n"
+            . "Исходная задача:\n" . mb_substr($prompt, 0, 12000, 'UTF-8');
     }
 
     private function filterScenarioFalsePositives(array $issues, array $plan, array $state): array
