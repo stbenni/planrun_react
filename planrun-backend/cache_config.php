@@ -153,9 +153,7 @@ class FileCache extends CacheInterface {
 
     private function ensureDirectory($dir) {
         if (is_dir($dir)) {
-            if (!is_writable($dir)) {
-                @chmod($dir, 02775);
-            }
+            @chmod($dir, 02775);
             return is_writable($dir);
         }
 
