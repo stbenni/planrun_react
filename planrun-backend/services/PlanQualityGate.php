@@ -47,6 +47,7 @@ class PlanQualityGate
         $issues = collectNormalizedPlanValidationIssues($normalizedPlan, $trainingState, $context);
         $issues = array_merge($issues, $this->collectScenarioIssues($normalizedPlan, $trainingState, $context));
         $issues = array_merge($issues, $this->collectGoalFeasibilityIssues($trainingState));
+        $issues = $this->downgradeProtectiveScenarioIssues($issues, $trainingState, $context);
         $issues = $this->filterIssuesForScenario($issues, $normalizedPlan, $trainingState, $context);
         $issues = $this->sortIssues($issues);
 
@@ -265,6 +266,37 @@ class PlanQualityGate
                 'message' => 'Цель выглядит слишком амбициозной для текущего горизонта подготовки. План сохранён как осторожный стартовый вариант, но цель нужно пересмотреть по первым тренировкам.',
             ];
         }
+
+        return $issues;
+    }
+
+    private function downgradeProtectiveScenarioIssues(array $issues, array $trainingState, array $context): array
+    {
+        $scenario = $trainingState['planning_scenario'] ?? ($context['planning_scenario'] ?? null);
+        $flags = is_array($scenario)
+            ? array_map('strval', (array) ($scenario['flags'] ?? []))
+            : [];
+        $isProtectiveScenario = (string) ($trainingState['readiness'] ?? 'normal') === 'low'
+            || !empty(array_intersect($flags, [
+                'high_caution',
+                'low_confidence_start',
+                'return_after_break',
+                'return_after_injury',
+                'overload_recovery',
+                'pain_protective',
+                'illness_protective',
+            ]));
+
+        if (!$isProtectiveScenario) {
+            return $issues;
+        }
+
+        foreach ($issues as &$issue) {
+            if (($issue['code'] ?? '') === 'weekly_volume_spike') {
+                $issue['severity'] = 'warning';
+            }
+        }
+        unset($issue);
 
         return $issues;
     }

@@ -547,4 +547,60 @@ class PlanQualityGateTest extends TestCase
         $this->assertContains('goal_feasibility_unrealistic', $codes);
         $this->assertFalse($result['should_block_save']);
     }
+
+    public function test_evaluate_downgrades_volume_spike_for_high_caution_scenario(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [
+                [
+                    'week_number' => 1,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 8.0, 'pace' => '6:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'long', 'distance_km' => 12.0, 'pace' => '6:40'],
+                    ],
+                ],
+                [
+                    'week_number' => 2,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 8.0, 'pace' => '6:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 8.0, 'pace' => '6:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'rest'],
+                        ['type' => 'long', 'distance_km' => 12.0, 'pace' => '6:40'],
+                    ],
+                ],
+            ],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-04-27', [
+            'readiness' => 'low',
+            'load_policy' => [
+                'allowed_growth_ratio' => 1.08,
+                'easy_min_km' => 8.0,
+                'long_min_km' => 12.0,
+                'long_share_cap' => 0.50,
+            ],
+            'planning_scenario' => [
+                'flags' => ['high_caution', 'low_confidence_start'],
+            ],
+        ]);
+
+        $spikes = array_values(array_filter(
+            $result['issues'],
+            static fn(array $issue): bool => ($issue['code'] ?? '') === 'weekly_volume_spike'
+        ));
+
+        $this->assertNotEmpty($spikes);
+        $this->assertSame('warning', $spikes[0]['severity'] ?? null);
+        $this->assertFalse($result['should_block_save']);
+    }
 }

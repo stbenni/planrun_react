@@ -509,9 +509,14 @@ class TrainingStateBuilder {
             || $fatigueCount >= 1
             || $recentRisk >= 0.45
             || $noteRiskScore >= 0.45;
+        $isModerateBaseFirstMarathon = $isFirstRaceAtDistance
+            && in_array($raceDistance, ['marathon', '42.2k'], true)
+            && $weeklyBaseKm >= 30.0
+            && $sessionsPerWeek >= 4;
+        $firstLongRaceNeedsConservativeProfile = $isFirstLongRace && !$isModerateBaseFirstMarathon;
         $useConservativeRepairProfile = $readiness === 'low' && (
             $isLowBase
-            || $isFirstLongRace
+            || $firstLongRaceNeedsConservativeProfile
             || $goalType === 'weight_loss'
             || $hasConservativeFlag
         );
@@ -532,6 +537,9 @@ class TrainingStateBuilder {
         $longShareCap = $useConservativeRepairProfile || $protectLowBaseNovice
             ? 0.40
             : (($isLowBase || $sessionsPerWeek <= 3 || in_array($goalType, ['health', 'weight_loss'], true)) ? 0.43 : 0.45);
+        if ($isModerateBaseFirstMarathon) {
+            $longShareCap = max($longShareCap, 0.42);
+        }
         $longMinKm = $protectLowBaseNovice ? 3.0 : ($useConservativeRepairProfile ? 4.0 : 5.0);
 
         $policy = [

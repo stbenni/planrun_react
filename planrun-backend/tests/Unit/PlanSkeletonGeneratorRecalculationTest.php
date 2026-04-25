@@ -149,21 +149,26 @@ class PlanSkeletonGeneratorRecalculationTest extends TestCase {
         $this->assertContains('race', array_column($weekThree['days'], 'type'));
     }
 
-    public function test_generate_first_marathon_twenty_week_plan_reaches_coach_peak_long_run(): void {
+    public function test_generate_first_marathon_twenty_week_plan_reaches_coach_peak_long_run_for_moderate_base_first_timer(): void {
         $userId = $this->createTestUser([
             'weekly_base_km' => 34.0,
             'sessions_per_week' => 5,
             'race_distance' => 'marathon',
             'race_date' => '2026-09-20',
-            'race_target_time' => '04:15:00',
-            'easy_pace_sec' => 390,
+            'race_target_time' => '04:20:00',
+            'easy_pace_sec' => 385,
             'experience_level' => 'intermediate',
             'preferred_days' => json_encode(['mon', 'tue', 'thu', 'sat', 'sun']),
-            'training_start_date' => '2026-05-04',
+            'training_start_date' => '2026-04-27',
             'is_first_race_at_distance' => 1,
+            'last_race_distance' => 'half',
+            'last_race_distance_km' => 21.1,
+            'last_race_time' => '02:02:00',
+            'last_race_date' => '2025-11-02',
         ]);
 
         $plan = $this->generator->generate($userId, 'generate');
+        $state = $this->generator->getLastState();
         $weeks = $plan['weeks'] ?? [];
 
         $peakLong = 0.0;
@@ -176,6 +181,8 @@ class PlanSkeletonGeneratorRecalculationTest extends TestCase {
         }
 
         $this->assertGreaterThanOrEqual(18, count($weeks));
+        $this->assertSame('standard', $state['load_policy']['repair_floor_profile'] ?? null);
+        $this->assertGreaterThanOrEqual(0.42, (float) ($state['load_policy']['long_share_cap'] ?? 0.0));
         $this->assertGreaterThanOrEqual(26.0, round($peakLong, 1));
         $this->assertLessThanOrEqual(30.0, round($peakLong, 1));
     }
