@@ -143,7 +143,7 @@ class RegistrationServiceTest extends TestCase {
         $db->whenQueryContains("SHOW TABLES LIKE 'site_settings'", new FakeResult([]));
 
         $db->whenPrepareContains('SELECT id FROM users WHERE username = ?', fn() => new FakeStmt([]));
-        $db->whenPrepareContains('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""', fn() => new FakeStmt([]));
+        $db->whenPrepareContains("SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ''", fn() => new FakeStmt([]));
         $db->whenPrepareContains('SELECT id FROM users WHERE username_slug = ?', fn() => new FakeStmt([]));
         $db->whenPrepareContains(
             'INSERT INTO users (username, username_slug, password, email, onboarding_completed, training_mode, goal_type, gender)',

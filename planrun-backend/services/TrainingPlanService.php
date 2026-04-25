@@ -23,6 +23,57 @@ class TrainingPlanService extends BaseService {
         $this->validator = new TrainingPlanValidator();
         $this->queueService = new PlanGenerationQueueService($db);
     }
+
+    private function startSessionIfAvailable(): void {
+        if (session_status() !== PHP_SESSION_NONE) {
+            return;
+        }
+        if (PHP_SAPI === 'cli' || headers_sent()) {
+            return;
+        }
+        session_start();
+    }
+
+    private function normalizePlanningContext(array $options): array {
+        $normalized = [];
+
+        $mappings = [
+            'secondary_race_date' => 'secondary_race_date',
+            'secondary_race_distance' => 'secondary_race_distance',
+            'secondary_race_type' => 'secondary_race_type',
+            'secondary_race_target_time' => 'secondary_race_target_time',
+            'tune_up_race_date' => 'tune_up_race_date',
+            'tune_up_race_distance' => 'tune_up_race_distance',
+            'tune_up_race_type' => 'tune_up_race_type',
+            'tune_up_race_target_time' => 'tune_up_race_target_time',
+        ];
+
+        foreach ($mappings as $sourceKey => $targetKey) {
+            $value = $options[$sourceKey] ?? null;
+            if ($value === null) {
+                continue;
+            }
+
+            $value = is_string($value) ? trim($value) : $value;
+            if ($value === '' || $value === []) {
+                continue;
+            }
+
+            $normalized[$targetKey] = $value;
+        }
+
+        if (!empty($options['secondary_race']) && is_array($options['secondary_race'])) {
+            $secondary = $this->normalizePlanningContext([
+                'secondary_race_date' => $options['secondary_race']['date'] ?? null,
+                'secondary_race_distance' => $options['secondary_race']['distance'] ?? null,
+                'secondary_race_type' => $options['secondary_race']['type'] ?? null,
+                'secondary_race_target_time' => $options['secondary_race']['target_time'] ?? null,
+            ]);
+            $normalized = array_merge($normalized, $secondary);
+        }
+
+        return $normalized;
+    }
     
     /**
      * Загрузить план тренировок для пользователя
@@ -103,6 +154,17 @@ class TrainingPlanService extends BaseService {
                 $weeksData = isset($planData['weeks_data']) && is_array($planData['weeks_data']) ? $planData['weeks_data'] : [];
                 $hasWeeksInDb = !empty($weeksData);
 
+                if (!$activeQueueJob && ($latestQueueJob['status'] ?? null) === 'failed') {
+                    return [
+                        'has_plan' => false,
+                        'generating' => false,
+                        'has_old_plan' => $hasWeeksInDb,
+                        'error' => $latestQueueJob['last_error'] ?? 'Генерация плана завершилась ошибкой',
+                        'latest_generation' => $latestGeneration,
+                        'user_id' => $userId
+                    ];
+                }
+
                 return [
                     'has_plan' => false,
                     'generating' => true,
@@ -172,9 +234,7 @@ class TrainingPlanService extends BaseService {
         $queueResult = $this->queueService->enqueue((int) $userId, 'generate');
         
         // Устанавливаем сообщение в сессию
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->startSessionIfAvailable();
         $_SESSION['plan_generation_message'] = 'План тренировок генерируется через PlanRun AI. Это займет 3-5 минут. Обновите страницу через несколько минут.';
         
         $this->logInfo("Повторная генерация плана", [
@@ -199,20 +259,11 @@ class TrainingPlanService extends BaseService {
     public function regeneratePlanWithProgress($userId) {
         // Очищаем старую ошибку через репозиторий
         $this->repository->clearErrorMessage($userId);
-        $deactivateStmt = $this->db->prepare(
-            "UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ? AND is_active = TRUE"
-        );
-        if ($deactivateStmt) {
-            $deactivateStmt->bind_param('i', $userId);
-            $deactivateStmt->execute();
-            $deactivateStmt->close();
-        }
 
         $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate');
+        $this->deactivateActivePlans((int) $userId);
         
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->startSessionIfAvailable();
         $_SESSION['plan_generation_message'] = 'План пересчитывается с учетом всех ваших тренировок и прогресса. Это займет 3-5 минут. Обновите страницу через несколько минут.';
         
         $this->logInfo("Перегенерация плана с прогрессом", [
@@ -258,31 +309,24 @@ class TrainingPlanService extends BaseService {
      * Пересчитать план с учётом истории, пропусков и текущей формы.
      * Будущие тренировки пересчитываются, прошлые (workout_log) сохраняются.
      */
-    public function recalculatePlan($userId, $reason = null) {
+    public function recalculatePlan($userId, $reason = null, array $options = []) {
         $this->repository->clearErrorMessage($userId);
         
-        $deactivateStmt = $this->db->prepare(
-            "UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ? AND is_active = TRUE"
+        $queuePayload = array_merge(
+            ['reason' => $reason],
+            $this->normalizePlanningContext($options)
         );
-        if ($deactivateStmt) {
-            $deactivateStmt->bind_param('i', $userId);
-            $deactivateStmt->execute();
-            $deactivateStmt->close();
-        }
+        $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate', $queuePayload);
+        $this->deactivateActivePlans((int) $userId);
         
-        $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate', [
-            'reason' => $reason,
-        ]);
-        
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->startSessionIfAvailable();
         $_SESSION['plan_generation_message'] = 'План пересчитывается с учётом вашего прогресса и текущей формы. Это займёт 3-5 минут.';
         
         $this->logInfo("Пересчёт плана (recalculate)", [
             'user_id' => $userId,
             'job_id' => $queueResult['job_id'] ?? null,
-            'has_reason' => !empty($reason)
+            'has_reason' => !empty($reason),
+            'has_secondary_race' => !empty($queuePayload['secondary_race_date']) || !empty($queuePayload['tune_up_race_date']),
         ]);
         
         return [
@@ -296,31 +340,24 @@ class TrainingPlanService extends BaseService {
      * Генерация нового плана после завершения предыдущего.
      * Собирает полную историю тренировок и передаёт AI для правильной прогрессии.
      */
-    public function generateNextPlan($userId, $goals = null) {
+    public function generateNextPlan($userId, $goals = null, array $options = []) {
         $this->repository->clearErrorMessage($userId);
 
-        $deactivateStmt = $this->db->prepare(
-            "UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ? AND is_active = TRUE"
+        $queuePayload = array_merge(
+            ['goals' => $goals],
+            $this->normalizePlanningContext($options)
         );
-        if ($deactivateStmt) {
-            $deactivateStmt->bind_param('i', $userId);
-            $deactivateStmt->execute();
-            $deactivateStmt->close();
-        }
+        $queueResult = $this->queueService->enqueue((int) $userId, 'next_plan', $queuePayload);
+        $this->deactivateActivePlans((int) $userId);
 
-        $queueResult = $this->queueService->enqueue((int) $userId, 'next_plan', [
-            'goals' => $goals,
-        ]);
-
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->startSessionIfAvailable();
         $_SESSION['plan_generation_message'] = 'Новый план генерируется с учётом всех ваших прошлых тренировок. Это займёт 3-5 минут.';
 
         $this->logInfo("Генерация нового плана (next_plan)", [
             'user_id' => $userId,
             'job_id' => $queueResult['job_id'] ?? null,
-            'has_goals' => !empty($goals)
+            'has_goals' => !empty($goals),
+            'has_secondary_race' => !empty($queuePayload['secondary_race_date']) || !empty($queuePayload['tune_up_race_date']),
         ]);
 
         return [
@@ -334,16 +371,51 @@ class TrainingPlanService extends BaseService {
      * Восстановить план из состояния «generating» (после таймаута или краша async).
      */
     public function reactivatePlan($userId) {
+        $latestInactiveId = null;
         $stmt = $this->db->prepare(
-            "UPDATE user_training_plans SET is_active = TRUE, error_message = NULL WHERE user_id = ? AND is_active = FALSE"
+            "SELECT id FROM user_training_plans WHERE user_id = ? AND is_active = FALSE ORDER BY id DESC LIMIT 1"
         );
         if ($stmt) {
             $stmt->bind_param('i', $userId);
             $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: null;
+            $latestInactiveId = $row ? (int) $row['id'] : null;
             $stmt->close();
         }
+
+        if ($latestInactiveId !== null) {
+            $stmt = $this->db->prepare("UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ?");
+            if ($stmt) {
+                $stmt->bind_param('i', $userId);
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            $stmt = $this->db->prepare(
+                "UPDATE user_training_plans SET is_active = TRUE, error_message = NULL WHERE user_id = ? AND id = ?"
+            );
+            if ($stmt) {
+                $stmt->bind_param('ii', $userId, $latestInactiveId);
+                $stmt->execute();
+                $stmt->close();
+            }
+        }
+
         require_once __DIR__ . '/../cache_config.php';
         Cache::delete("training_plan_{$userId}");
+    }
+
+    private function deactivateActivePlans(int $userId): void {
+        $stmt = $this->db->prepare(
+            "UPDATE user_training_plans SET is_active = FALSE WHERE user_id = ? AND is_active = TRUE"
+        );
+        if (!$stmt) {
+            return;
+        }
+
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $stmt->close();
     }
 
     /**
@@ -391,9 +463,7 @@ class TrainingPlanService extends BaseService {
      * @return void
      */
     public function clearPlanGenerationMessage() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->startSessionIfAvailable();
         
         if (isset($_SESSION['plan_generation_message'])) {
             unset($_SESSION['plan_generation_message']);

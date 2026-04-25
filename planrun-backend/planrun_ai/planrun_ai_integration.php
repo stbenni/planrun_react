@@ -12,13 +12,19 @@ function resolvePlanRunAIMaxTokens(array $userData): int {
         : 0;
 
     if ($expectedWeeks >= 14) {
-        return 20000;
-    }
-    if ($expectedWeeks >= 10) {
-        return 16000;
+        $tokens = 20000;
+    } elseif ($expectedWeeks >= 10) {
+        $tokens = 16000;
+    } else {
+        $tokens = 12000;
     }
 
-    return 12000;
+    $hardLimit = max(512, (int) env('PLANRUN_AI_MAX_TOKENS_HARD_LIMIT', 4096));
+    if ($tokens > $hardLimit) {
+        error_log("resolvePlanRunAIMaxTokens: capped max_tokens {$tokens} -> {$hardLimit}");
+    }
+
+    return min($tokens, $hardLimit);
 }
 
 /**

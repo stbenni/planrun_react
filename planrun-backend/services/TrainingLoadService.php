@@ -1,7 +1,13 @@
 <?php
 require_once __DIR__ . '/BaseService.php';
+require_once __DIR__ . '/../repositories/UserRepository.php';
 
 class TrainingLoadService extends BaseService {
+    private ?\UserRepository $userRepo = null;
+
+    private function userRepo(): \UserRepository {
+        return $this->userRepo ??= new \UserRepository($this->db);
+    }
 
     /**
      * Banister TRIMP formula.
@@ -23,11 +29,7 @@ class TrainingLoadService extends BaseService {
      * rest_hr: user value or 60
      */
     public function getUserHrParams(int $userId): array {
-        $stmt = $this->db->prepare("SELECT max_hr, rest_hr, birth_year FROM users WHERE id = ?");
-        $stmt->bind_param('i', $userId);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
+        $row = $this->userRepo()->getForHrCalculation($userId);
 
         if (!$row) {
             return ['max_hr' => 190, 'rest_hr' => 60, 'source' => 'default'];

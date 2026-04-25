@@ -7,21 +7,29 @@
  */
 
 require_once __DIR__ . '/enrichment_prompt_builder.php';
+require_once __DIR__ . '/SkeletonValidator.php';
+require_once __DIR__ . '/StructuredJsonResponseParser.php';
 
 class LLMEnricher
 {
     private string $baseUrl;
     private string $model;
     private int $maxTokens;
+    private bool $enableThinking;
+    private int $timeoutSeconds;
+    private int $connectTimeoutSeconds;
 
     public function __construct(
         ?string $baseUrl = null,
         ?string $model = null,
-        int $maxTokens = 16384
+        ?int $maxTokens = null
     ) {
         $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
         $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
-        $this->maxTokens = $maxTokens;
+        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_ENRICHER_MAX_TOKENS', 1024, 256, 3072);
+        $this->timeoutSeconds = $this->getEnvInt('LLM_ENRICHER_TIMEOUT_SECONDS', 75, 10, 300);
+        $this->connectTimeoutSeconds = $this->getEnvInt('LLM_ENRICHER_CONNECT_TIMEOUT_SECONDS', 5, 1, 60);
+        $this->enableThinking = $this->getEnvBool('LLM_STRUCTURED_ENABLE_THINKING', false);
     }
 
     /**
@@ -36,21 +44,30 @@ class LLMEnricher
     public function enrich(array $skeleton, array $user, array $state, array $context = []): array
     {
         $prompt = buildEnrichmentPrompt($skeleton, $user, $state, $context);
+        $basePlan = SkeletonValidator::addAlgorithmicNotes($skeleton);
 
         $response = $this->callLLM($prompt);
         if ($response === null) {
-            error_log('LLMEnricher: LLM call failed, returning original skeleton');
-            return $skeleton;
+            error_log('LLMEnricher: LLM call failed, returning algorithmic notes fallback');
+            return $basePlan;
         }
 
         $enriched = $this->parseResponse($response);
         if ($enriched === null) {
-            error_log('LLMEnricher: Failed to parse LLM response, returning original skeleton');
-            return $skeleton;
+            error_log('LLMEnricher: failed to parse response, retrying compact answer without thinking');
+            $fallback = $this->requestCompletion($prompt, false);
+            $fallbackContent = trim((string) ($fallback['content'] ?? ''));
+            if ($fallbackContent !== '') {
+                $enriched = $this->parseResponse($fallbackContent);
+            }
+            if ($enriched === null) {
+                error_log('LLMEnricher: Failed to parse LLM response after retry, returning algorithmic notes fallback');
+                return $basePlan;
+            }
         }
 
         // Мержим notes из LLM в исходный скелет
-        return $this->mergeNotes($skeleton, $enriched);
+        return $this->mergeNotes($basePlan, $enriched);
     }
 
     /**
@@ -58,17 +75,42 @@ class LLMEnricher
      */
     private function callLLM(string $prompt): ?string
     {
+        $response = $this->requestCompletion($prompt, $this->enableThinking);
+        if ($response === null) {
+            return null;
+        }
+
+        $content = trim((string) ($response['content'] ?? ''));
+        $hasReasoning = trim((string) ($response['reasoning_content'] ?? '')) !== '';
+        $finishReason = (string) ($response['finish_reason'] ?? '');
+
+        if ($this->enableThinking && $content === '' && ($hasReasoning || $finishReason === 'length')) {
+            error_log('LLMEnricher: retrying without thinking after reasoning-only response');
+            $fallback = $this->requestCompletion($prompt, false);
+            if ($fallback === null) {
+                return null;
+            }
+            $content = trim((string) ($fallback['content'] ?? ''));
+        }
+
+        return $content !== '' ? $content : null;
+    }
+
+    private function requestCompletion(string $prompt, bool $enableThinking): ?array
+    {
         $url = $this->baseUrl . '/chat/completions';
 
         $payload = json_encode([
             'model' => $this->model,
             'messages' => [
-                ['role' => 'system', 'content' => 'Ты — тренер по бегу. Отвечай строго JSON без markdown-обёрток. Все notes пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ — никакого английского текста.'],
+                ['role' => 'system', 'content' => 'Ты — тренер по бегу. Отвечай только валидным JSON по заданной схеме: без markdown, без пояснений, без <think>. Все notes пиши ТОЛЬКО НА РУССКОМ ЯЗЫКЕ — никакого английского текста.'],
                 ['role' => 'user', 'content' => $prompt],
             ],
             'temperature' => 0.3,
             'max_tokens' => $this->maxTokens,
             'stream' => false,
+            'response_format' => $this->buildResponseFormat(),
+            'chat_template_kwargs' => ['enable_thinking' => $enableThinking],
         ], JSON_UNESCAPED_UNICODE);
 
         $ch = curl_init($url);
@@ -77,8 +119,8 @@ class LLMEnricher
             CURLOPT_POSTFIELDS => $payload,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 300,
-            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeoutSeconds,
         ]);
 
         $result = curl_exec($ch);
@@ -92,7 +134,44 @@ class LLMEnricher
         }
 
         $json = json_decode($result, true);
-        return $json['choices'][0]['message']['content'] ?? null;
+        $choice = $json['choices'][0] ?? [];
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
+
+        return [
+            'content' => $message['content'] ?? '',
+            'reasoning_content' => $message['reasoning_content'] ?? '',
+            'finish_reason' => $choice['finish_reason'] ?? null,
+        ];
+    }
+
+    private function buildResponseFormat(): array
+    {
+        return [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => 'enrichment_notes_response',
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'notes' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'week_number' => ['type' => 'integer'],
+                                    'day_of_week' => ['type' => 'integer'],
+                                    'notes' => ['type' => 'string'],
+                                ],
+                                'required' => ['week_number', 'day_of_week', 'notes'],
+                                'additionalProperties' => false,
+                            ],
+                        ],
+                    ],
+                    'required' => ['notes'],
+                    'additionalProperties' => false,
+                ],
+            ],
+        ];
     }
 
     /**
@@ -100,38 +179,14 @@ class LLMEnricher
      */
     private function parseResponse(string $response): ?array
     {
-        // Убрать markdown-обёртки
-        $cleaned = preg_replace('/^```(?:json)?\s*/m', '', $response);
-        $cleaned = preg_replace('/\s*```\s*$/m', '', $cleaned);
-        $cleaned = trim($cleaned);
-
-        // Попытка 1: прямой парсинг
-        $parsed = json_decode($cleaned, true);
-        if (is_array($parsed)) {
-            // Если вернули {weeks: [...]}, извлекаем
-            if (isset($parsed['weeks'])) {
-                return $parsed;
-            }
-            // Если вернули голый массив [...]
-            if (isset($parsed[0]['week_number'])) {
-                return ['weeks' => $parsed];
-            }
+        $parsedNotes = StructuredJsonResponseParser::parseNotesPayload($response);
+        if ($parsedNotes !== null) {
+            return $parsedNotes;
         }
 
-        // Попытка 2: найти JSON в тексте
-        if (preg_match('/\{[\s\S]*"weeks"\s*:\s*\[[\s\S]*\]\s*\}/', $cleaned, $m)) {
-            $parsed = json_decode($m[0], true);
-            if (is_array($parsed) && isset($parsed['weeks'])) {
-                return $parsed;
-            }
-        }
-
-        // Попытка 3: найти массив weeks
-        if (preg_match('/\[\s*\{[\s\S]*"week_number"[\s\S]*\}\s*\]/', $cleaned, $m)) {
-            $parsed = json_decode($m[0], true);
-            if (is_array($parsed)) {
-                return ['weeks' => $parsed];
-            }
+        $parsed = StructuredJsonResponseParser::parseWeeksPayload($response);
+        if ($parsed !== null) {
+            return $parsed;
         }
 
         error_log('LLMEnricher: Could not parse JSON from response, len=' . strlen($response));
@@ -147,41 +202,40 @@ class LLMEnricher
     {
         $result = $skeleton;
 
-        // Индексируем enriched по week_number
-        $enrichedByWeek = [];
-        foreach ($enriched['weeks'] ?? [] as $ew) {
-            $wn = $ew['week_number'] ?? null;
-            if ($wn !== null) {
-                $enrichedByWeek[$wn] = $ew;
+        $notesByWeekDay = [];
+
+        foreach ((array) ($enriched['notes'] ?? []) as $noteItem) {
+            $weekNumber = isset($noteItem['week_number']) ? (int) $noteItem['week_number'] : 0;
+            $dayOfWeek = isset($noteItem['day_of_week']) ? (int) $noteItem['day_of_week'] : 0;
+            $noteText = trim((string) ($noteItem['notes'] ?? ''));
+            if ($weekNumber < 1 || $dayOfWeek < 1 || $noteText === '') {
+                continue;
+            }
+            $notesByWeekDay[$weekNumber . ':' . $dayOfWeek] = $noteText;
+        }
+
+        if ($notesByWeekDay === [] && !empty($enriched['weeks'])) {
+            foreach ((array) ($enriched['weeks'] ?? []) as $week) {
+                $weekNumber = isset($week['week_number']) ? (int) $week['week_number'] : 0;
+                foreach ((array) ($week['days'] ?? []) as $day) {
+                    $dayOfWeek = isset($day['day_of_week']) ? (int) $day['day_of_week'] : 0;
+                    $noteText = trim((string) ($day['notes'] ?? ''));
+                    if ($weekNumber < 1 || $dayOfWeek < 1 || $noteText === '') {
+                        continue;
+                    }
+                    $notesByWeekDay[$weekNumber . ':' . $dayOfWeek] = $noteText;
+                }
             }
         }
 
         foreach ($result['weeks'] as &$week) {
-            $wn = $week['week_number'] ?? null;
-            $enrichedWeek = $enrichedByWeek[$wn] ?? null;
-            if (!$enrichedWeek || !isset($enrichedWeek['days'])) {
-                continue;
-            }
-
-            // Индексируем enriched days по day_of_week
-            $enrichedByDay = [];
-            foreach ($enrichedWeek['days'] as $ed) {
-                $dow = $ed['day_of_week'] ?? null;
-                if ($dow !== null) {
-                    $enrichedByDay[$dow] = $ed;
-                }
-            }
+            $weekNumber = isset($week['week_number']) ? (int) $week['week_number'] : 0;
 
             foreach ($week['days'] as &$day) {
-                $dow = $day['day_of_week'] ?? null;
-                $enrichedDay = $enrichedByDay[$dow] ?? null;
-                if (!$enrichedDay) {
-                    continue;
-                }
-
-                // Берём только notes из LLM
-                if (!empty($enrichedDay['notes']) && is_string($enrichedDay['notes'])) {
-                    $day['notes'] = $enrichedDay['notes'];
+                $dayOfWeek = isset($day['day_of_week']) ? (int) $day['day_of_week'] : 0;
+                $noteKey = $weekNumber . ':' . $dayOfWeek;
+                if (isset($notesByWeekDay[$noteKey])) {
+                    $day['notes'] = $notesByWeekDay[$noteKey];
                 }
             }
             unset($day);
@@ -194,5 +248,31 @@ class LLMEnricher
     private function getEnv(string $key, string $default): string
     {
         return $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key) ?: $default;
+    }
+
+    private function getEnvBool(string $key, bool $default): bool
+    {
+        $raw = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+        if ($raw === false || $raw === null) {
+            return $default;
+        }
+
+        $value = trim(mb_strtolower((string) $raw, 'UTF-8'));
+        return in_array($value, ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private function getEnvInt(string $key, int $default, int $min, int $max): int
+    {
+        $raw = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+        if ($raw === false || $raw === null || $raw === '') {
+            return $default;
+        }
+
+        $value = filter_var($raw, FILTER_VALIDATE_INT);
+        if ($value === false) {
+            return $default;
+        }
+
+        return max($min, min($max, (int) $value));
     }
 }

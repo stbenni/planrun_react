@@ -193,6 +193,31 @@ class VdotCalculationTest extends TestCase {
         $this->assertEqualsWithDelta($expectedVdot, $result['vdot'], 0.1);
     }
 
+    public function test_assessGoalRealism_registration_context_is_advisory_not_blocking(): void {
+        $user = [
+            '_assessment_context' => 'registration',
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_target_time' => '03:30:00',
+            'race_date' => date('Y-m-d', strtotime('+6 weeks')),
+            'training_start_date' => date('Y-m-d'),
+            'weekly_base_km' => 5,
+            'sessions_per_week' => 2,
+            'experience_level' => 'novice',
+        ];
+
+        $result = assessGoalRealism($user);
+
+        $this->assertSame('caution', $result['verdict']);
+        $this->assertSame('unrealistic', $result['verdict_original']);
+        $this->assertFalse($result['blocks_registration']);
+        $this->assertSame('advisory', $result['assessment_mode']);
+
+        foreach ($result['messages'] as $message) {
+            $this->assertNotSame('error', $message['type']);
+        }
+    }
+
     // ── 8. predictAllRaceTimes возвращает все дистанции ──
 
     public function test_predictAllRaceTimes_returns_all_distances(): void {

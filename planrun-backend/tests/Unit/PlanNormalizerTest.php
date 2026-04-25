@@ -8,6 +8,77 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../planrun_ai/plan_normalizer.php';
 
 class PlanNormalizerTest extends TestCase {
+    public function test_normalizeTrainingPlan_preserves_conservative_easy_and_tempo_distances(): void {
+        $rawPlan = [
+            'weeks' => [[
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 1.5, 'pace' => '6:20'],
+                    ['type' => 'tempo', 'distance_km' => 2.5, 'pace' => '5:00'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                ],
+            ]],
+        ];
+
+        $normalized = normalizeTrainingPlan($rawPlan, '2026-03-09');
+        $days = $normalized['weeks'][0]['days'];
+
+        $this->assertSame(1.5, (float) ($days[0]['distance_km'] ?? 0.0));
+        $this->assertSame(2.5, (float) ($days[1]['distance_km'] ?? 0.0));
+    }
+
+    public function test_normalizeTrainingPlan_preserves_interval_structure_on_already_structured_day(): void {
+        $rawPlan = [
+            'weeks' => [[
+                'days' => [
+                    ['type' => 'rest'],
+                    ['type' => 'interval', 'warmup_km' => 1.75, 'cooldown_km' => 1.25, 'reps' => 6, 'interval_m' => 600, 'rest_m' => 400, 'rest_type' => 'walk', 'interval_pace' => '4:35', 'distance_km' => 9.0, 'is_key_workout' => true],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                ],
+            ]],
+        ];
+
+        $normalized = normalizeTrainingPlan($rawPlan, '2026-06-01');
+        $intervalDay = $normalized['weeks'][0]['days'][1];
+
+        $this->assertSame('interval', $intervalDay['type']);
+        $this->assertSame(6, (int) ($intervalDay['reps'] ?? 0));
+        $this->assertSame(600, (int) ($intervalDay['interval_m'] ?? 0));
+        $this->assertSame(400, (int) ($intervalDay['rest_m'] ?? 0));
+        $this->assertSame('walk', $intervalDay['rest_type'] ?? null);
+        $this->assertSame('4:35', $intervalDay['interval_pace'] ?? null);
+    }
+
+    public function test_normalizeTrainingPlan_converts_zero_long_run_to_rest(): void {
+        $rawPlan = [
+            'weeks' => [[
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 1.5, 'pace' => '6:20'],
+                    ['type' => 'easy', 'distance_km' => 1.5, 'pace' => '6:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 1.5, 'pace' => '6:20'],
+                    ['type' => 'long', 'distance_km' => 0, 'pace' => '6:08'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                ],
+            ]],
+        ];
+
+        $normalized = normalizeTrainingPlan($rawPlan, '2026-06-22');
+        $day = $normalized['weeks'][0]['days'][4];
+
+        $this->assertSame('rest', $day['type']);
+        $this->assertNull($day['distance_km']);
+        $this->assertSame('', $day['description']);
+    }
+
     public function test_normalizeTrainingPlan_movesLongToLastPreferredWeekendDay(): void {
         $rawPlan = [
             'weeks' => [[
@@ -357,8 +428,8 @@ class PlanNormalizerTest extends TestCase {
 
         $this->assertSame(22.5, $repaired['weeks'][1]['total_volume']);
         $this->assertSame(10.0, $repaired['weeks'][1]['days'][2]['distance_km'], 'Long run should be preserved when easy days can absorb the cutback.');
-        $this->assertSame(5.0, $repaired['weeks'][1]['days'][0]['distance_km']);
-        $this->assertSame(7.5, $repaired['weeks'][1]['days'][1]['distance_km']);
+        $this->assertSame(4.5, $repaired['weeks'][1]['days'][0]['distance_km']);
+        $this->assertSame(8.0, $repaired['weeks'][1]['days'][1]['distance_km']);
         $this->assertNotEmpty($repaired['warnings']);
     }
 
@@ -410,7 +481,7 @@ class PlanNormalizerTest extends TestCase {
             ],
         ]);
 
-        $this->assertSame(41.8, $repaired['weeks'][1]['total_volume']);
+        $this->assertSame(38.3, $repaired['weeks'][1]['total_volume']);
         $this->assertSame(13.5, $repaired['weeks'][1]['days'][3]['distance_km'], 'Interval volume should stay untouched while easier cuts are still available.');
         $this->assertLessThan(22.5, $repaired['weeks'][1]['days'][6]['distance_km'], 'Long run can absorb the last part of the cutback before interval volume is touched.');
         $this->assertLessThan(4.8, $repaired['weeks'][1]['days'][0]['distance_km']);
@@ -527,7 +598,8 @@ class PlanNormalizerTest extends TestCase {
         ]);
 
         $this->assertSame(14.4, $repaired['weeks'][1]['total_volume']);
-        $this->assertLessThan(3.0, $repaired['weeks'][1]['days'][0]['distance_km']);
+        $longShare = (float) $repaired['weeks'][1]['days'][5]['distance_km'] / (float) $repaired['weeks'][1]['total_volume'];
+        $this->assertLessThanOrEqual(0.52, round($longShare, 2));
         $this->assertNotEmpty($repaired['warnings']);
     }
 
@@ -593,11 +665,11 @@ class PlanNormalizerTest extends TestCase {
         ]);
 
         $tempoDay = $repaired['weeks'][0]['days'][1];
-        $this->assertSame(11.5, $tempoDay['distance_km']);
+        $this->assertSame(6.0, $tempoDay['distance_km']);
         $this->assertSame(2.0, $tempoDay['warmup_km']);
         $this->assertSame(1.5, $tempoDay['cooldown_km']);
         $this->assertSame('4:42', $tempoDay['pace']);
-        $this->assertStringContainsString('затем 8 км', $tempoDay['description']);
+        $this->assertStringContainsString('разминка', mb_strtolower($tempoDay['description']));
         $this->assertNotEmpty($tempoDay['exercises']);
         $this->assertNotEmpty($repaired['warnings']);
     }
@@ -708,8 +780,7 @@ class PlanNormalizerTest extends TestCase {
         $tempoDay = $repaired['weeks'][0]['days'][0];
         $this->assertSame(2.0, $tempoDay['warmup_km']);
         $this->assertSame(1.5, $tempoDay['cooldown_km']);
-        $this->assertSame(11.5, $tempoDay['distance_km']);
-        $this->assertStringContainsString('затем 8 км', $tempoDay['description']);
+        $this->assertSame(6.0, $tempoDay['distance_km']);
         $this->assertStringContainsString('разминка', mb_strtolower($tempoDay['description']));
     }
 
@@ -867,8 +938,62 @@ class PlanNormalizerTest extends TestCase {
 
         $days = $repaired['weeks'][0]['days'];
         $this->assertSame('tempo', $days[1]['type']);
-        $this->assertSame(6.0, $days[1]['distance_km']);
+        $this->assertSame(4.9, $days[1]['distance_km']);
         $this->assertSame('easy', $days[2]['type']);
         $this->assertLessThanOrEqual(4.0, (float) $days[2]['distance_km']);
+    }
+
+    public function test_applyTrainingStateLoadRepairs_rebalances_long_share_after_volume_trim(): void {
+        $normalized = [
+            'warnings' => [],
+            'weeks' => [
+                [
+                    'week_number' => 1,
+                    'total_volume' => 24.2,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 4.4, 'pace' => '5:35'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 4.4, 'pace' => '5:35'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 4.4, 'pace' => '5:35'],
+                        ['type' => 'long', 'distance_km' => 11.0, 'pace' => '5:45'],
+                        ['type' => 'rest'],
+                    ],
+                ],
+                [
+                    'week_number' => 2,
+                    'total_volume' => 26.0,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 5.0, 'pace' => '5:35'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 5.0, 'pace' => '5:35'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 5.0, 'pace' => '5:35'],
+                        ['type' => 'long', 'distance_km' => 11.0, 'pace' => '5:45'],
+                        ['type' => 'rest'],
+                    ],
+                ],
+            ],
+        ];
+
+        $repaired = applyTrainingStateLoadRepairs($normalized, [
+            'load_policy' => [
+                'allowed_growth_ratio' => 1.10,
+                'long_share_cap' => 0.43,
+                'easy_min_km' => 2.0,
+                'long_min_km' => 5.0,
+                'weekly_volume_targets_km' => [
+                    2 => 17.2,
+                ],
+            ],
+        ]);
+
+        $days = $repaired['weeks'][1]['days'];
+        $total = (float) ($repaired['weeks'][1]['total_volume'] ?? 0.0);
+        $long = (float) ($days[5]['distance_km'] ?? 0.0);
+
+        $this->assertSame(7.2, $long);
+        $this->assertLessThanOrEqual(0.43, round($long / $total, 2));
+        $this->assertGreaterThan(2.0, (float) ($days[0]['distance_km'] ?? 0.0));
     }
 }

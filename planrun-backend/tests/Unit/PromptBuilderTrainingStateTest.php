@@ -99,6 +99,50 @@ class PromptBuilderTrainingStateTest extends TestCase {
         $this->assertStringContainsString('Это мягкий коридор безопасности, а не требование делать одинаковые недели.', $block);
     }
 
+    public function test_buildTrainingStateBlock_includes_recent_feedback_analytics_summary(): void {
+        $block = buildTrainingStateBlock([
+            'training_state' => [
+                'readiness' => 'low',
+                'feedback_analytics' => [
+                    'total_responses' => 3,
+                    'pain_count' => 1,
+                    'fatigue_count' => 2,
+                    'recent_average_recovery_risk' => 0.71,
+                    'risk_level' => 'high',
+                    'recent_session_rpe_avg' => 7.7,
+                    'recent_pain_score_avg' => 3.3,
+                    'subjective_load_delta' => 0.84,
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('Recent post-workout feedback: responses=3, pain=1, fatigue=2, recovery_risk=0.71, level=high', $block);
+        $this->assertStringContainsString('Structured recovery signals: rpe=7.7, pain_score=3.3, load_delta=0.84', $block);
+    }
+
+    public function test_buildTrainingStateBlock_includes_athlete_signals_summary(): void {
+        $block = buildTrainingStateBlock([
+            'training_state' => [
+                'readiness' => 'normal',
+                'athlete_signals' => [
+                    'overall_risk_level' => 'moderate',
+                    'note_risk_score' => 0.58,
+                    'note_sleep_count' => 1,
+                    'note_stress_count' => 1,
+                    'note_travel_count' => 1,
+                    'highlights' => [
+                        'Есть сигнал про плохой сон',
+                        'Есть контекст поездки или смены режима',
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('Athlete signals overall: risk_level=moderate, note_risk=0.58', $block);
+        $this->assertStringContainsString('Signals from notes: sleep=1, stress=1, travel=1', $block);
+        $this->assertStringContainsString('Athlete signal highlights: Есть сигнал про плохой сон', $block);
+    }
+
     public function test_applyScheduleOverridesToUserData_extracts_long_and_rest_days_from_reason(): void {
         $user = [
             'preferred_days' => ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
@@ -245,5 +289,28 @@ class PromptBuilderTrainingStateTest extends TestCase {
             $this->assertGreaterThanOrEqual(5, $week);
             $this->assertLessThanOrEqual($trainWeeks - 4, $week);
         }
+    }
+
+    public function test_computeMacrocycle_first_marathon_twenty_weeks_supports_peak_long_run(): void {
+        $user = [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-09-20',
+            'training_start_date' => '2026-05-04',
+            'weekly_base_km' => 34,
+            'sessions_per_week' => 5,
+            'experience_level' => 'intermediate',
+            'is_first_race_at_distance' => 1,
+        ];
+
+        $macro = computeMacrocycle($user, 'race');
+
+        $this->assertNotNull($macro);
+        $this->assertGreaterThanOrEqual(18, $macro['total_weeks']);
+        $this->assertGreaterThanOrEqual(26, $macro['long_run']['peak_km']);
+        $this->assertLessThanOrEqual(28, $macro['long_run']['peak_km']);
+        $this->assertGreaterThanOrEqual(
+            (int) ceil($macro['long_run']['peak_km'] / 0.40),
+            $macro['peak_volume_km']
+        );
     }
 }

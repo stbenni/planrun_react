@@ -96,34 +96,66 @@ class SkeletonValidator
      * @param array $paceRules Темпы из TrainingStateBuilder
      * @return array           Массив ошибок
      */
-    public static function validateConsistency(array $plan, array $paceRules): array
+    public static function validateConsistency(array $plan, array $paceRules, array $trainingState = []): array
     {
         $errors = [];
         $weeks = $plan['weeks'] ?? [];
-        $prevNonRecoveryVolume = null;
+        $prevWeekVolume = null;
+        $prevWeekWasRecovery = false;
+        $lastNormalWeekVolume = null;
+        $loadPolicy = is_array($trainingState['load_policy'] ?? null) ? $trainingState['load_policy'] : [];
+        $readiness = (string) ($trainingState['readiness'] ?? 'normal');
+        $allowedGrowth = isset($loadPolicy['allowed_growth_ratio'])
+            ? (float) $loadPolicy['allowed_growth_ratio']
+            : match ($readiness) {
+                'low' => 1.08,
+                'high' => 1.12,
+                default => 1.10,
+            };
+        $preThresholdVolumeKm = (float) ($loadPolicy['pre_threshold_volume_km'] ?? 0.0);
+        $preThresholdAbsoluteGrowthKm = (float) ($loadPolicy['pre_threshold_absolute_growth_km'] ?? 0.0);
 
         foreach ($weeks as $wi => $week) {
             $weekNum = $week['week_number'] ?? $wi + 1;
             $isRecovery = !empty($week['is_recovery']);
             $phase = $week['phase'] ?? '';
             $volume = (float) ($week['actual_volume_km'] ?? $week['target_volume_km'] ?? 0);
+            $referenceVolume = $prevWeekVolume;
+            if ($prevWeekWasRecovery && !$isRecovery && $lastNormalWeekVolume !== null) {
+                $referenceVolume = $lastNormalWeekVolume;
+            }
 
-            // 1. Прогрессия объёмов: не более +15% (кроме recovery/taper)
-            if ($prevNonRecoveryVolume !== null && !$isRecovery && $phase !== 'taper' && $volume > 0) {
-                $growth = ($volume - $prevNonRecoveryVolume) / $prevNonRecoveryVolume;
-                if ($growth > 0.15) {
+            // 1. Прогрессия объёмов: сверяем с тем же growth contract, что и final quality gate.
+            if ($referenceVolume !== null && !$isRecovery && $phase !== 'taper' && $volume > 0) {
+                if ($referenceVolume >= 8.0) {
+                    $volumeCap = ($referenceVolume * $allowedGrowth) + 0.5;
+                    if ($volume > ($volumeCap + 0.75)) {
+                        $growth = $referenceVolume > 0 ? (($volume - $referenceVolume) / $referenceVolume) : 0.0;
+                        $errors[] = [
+                            'type' => 'volume_jump',
+                            'week' => $weekNum,
+                            'description' => "Рост объёма " . round($growth * 100) . "% ({$referenceVolume} → {$volume})",
+                        ];
+                    }
+                } elseif (
+                    $preThresholdVolumeKm > 0.0
+                    && $preThresholdAbsoluteGrowthKm > 0.0
+                    && $referenceVolume < $preThresholdVolumeKm
+                    && $volume > ($referenceVolume + $preThresholdAbsoluteGrowthKm)
+                ) {
                     $errors[] = [
                         'type' => 'volume_jump',
                         'week' => $weekNum,
-                        'description' => "Рост объёма " . round($growth * 100) . "% ({$prevNonRecoveryVolume} → {$volume})",
+                        'description' => "Слишком резкий рост low-base объёма ({$referenceVolume} → {$volume})",
                     ];
                 }
             }
 
-            if (!$isRecovery && $phase !== 'taper') {
-                $prevNonRecoveryVolume = $volume;
+            if (!$isRecovery) {
+                $lastNormalWeekVolume = $volume;
             }
-
+            $prevWeekWasRecovery = $isRecovery;
+            $prevWeekVolume = $volume;
             // 2. Проверка дней
             $days = $week['days'] ?? [];
             $prevKeyDay = null;

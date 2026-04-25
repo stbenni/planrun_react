@@ -47,9 +47,77 @@ class VolumeDistributor
     ): array {
 
         $recoveryRatio = $isRecovery ? ($loadPolicy['recovery_cutback_ratio'] ?? 0.88) : 1.0;
+        $longShareCap = (float) ($loadPolicy['long_share_cap'] ?? 0.45);
+        $minLongOverEasyKm = (float) ($loadPolicy['min_long_over_easy_km'] ?? 0.5);
+        $qualitySessionMinKm = (float) ($loadPolicy['quality_session_min_km'] ?? 4.0);
+        $qualityShareCap = (float) ($loadPolicy['quality_workout_share_cap'] ?? 0.50);
+        $hasLongDay = in_array('long', $dayTypes, true);
+        $runDayCount = count(array_filter(
+            $dayTypes,
+            static fn(string $type): bool => in_array($type, ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'race'], true)
+        ));
+        if ($longShareCap > 0) {
+            if ($runDayCount <= 2) {
+                $longShareCap = min(max($longShareCap, 0.50), 0.52);
+            } elseif ($targetVolumeKm < 12.0) {
+                $longShareCap = min($longShareCap, 0.40);
+            } elseif ($targetVolumeKm < 20.0 || $runDayCount <= 3) {
+                $longShareCap = min($longShareCap, 0.42);
+            }
+        }
+        if ($hasLongDay && $longTargetKm <= 0 && $targetVolumeKm > 0) {
+            $fallbackLongRatio = $phase === 'taper' ? 0.35 : 0.40;
+            $longFloor = (float) ($loadPolicy['long_min_km'] ?? 8.0);
+            $candidate = round($targetVolumeKm * $fallbackLongRatio, 1);
+            $shareCapKm = $longShareCap > 0 ? round($targetVolumeKm * $longShareCap, 1) : $candidate;
+            $longTargetKm = min(max($longFloor, $candidate), max($longFloor, $shareCapKm));
+        }
         // Динамический минимум easy: 5% от недельного объёма, но не менее load_policy floor
         $policyEasyMin = (float) ($loadPolicy['easy_min_km'] ?? 2.0);
         $easyMinKm = max($policyEasyMin, round($targetVolumeKm * 0.05, 1));
+        if ($hasLongDay && $longTargetKm > 0) {
+            $longTargetKm = max($longTargetKm, round($easyMinKm + $minLongOverEasyKm, 1));
+        }
+        $protectedRaceLongFloorKm = self::resolveProtectedRaceLongFloorKm(
+            $dayTypes,
+            $targetVolumeKm,
+            $raceDistanceKm,
+            $easyMinKm,
+            $phase,
+            $isRecovery
+        );
+        if ($targetVolumeKm > 0 && $longTargetKm > 0 && $longShareCap > 0) {
+            $longTargetKm = min(
+                max($longTargetKm, $protectedRaceLongFloorKm),
+                max($protectedRaceLongFloorKm, round($targetVolumeKm * $longShareCap, 1))
+            );
+        }
+
+        $dayTypes = self::normalizeDayTypesForQualityViability(
+            $dayTypes,
+            $targetVolumeKm,
+            $longTargetKm,
+            $easyMinKm,
+            $qualitySessionMinKm,
+            $raceDistanceKm,
+            $loadPolicy
+        );
+        $qualityCount = count(array_filter(
+            $dayTypes,
+            static fn(string $type): bool => self::isScalableQualityType($type)
+        ));
+        $qualityBudgetKm = self::resolveQualityBudgetKm(
+            $dayTypes,
+            $targetVolumeKm,
+            $longTargetKm,
+            $easyMinKm,
+            $raceDistanceKm,
+            $minLongOverEasyKm
+        );
+        $perQualityBudgetKm = $qualityCount > 0 ? round($qualityBudgetKm / $qualityCount, 1) : 0.0;
+        $qualityCapKm = $qualityCount > 0 && $qualityShareCap > 0
+            ? round(max($qualitySessionMinKm, min($perQualityBudgetKm, $targetVolumeKm * $qualityShareCap)), 1)
+            : 0.0;
 
         // Шаг 1: посчитать дистанцию фиксированных тренировок
         $fixedKm = 0.0;
@@ -75,7 +143,13 @@ class VolumeDistributor
                     break;
 
                 case 'tempo':
-                    $tempoDetails = $workoutDetails['tempo'] ?? null;
+                    $tempoDetails = self::capWorkoutDetailsToPolicy(
+                        'tempo',
+                        $workoutDetails['tempo'] ?? null,
+                        $qualityCapKm,
+                        $paceRules,
+                        $loadPolicy
+                    );
                     $km = $tempoDetails ? self::calculateTotalKm($tempoDetails) : 6.5;
                     $km = round($km * $recoveryRatio, 1);
                     $dayDistances[$i] = $km;
@@ -84,7 +158,13 @@ class VolumeDistributor
                     break;
 
                 case 'interval':
-                    $intervalDetails = $workoutDetails['interval'] ?? null;
+                    $intervalDetails = self::capWorkoutDetailsToPolicy(
+                        'interval',
+                        $workoutDetails['interval'] ?? null,
+                        $qualityCapKm,
+                        $paceRules,
+                        $loadPolicy
+                    );
                     $km = $intervalDetails ? self::calculateTotalKm($intervalDetails) : 8.0;
                     $km = round($km * $recoveryRatio, 1);
                     $dayDistances[$i] = $km;
@@ -93,7 +173,13 @@ class VolumeDistributor
                     break;
 
                 case 'fartlek':
-                    $fartlekDetails = $workoutDetails['fartlek'] ?? null;
+                    $fartlekDetails = self::capWorkoutDetailsToPolicy(
+                        'fartlek',
+                        $workoutDetails['fartlek'] ?? null,
+                        $qualityCapKm,
+                        $paceRules,
+                        $loadPolicy
+                    );
                     $km = $fartlekDetails ? self::calculateTotalKm($fartlekDetails) : 7.0;
                     $km = round($km * $recoveryRatio, 1);
                     $dayDistances[$i] = $km;
@@ -138,25 +224,34 @@ class VolumeDistributor
         $remainingKm = max(0, $effectiveTarget - $fixedKm);
 
         if ($easyCount > 0) {
-            $easyKm = round($remainingKm / $easyCount, 1);
-            $easyKm = max($easyMinKm, $easyKm);
-
-            // Если easy слишком большой (>60% недельного) — ограничить
-            $maxEasyKm = round($effectiveTarget * 0.25, 1);
-            if ($easyKm > $maxEasyKm && $maxEasyKm > $easyMinKm) {
-                $easyKm = $maxEasyKm;
-            }
-
             $easyPace = self::formatPace($paceRules['easy_min_sec'] ?? 340);
+            $easyAllocations = self::allocateEasyDays(
+                $dayTypes,
+                $remainingKm,
+                $easyMinKm,
+                $effectiveTarget,
+                $phase
+            );
 
             for ($i = 0; $i < 7; $i++) {
                 if ($dayTypes[$i] === 'easy') {
-                    $dayData[$i]['distance_km'] = $easyKm;
+                    $dayData[$i]['distance_km'] = $easyAllocations[$i] ?? $easyMinKm;
                     $dayData[$i]['pace'] = $easyPace;
-                    $dayDistances[$i] = $easyKm;
+                    $dayDistances[$i] = $dayData[$i]['distance_km'];
                 }
             }
         }
+
+        self::rebalanceLongShareIntoEasyDays(
+            $dayTypes,
+            $dayData,
+            $dayDistances,
+            $effectiveTarget,
+            $longShareCap,
+            $easyMinKm,
+            $minLongOverEasyKm,
+            $protectedRaceLongFloorKm
+        );
 
         // Шаг 3: рассчитать фактический объём и duration
         $actualVolume = 0.0;
@@ -196,6 +291,385 @@ class VolumeDistributor
             'segments' => null,
             'notes' => null,
         ];
+    }
+
+    private static function allocateEasyDays(
+        array $dayTypes,
+        float $remainingKm,
+        float $easyMinKm,
+        float $effectiveTarget,
+        string $phase
+    ): array {
+        $easyIndexes = [];
+        foreach ($dayTypes as $idx => $type) {
+            if ($type === 'easy') {
+                $easyIndexes[] = (int) $idx;
+            }
+        }
+
+        if ($easyIndexes === []) {
+            return [];
+        }
+
+        $equalKm = round($remainingKm / count($easyIndexes), 1);
+        $equalKm = max($easyMinKm, $equalKm);
+        $maxEasyKm = round($effectiveTarget * 0.25, 1);
+        if ($equalKm > $maxEasyKm && $maxEasyKm > $easyMinKm) {
+            $equalKm = $maxEasyKm;
+        }
+
+        $default = [];
+        foreach ($easyIndexes as $idx) {
+            $default[$idx] = $equalKm;
+        }
+
+        $eventIndex = array_search('control', $dayTypes, true);
+        $raceIndex = array_search('race', $dayTypes, true);
+        if ($phase !== 'taper' && $eventIndex === false && $raceIndex === false) {
+            return $default;
+        }
+        if ($eventIndex === false && $raceIndex === false) {
+            return $default;
+        }
+
+        $anchorIndex = $raceIndex !== false ? (int) $raceIndex : (int) $eventIndex;
+        $weights = [];
+        foreach ($easyIndexes as $idx) {
+            $daysToEvent = $anchorIndex - $idx;
+            if ($daysToEvent <= 1) {
+                $weights[$idx] = $raceIndex !== false ? 0.55 : 0.70;
+            } elseif ($daysToEvent === 2) {
+                $weights[$idx] = $raceIndex !== false ? 0.75 : 0.90;
+            } elseif ($daysToEvent <= 3) {
+                $weights[$idx] = $raceIndex !== false ? 1.15 : 1.10;
+            } elseif ($daysToEvent <= 5) {
+                $weights[$idx] = 1.0;
+            } else {
+                $weights[$idx] = 0.9;
+            }
+        }
+
+        $poolKm = max($remainingKm, $easyMinKm * count($easyIndexes));
+        $weightSum = array_sum($weights);
+        if ($weightSum <= 0) {
+            return $default;
+        }
+
+        $allocations = [];
+        $remainingPool = $poolKm;
+        $remainingWeight = $weightSum;
+        $lastIdx = end($easyIndexes);
+        foreach ($easyIndexes as $idx) {
+            if ($idx === $lastIdx) {
+                $km = round(max($easyMinKm, $remainingPool), 1);
+            } else {
+                $share = $weights[$idx] / $remainingWeight;
+                $km = round(max($easyMinKm, $remainingPool * $share), 1);
+                $remainingPool -= $km;
+                $remainingWeight -= $weights[$idx];
+            }
+            $allocations[$idx] = $km;
+        }
+
+        return $allocations;
+    }
+
+    private static function rebalanceLongShareIntoEasyDays(
+        array $dayTypes,
+        array &$dayData,
+        array &$dayDistances,
+        float $effectiveTarget,
+        float $longShareCap,
+        float $easyMinKm,
+        float $minLongOverEasyKm,
+        float $protectedLongFloorKm = 0.0
+    ): void {
+        if ($effectiveTarget <= 0.0 || $longShareCap <= 0.0) {
+            return;
+        }
+
+        $longIndex = array_search('long', $dayTypes, true);
+        if ($longIndex === false) {
+            return;
+        }
+
+        $easyIndexes = [];
+        foreach ($dayTypes as $idx => $type) {
+            if ($type === 'easy') {
+                $easyIndexes[] = (int) $idx;
+            }
+        }
+
+        $longIndex = (int) $longIndex;
+        $currentLongKm = (float) ($dayDistances[$longIndex] ?? 0.0);
+        $maxLongKm = round($effectiveTarget * $longShareCap, 1);
+        $minUsefulLongKm = round(max($easyMinKm + $minLongOverEasyKm, $protectedLongFloorKm), 1);
+        if ($currentLongKm <= $maxLongKm || $maxLongKm < $minUsefulLongKm) {
+            return;
+        }
+
+        $newLongKm = max($minUsefulLongKm, $maxLongKm);
+        $excessKm = round($currentLongKm - $newLongKm, 1);
+        if ($excessKm <= 0.0) {
+            return;
+        }
+
+        $dayDistances[$longIndex] = $newLongKm;
+        $dayData[$longIndex]['distance_km'] = $newLongKm;
+
+        if ($easyIndexes === []) {
+            return;
+        }
+
+        $remaining = $excessKm;
+        $lastEasyIndex = end($easyIndexes);
+        foreach ($easyIndexes as $idx) {
+            $addKm = $idx === $lastEasyIndex
+                ? $remaining
+                : round($excessKm / count($easyIndexes), 1);
+            $remaining = round($remaining - $addKm, 1);
+            if ($addKm <= 0.0) {
+                continue;
+            }
+
+            $dayDistances[$idx] = round((float) ($dayDistances[$idx] ?? 0.0) + $addKm, 1);
+            $dayData[$idx]['distance_km'] = $dayDistances[$idx];
+        }
+    }
+
+    private static function resolveProtectedRaceLongFloorKm(
+        array $dayTypes,
+        float $targetVolumeKm,
+        float $raceDistanceKm,
+        float $easyMinKm,
+        string $phase,
+        bool $isRecovery
+    ): float {
+        if (
+            $isRecovery
+            || $phase === 'taper'
+            || $raceDistanceKm <= 0.0
+            || $raceDistanceKm > 5.1
+            || !in_array('long', $dayTypes, true)
+        ) {
+            return 0.0;
+        }
+
+        $floorKm = 5.0;
+        $easyCount = count(array_filter(
+            $dayTypes,
+            static fn(string $type): bool => $type === 'easy'
+        ));
+        $requiredSupportKm = $easyCount * $easyMinKm;
+
+        if ($targetVolumeKm < round($floorKm + $requiredSupportKm, 1)) {
+            return 0.0;
+        }
+
+        return $floorKm;
+    }
+
+    private static function normalizeDayTypesForQualityViability(
+        array $dayTypes,
+        float $targetVolumeKm,
+        float $longTargetKm,
+        float $easyMinKm,
+        float $qualitySessionMinKm,
+        float $raceDistanceKm,
+        array $loadPolicy
+    ): array {
+        if ($qualitySessionMinKm <= 0.0) {
+            return $dayTypes;
+        }
+
+        $qualityIndexes = [];
+        foreach ($dayTypes as $idx => $type) {
+            if (self::isScalableQualityType($type)) {
+                $qualityIndexes[] = (int) $idx;
+            }
+        }
+
+        if ($qualityIndexes === []) {
+            return $dayTypes;
+        }
+
+        $minLongGap = (float) ($loadPolicy['min_long_over_easy_km'] ?? 0.5);
+        $availableQualityBudget = self::resolveQualityBudgetKm(
+            $dayTypes,
+            $targetVolumeKm,
+            $longTargetKm,
+            $easyMinKm,
+            $raceDistanceKm,
+            $minLongGap
+        );
+        $supportedQualityCount = (int) floor($availableQualityBudget / max(0.1, $qualitySessionMinKm));
+
+        if ($supportedQualityCount >= count($qualityIndexes)) {
+            return $dayTypes;
+        }
+
+        foreach ($qualityIndexes as $position => $idx) {
+            if ($position < $supportedQualityCount) {
+                continue;
+            }
+            $dayTypes[$idx] = 'easy';
+        }
+
+        return $dayTypes;
+    }
+
+    private static function resolveQualityBudgetKm(
+        array $dayTypes,
+        float $targetVolumeKm,
+        float $longTargetKm,
+        float $easyMinKm,
+        float $raceDistanceKm,
+        float $minLongGap
+    ): float {
+        $easyCount = 0;
+        $hasLongDay = false;
+        $raceCount = 0;
+
+        foreach ($dayTypes as $type) {
+            if ($type === 'easy') {
+                $easyCount++;
+            } elseif ($type === 'long') {
+                $hasLongDay = true;
+            } elseif ($type === 'race') {
+                $raceCount++;
+            }
+        }
+
+        $protectedEasyKm = $easyCount * $easyMinKm;
+        $protectedLongKm = $hasLongDay ? max($longTargetKm, round($easyMinKm + $minLongGap, 1)) : 0.0;
+        $protectedRaceKm = $raceCount > 0 ? ($raceCount * $raceDistanceKm) : 0.0;
+
+        return round(max(0.0, $targetVolumeKm - $protectedEasyKm - $protectedLongKm - $protectedRaceKm), 1);
+    }
+
+    private static function isScalableQualityType(string $type): bool
+    {
+        return in_array($type, ['tempo', 'interval', 'fartlek'], true);
+    }
+
+    private static function capWorkoutDetailsToPolicy(
+        string $type,
+        ?array $details,
+        float $qualityCapKm,
+        array $paceRules,
+        array $loadPolicy
+    ): ?array {
+        if ($details === null || $qualityCapKm <= 0.0 || !self::isScalableQualityType($type)) {
+            return $details;
+        }
+
+        $currentKm = self::calculateTotalKm($details);
+        if ($currentKm <= 0.0 || $currentKm <= $qualityCapKm) {
+            return $details;
+        }
+
+        return match ($type) {
+            'tempo' => self::buildTempoDetailsForCap($details, $qualityCapKm, $paceRules, $loadPolicy),
+            'interval' => self::buildIntervalDetailsForCap($details, $qualityCapKm, $paceRules),
+            'fartlek' => self::buildFartlekDetailsForCap($details, $qualityCapKm, $paceRules),
+            default => $details,
+        };
+    }
+
+    private static function buildTempoDetailsForCap(
+        array $details,
+        float $qualityCapKm,
+        array $paceRules,
+        array $loadPolicy
+    ): array {
+        $minTempoTotalKm = max(3.5, (float) ($loadPolicy['quality_session_min_km'] ?? 4.0));
+        $targetKm = max($minTempoTotalKm, round($qualityCapKm, 1));
+        $warmup = min((float) ($details['warmup_km'] ?? 2.0), $targetKm >= 5.5 ? 1.75 : 1.25);
+        $cooldown = min((float) ($details['cooldown_km'] ?? 1.5), $targetKm >= 5.5 ? 1.25 : 1.0);
+        $tempoKm = max(1.0, round($targetKm - $warmup - $cooldown, 1));
+        $totalKm = round($warmup + $tempoKm + $cooldown, 1);
+
+        $details['warmup_km'] = $warmup;
+        $details['cooldown_km'] = $cooldown;
+        $details['tempo_km'] = $tempoKm;
+        $details['total_km'] = $totalKm;
+        $details['tempo_pace_sec'] = (int) ($details['tempo_pace_sec'] ?? $paceRules['tempo_sec'] ?? 300);
+
+        return $details;
+    }
+
+    private static function buildIntervalDetailsForCap(array $details, float $qualityCapKm, array $paceRules): array
+    {
+        $targetKm = max(4.0, round($qualityCapKm, 1));
+        $warmup = min((float) ($details['warmup_km'] ?? 1.75), $targetKm >= 5.5 ? 1.5 : 1.25);
+        $cooldown = min((float) ($details['cooldown_km'] ?? 1.25), 1.0);
+        $intervalM = (int) ($details['interval_m'] ?? 600);
+        $restM = (int) ($details['rest_m'] ?? 400);
+
+        if ($targetKm <= 5.2) {
+            $intervalM = min($intervalM, 400);
+            $restM = min($restM, 200);
+        } elseif ($targetKm <= 6.0) {
+            $intervalM = min($intervalM, 600);
+            $restM = min($restM, 300);
+        }
+
+        $repKm = max(0.3, ($intervalM + $restM) / 1000.0);
+        $workBudgetKm = max(1.2, $targetKm - $warmup - $cooldown);
+        $reps = max(3, (int) floor($workBudgetKm / $repKm));
+        while ($reps > 3 && round($warmup + $cooldown + ($reps * $repKm), 1) > $targetKm) {
+            $reps--;
+        }
+
+        $workKm = round(($reps * $intervalM) / 1000.0, 1);
+        $restKm = round(($reps * $restM) / 1000.0, 1);
+        $details['warmup_km'] = $warmup;
+        $details['cooldown_km'] = $cooldown;
+        $details['reps'] = $reps;
+        $details['interval_m'] = $intervalM;
+        $details['rest_m'] = $restM;
+        $details['rest_type'] = $intervalM <= 600 ? 'walk' : ($details['rest_type'] ?? 'jog');
+        $details['work_km'] = $workKm;
+        $details['rest_km'] = $restKm;
+        $details['total_km'] = round($warmup + $cooldown + $workKm + $restKm, 1);
+        $details['interval_pace_sec'] = (int) ($details['interval_pace_sec'] ?? $paceRules['interval_sec'] ?? 280);
+
+        return $details;
+    }
+
+    private static function buildFartlekDetailsForCap(array $details, float $qualityCapKm, array $paceRules): array
+    {
+        $targetKm = max(4.0, round($qualityCapKm, 1));
+        $warmup = min((float) ($details['warmup_km'] ?? 1.75), 1.25);
+        $cooldown = min((float) ($details['cooldown_km'] ?? 1.25), 1.0);
+        $segment = $details['segments'][0] ?? [];
+        $distanceM = (int) ($segment['distance_m'] ?? 300);
+        $recoveryM = (int) ($segment['recovery_m'] ?? 300);
+
+        if ($targetKm <= 5.0) {
+            $distanceM = min($distanceM, 200);
+            $recoveryM = min($recoveryM, 200);
+        }
+
+        $repKm = max(0.3, ($distanceM + $recoveryM) / 1000.0);
+        $segmentBudgetKm = max(1.6, $targetKm - $warmup - $cooldown);
+        $reps = max(4, (int) floor($segmentBudgetKm / $repKm));
+        $totalKm = round($warmup + $cooldown + ($reps * $repKm), 1);
+
+        $details['warmup_km'] = $warmup;
+        $details['cooldown_km'] = $cooldown;
+        $details['segments'] = [[
+            'reps' => $reps,
+            'distance_m' => $distanceM,
+            'recovery_m' => $recoveryM,
+            'pace' => $segment['pace'] ?? 'fast',
+            'recovery_type' => $segment['recovery_type'] ?? 'jog',
+        ]];
+        $details['total_km'] = $totalKm;
+        $details['fast_pace_sec'] = (int) ($details['fast_pace_sec'] ?? $paceRules['interval_sec'] ?? 280);
+        $details['recovery_pace_sec'] = (int) ($details['recovery_pace_sec'] ?? $paceRules['easy_max_sec'] ?? ($paceRules['easy_min_sec'] ?? 340) + 20);
+
+        return $details;
     }
 
     private static function calculateTotalKm(array $details): float

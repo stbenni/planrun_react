@@ -16,13 +16,14 @@ class PlanGenerationQueueService extends BaseService {
         $this->assertQueueTableAvailable();
 
         $jobType = trim($jobType) !== '' ? trim($jobType) : 'generate';
-        $existing = $this->findActiveJob($userId, $jobType);
+        $existing = $this->findActiveJobForUser($userId);
         if ($existing) {
             return [
                 'job_id' => (int) $existing['id'],
                 'queued' => true,
                 'deduplicated' => true,
                 'status' => $existing['status'],
+                'job_type' => $existing['job_type'] ?? null,
             ];
         }
 
@@ -60,6 +61,7 @@ class PlanGenerationQueueService extends BaseService {
 
     public function reserveNextJob(): ?array {
         $this->assertQueueTableAvailable();
+        $this->recoverStaleRunningJobs();
 
         $result = $this->db->query(
             "SELECT * FROM " . self::TABLE . " WHERE status = '" . self::STATUS_PENDING . "' AND available_at <= NOW() ORDER BY id ASC LIMIT 1"
@@ -95,6 +97,57 @@ class PlanGenerationQueueService extends BaseService {
         $job['status'] = self::STATUS_RUNNING;
         $job['attempts'] = ((int) $job['attempts']) + 1;
         return $job;
+    }
+
+    public function recoverStaleRunningJobs(?int $timeoutSeconds = null): array {
+        $this->assertQueueTableAvailable();
+
+        $timeoutSeconds = $timeoutSeconds ?? (int) env('PLAN_GENERATION_RUNNING_TIMEOUT_SECONDS', 1800);
+        $timeoutSeconds = max(60, $timeoutSeconds);
+        $cutoff = date('Y-m-d H:i:s', time() - $timeoutSeconds);
+
+        $requeueMessage = 'Задача возвращена в очередь после таймаута выполнения';
+        $failedMessage = 'Задача остановлена после таймаута выполнения';
+
+        $pending = self::STATUS_PENDING;
+        $running = self::STATUS_RUNNING;
+        $stmt = $this->db->prepare(
+            'UPDATE ' . self::TABLE . ' SET status = ?, available_at = NOW(), started_at = NULL, finished_at = NULL, last_error = ? ' .
+            'WHERE status = ? AND started_at IS NOT NULL AND started_at < ? AND attempts < max_attempts'
+        );
+        if (!$stmt) {
+            throw new RuntimeException('Не удалось восстановить зависшие задачи очереди', 500);
+        }
+        $stmt->bind_param('ssss', $pending, $requeueMessage, $running, $cutoff);
+        $stmt->execute();
+        $requeued = max(0, (int) $stmt->affected_rows);
+        $stmt->close();
+
+        $failed = self::STATUS_FAILED;
+        $stmt = $this->db->prepare(
+            'UPDATE ' . self::TABLE . ' SET status = ?, finished_at = NOW(), last_error = ? ' .
+            'WHERE status = ? AND started_at IS NOT NULL AND started_at < ? AND attempts >= max_attempts'
+        );
+        if (!$stmt) {
+            throw new RuntimeException('Не удалось закрыть зависшие задачи очереди', 500);
+        }
+        $stmt->bind_param('ssss', $failed, $failedMessage, $running, $cutoff);
+        $stmt->execute();
+        $failedCount = max(0, (int) $stmt->affected_rows);
+        $stmt->close();
+
+        if ($requeued > 0 || $failedCount > 0) {
+            $this->logInfo('Recovered stale plan generation jobs', [
+                'requeued' => $requeued,
+                'failed' => $failedCount,
+                'timeout_seconds' => $timeoutSeconds,
+            ]);
+        }
+
+        return [
+            'requeued' => $requeued,
+            'failed' => $failedCount,
+        ];
     }
 
     public function markCompleted(int $jobId, array $result = []): void {
@@ -182,9 +235,9 @@ class PlanGenerationQueueService extends BaseService {
         return (bool) ($check && $check->num_rows > 0);
     }
 
-    private function findActiveJob(int $userId, string $jobType): ?array {
+    private function findActiveJobForUser(int $userId): ?array {
         $stmt = $this->db->prepare(
-            'SELECT id, status FROM ' . self::TABLE . ' WHERE user_id = ? AND job_type = ? AND status IN (?, ?) ORDER BY id DESC LIMIT 1'
+            'SELECT id, status, job_type FROM ' . self::TABLE . ' WHERE user_id = ? AND status IN (?, ?) ORDER BY id DESC LIMIT 1'
         );
         if (!$stmt) {
             throw new RuntimeException('Не удалось проверить очередь задач', 500);
@@ -192,7 +245,7 @@ class PlanGenerationQueueService extends BaseService {
 
         $pending = self::STATUS_PENDING;
         $running = self::STATUS_RUNNING;
-        $stmt->bind_param('isss', $userId, $jobType, $pending, $running);
+        $stmt->bind_param('iss', $userId, $pending, $running);
         $stmt->execute();
         $job = $stmt->get_result()->fetch_assoc() ?: null;
         $stmt->close();

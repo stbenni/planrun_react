@@ -1,15 +1,23 @@
 <?php
 
 require_once __DIR__ . '/StatsService.php';
+require_once __DIR__ . '/PostWorkoutFollowupService.php';
+require_once __DIR__ . '/AthleteSignalsService.php';
 require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+require_once __DIR__ . '/../repositories/WorkoutRepository.php';
 
 class TrainingStateBuilder {
     private mysqli $db;
     private StatsService $statsService;
+    private PostWorkoutFollowupService $postWorkoutFollowupService;
+    private AthleteSignalsService $athleteSignalsService;
+    private ?WorkoutRepository $workoutRepo = null;
 
     public function __construct(mysqli $db) {
         $this->db = $db;
         $this->statsService = new StatsService($db);
+        $this->postWorkoutFollowupService = new PostWorkoutFollowupService($db);
+        $this->athleteSignalsService = new AthleteSignalsService($db);
     }
 
     public function buildForUserId(int $userId): array {
@@ -149,12 +157,18 @@ class TrainingStateBuilder {
         }
 
         $daysSinceLastWorkout = $userId > 0 ? $this->getDaysSinceLastWorkout($userId) : null;
+        $athleteSignals = $userId > 0 ? $this->getRecentAthleteSignals($userId) : [];
+        $feedbackAnalytics = is_array($athleteSignals['feedback'] ?? null) ? $athleteSignals['feedback'] : [];
         $expLevelForDetraining = $user['experience_level'] ?? 'intermediate';
         $detrainingFactor = $daysSinceLastWorkout !== null ? calculateDetrainingFactor($daysSinceLastWorkout, $expLevelForDetraining) : null;
+        $reportedWeeklyBaseKm = isset($user['weekly_base_km']) ? (float) $user['weekly_base_km'] : 0.0;
+        $effectiveWeeklyBaseKm = $this->resolveEffectiveWeeklyBaseKm($reportedWeeklyBaseKm, $daysSinceLastWorkout, $detrainingFactor);
         $vdotConfidence = $this->computeVdotConfidence($vdotSource, $vdotWeeksOld, $daysSinceLastWorkout);
-        $readiness = $this->computeReadiness($daysSinceLastWorkout, $vdotConfidence);
-        $specialPopulationFlags = $this->detectSpecialPopulationFlags($ageYears, $healthNotes, $daysSinceLastWorkout, $vdotConfidence);
-        $loadPolicy = $this->buildLoadPolicy($user, $goalType, $readiness, $specialPopulationFlags, $weeksToGoal);
+        $readiness = $this->computeReadiness($daysSinceLastWorkout, $vdotConfidence, $feedbackAnalytics, $athleteSignals);
+        $specialPopulationFlags = $this->detectSpecialPopulationFlags($ageYears, $healthNotes, $daysSinceLastWorkout, $vdotConfidence, $feedbackAnalytics, $athleteSignals);
+        $effectiveUser = $user;
+        $effectiveUser['weekly_base_km'] = $effectiveWeeklyBaseKm;
+        $loadPolicy = $this->buildLoadPolicy($effectiveUser, $goalType, $readiness, $specialPopulationFlags, $weeksToGoal, $feedbackAnalytics, $athleteSignals);
 
         return [
             'goal_type' => $goalType,
@@ -166,7 +180,8 @@ class TrainingStateBuilder {
             'experience_level' => $user['experience_level'] ?? null,
             'age_years' => $ageYears,
             'sessions_per_week' => isset($user['sessions_per_week']) ? (int) $user['sessions_per_week'] : null,
-            'weekly_base_km' => isset($user['weekly_base_km']) ? (float) $user['weekly_base_km'] : null,
+            'weekly_base_km' => $effectiveWeeklyBaseKm,
+            'reported_weekly_base_km' => $reportedWeeklyBaseKm > 0 ? round($reportedWeeklyBaseKm, 1) : null,
             'preferred_days' => $preferredDays,
             'preferred_ofp_days' => $preferredOfpDays,
             'preferred_long_day' => getPreferredLongRunDayKey(['preferred_days' => $preferredDays]),
@@ -187,6 +202,8 @@ class TrainingStateBuilder {
             'pace_rules' => $this->buildPaceRules($trainingPaces, $user, $vdot),
             'load_policy' => $loadPolicy,
             'special_population_flags' => $specialPopulationFlags,
+            'feedback_analytics' => $feedbackAnalytics,
+            'athlete_signals' => $athleteSignals,
             'return_to_run_state' => in_array('return_after_break', $specialPopulationFlags, true) || in_array('return_after_injury', $specialPopulationFlags, true)
                 ? 'conservative'
                 : null,
@@ -285,7 +302,14 @@ class TrainingStateBuilder {
             return null;
         }
 
-        return max(0, (int) ceil(($goalTs - time()) / (7 * 86400)));
+        $startTs = !empty($user['training_start_date'])
+            ? strtotime((string) $user['training_start_date'])
+            : time();
+        if (!$startTs) {
+            $startTs = time();
+        }
+
+        return max(0, (int) ceil(($goalTs - $startTs) / (7 * 86400)));
     }
 
     private function computeVdotConfidence(?string $source, ?float $weeksOld, ?int $daysSinceLastWorkout): string {
@@ -310,7 +334,80 @@ class TrainingStateBuilder {
         return $confidence;
     }
 
-    private function computeReadiness(?int $daysSinceLastWorkout, string $vdotConfidence): string {
+    private function computeReadiness(?int $daysSinceLastWorkout, string $vdotConfidence, array $feedbackAnalytics = [], array $athleteSignals = []): string {
+        $baseReadiness = $this->computeBaseReadiness($daysSinceLastWorkout, $vdotConfidence);
+        $painSignals = !empty($feedbackAnalytics['has_recent_pain']);
+        $fatigueCount = (int) ($feedbackAnalytics['fatigue_flag_count'] ?? 0);
+        $recentRisk = (float) ($feedbackAnalytics['recent_average_recovery_risk'] ?? 0.0);
+        $maxRisk = (float) ($feedbackAnalytics['max_recovery_risk'] ?? 0.0);
+        $recentPainScore = (float) ($feedbackAnalytics['recent_pain_score_avg'] ?? 0.0);
+        $painScoreDelta = (float) ($feedbackAnalytics['pain_score_delta'] ?? 0.0);
+        $recentSessionRpe = (float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0);
+        $sessionRpeDelta = (float) ($feedbackAnalytics['session_rpe_delta'] ?? 0.0);
+        $subjectiveLoadDelta = (float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0);
+        $recentLegsScore = (float) ($feedbackAnalytics['recent_legs_score_avg'] ?? 0.0);
+        $recentBreathScore = (float) ($feedbackAnalytics['recent_breath_score_avg'] ?? 0.0);
+        $recentHrStrainScore = (float) ($feedbackAnalytics['recent_hr_strain_score_avg'] ?? 0.0);
+        $notePainSignals = !empty($athleteSignals['has_note_pain_signal']);
+        $noteIllnessSignals = !empty($athleteSignals['has_note_illness_signal']);
+        $noteSleepSignals = !empty($athleteSignals['has_note_sleep_signal']);
+        $noteStressSignals = !empty($athleteSignals['has_note_stress_signal']);
+        $noteTravelSignals = !empty($athleteSignals['has_note_travel_signal']);
+        $noteRiskScore = (float) ($athleteSignals['note_risk_score'] ?? 0.0);
+
+        if (
+            $painSignals
+            || $notePainSignals
+            || $noteIllnessSignals
+            || $recentRisk >= 0.75
+            || $maxRisk >= 0.90
+            || $recentPainScore >= 4.0
+            || $painScoreDelta >= 2.0
+            || $noteRiskScore >= 0.80
+            || $fatigueCount >= 3
+            || ($fatigueCount >= 2 && ($recentRisk >= 0.65 || $subjectiveLoadDelta >= 0.75 || $recentSessionRpe >= 8.0))
+        ) {
+            return 'low';
+        }
+
+        $moderateSignals = 0;
+        if ($fatigueCount >= 1) {
+            $moderateSignals++;
+        }
+        if ($recentRisk >= 0.45 || $maxRisk >= 0.65) {
+            $moderateSignals++;
+        }
+        if ($subjectiveLoadDelta >= 0.45) {
+            $moderateSignals++;
+        }
+        if ($sessionRpeDelta >= 1.0 || $recentSessionRpe >= 7.5) {
+            $moderateSignals++;
+        }
+        if ($recentLegsScore >= 8.0 || $recentBreathScore >= 8.0 || $recentHrStrainScore >= 8.0) {
+            $moderateSignals++;
+        }
+        if ($noteSleepSignals || $noteStressSignals || $noteTravelSignals) {
+            $moderateSignals++;
+        }
+        // note_risk_score already represents note-only context; overall_risk_score can
+        // duplicate the same subjective feedback that is counted above via recentRisk /
+        // fatigue / RPE, which over-penalizes taper scenarios.
+        if ($noteRiskScore >= 0.45) {
+            $moderateSignals++;
+        }
+
+        if ($moderateSignals >= 3) {
+            return 'low';
+        }
+
+        if ($moderateSignals >= 1) {
+            return $this->downgradeReadiness($baseReadiness);
+        }
+
+        return $baseReadiness;
+    }
+
+    private function computeBaseReadiness(?int $daysSinceLastWorkout, string $vdotConfidence): string {
         if ($daysSinceLastWorkout === null) {
             return $vdotConfidence === 'high' ? 'normal' : 'low';
         }
@@ -323,7 +420,23 @@ class TrainingStateBuilder {
         return 'low';
     }
 
-    private function buildLoadPolicy(array $user, string $goalType, string $readiness, array $specialPopulationFlags = [], ?int $weeksToGoal = null): array {
+    private function downgradeReadiness(string $readiness): string {
+        return match ($readiness) {
+            'high' => 'normal',
+            'normal' => 'low',
+            default => 'low',
+        };
+    }
+
+    private function buildLoadPolicy(
+        array $user,
+        string $goalType,
+        string $readiness,
+        array $specialPopulationFlags = [],
+        ?int $weeksToGoal = null,
+        array $feedbackAnalytics = [],
+        array $athleteSignals = []
+    ): array {
         $allowedGrowthRatio = match ($readiness) {
             'low' => 1.08,
             'high' => 1.12,
@@ -337,7 +450,10 @@ class TrainingStateBuilder {
             : computeHealthMacrocycle($user, $goalType);
 
         $weeklyBaseKm = isset($user['weekly_base_km']) ? (float) $user['weekly_base_km'] : 0.0;
-        $isLowBase = $weeklyBaseKm > 0 ? ($weeklyBaseKm <= 15.0) : ((int) ($user['sessions_per_week'] ?? 0) <= 4);
+        $sessionsPerWeek = (int) ($user['sessions_per_week'] ?? 0);
+        $isLowBase = $weeklyBaseKm > 0 ? ($weeklyBaseKm <= 15.0) : ($sessionsPerWeek <= 4);
+        $experienceLevel = strtolower((string) ($user['experience_level'] ?? ''));
+        $isNoviceExperience = in_array($experienceLevel, ['novice', 'beginner'], true);
         $isFirstRaceAtDistance = !empty($user['is_first_race_at_distance']);
         $isFirstLongRace = $isFirstRaceAtDistance && in_array($raceDistance, ['half', '21.1k', 'marathon', '42.2k'], true);
         $requestedEasyMinKm = isset($user['planning_easy_min_km']) ? (float) $user['planning_easy_min_km'] : 0.0;
@@ -347,38 +463,110 @@ class TrainingStateBuilder {
             'return_after_break',
             'older_adult_65_plus',
             'chronic_condition_flag',
+            'recent_pain_signal',
+            'recent_fatigue_spike',
+            'recent_illness_signal',
+            'recent_sleep_signal',
+            'recent_stress_signal',
+            'recent_travel_signal',
         ])) > 0;
+        $recentRisk = (float) ($feedbackAnalytics['recent_average_recovery_risk'] ?? 0.0);
+        $fatigueCount = (int) ($feedbackAnalytics['fatigue_flag_count'] ?? 0);
+        $subjectiveLoadDelta = (float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0);
+        $sessionRpeDelta = (float) ($feedbackAnalytics['session_rpe_delta'] ?? 0.0);
+        $recentSessionRpe = (float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0);
+        $highSubjectiveLoad = $this->hasHighSubjectiveLoad($feedbackAnalytics);
+        $moderateSubjectiveLoad = $this->hasModerateSubjectiveLoad($feedbackAnalytics);
+        $noteRiskScore = (float) ($athleteSignals['note_risk_score'] ?? 0.0);
+        $hasIllnessSignal = in_array('recent_illness_signal', $specialPopulationFlags, true);
+        $hasRecoveryStressSignal = !empty(array_intersect($specialPopulationFlags, [
+            'recent_sleep_signal',
+            'recent_stress_signal',
+            'recent_travel_signal',
+        ]));
+        if ($hasIllnessSignal || in_array('recent_pain_signal', $specialPopulationFlags, true)) {
+            $allowedGrowthRatio = min($allowedGrowthRatio, 1.05);
+        } elseif ($highSubjectiveLoad || $fatigueCount >= 2 || $recentRisk >= 0.55 || $noteRiskScore >= 0.65) {
+            $allowedGrowthRatio = min($allowedGrowthRatio, 1.06);
+        } elseif (
+            $moderateSubjectiveLoad
+            || $hasRecoveryStressSignal
+            || $fatigueCount >= 1
+            || $recentRisk >= 0.45
+            || $noteRiskScore >= 0.45
+            || $subjectiveLoadDelta >= 0.45
+            || $sessionRpeDelta >= 1.0
+            || $recentSessionRpe >= 7.5
+        ) {
+            $allowedGrowthRatio = min($allowedGrowthRatio, 1.08);
+        }
+        $highFeedbackGuard = $highSubjectiveLoad
+            || ($fatigueCount >= 2 && ($recentRisk >= 0.65 || $subjectiveLoadDelta >= 0.75 || $recentSessionRpe >= 8.0))
+            || $recentRisk >= 0.70
+            || $noteRiskScore >= 0.75;
+        $moderateFeedbackGuard = $moderateSubjectiveLoad
+            || $hasRecoveryStressSignal
+            || $fatigueCount >= 1
+            || $recentRisk >= 0.45
+            || $noteRiskScore >= 0.45;
         $useConservativeRepairProfile = $readiness === 'low' && (
             $isLowBase
             || $isFirstLongRace
             || $goalType === 'weight_loss'
             || $hasConservativeFlag
         );
+        $protectLowBaseNovice = $isLowBase
+            && $isNoviceExperience
+            && !$isLongRace
+            && (
+                $readiness === 'low'
+                || $weeklyBaseKm <= 8.0
+                || in_array('low_confidence_vdot', $specialPopulationFlags, true)
+            );
         $useExplicitEasyFloor = !$useConservativeRepairProfile
             && in_array($goalType, ['race', 'time_improvement'], true)
             && in_array($raceDistance, ['marathon', '42.2k'], true)
             && $requestedEasyMinKm >= 6.0
             && ($weeksToGoal === null || $weeksToGoal <= 10);
 
+        $longShareCap = $useConservativeRepairProfile || $protectLowBaseNovice
+            ? 0.40
+            : (($isLowBase || $sessionsPerWeek <= 3 || in_array($goalType, ['health', 'weight_loss'], true)) ? 0.43 : 0.45);
+        $longMinKm = $protectLowBaseNovice ? 3.0 : ($useConservativeRepairProfile ? 4.0 : 5.0);
+
         $policy = [
             'allowed_growth_ratio' => $allowedGrowthRatio,
-            'recovery_cutback_ratio' => 0.88,
+            'recovery_cutback_ratio' => $hasIllnessSignal
+                ? 0.78
+                : (in_array('recent_pain_signal', $specialPopulationFlags, true)
+                ? 0.82
+                : ($highSubjectiveLoad ? 0.84 : ($moderateSubjectiveLoad ? 0.86 : 0.88))),
             'race_week_ratio' => $isLongRace ? 0.85 : 1.00,
             'pre_race_taper_ratio' => $isLongRace ? 0.92 : 1.00,
-            'race_week_supplementary_ratio' => match ($raceDistance) {
+            'race_week_supplementary_ratio' => $protectLowBaseNovice ? 0.30 : match ($raceDistance) {
                 'marathon', '42.2k' => 0.35,
                 'half', '21.1k' => 0.45,
                 default => 0.60,
             },
+            'protect_low_base_novice' => $protectLowBaseNovice,
+            'pre_threshold_volume_km' => $protectLowBaseNovice ? 8.0 : 0.0,
+            'pre_threshold_absolute_growth_km' => $protectLowBaseNovice ? 1.5 : 0.0,
             'repair_floor_profile' => $useConservativeRepairProfile ? 'conservative' : 'standard',
             'easy_floor_ratio' => $useConservativeRepairProfile ? 0.40 : 0.50,
             'easy_min_km' => $useConservativeRepairProfile ? 1.5 : 2.0,
             'long_floor_ratio' => $useConservativeRepairProfile ? 0.67 : 0.85,
-            'long_min_km' => $useConservativeRepairProfile ? 5.0 : 6.0,
+            'long_min_km' => $longMinKm,
+            'long_share_cap' => $longShareCap,
+            'min_long_over_easy_km' => $protectLowBaseNovice ? 0.8 : 0.5,
             'tempo_floor_ratio' => $useConservativeRepairProfile ? 0.60 : 0.75,
             'tempo_min_km' => $useConservativeRepairProfile ? 2.5 : 3.0,
             'complex_floor_ratio' => $useConservativeRepairProfile ? 0.55 : 0.70,
             'complex_min_km' => $useConservativeRepairProfile ? 3.5 : 6.0,
+            'quality_delay_weeks' => $protectLowBaseNovice ? 4 : 0,
+            'quality_session_min_km' => $protectLowBaseNovice ? 4.5 : ($useConservativeRepairProfile ? 4.0 : 5.5),
+            'quality_workout_share_cap' => $protectLowBaseNovice ? 0.38 : ($useConservativeRepairProfile ? 0.44 : 0.50),
+            'race_week_run_day_cap' => $protectLowBaseNovice ? 3 : 0,
+            'post_goal_race_run_day_cap' => $protectLowBaseNovice ? 2 : 3,
             'recovery_weeks' => [],
             'weekly_volume_targets_km' => [],
             'long_run_targets_km' => [],
@@ -387,6 +575,11 @@ class TrainingStateBuilder {
             'easy_build_min_km' => $useExplicitEasyFloor ? round(max($requestedEasyMinKm, 6.0), 1) : null,
             'easy_recovery_min_km' => $useExplicitEasyFloor ? round(max(6.0, min($requestedEasyMinKm, $requestedEasyMinKm - 2.0)), 1) : null,
             'easy_taper_min_km' => $useExplicitEasyFloor ? round(max(4.0, min(8.0, $requestedEasyMinKm - 2.0)), 1) : null,
+            'feedback_guard_level' => $hasIllnessSignal
+                ? 'illness_protective'
+                : (in_array('recent_pain_signal', $specialPopulationFlags, true)
+                ? 'pain_protective'
+                : ($highFeedbackGuard ? 'fatigue_high' : ($moderateFeedbackGuard ? 'fatigue_moderate' : 'neutral'))),
         ];
 
         if (!$macrocycle || !is_array($macrocycle)) {
@@ -394,7 +587,13 @@ class TrainingStateBuilder {
         }
 
         $policy['recovery_weeks'] = array_map('intval', $macrocycle['recovery_weeks'] ?? []);
-        $policy['weekly_volume_targets_km'] = $this->buildWeeklyVolumeTargets($macrocycle, $goalType, $raceDistance);
+        $policy['weekly_volume_targets_km'] = $this->buildWeeklyVolumeTargets(
+            $macrocycle,
+            $goalType,
+            $raceDistance,
+            $allowedGrowthRatio,
+            (float) $policy['recovery_cutback_ratio']
+        );
         $policy['long_run_targets_km'] = array_map(
             static fn($km): float => round((float) $km, 1),
             $macrocycle['long_run']['by_week'] ?? []
@@ -405,7 +604,13 @@ class TrainingStateBuilder {
         return $policy;
     }
 
-    private function buildWeeklyVolumeTargets(array $macrocycle, string $goalType, string $raceDistance): array {
+    private function buildWeeklyVolumeTargets(
+        array $macrocycle,
+        string $goalType,
+        string $raceDistance,
+        float $allowedGrowthRatio = 1.10,
+        float $recoveryCutbackRatio = 0.88
+    ): array {
         $totalWeeks = (int) ($macrocycle['total_weeks'] ?? 0);
         $startVolume = isset($macrocycle['start_volume_km']) ? (float) $macrocycle['start_volume_km'] : 0.0;
         $peakVolume = isset($macrocycle['peak_volume_km']) ? (float) $macrocycle['peak_volume_km'] : $startVolume;
@@ -442,10 +647,48 @@ class TrainingStateBuilder {
             }
 
             if (in_array($week, $recoveryWeeks, true)) {
-                $target *= 0.82;
+                $target *= $recoveryCutbackRatio;
             }
 
             $targets[$week] = round(max(1.0, $target), 1);
+        }
+
+        $lastNormalTarget = null;
+        for ($week = 1; $week <= $totalWeeks; $week++) {
+            if (!isset($targets[$week])) {
+                continue;
+            }
+
+            $isRecovery = in_array($week, $recoveryWeeks, true);
+            $isTaper = $week >= $taperFromWeek;
+            if (!$isRecovery && !$isTaper && $lastNormalTarget !== null) {
+                $maxAllowed = round($lastNormalTarget * $allowedGrowthRatio, 1);
+                if ($targets[$week] > $maxAllowed) {
+                    $targets[$week] = $maxAllowed;
+                }
+            }
+
+            if (!$isRecovery && !$isTaper) {
+                $lastNormalTarget = $targets[$week];
+            }
+        }
+
+        for ($week = 1; $week <= $totalWeeks; $week++) {
+            if (!in_array($week, $recoveryWeeks, true) || $week <= 1) {
+                continue;
+            }
+
+            $prevNormal = null;
+            for ($prevWeek = $week - 1; $prevWeek >= 1; $prevWeek--) {
+                if (!in_array($prevWeek, $recoveryWeeks, true)) {
+                    $prevNormal = $targets[$prevWeek] ?? null;
+                    break;
+                }
+            }
+
+            if ($prevNormal !== null) {
+                $targets[$week] = round((float) $prevNormal * $recoveryCutbackRatio, 1);
+            }
         }
 
         return $targets;
@@ -488,39 +731,39 @@ class TrainingStateBuilder {
         };
     }
 
+    private function workoutRepo(): WorkoutRepository {
+        return $this->workoutRepo ??= new WorkoutRepository($this->db);
+    }
+
+    private function resolveEffectiveWeeklyBaseKm(
+        float $reportedWeeklyBaseKm,
+        ?int $daysSinceLastWorkout,
+        ?float $detrainingFactor
+    ): float {
+        if ($reportedWeeklyBaseKm <= 0) {
+            return 0.0;
+        }
+
+        if ($daysSinceLastWorkout === null || $daysSinceLastWorkout <= 7) {
+            return round($reportedWeeklyBaseKm, 1);
+        }
+
+        $ceilingRatio = match (true) {
+            $daysSinceLastWorkout >= 28 => 0.60,
+            $daysSinceLastWorkout >= 21 => 0.75,
+            $daysSinceLastWorkout >= 14 => 0.85,
+            default => 1.00,
+        };
+
+        $factorRatio = $detrainingFactor !== null
+            ? max(0.50, min(1.00, $detrainingFactor))
+            : 1.00;
+
+        return round($reportedWeeklyBaseKm * min($ceilingRatio, $factorRatio), 1);
+    }
+
     private function getDaysSinceLastWorkout(int $userId): ?int {
-        $maxTs = null;
-
-        $stmt = $this->db->prepare("SELECT MAX(training_date) AS last_date FROM workout_log WHERE user_id = ? AND is_completed = 1");
-        if ($stmt) {
-            $stmt->bind_param('i', $userId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            if (!empty($row['last_date'])) {
-                $maxTs = strtotime($row['last_date']);
-            }
-        }
-
-        $stmt = $this->db->prepare("SELECT MAX(DATE(start_time)) AS last_date FROM workouts WHERE user_id = ?");
-        if ($stmt) {
-            $stmt->bind_param('i', $userId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            if (!empty($row['last_date'])) {
-                $autoTs = strtotime($row['last_date']);
-                if ($autoTs && ($maxTs === null || $autoTs > $maxTs)) {
-                    $maxTs = $autoTs;
-                }
-            }
-        }
-
-        if ($maxTs === null) {
-            return null;
-        }
-
-        return max(0, (int) floor((time() - $maxTs) / 86400));
+        return $this->workoutRepo()->getDaysSinceLastWorkout($userId);
     }
 
     private function computeAgeYears($birthYear): ?int {
@@ -537,7 +780,14 @@ class TrainingStateBuilder {
         return $currentYear - $year;
     }
 
-    private function detectSpecialPopulationFlags(?int $ageYears, string $healthNotes, ?int $daysSinceLastWorkout, string $vdotConfidence): array {
+    private function detectSpecialPopulationFlags(
+        ?int $ageYears,
+        string $healthNotes,
+        ?int $daysSinceLastWorkout,
+        string $vdotConfidence,
+        array $feedbackAnalytics = [],
+        array $athleteSignals = []
+    ): array {
         $flags = [];
         $notes = mb_strtolower($healthNotes);
 
@@ -551,6 +801,28 @@ class TrainingStateBuilder {
 
         if ($vdotConfidence === 'low') {
             $flags[] = 'low_confidence_vdot';
+        }
+
+        if (!empty($feedbackAnalytics['has_recent_pain'])) {
+            $flags[] = 'recent_pain_signal';
+        }
+        if ($this->hasHighSubjectiveLoad($feedbackAnalytics)) {
+            $flags[] = 'recent_fatigue_spike';
+        }
+        if (!empty($athleteSignals['has_note_pain_signal'])) {
+            $flags[] = 'recent_pain_signal';
+        }
+        if (!empty($athleteSignals['has_note_illness_signal'])) {
+            $flags[] = 'recent_illness_signal';
+        }
+        if (!empty($athleteSignals['has_note_sleep_signal'])) {
+            $flags[] = 'recent_sleep_signal';
+        }
+        if (!empty($athleteSignals['has_note_stress_signal'])) {
+            $flags[] = 'recent_stress_signal';
+        }
+        if (!empty($athleteSignals['has_note_travel_signal'])) {
+            $flags[] = 'recent_travel_signal';
         }
 
         if ($notes !== '') {
@@ -568,6 +840,46 @@ class TrainingStateBuilder {
         }
 
         return array_values(array_unique($flags));
+    }
+
+    private function hasHighSubjectiveLoad(array $feedbackAnalytics): bool {
+        return
+            (float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0) >= 0.75
+            || (
+                (float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0) >= 7.5
+                && (
+                    (float) ($feedbackAnalytics['session_rpe_delta'] ?? 0.0) >= 0.75
+                    || (float) ($feedbackAnalytics['recent_average_recovery_risk'] ?? 0.0) >= 0.55
+                )
+            )
+            || (float) ($feedbackAnalytics['recent_legs_score_avg'] ?? 0.0) >= 8.0
+            || (float) ($feedbackAnalytics['recent_breath_score_avg'] ?? 0.0) >= 8.0
+            || (float) ($feedbackAnalytics['recent_hr_strain_score_avg'] ?? 0.0) >= 8.0;
+    }
+
+    private function hasModerateSubjectiveLoad(array $feedbackAnalytics): bool {
+        return $this->hasHighSubjectiveLoad($feedbackAnalytics)
+            || (float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0) >= 0.45
+            || (float) ($feedbackAnalytics['session_rpe_delta'] ?? 0.0) >= 0.75
+            || (float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0) >= 7.0;
+    }
+
+    private function getRecentFeedbackAnalytics(int $userId): array {
+        try {
+            return $this->postWorkoutFollowupService->getRecentFeedbackAnalytics($userId, 14);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function getRecentAthleteSignals(int $userId): array {
+        try {
+            return $this->athleteSignalsService->getRecentSignalsSummary($userId, 14);
+        } catch (Throwable $e) {
+            return [
+                'feedback' => $this->getRecentFeedbackAnalytics($userId),
+            ];
+        }
     }
 
     private function computeGoalPaceSec(array $user): ?int {

@@ -13,8 +13,9 @@
 require_once __DIR__ . '/../db_config.php';
 require_once __DIR__ . '/../cache_config.php';
 require_once __DIR__ . '/plan_normalizer.php';
+require_once __DIR__ . '/../repositories/WeekRepository.php';
 
-const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek', 'control'];
+const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek', 'control', 'walking'];
 
 /**
  * Сохранение плана тренировок в БД.
@@ -165,18 +166,22 @@ function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPrefe
  * @return void
  * @throws Exception
  */
-function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate, ?array $userPreferences = null) {
-    $lastKeptWeek = 0;
-    $stmt = $db->prepare(
-        "SELECT MAX(week_number) AS max_wn FROM training_plan_weeks WHERE user_id = ? AND start_date < ?"
-    );
-    $stmt->bind_param('is', $userId, $cutoffDate);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    $lastKeptWeek = (int) ($row['max_wn'] ?? 0);
+function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate, ?array $userPreferences = null, ?string $mutableFromDate = null) {
+    $weekRepo = new WeekRepository($db);
+    $lastKeptWeek = $weekRepo->getMaxWeekNumberBefore($userId, $cutoffDate);
 
     $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek, $userPreferences);
+    $preservedCurrentWeekDays = [];
+    if (is_string($mutableFromDate) && $mutableFromDate !== '' && $mutableFromDate > $cutoffDate) {
+        $preservedCurrentWeekDays = loadPreservedRecalculationDays($db, $userId, $cutoffDate, $mutableFromDate);
+        if (!empty($preservedCurrentWeekDays) && !empty($normalized['weeks'][0]['days'])) {
+            $normalized['weeks'][0] = mergePreservedDaysIntoRecalculatedWeek(
+                $normalized['weeks'][0],
+                $preservedCurrentWeekDays,
+                $mutableFromDate
+            );
+        }
+    }
 
     foreach ($normalized['warnings'] as $w) {
         error_log("saveRecalculatedPlan (user {$userId}): {$w}");
@@ -185,17 +190,7 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
     $db->begin_transaction();
 
     try {
-        $futureWeekIds = [];
-        $stmt = $db->prepare(
-            "SELECT id FROM training_plan_weeks WHERE user_id = ? AND start_date >= ?"
-        );
-        $stmt->bind_param('is', $userId, $cutoffDate);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        while ($r = $res->fetch_assoc()) {
-            $futureWeekIds[] = (int) $r['id'];
-        }
-        $stmt->close();
+        $futureWeekIds = $weekRepo->getFutureWeekIds($userId, $cutoffDate);
 
         if (!empty($futureWeekIds)) {
             $placeholders = implode(',', array_fill(0, count($futureWeekIds), '?'));
@@ -334,11 +329,147 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
         Cache::delete("training_plan_{$userId}");
 
         error_log("saveRecalculatedPlan: Пересчёт сохранён для пользователя {$userId}. "
-            . "Сохранено старых недель: {$lastKeptWeek}, добавлено новых: " . count($normalized['weeks']));
+            . "Сохранено старых недель: {$lastKeptWeek}, добавлено новых: " . count($normalized['weeks'])
+            . ", сохранено прошлых дней текущей недели: " . count($preservedCurrentWeekDays));
 
     } catch (Exception $e) {
         $db->rollback();
         error_log("saveRecalculatedPlan ROLLBACK (user {$userId}): " . $e->getMessage());
         throw $e;
     }
+}
+
+function loadPreservedRecalculationDays(mysqli $db, int $userId, string $cutoffDate, string $mutableFromDate): array
+{
+    $stmt = $db->prepare(
+        "SELECT id, date, day_of_week, type, description, is_key_workout
+         FROM training_plan_days
+         WHERE user_id = ? AND date >= ? AND date < ?
+         ORDER BY date ASC, id ASC"
+    );
+    if (!$stmt) {
+        return [];
+    }
+
+    $stmt->bind_param('iss', $userId, $cutoffDate, $mutableFromDate);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    $stmt->close();
+
+    if (empty($rows)) {
+        return [];
+    }
+
+    $planDayIds = array_map(static fn(array $row): int => (int) $row['id'], $rows);
+    $exerciseMap = [];
+    if (!empty($planDayIds)) {
+        $placeholders = implode(',', array_fill(0, count($planDayIds), '?'));
+        $types = str_repeat('i', count($planDayIds));
+        $stmt = $db->prepare(
+            "SELECT plan_day_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index
+             FROM training_day_exercises
+             WHERE user_id = ? AND plan_day_id IN ({$placeholders})
+             ORDER BY plan_day_id ASC, order_index ASC, id ASC"
+        );
+        if ($stmt) {
+            $stmt->bind_param('i' . $types, $userId, ...$planDayIds);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($res && ($row = $res->fetch_assoc())) {
+                $dayId = (int) ($row['plan_day_id'] ?? 0);
+                $exerciseMap[$dayId][] = [
+                    'category' => $row['category'] ?? null,
+                    'name' => $row['name'] ?? null,
+                    'sets' => isset($row['sets']) ? (int) $row['sets'] : null,
+                    'reps' => isset($row['reps']) ? (int) $row['reps'] : null,
+                    'distance_m' => isset($row['distance_m']) ? (int) $row['distance_m'] : null,
+                    'duration_sec' => isset($row['duration_sec']) ? (int) $row['duration_sec'] : null,
+                    'weight_kg' => isset($row['weight_kg']) ? (float) $row['weight_kg'] : null,
+                    'pace' => $row['pace'] ?? null,
+                    'notes' => $row['notes'] ?? null,
+                    'order_index' => isset($row['order_index']) ? (int) $row['order_index'] : 0,
+                ];
+            }
+            $stmt->close();
+        }
+    }
+
+    $days = [];
+    foreach ($rows as $row) {
+        $dayId = (int) ($row['id'] ?? 0);
+        $exercises = $exerciseMap[$dayId] ?? [];
+        $runExercise = null;
+        foreach ($exercises as $exercise) {
+            if (($exercise['category'] ?? null) === 'run') {
+                $runExercise = $exercise;
+                break;
+            }
+        }
+
+        $day = [
+            'date' => (string) ($row['date'] ?? ''),
+            'day_of_week' => (int) ($row['day_of_week'] ?? 0),
+            'type' => (string) ($row['type'] ?? 'rest'),
+            'description' => (string) ($row['description'] ?? ''),
+            'distance_km' => $runExercise !== null && !empty($runExercise['distance_m'])
+                ? round(((int) $runExercise['distance_m']) / 1000, 1)
+                : null,
+            'duration_minutes' => $runExercise !== null && !empty($runExercise['duration_sec'])
+                ? (int) round(((int) $runExercise['duration_sec']) / 60)
+                : null,
+            'pace' => $runExercise['pace'] ?? null,
+            'is_key_workout' => !empty($row['is_key_workout']),
+            'exercises' => $exercises,
+        ];
+
+        $days[] = rebuildNormalizedDayArtifacts($day);
+    }
+
+    usort(
+        $days,
+        static function (array $left, array $right): int {
+            $dateCompare = strcmp((string) ($left['date'] ?? ''), (string) ($right['date'] ?? ''));
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+            return ((int) ($left['day_of_week'] ?? 0)) <=> ((int) ($right['day_of_week'] ?? 0));
+        }
+    );
+
+    return $days;
+}
+
+function mergePreservedDaysIntoRecalculatedWeek(array $week, array $preservedDays, string $mutableFromDate): array
+{
+    $futureDays = array_values(array_filter(
+        (array) ($week['days'] ?? []),
+        static fn(array $day): bool => ((string) ($day['date'] ?? '')) >= $mutableFromDate
+    ));
+
+    $merged = array_merge($preservedDays, $futureDays);
+    usort(
+        $merged,
+        static function (array $left, array $right): int {
+            $dateCompare = strcmp((string) ($left['date'] ?? ''), (string) ($right['date'] ?? ''));
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+            return ((int) ($left['day_of_week'] ?? 0)) <=> ((int) ($right['day_of_week'] ?? 0));
+        }
+    );
+
+    $week['days'] = $merged;
+    $week['total_volume'] = calculateNormalizedWeekVolume($merged);
+    if (isset($week['actual_volume_km'])) {
+        $week['actual_volume_km'] = calculateNormalizedWeekVolume($merged);
+    }
+    if (isset($week['target_volume_km'])) {
+        $week['target_volume_km'] = max(
+            (float) $week['target_volume_km'],
+            calculateNormalizedWeekVolume($merged)
+        );
+    }
+
+    return $week;
 }

@@ -97,8 +97,8 @@ class PlanGenerationQueueServiceTest extends TestCase {
         $db = new QueueFakeDb();
         $db->whenQueryContains("SHOW TABLES LIKE 'plan_generation_jobs'", new QueueFakeResult([['plan_generation_jobs' => 'plan_generation_jobs']]));
         $db->whenPrepareContains(
-            'SELECT id, status FROM plan_generation_jobs',
-            fn() => new QueueFakeStmt([['id' => 15, 'status' => 'pending']])
+            'SELECT id, status, job_type FROM plan_generation_jobs',
+            fn() => new QueueFakeStmt([['id' => 15, 'status' => 'pending', 'job_type' => 'generate']])
         );
 
         $service = new PlanGenerationQueueService($db);
@@ -110,11 +110,29 @@ class PlanGenerationQueueServiceTest extends TestCase {
         $this->assertSame('pending', $result['status']);
     }
 
+    public function test_enqueue_deduplicates_any_active_job_for_user(): void {
+        $db = new QueueFakeDb();
+        $db->whenQueryContains("SHOW TABLES LIKE 'plan_generation_jobs'", new QueueFakeResult([['plan_generation_jobs' => 'plan_generation_jobs']]));
+        $db->whenPrepareContains(
+            'SELECT id, status, job_type FROM plan_generation_jobs',
+            fn() => new QueueFakeStmt([['id' => 22, 'status' => 'running', 'job_type' => 'recalculate']])
+        );
+
+        $service = new PlanGenerationQueueService($db);
+        $result = $service->enqueue(42, 'next_plan');
+
+        $this->assertTrue($result['queued']);
+        $this->assertTrue($result['deduplicated']);
+        $this->assertSame(22, $result['job_id']);
+        $this->assertSame('running', $result['status']);
+        $this->assertSame('recalculate', $result['job_type']);
+    }
+
     public function test_enqueue_creates_new_job_when_no_active_job_exists(): void {
         $db = new QueueFakeDb();
         $db->whenQueryContains("SHOW TABLES LIKE 'plan_generation_jobs'", new QueueFakeResult([['plan_generation_jobs' => 'plan_generation_jobs']]));
         $db->whenPrepareContains(
-            'SELECT id, status FROM plan_generation_jobs',
+            'SELECT id, status, job_type FROM plan_generation_jobs',
             fn() => new QueueFakeStmt([])
         );
         $db->whenPrepareContains(
@@ -147,5 +165,29 @@ class PlanGenerationQueueServiceTest extends TestCase {
         $this->assertNotNull($job);
         $this->assertSame(99, (int) $job['id']);
         $this->assertSame('completed', $job['status']);
+    }
+
+    public function test_recoverStaleRunningJobs_requeues_retryable_and_fails_exhausted_jobs(): void {
+        $db = new QueueFakeDb();
+        $db->whenQueryContains("SHOW TABLES LIKE 'plan_generation_jobs'", new QueueFakeResult([['plan_generation_jobs' => 'plan_generation_jobs']]));
+        $db->whenPrepareContains(
+            'attempts < max_attempts',
+            fn() => new QueueFakeStmt([], function ($params, QueueFakeStmt $stmt) {
+                $stmt->affected_rows = 2;
+                return true;
+            })
+        );
+        $db->whenPrepareContains(
+            'attempts >= max_attempts',
+            fn() => new QueueFakeStmt([], function ($params, QueueFakeStmt $stmt) {
+                $stmt->affected_rows = 1;
+                return true;
+            })
+        );
+
+        $service = new PlanGenerationQueueService($db);
+        $result = $service->recoverStaleRunningJobs(120);
+
+        $this->assertSame(['requeued' => 2, 'failed' => 1], $result);
     }
 }

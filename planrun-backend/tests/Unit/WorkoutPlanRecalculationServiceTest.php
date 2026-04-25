@@ -130,7 +130,7 @@ class WorkoutPlanRecalculationServiceTest extends TestCase {
             fn() => new WorkoutPlanUpdateFakeStmt()
         );
         $db->whenPrepareContains(
-            'SELECT id, status FROM plan_generation_jobs',
+            'SELECT id, status, job_type FROM plan_generation_jobs',
             fn() => new WorkoutPlanUpdateFakeStmt([])
         );
         $db->whenPrepareContains(

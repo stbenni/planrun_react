@@ -85,7 +85,7 @@ function extractScheduleOverridesFromReason(?string $reason): array {
 
     // Ищем паттерны типа "длительная в воскресенье", "отдых в понедельник"
     $typeKeywords = [
-        'long' => ['длительн\w*', 'long\s*run'],
+        'long' => ['длительн\w*', 'длинн\w*', 'лонг\w*', 'long\s*run'],
         'rest' => ['отдых\w*', 'выходн\w*', 'rest'],
         'tempo' => ['темпов\w*', 'tempo'],
         'interval' => ['интервал\w*', 'interval'],
@@ -173,6 +173,23 @@ function getSuggestedPlanWeeks($userData, $goalType) {
 }
 
 function calculatePaceZones($userData) {
+    $trainingState = is_array($userData['training_state'] ?? null) ? $userData['training_state'] : [];
+    $paceRules = is_array($trainingState['pace_rules'] ?? null) ? $trainingState['pace_rules'] : [];
+    if (!empty($paceRules['easy_min_sec']) && !empty($paceRules['easy_max_sec']) && !empty($paceRules['tempo_sec']) && !empty($paceRules['interval_sec'])) {
+        return [
+            'easy' => (int) $paceRules['easy_min_sec'],
+            'easy_fast' => (int) $paceRules['easy_max_sec'],
+            'long' => (int) ($paceRules['long_min_sec'] ?? $paceRules['easy_min_sec']),
+            'marathon' => !empty($paceRules['marathon_sec']) ? (int) $paceRules['marathon_sec'] : null,
+            'tempo' => (int) $paceRules['tempo_sec'],
+            'interval' => (int) $paceRules['interval_sec'],
+            'repetition' => !empty($paceRules['repetition_sec']) ? (int) $paceRules['repetition_sec'] : null,
+            'recovery' => (int) ($paceRules['recovery_min_sec'] ?? ($paceRules['easy_max_sec'] + 15)),
+            'vdot' => isset($trainingState['vdot']) ? round((float) $trainingState['vdot'], 1) : null,
+            'source' => 'training_state',
+        ];
+    }
+
     // Попытка 1: VDOT-based пасы (точные формулы Daniels)
     $vdot = null;
 
@@ -477,9 +494,12 @@ function predictAllRaceTimes(float $vdot): array {
 // ════════════════════════════════════════════════════════════════
 
 function assessGoalRealism(array $userData): array {
+    $assessmentContext = (string) ($userData['_assessment_context'] ?? 'default');
+    $isRegistrationContext = $assessmentContext === 'registration';
     $goalType = $userData['goal_type'] ?? 'health';
     if (!in_array($goalType, ['race', 'time_improvement'])) {
-        return ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+        $result = ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+        return $isRegistrationContext ? softenGoalAssessmentForRegistration($result) : $result;
     }
 
     $dist = $userData['race_distance'] ?? '';
@@ -490,7 +510,8 @@ function assessGoalRealism(array $userData): array {
 
     // Если дистанция не выбрана — не можем оценить
     if (!$dist || !$targetKm) {
-        return ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+        $result = ['verdict' => 'realistic', 'messages' => [], 'vdot' => null, 'predictions' => null, 'training_paces' => null];
+        return $isRegistrationContext ? softenGoalAssessmentForRegistration($result) : $result;
     }
 
     $weeklyKm = (float) ($userData['weekly_base_km'] ?? 0);
@@ -798,7 +819,7 @@ function assessGoalRealism(array $userData): array {
         ];
     }
 
-    return [
+    $result = [
         'verdict' => $verdict,
         'messages' => $messages,
         'vdot' => $vdot ? round($vdot, 1) : null,
@@ -808,6 +829,71 @@ function assessGoalRealism(array $userData): array {
         'recommended_weeks' => $totalWeeks && $totalWeeks < $reqWeeks ? $recWeeks : null,
         'recommended_distance' => null,
         'recommended_sessions' => $sessions < $recSess ? $recSess : null,
+    ];
+
+    return $isRegistrationContext ? softenGoalAssessmentForRegistration($result) : $result;
+}
+
+function softenGoalAssessmentForRegistration(array $assessment): array {
+    $originalVerdict = (string) ($assessment['verdict'] ?? 'realistic');
+    $messages = array_map('softenGoalAssessmentMessageForRegistration', (array) ($assessment['messages'] ?? []));
+    $softVerdict = match ($originalVerdict) {
+        'unrealistic' => 'caution',
+        default => $originalVerdict !== '' ? $originalVerdict : 'realistic',
+    };
+
+    if (in_array($softVerdict, ['challenging', 'caution'], true)) {
+        array_unshift($messages, [
+            'type' => 'info',
+            'text' => 'Даже если цель выглядит слишком амбициозной, начать можно уже сейчас. Мы соберём более осторожный стартовый план и уточним его по первым тренировкам.',
+            'suggestions' => [],
+        ]);
+    }
+
+    $assessment['verdict_original'] = $originalVerdict;
+    $assessment['verdict'] = $softVerdict;
+    $assessment['messages'] = $messages;
+    $assessment['assessment_mode'] = 'advisory';
+    $assessment['blocks_registration'] = false;
+
+    return $assessment;
+}
+
+function softenGoalAssessmentMessageForRegistration(array $message): array {
+    $type = (string) ($message['type'] ?? 'info');
+    $text = trim((string) ($message['text'] ?? ''));
+
+    if ($text !== '') {
+        $text = str_replace(
+            [
+                'Это нереалистично за один цикл подготовки.',
+                'слишком мал для',
+                'КРАЙНЕ НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ:',
+                'НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ:',
+                'ОБЯЗАТЕЛЬНО предупреди бегуна о риске травмы.',
+            ],
+            [
+                'Это очень амбициозная цель для первого цикла подготовки.',
+                'очень низкий для',
+                'Очень амбициозная цель:',
+                'Амбициозная цель:',
+                'Для старта лучше выбрать более осторожный план и затем быстро уточнить его по факту.',
+            ],
+            $text
+        );
+
+        $text = preg_replace(
+            '/Подготовка возможна, но с повышенным риском\./u',
+            'Подготовка возможна, но стартовый план лучше сделать осторожнее.',
+            $text
+        ) ?? $text;
+    }
+
+    return [
+        ...$message,
+        'type' => $type === 'error' ? 'warning' : $type,
+        'text' => $text,
+        'suggestions' => is_array($message['suggestions'] ?? null) ? $message['suggestions'] : [],
     ];
 }
 
@@ -892,6 +978,8 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
     $expLevel = $userData['experience_level'] ?? 'novice';
     $isNovice = in_array($expLevel, ['novice', 'beginner']);
     $hasBase = $weeklyKm >= 25;
+    $isMarathon = in_array($dist, ['marathon', '42.2k'], true);
+    $isFirstAtDistance = !empty($userData['is_first_race_at_distance']);
     $spec = getDistanceSpec($dist);
 
     // ── Расчёт длительностей фаз ──
@@ -948,6 +1036,13 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
             $controlWeeks[] = $controlW;
         }
     }
+    $controlWeeks = array_values(array_filter(
+        array_values(array_unique($controlWeeks)),
+        static fn(int $week): bool => $week >= 5 && $week <= max(1, $trainWeeks - 4)
+    ));
+    if (in_array($dist, ['marathon', '42.2k'], true) && count($controlWeeks) > 2) {
+        $controlWeeks = [$controlWeeks[0], $controlWeeks[count($controlWeeks) - 1]];
+    }
 
     // ── Прогрессия длительной ──
     $warnings = [];
@@ -955,7 +1050,7 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
     // longStart привязан к реальной физической форме
     // Коэффициент 0.40-0.45 от недельного: длительная не должна занимать больше 40-45% объёма
     if ($weeklyKm >= 25) {
-        $longRatio = in_array($dist, ['marathon', '42.2k']) ? 0.42 : 0.45;
+        $longRatio = $isMarathon ? 0.42 : 0.45;
         $longStart = max($spec['long_min'], round($weeklyKm * $longRatio));
     } elseif ($weeklyKm > 0) {
         $longStart = max(3, round($weeklyKm * 0.45));
@@ -964,12 +1059,34 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
     }
 
     $longPeak = $spec['long_peak'];
-    // Для марафона: потолок зависит от базы (опытные бегуны могут бежать длиннее)
-    if (in_array($dist, ['marathon', '42.2k'])) {
+    // Для марафона: пик длительной зависит от базы и горизонта, иначе 30+ км
+    // при умеренной базе превращают план в травмоопасную гонку за объёмом.
+    if ($isMarathon) {
+        if ($weeklyKm >= 65 && $totalWeeks >= 18) {
+            $marathonPeakCap = 35;
+            $marathonPeakFloor = 30;
+        } elseif ($weeklyKm >= 50 && $totalWeeks >= 18) {
+            $marathonPeakCap = 33;
+            $marathonPeakFloor = 28;
+        } elseif ($weeklyKm >= 35 && $totalWeeks >= 18 && $sessions >= 4) {
+            $marathonPeakCap = $isFirstAtDistance ? 30 : 32;
+            $marathonPeakFloor = 26;
+        } elseif ($weeklyKm >= 25 && $totalWeeks >= 16 && $sessions >= 4) {
+            $marathonPeakCap = 28;
+            $marathonPeakFloor = 24;
+        } else {
+            $marathonPeakCap = $weeklyKm >= 20 ? 24 : 20;
+            $marathonPeakFloor = 0;
+        }
+
         if ($totalWeeks < 14) {
-            // Для коротких планов: потолок 32 км (или 35 если база > 50 км/нед)
-            $shortPlanCap = $weeklyKm >= 50 ? 35 : 32;
-            $longPeak = max(28, min($longPeak, $shortPlanCap));
+            $marathonPeakCap = min($marathonPeakCap, $weeklyKm >= 50 ? 30 : 24);
+            $marathonPeakFloor = 0;
+        }
+
+        $longPeak = min($longPeak, $marathonPeakCap);
+        if ($marathonPeakFloor > 0) {
+            $longPeak = max($longPeak, $marathonPeakFloor);
         }
     }
     if ($totalWeeks < 8) {
@@ -992,7 +1109,7 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
         $longPeak = min($longPeak, (int) round($longStart + $trainWeeksAvailable * $safeIncrement));
     }
 
-    if ($weeklyKm < 15 && in_array($dist, ['marathon', '42.2k']) && $totalWeeks < 16) {
+    if ($weeklyKm < 15 && $isMarathon && $totalWeeks < 16) {
         $warnings[] = "КРАЙНЕ НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ: марафон при базе {$weeklyKm} км/нед за {$totalWeeks} недель. Безопасная подготовка к марафону требует минимум 16-20 недель при базе 25+ км/нед. Предложи бегуну более короткую дистанцию или сдвинуть дату забега.";
     } elseif ($weeklyKm < 10 && in_array($dist, ['half', '21.1k']) && $totalWeeks < 10) {
         $warnings[] = "НЕРЕАЛИСТИЧНАЯ ЦЕЛЬ: полумарафон при базе {$weeklyKm} км/нед за {$totalWeeks} недель. Рекомендуй 10-12 недель при базе 15+ км/нед.";
@@ -1050,6 +1167,17 @@ function computeMacrocycle(array $userData, string $goalType): ?array {
     $peakVolume = round($startVolume * $peakMultiplier);
     $peakVolume = max($peakVolume, (int) round($longPeak * 1.4));
     $startVolume = max($startVolume, (int) round($longStart * 1.5));
+
+    if ($isMarathon) {
+        $longShareCap = $sessions <= 3 ? 0.43 : 0.45;
+        if ($isFirstAtDistance) {
+            $longShareCap = min($longShareCap, 0.40);
+        }
+        if ($weeklyKm < 25) {
+            $longShareCap = min($longShareCap, 0.43);
+        }
+        $peakVolume = max($peakVolume, (int) ceil($longPeak / $longShareCap));
+    }
 
     // Ограничить peak реально достижимым: max +10%/неделю от start за build-недели
     $buildWeeksForGrowth = max(1, $buildW + $peakW); // недели для наращивания (без base/taper)
@@ -1788,7 +1916,7 @@ function buildPaceZonesBlock($userData) {
     $block = "\n═══ ТРЕНИРОВОЧНЫЕ ЗОНЫ{$vdotLabel} ═══\n\n";
     $block .= "E  — Лёгкий бег (easy/long): " . formatPace($zones['easy']) . " /км — RPE 3-4, разговорный темп\n";
     if (!empty($zones['easy_fast'])) {
-        $block .= "     Диапазон easy: " . formatPace($zones['easy']) . " - " . formatPace($zones['easy_fast']) . " /км\n";
+        $block .= "     Диапазон easy: " . formatPace($zones['easy']) . " – " . formatPace($zones['easy_fast']) . " /км\n";
     }
     $block .= "     Длительная (long): " . formatPace($zones['long']) . " /км — нижняя граница easy\n";
     if (!empty($zones['marathon'])) {
@@ -1812,6 +1940,248 @@ function buildPaceZonesBlock($userData) {
     $block .= "╚════════════════════════════╝\n";
 
     return $block;
+}
+
+function formatPromptTimeForBenchmark(string $time, ?string $distanceKey = null): string {
+    $parts = array_values(array_filter(explode(':', trim($time)), static fn(string $part): bool => $part !== ''));
+    if (count($parts) === 3) {
+        return str_pad($parts[0], 2, '0', STR_PAD_LEFT) . ':' . str_pad($parts[1], 2, '0', STR_PAD_LEFT) . ':' . str_pad($parts[2], 2, '0', STR_PAD_LEFT);
+    }
+    if (count($parts) !== 2) {
+        return $time;
+    }
+
+    if (in_array($distanceKey, ['half', 'marathon'], true)) {
+        return (int) $parts[0] . ':' . str_pad($parts[1], 2, '0', STR_PAD_LEFT) . ':00';
+    }
+
+    return str_pad($parts[0], 2, '0', STR_PAD_LEFT) . ':' . str_pad($parts[1], 2, '0', STR_PAD_LEFT) . ':00';
+}
+
+function extractPlanningBenchmarkFromReason(?string $reason): array {
+    $reason = trim((string) $reason);
+    if ($reason === '') {
+        return [];
+    }
+
+    $text = mb_strtolower($reason, 'UTF-8');
+    $distanceMap = [
+        'half' => ['полумарафон', 'half', '21.1', '21,1'],
+        'marathon' => ['марафон', '42.2', '42,2'],
+        '10k' => ['10 км', '10км', '10k'],
+        '5k' => ['5 км', '5км', '5k'],
+    ];
+
+    $distanceKey = null;
+    foreach ($distanceMap as $candidate => $needles) {
+        foreach ($needles as $needle) {
+            if (str_contains($text, $needle)) {
+                $distanceKey = $candidate;
+                break 2;
+            }
+        }
+    }
+
+    if ($distanceKey === null || !preg_match('/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/u', $reason, $match)) {
+        return [];
+    }
+
+    return [
+        'planning_benchmark_distance' => $distanceKey,
+        'planning_benchmark_time' => formatPromptTimeForBenchmark($match[1], $distanceKey),
+    ];
+}
+
+function extractPlanningEasyFloorFromReason(?string $reason): ?float {
+    $reason = trim((string) $reason);
+    if ($reason === '') {
+        return null;
+    }
+
+    if (preg_match('/easy[^\n\r,.!?;:]{0,40}(?:не\s+короче|от|минимум)\s+(\d+(?:[.,]\d+)?)\s*км/iu', $reason, $match)
+        || preg_match('/(?:не\s+короче|минимум)\s+(\d+(?:[.,]\d+)?)\s*км[^\n\r,.!?;:]{0,30}easy/iu', $reason, $match)) {
+        return round((float) str_replace(',', '.', $match[1]), 1);
+    }
+
+    return null;
+}
+
+function applyScheduleOverridesToUserData(array $userData, ?string $reason): array {
+    $updated = $userData;
+    $overrides = extractScheduleOverridesFromReason($reason);
+
+    if (!empty($overrides['rest']) && !empty($updated['preferred_days']) && is_array($updated['preferred_days'])) {
+        $updated['preferred_days'] = array_values(array_filter(
+            $updated['preferred_days'],
+            static fn(string $day): bool => $day !== $overrides['rest']
+        ));
+        $updated['sessions_per_week'] = count($updated['preferred_days']);
+        $updated['schedule_reason_overrides']['rest_day'] = $overrides['rest'];
+    }
+
+    if (!empty($overrides['long'])) {
+        $updated['preferred_long_day'] = $overrides['long'];
+        $updated['schedule_reason_overrides']['long_day'] = $overrides['long'];
+    }
+
+    $benchmark = extractPlanningBenchmarkFromReason($reason);
+    foreach ($benchmark as $key => $value) {
+        $updated[$key] = $value;
+    }
+
+    $easyFloor = extractPlanningEasyFloorFromReason($reason);
+    if ($easyFloor !== null) {
+        $updated['planning_easy_min_km'] = $easyFloor;
+    }
+
+    return $updated;
+}
+
+function buildTrainingStateBlock(array $userData): string {
+    $state = is_array($userData['training_state'] ?? null) ? $userData['training_state'] : [];
+    if (empty($state)) {
+        return '';
+    }
+
+    $lines = ["\n═══ TRAINING STATE ═══", ''];
+    if (!empty($state['vdot'])) {
+        $sourceLabel = (string) ($state['vdot_source_label'] ?? $state['vdot_source'] ?? 'training_state');
+        $confidence = (string) ($state['vdot_confidence'] ?? 'unknown');
+        $lines[] = "VDOT: " . round((float) $state['vdot'], 1) . " ({$sourceLabel}, confidence={$confidence})";
+    }
+    if (!empty($state['readiness'])) {
+        $lines[] = "Readiness: {$state['readiness']}";
+    }
+    if (!empty($state['weeks_to_goal'])) {
+        $lines[] = "Недель до цели: " . (int) $state['weeks_to_goal'];
+    }
+    $preferredLongDay = $userData['preferred_long_day'] ?? $state['preferred_long_day'] ?? getPreferredLongRunDayKey($userData);
+    if ($preferredLongDay) {
+        $lines[] = "Предпочтительный день длительной: " . getPromptWeekdayLabel((string) $preferredLongDay);
+    }
+    if (!empty($state['age_years'])) {
+        $lines[] = "Возраст: " . (int) $state['age_years'];
+    }
+
+    $specialFlags = $state['special_population_flags'] ?? [];
+    if (is_array($specialFlags) && !empty($specialFlags)) {
+        $lines[] = "Special population flags: " . implode(', ', $specialFlags);
+    }
+
+    $feedbackAnalytics = is_array($state['feedback_analytics'] ?? null) ? $state['feedback_analytics'] : [];
+    if (!empty($feedbackAnalytics['total_responses'])) {
+        $riskLevel = (string) ($feedbackAnalytics['risk_level'] ?? 'low');
+        $painCount = (int) ($feedbackAnalytics['pain_count'] ?? 0);
+        $fatigueCount = (int) ($feedbackAnalytics['fatigue_count'] ?? 0);
+        $recentRisk = round((float) ($feedbackAnalytics['recent_average_recovery_risk'] ?? 0.0), 2);
+        $lines[] = "Recent post-workout feedback: responses={$feedbackAnalytics['total_responses']}, pain={$painCount}, fatigue={$fatigueCount}, recovery_risk={$recentRisk}, level={$riskLevel}";
+        $recentRpe = round((float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0), 1);
+        $loadDelta = round((float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0), 2);
+        $painScore = round((float) ($feedbackAnalytics['recent_pain_score_avg'] ?? 0.0), 1);
+        if ($recentRpe > 0.0 || $loadDelta > 0.0 || $painScore > 0.0) {
+            $lines[] = "Structured recovery signals: rpe={$recentRpe}, pain_score={$painScore}, load_delta={$loadDelta}";
+        }
+    }
+
+    $athleteSignals = is_array($state['athlete_signals'] ?? null) ? $state['athlete_signals'] : [];
+    $hasAthleteSignalContext = !empty($athleteSignals['total_notes_count']) || !empty($feedbackAnalytics['total_responses']) || !empty($athleteSignals['highlights']);
+    if ($hasAthleteSignalContext && !empty($athleteSignals['overall_risk_level'])) {
+        $lines[] = "Athlete signals overall: risk_level=" . (string) ($athleteSignals['overall_risk_level'] ?? 'low')
+            . ", note_risk=" . round((float) ($athleteSignals['note_risk_score'] ?? 0.0), 2);
+
+        $noteSignalParts = [];
+        foreach ([
+            'pain' => (int) ($athleteSignals['note_pain_count'] ?? 0),
+            'fatigue' => (int) ($athleteSignals['note_fatigue_count'] ?? 0),
+            'sleep' => (int) ($athleteSignals['note_sleep_count'] ?? 0),
+            'illness' => (int) ($athleteSignals['note_illness_count'] ?? 0),
+            'stress' => (int) ($athleteSignals['note_stress_count'] ?? 0),
+            'travel' => (int) ($athleteSignals['note_travel_count'] ?? 0),
+        ] as $label => $count) {
+            if ($count > 0) {
+                $noteSignalParts[] = $label . '=' . $count;
+            }
+        }
+        if (!empty($noteSignalParts)) {
+            $lines[] = "Signals from notes: " . implode(', ', $noteSignalParts);
+        }
+
+        $highlights = array_slice((array) ($athleteSignals['highlights'] ?? []), 0, 3);
+        if (!empty($highlights)) {
+            $lines[] = "Athlete signal highlights: " . implode(' | ', $highlights);
+        }
+    }
+
+    $loadPolicy = is_array($state['load_policy'] ?? null) ? $state['load_policy'] : [];
+    if (!empty($loadPolicy['allowed_growth_ratio'])) {
+        $growthPct = max(0, (int) round(((float) $loadPolicy['allowed_growth_ratio'] - 1.0) * 100));
+        $lines[] = "Safety envelope по объёму: рост недельного объёма обычно не выше ~{$growthPct}%";
+        $lines[] = "Это мягкий коридор безопасности, а не требование делать одинаковые недели.";
+    }
+    if (!empty($loadPolicy['recovery_weeks']) && is_array($loadPolicy['recovery_weeks'])) {
+        $lines[] = "Recovery weeks: " . implode(', ', array_map('intval', $loadPolicy['recovery_weeks']));
+    }
+
+    return implode("\n", $lines) . "\n";
+}
+
+function buildWeekSkeletonBlock(array $userData): string {
+    $skeleton = $userData['plan_skeleton']['weeks'] ?? null;
+    if (!is_array($skeleton) || empty($skeleton)) {
+        return '';
+    }
+
+    $dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    $lines = ["\n═══ WEEK SKELETON ═══", ''];
+    foreach ($skeleton as $week) {
+        $weekNumber = (int) ($week['week_number'] ?? 0);
+        $phaseLabel = trim((string) ($week['phase_label'] ?? ''));
+        $days = $week['days'] ?? [];
+        if (!is_array($days) || empty($days)) {
+            continue;
+        }
+
+        $parts = [];
+        foreach ($days as $index => $type) {
+            $parts[] = ($dayLabels[$index] ?? ('Д' . ($index + 1))) . ' ' . trim(mb_strtolower((string) $type, 'UTF-8'));
+        }
+        $prefix = $weekNumber > 0 ? "Неделя {$weekNumber}" : 'Неделя';
+        if ($phaseLabel !== '') {
+            $prefix .= " ({$phaseLabel})";
+        }
+        $lines[] = $prefix . ': ' . implode(' | ', $parts);
+    }
+
+    return implode("\n", $lines) . "\n";
+}
+
+function buildWorkoutIntentBlock(array $userData, string $goalType, bool $isFlexibleRecalc = false): string {
+    if (!in_array($goalType, ['race', 'time_improvement'], true)) {
+        return '';
+    }
+
+    $raceDistance = (string) ($userData['race_distance'] ?? '');
+    $lines = ["\n═══ WORKOUT INTENT ═══", ''];
+    if (in_array($raceDistance, ['marathon', '42.2k'], true)) {
+        $lines[] = "tempo для марафона не должен быть только пороговым: часть tempo-сессий должна быть goal_pace_specific.";
+        $lines[] = "Марафонская работа в целевом темпе обычно должна быть type: tempo или частью long, а не control.";
+        $lines[] = "Control для марафона используй редко: обычно 0-1 раза за специфический блок.";
+    } else {
+        $lines[] = "Определи intent каждой ключевой тренировки до выбора точной структуры.";
+    }
+    if ($isFlexibleRecalc) {
+        $lines[] = "Конкретную структуру tempo/control/interval подбирай самостоятельно под текущую фазу и оставшееся время.";
+    }
+
+    $lines[] = '';
+    $lines[] = "═══ QUALITY DAY CONTRACT ═══";
+    $lines[] = "tempo => goal_pace_specific | threshold_support";
+    $lines[] = "interval => vo2_support | speed_support";
+    $lines[] = "control => benchmark | tune-up";
+    $lines[] = "long => aerobic_support | race_specific_endurance";
+    $lines[] = "Control используй только там, где intent прямо говорит о benchmark/tune-up.";
+
+    return implode("\n", $lines) . "\n";
 }
 
 function buildTrainingPrinciplesBlock($userData, $goalType) {
@@ -2227,9 +2597,12 @@ function buildTrainingPlanPrompt($userData, $goalType = 'health') {
     $prompt .= buildStartDateBlock($startDate, $suggestedWeeks);
 
     $prompt .= buildPreferencesBlock($userData);
+    $prompt .= buildTrainingStateBlock($userData);
+    $prompt .= buildWeekSkeletonBlock($userData);
     $prompt .= buildPaceZonesBlock($userData);
     $prompt .= buildTrainingPrinciplesBlock($userData, $goalType);
     $prompt .= buildKeyWorkoutsBlock($userData);
+    $prompt .= buildWorkoutIntentBlock($userData, $goalType);
     $prompt .= buildMandatoryRulesBlock($userData);
 
     $prompt .= "═══ ЗАДАЧА ═══\n\n";
@@ -2441,6 +2814,7 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     if ($weeksToGenerate !== null) {
         $modifiedUser['health_plan_weeks'] = $weeksToGenerate;
     }
+    $generationMode = (string) ($recalcContext['generation_mode'] ?? 'strict');
 
     $prompt = "";
 
@@ -2458,6 +2832,10 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     $prompt .= buildStartDateBlock($newStartDate, $suggestedWeeks);
 
     $prompt .= buildPreferencesBlock($modifiedUser);
+    if ($generationMode !== 'flexible') {
+        $prompt .= buildTrainingStateBlock($modifiedUser);
+        $prompt .= buildWeekSkeletonBlock($modifiedUser);
+    }
     $prompt .= buildPaceZonesBlock($modifiedUser);
 
     // ── Текущее состояние (КЛЮЧЕВОЙ блок для пересчёта) ──
@@ -2466,6 +2844,7 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     // ── Принципы тренировок (для пересчёта — с оригинальным макроциклом) ──
     $prompt .= buildRecalcTrainingPrinciplesBlock($userData, $goalType, $recalcContext);
     $prompt .= buildKeyWorkoutsBlock($modifiedUser);
+    $prompt .= buildWorkoutIntentBlock($modifiedUser, $goalType, $generationMode === 'flexible');
     $prompt .= buildMandatoryRulesBlock($modifiedUser);
 
     // ── Задача: пересчёт-специфичная ──
@@ -2502,6 +2881,9 @@ function buildRecalculationPrompt($userData, $goalType, array $recalcContext) {
     $prompt .= "6. Easy бег: МИНИМУМ {$minEasyRecalc} км (кроме race week). Все easy в неделе — одинаковой дистанции (±2 км).\n";
     $prompt .= "7. Tempo: ОБЯЗАТЕЛЬНО distance_km + pace. Разминку/заминку — в notes.\n";
     $prompt .= "8. НЕ добавляй поле \"date\" в дни — код вычислит даты автоматически из start_date.\n";
+    if ($generationMode === 'flexible') {
+        $prompt .= "9. Конкретную структуру tempo/control/interval подбирай самостоятельно, но не нарушай фазовые ограничения и recovery-логику.\n";
+    }
 
     // ── Критичное напоминание: расписание по дням (повтор для надёжности) ──
     $ruDayLabelsRecalc = ['mon'=>'Пн','tue'=>'Вт','wed'=>'Ср','thu'=>'Чт','fri'=>'Пт','sat'=>'Сб','sun'=>'Вс'];
@@ -2548,13 +2930,17 @@ function buildRecalcTrainingPrinciplesBlock($userData, $goalType, array $recalcC
     $goalLabel = $goalType === 'race' ? 'подготовка к забегу' : 'улучшение результата';
     $block .= "Цель: {$goalLabel}.\n\n";
 
+    $phaseLabel = (string) ($phase['phase_label'] ?? $phase['label'] ?? '');
+    $weeksLeftInPhase = isset($phase['weeks_left_in_phase']) ? (int) $phase['weeks_left_in_phase'] : 0;
+    $nextPhaseLabel = (string) ($phase['next_phase_label'] ?? '');
+
     $block .= "ВАЖНО: Это ПЕРЕСЧЁТ. Макроцикл уже начат. НЕ СТРОЙ периодизацию с нуля!\n";
-    $block .= "Текущая фаза: {$phase['phase_label']}.\n";
-    if ($phase['weeks_left_in_phase'] > 0) {
-        $block .= "Осталось в текущей фазе: {$phase['weeks_left_in_phase']} нед.\n";
+    $block .= "Текущая фаза: " . ($phaseLabel !== '' ? $phaseLabel : 'не определена') . ".\n";
+    if ($weeksLeftInPhase > 0) {
+        $block .= "Осталось в текущей фазе: {$weeksLeftInPhase} нед.\n";
     }
-    if ($phase['next_phase_label']) {
-        $block .= "Следующая фаза: {$phase['next_phase_label']}.\n";
+    if ($nextPhaseLabel !== '') {
+        $block .= "Следующая фаза: {$nextPhaseLabel}.\n";
     }
     $block .= "\n";
 
@@ -2577,7 +2963,14 @@ function buildRecalcTrainingPrinciplesBlock($userData, $goalType, array $recalcC
                 $phaseDuration = $newTo - $newFrom + 1;
             }
             if ($phaseDuration > 0) {
-                $block .= "- {$rp['label']} (нед. {$newFrom}-{$newTo}): {$rp['description']} Ключевых: до {$rp['max_key_workouts']}/нед.\n";
+                $label = (string) ($rp['label'] ?? $rp['name'] ?? 'Фаза');
+                $description = trim((string) ($rp['description'] ?? ''));
+                $maxKeyWorkouts = isset($rp['max_key_workouts']) ? (int) $rp['max_key_workouts'] : 0;
+                $block .= "- {$label} (нед. {$newFrom}-{$newTo})";
+                if ($description !== '') {
+                    $block .= ": {$description}";
+                }
+                $block .= " Ключевых: до {$maxKeyWorkouts}/нед.\n";
             }
             $weekOffset += $phaseDuration;
             if ($weeksToGenerate && $weekOffset >= $weeksToGenerate) break;
@@ -2727,8 +3120,12 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
 
     $avgRating = $ctx['avg_rating_4w'] ?? null;
     if ($avgRating !== null) {
-        $ratingLabel = $avgRating >= 4 ? 'хорошо' : ($avgRating >= 3 ? 'нормально' : 'тяжело');
-        $lines[] = "Среднее самочувствие: {$avgRating}/5 ({$ratingLabel})";
+        if ($avgRating >= 9) $ratingLabel = 'очень тяжело';
+        elseif ($avgRating >= 7) $ratingLabel = 'тяжело';
+        elseif ($avgRating >= 5) $ratingLabel = 'рабоче';
+        elseif ($avgRating >= 3) $ratingLabel = 'легко';
+        else $ratingLabel = 'очень легко';
+        $lines[] = "Средняя субъективная тяжесть: {$avgRating}/10 ({$ratingLabel})";
     }
 
     // ACWR
@@ -2775,7 +3172,7 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
             $type = $w['plan_type'] ?? 'тренировка';
             $dist = !empty($w['distance_km']) ? "{$w['distance_km']} км" : '';
             $pace = !empty($w['pace']) && $w['pace'] !== '0:00' ? "темп {$w['pace']}" : '';
-            $rating = !empty($w['rating']) ? "ощущение {$w['rating']}/5" : '';
+            $rating = !empty($w['rating']) ? "тяжесть {$w['rating']}/10" : '';
             $parts = array_filter([$date, $type, $dist, $pace, $rating]);
             $lines[] = "  - " . implode(', ', $parts);
             $shown++;
@@ -2850,7 +3247,9 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
     // --- Текущая фаза макроцикла (краткое резюме, детали — в блоке принципов) ---
     $phase = $ctx['current_phase'] ?? null;
     if ($phase) {
-        $lines[] = "\nТЕКУЩАЯ ФАЗА МАКРОЦИКЛА: {$phase['phase_label']} (осталось {$phase['weeks_left_in_phase']} нед.)";
+        $phaseLabel = (string) ($phase['phase_label'] ?? $phase['label'] ?? 'не определена');
+        $weeksLeft = isset($phase['weeks_left_in_phase']) ? (int) $phase['weeks_left_in_phase'] : 0;
+        $lines[] = "\nТЕКУЩАЯ ФАЗА МАКРОЦИКЛА: {$phaseLabel} (осталось {$weeksLeft} нед.)";
         $lines[] = "ВАЖНО: ПРОДОЛЖАЙ С ТЕКУЩЕЙ ФАЗЫ, не начинай макроцикл с нуля! Детали фаз — в блоке ПРИНЦИПЫ ниже.";
     }
 
@@ -3015,8 +3414,12 @@ function buildPreviousPlanHistoryBlock(array $ctx): string {
 
     $avgRating = $ctx['avg_rating'] ?? null;
     if ($avgRating !== null) {
-        $ratingLabel = $avgRating >= 4 ? 'хорошо' : ($avgRating >= 3 ? 'нормально' : 'тяжело');
-        $lines[] = "  Среднее самочувствие: {$avgRating}/5 ({$ratingLabel})";
+        if ($avgRating >= 9) $ratingLabel = 'очень тяжело';
+        elseif ($avgRating >= 7) $ratingLabel = 'тяжело';
+        elseif ($avgRating >= 5) $ratingLabel = 'рабоче';
+        elseif ($avgRating >= 3) $ratingLabel = 'легко';
+        else $ratingLabel = 'очень легко';
+        $lines[] = "  Средняя субъективная тяжесть: {$avgRating}/10 ({$ratingLabel})";
     }
 
     $compliance = $ctx['compliance'] ?? null;
@@ -3033,7 +3436,7 @@ function buildPreviousPlanHistoryBlock(array $ctx): string {
                 $kw['type'],
                 !empty($kw['distance_km']) ? "{$kw['distance_km']} км" : '',
                 !empty($kw['pace']) ? "темп {$kw['pace']}" : '',
-                !empty($kw['rating']) ? "ощущение {$kw['rating']}/5" : '',
+                !empty($kw['rating']) ? "тяжесть {$kw['rating']}/10" : '',
             ]);
             $lines[] = "  - " . implode(', ', $parts);
         }
@@ -3060,7 +3463,7 @@ function buildPreviousPlanHistoryBlock(array $ctx): string {
             $type = $w['plan_type'] ?? 'тренировка';
             $dist = !empty($w['distance_km']) ? "{$w['distance_km']} км" : '';
             $pace = !empty($w['pace']) && $w['pace'] !== '0:00' ? "темп {$w['pace']}" : '';
-            $rating = !empty($w['rating']) ? "ощущение {$w['rating']}/5" : '';
+            $rating = !empty($w['rating']) ? "тяжесть {$w['rating']}/10" : '';
             $parts = array_filter([$date, $type, $dist, $pace, $rating]);
             $lines[] = "  - " . implode(', ', $parts);
             $shown++;

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../db_config.php';
 require_once __DIR__ . '/plan_generator.php';
 require_once __DIR__ . '/plan_saver.php';
 require_once __DIR__ . '/../training_utils.php';
+require_once __DIR__ . '/../repositories/UserRepository.php';
 
 $userId = isset($argv[1]) ? (int)$argv[1] : 0;
 $isRecalculate = in_array('--recalculate', $argv ?? [], true);
@@ -73,42 +74,26 @@ try {
 
     // Загружаем preferences для enforcement расписания в нормализаторе
     $userPreferences = null;
-    $prefStmt = $db->prepare("SELECT preferred_days, preferred_ofp_days FROM users WHERE id = ?");
-    if ($prefStmt) {
-        $prefStmt->bind_param('i', $userId);
-        $prefStmt->execute();
-        $prefRow = $prefStmt->get_result()->fetch_assoc();
-        $prefStmt->close();
-        if ($prefRow) {
-            $pDays = !empty($prefRow['preferred_days']) ? (json_decode($prefRow['preferred_days'], true) ?: []) : [];
-            $oDays = !empty($prefRow['preferred_ofp_days']) ? (json_decode($prefRow['preferred_ofp_days'], true) ?: []) : [];
-            if (!empty($pDays)) {
-                $userPreferences = ['preferred_days' => $pDays, 'preferred_ofp_days' => $oDays];
-            }
+    $userRepo = new UserRepository($db);
+    $prefRow = $userRepo->getById($userId);
+    if ($prefRow) {
+        $pDays = !empty($prefRow['preferred_days']) ? (json_decode($prefRow['preferred_days'], true) ?: []) : [];
+        $oDays = !empty($prefRow['preferred_ofp_days']) ? (json_decode($prefRow['preferred_ofp_days'], true) ?: []) : [];
+        if (!empty($pDays)) {
+            $userPreferences = ['preferred_days' => $pDays, 'preferred_ofp_days' => $oDays];
         }
     }
 
     if ($isNextPlan) {
         $startDate = (new DateTime())->modify('monday this week')->format('Y-m-d');
         saveTrainingPlan($db, $userId, $planData, $startDate, $userPreferences);
-        $updateStmt = $db->prepare("UPDATE users SET training_start_date = ? WHERE id = ?");
-        if ($updateStmt) {
-            $updateStmt->bind_param('si', $startDate, $userId);
-            $updateStmt->execute();
-            $updateStmt->close();
-        }
+        $userRepo->update($userId, ['training_start_date' => $startDate]);
         error_log("generate_plan_async.php: Новый план сохранён, start_date={$startDate}, недель: " . count($planData['weeks']));
     } elseif ($isRecalculate) {
         saveRecalculatedPlan($db, $userId, $planData, $cutoffDate, $userPreferences);
         error_log("generate_plan_async.php: Сохранено прошлых недель: {$keptWeeks}, новых: " . count($planData['weeks']));
     } else {
-        $stmt = $db->prepare("SELECT training_start_date FROM users WHERE id = ?");
-        $stmt->bind_param('i', $userId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $user = $result->fetch_assoc();
-        $stmt->close();
-        $startDate = $user['training_start_date'] ?? date('Y-m-d');
+        $startDate = $userRepo->getField($userId, 'training_start_date') ?? date('Y-m-d');
         saveTrainingPlan($db, $userId, $planData, $startDate, $userPreferences);
     }
     

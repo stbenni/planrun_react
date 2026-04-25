@@ -6,10 +6,16 @@
 require_once __DIR__ . '/BaseService.php';
 require_once __DIR__ . '/EmailVerificationService.php';
 require_once __DIR__ . '/PlanGenerationQueueService.php';
+require_once __DIR__ . '/../repositories/UserRepository.php';
 
 class RegistrationService extends BaseService {
     private EmailVerificationService $verificationService;
     private PlanGenerationQueueService $queueService;
+    private ?UserRepository $userRepo = null;
+
+    private function userRepo(): UserRepository {
+        return $this->userRepo ??= new UserRepository($this->db);
+    }
 
     public function __construct($db, ?EmailVerificationService $verificationService = null) {
         parent::__construct($db);
@@ -207,29 +213,11 @@ class RegistrationService extends BaseService {
     }
 
     private function userExistsByUsername(string $username): bool {
-        $stmt = $this->db->prepare('SELECT id FROM users WHERE username = ?');
-        if (!$stmt) {
-            throw new RuntimeException('Ошибка проверки пользователя: ' . $this->db->error, 500);
-        }
-
-        $stmt->bind_param('s', $username);
-        $stmt->execute();
-        $exists = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $exists;
+        return $this->userRepo()->findIdByUsername($username) !== null;
     }
 
     private function userExistsByEmail(string $email): bool {
-        $stmt = $this->db->prepare('SELECT id FROM users WHERE email = ? AND email IS NOT NULL AND email != ""');
-        if (!$stmt) {
-            throw new RuntimeException('Ошибка проверки email: ' . $this->db->error, 500);
-        }
-
-        $stmt->bind_param('s', $email);
-        $stmt->execute();
-        $exists = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $exists;
+        return $this->userRepo()->findIdByEmail($email) !== null;
     }
 
     private function generateUniqueUsernameSlug(string $username): string {
@@ -255,16 +243,7 @@ class RegistrationService extends BaseService {
     }
 
     private function usernameSlugExists(string $slug): bool {
-        $stmt = $this->db->prepare('SELECT id FROM users WHERE username_slug = ?');
-        if (!$stmt) {
-            throw new RuntimeException('Ошибка проверки username_slug: ' . $this->db->error, 500);
-        }
-
-        $stmt->bind_param('s', $slug);
-        $stmt->execute();
-        $exists = (bool) $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $exists;
+        return $this->userRepo()->findIdBySlug($slug) !== null;
     }
 
     private function insertFullUser(array $data, array $identity, string $password): int {

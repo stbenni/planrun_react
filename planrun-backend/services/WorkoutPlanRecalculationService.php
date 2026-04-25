@@ -30,8 +30,6 @@ class WorkoutPlanRecalculationService extends BaseService {
                 return ['queued' => false, 'skipped_reason' => 'очередь пересчёта недоступна'];
             }
 
-            $this->deactivateActivePlans($userId);
-
             $deltaText = $oldVdot !== null ? round($newVdot - $oldVdot, 1) : null;
             $reason = $type === 'control'
                 ? 'Автопересчёт после контрольной: обновлён VDOT'
@@ -47,6 +45,7 @@ class WorkoutPlanRecalculationService extends BaseService {
                 'source' => 'workout_result_vdot_update',
                 'result_date' => $resultDate,
             ]);
+            $this->deactivateActivePlans($userId);
 
             return [
                 'queued' => true,

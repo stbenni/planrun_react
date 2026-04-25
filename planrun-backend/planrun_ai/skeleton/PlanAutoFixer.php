@@ -96,6 +96,7 @@ class PlanAutoFixer
                     break;
 
                 case 'long_run_decrease':
+                case 'long_decrease':
                     // LLM заметила уменьшение длительной — допустимо для recovery/taper, игнорируем
                     break;
 

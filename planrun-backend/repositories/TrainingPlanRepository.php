@@ -11,7 +11,7 @@ class TrainingPlanRepository extends BaseRepository {
      * Получить план пользователя
      */
     public function getPlanByUserId($userId) {
-        $sql = "SELECT * FROM user_training_plans WHERE user_id = ?";
+        $sql = "SELECT * FROM user_training_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1";
         return $this->fetchOne($sql, [$userId], 'i');
     }
     

@@ -3,6 +3,28 @@
  * Построение компактных промптов для LLM-обогащения и ревью плана.
  */
 
+function stringifyPromptValue($raw): string
+{
+    if (is_array($raw)) {
+        $parts = [];
+        array_walk_recursive(
+            $raw,
+            static function ($value) use (&$parts): void {
+                if (is_scalar($value) || $value === null) {
+                    $text = trim((string) $value);
+                    if ($text !== '') {
+                        $parts[] = $text;
+                    }
+                }
+            }
+        );
+
+        return implode('; ', array_values(array_unique($parts)));
+    }
+
+    return trim((string) $raw);
+}
+
 /**
  * Промпт для обогащения скелета (notes, structure).
  *
@@ -14,12 +36,15 @@
 function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array $context = []): string
 {
     $profile = buildCompactProfile($user, $state);
-    $skeletonJson = json_encode($skeleton['weeks'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $skeletonJson = json_encode(
+        buildCompactWeeksForEnrichment((array) ($skeleton['weeks'] ?? [])),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+    );
 
     // Контекст пересчёта / нового плана от пользователя
     $contextBlock = '';
-    $reason = trim($context['reason'] ?? '');
-    $goals = trim($context['goals'] ?? '');
+    $reason = stringifyPromptValue($context['reason'] ?? '');
+    $goals = stringifyPromptValue($context['goals'] ?? '');
     $jobType = $context['job_type'] ?? 'generate';
 
     if ($reason !== '') {
@@ -32,25 +57,25 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
     }
 
     return <<<PROMPT
-Ты — опытный тренер по бегу. Перед тобой числовой план тренировок и профиль бегуна.
-Твоя задача — обогатить план текстовыми заметками.
+Ты — опытный тренер по бегу. Перед тобой компактный план тренировок и профиль бегуна.
+Твоя задача — добавить короткие текстовые заметки только для нужных дней.
 
 {$profile}
 {$contextBlock}
-СКЕЛЕТ ПЛАНА (JSON):
+КОМПАКТНЫЙ ПЛАН (JSON):
 {$skeletonJson}
 
 ЗАДАЧА:
-1. Для каждого дня с type=interval, fartlek или control — добавь поле "notes" с текстовым описанием тренировки.
+1. Для каждого дня с type=interval, fartlek, control или tempo — добавь заметку с понятным описанием тренировки.
    Пример для interval: "Разминка 2 км. 5×1000м в темпе 4:40, пауза 400м трусцой. Заминка 1.5 км"
    Пример для tempo (threshold): "Разминка 2 км. Темповый бег 5 км в темпе 5:10. Заминка 1.5 км"
    Пример для tempo (MP-run): "Разминка 2 км. MP-run: бег 12 км в марафонском темпе 4:59. Заминка 1.5 км"
    Пример для tempo (HMP-run): "Разминка 2 км. HMP-run: бег 8 км в темпе полумарафона 4:35. Заминка 1.5 км"
    Пример для tempo (R-pace): "Разминка 2 км. R-pace: 6×300м в темпе 3:47, пауза 300м шагом. Заминка 1.5 км"
    Пример для long: "Длительный бег 18 км. Последние 3 км можно в марафонском темпе"
-2. Для 2-3 дней в неделю (не каждый) — добавь полезный совет в "notes" (1 строка).
-3. Если есть health_notes — учти их в notes (например: "Бегать по ровной поверхности", "Упражнения для колена после тренировки").
-4. Для rest-дней можно добавить "notes" типа "Активное восстановление: прогулка 30 мин" (не для каждого).
+2. Для 2-3 дней в неделю (не каждый) можно добавить короткий полезный совет.
+3. Если есть health_notes — учти их в notes.
+4. Для части rest-дней можно добавить короткую рекомендацию вроде "Активное восстановление: прогулка 30 мин".
 
 СТРОГИЕ ПРАВИЛА:
 - ⚠ ЯЗЫК: ВСЕ notes ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. Никакого английского.
@@ -58,15 +83,16 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
   Неправильно: "Warm up 2 km. 5x1000m at 4:40 pace, 400m jog recovery. Cool down 1.5 km"
   Правильно: "Лёгкий восстановительный бег. Следи за пульсом, не торопись."
   Неправильно: "Easy recovery run. Keep your heart rate low."
-- НЕ МЕНЯЙ числовые поля: distance_km, pace, reps, interval_m, rest_m, warmup_km, cooldown_km, tempo_km, duration_minutes
-- НЕ МЕНЯЙ type
-- НЕ ДОБАВЛЯЙ и НЕ УДАЛЯЙ дни или недели
-- НЕ МЕНЯЙ week_number, phase, phase_label, is_recovery
-- Только ДОБАВЛЯЙ поле "notes" (строка, на русском языке)
+- НЕ меняй числа или типы тренировок.
+- НЕ возвращай весь план целиком.
+- Возвращай ТОЛЬКО объект JSON такого вида:
+  {"notes":[{"week_number":1,"day_of_week":2,"notes":"..."}]}
+- В массив notes включай только дни, для которых реально нужна заметка.
+- notes должна быть короткой: 1 строка, максимум 220 символов.
 
 НАПОМИНАНИЕ: Весь текст в notes — строго на русском языке. Без исключений.
 
-Верни JSON — массив weeks[] того же формата, с добавленными notes.
+Верни только JSON-объект с массивом notes.
 PROMPT;
 }
 
@@ -81,9 +107,12 @@ PROMPT;
 function buildReviewPrompt(array $plan, array $user, array $state): string
 {
     $profile = buildCompactProfile($user, $state);
-    $planJson = json_encode($plan['weeks'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $planJson = json_encode(
+        buildCompactWeeksForReview((array) ($plan['weeks'] ?? [])),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+    );
 
-    $healthNotes = trim($user['health_notes'] ?? '');
+    $healthNotes = stringifyPromptValue($user['health_notes'] ?? '');
     $healthLine = $healthNotes !== '' ? "\nЗдоровье бегуна: {$healthNotes}" : '';
 
     // Конкретные допустимые темпы для данного бегуна
@@ -121,18 +150,41 @@ function buildReviewPrompt(array $plan, array $user, array $state): string
         }
     }
 
+    $scenario = (array) ($state['planning_scenario'] ?? []);
+    $scenarioPrimary = (string) ($scenario['primary'] ?? '');
+    $scenarioFlags = array_values(array_filter((array) ($scenario['flags'] ?? []), 'is_string'));
+    $scenarioBlock = '';
+    if ($scenarioPrimary !== '' || $scenarioFlags !== []) {
+        $scenarioBlock = "\n\nСЦЕНАРИЙ ПЛАНИРОВАНИЯ:";
+        if ($scenarioPrimary !== '') {
+            $scenarioBlock .= "\n- primary: {$scenarioPrimary}";
+        }
+        if ($scenarioFlags !== []) {
+            $scenarioBlock .= "\n- flags: " . implode(', ', $scenarioFlags);
+        }
+
+        $tuneUp = (array) ($scenario['tune_up_event'] ?? []);
+        if (!empty($tuneUp['date'])) {
+            $distance = $tuneUp['distance_label'] ?? ($tuneUp['distance_km'] ?? '?');
+            $forcedType = $tuneUp['forced_type'] ?? ($tuneUp['type'] ?? 'control');
+            $scenarioBlock .= "\n- explicit tune-up: {$tuneUp['date']}, {$distance}, type={$forcedType}";
+            $scenarioBlock .= "\n- ВАЖНО: explicit tune-up перед главным стартом может быть НАМЕРЕННО downgraded до control. Не считай это ошибкой и не отмечай как too_aggressive/taper_violation только потому, что такой день быстрее марафонского темпа.";
+        }
+    }
+
     return <<<PROMPT
 Ты — эксперт-рецензент тренировочных планов по бегу.
 
-{$profile}{$healthLine}{$paceBlock}
+{$profile}{$healthLine}{$paceBlock}{$scenarioBlock}
 
-ГОТОВЫЙ ПЛАН (JSON):
+КОМПАКТНЫЙ ПЛАН (JSON):
 {$planJson}
 
 Проверь план на логические ошибки. Ищи:
 1. ТЕМПЫ: easy pace должен быть МЕДЛЕННЕЕ tempo pace, tempo МЕДЛЕННЕЕ interval. Сверяй с ДОПУСТИМЫМИ ТЕМПАМИ выше. Если отклонение > ±15 сек — ошибка.
    ВАЖНО: дни типа tempo с subtype=race_pace имеют ДРУГОЙ целевой темп (MP, HMP, 10k-pace, R-pace) — это НЕ ошибка, НЕ отмечай их как pace_logic.
 2. ПРОГРЕССИЯ ОБЪЁМОВ: рост недельного объёма не более 15% от предыдущей (кроме recovery weeks). Скачки больше 15% — ошибка.
+   ВАЖНО: type=volume_jump используй только когда объём именно ВЫРОС слишком сильно. Простое снижение объёма не является volume_jump.
 3. ПРОГРЕССИЯ ДЛИТЕЛЬНОЙ: long run должен расти от недели к неделе (кроме recovery/taper). Если длительная уменьшилась без причины — ошибка.
 4. ДВЕ КЛЮЧЕВЫЕ ПОДРЯД: два is_key_workout=true дня подряд (следующие по day_of_week) — ошибка.
 5. RECOVERY WEEKS: если is_recovery=true, объём должен быть снижен на 15-25% от предыдущей обычной недели.
@@ -154,6 +206,11 @@ function buildReviewPrompt(array $plan, array $user, array $state): string
   ]
 }
 
+ПРАВИЛА ФОРМАТА ОТВЕТА:
+- У каждой issue обязательно должен быть week.
+- day_of_week указывай только если ошибка относится к конкретному дню.
+- Не возвращай текст вне JSON.
+
 Если ошибок нет — верни {"status": "ok", "issues": []}.
 Не придумывай ошибки. Будь строгим, но справедливым.
 PROMPT;
@@ -174,7 +231,7 @@ function buildCompactProfile(array $user, array $state): string
     $raceDate = $user['race_date'] ?? $user['target_marathon_date'] ?? '';
     $vdot = $state['vdot'] ?? '?';
     $vdotConf = $state['vdot_confidence'] ?? 'low';
-    $healthNotes = trim($user['health_notes'] ?? '');
+    $healthNotes = stringifyPromptValue($user['health_notes'] ?? '');
     $sessions = $user['sessions_per_week'] ?? 3;
 
     $paceRules = $state['pace_rules'] ?? [];
@@ -201,6 +258,96 @@ function buildCompactProfile(array $user, array $state): string
     }
 
     return implode("\n", $lines);
+}
+
+/**
+ * @param array<int, array<string, mixed>> $weeks
+ * @return array<int, array<string, mixed>>
+ */
+function buildCompactWeeksForEnrichment(array $weeks): array
+{
+    $result = [];
+    foreach ($weeks as $week) {
+        $result[] = [
+            'week_number' => (int) ($week['week_number'] ?? 0),
+            'phase' => (string) ($week['phase'] ?? ''),
+            'is_recovery' => !empty($week['is_recovery']),
+            'days' => buildCompactPromptDays((array) ($week['days'] ?? []), true),
+        ];
+    }
+
+    return $result;
+}
+
+/**
+ * @param array<int, array<string, mixed>> $weeks
+ * @return array<int, array<string, mixed>>
+ */
+function buildCompactWeeksForReview(array $weeks): array
+{
+    $result = [];
+    foreach ($weeks as $week) {
+        $days = buildCompactPromptDays((array) ($week['days'] ?? []), false);
+        $volume = 0.0;
+        foreach ($days as $day) {
+            $volume += (float) ($day['distance_km'] ?? 0.0);
+        }
+
+        $result[] = [
+            'week_number' => (int) ($week['week_number'] ?? 0),
+            'phase' => (string) ($week['phase'] ?? ''),
+            'is_recovery' => !empty($week['is_recovery']),
+            'planned_volume_km' => round($volume, 1),
+            'days' => $days,
+        ];
+    }
+
+    return $result;
+}
+
+/**
+ * @param array<int, array<string, mixed>> $days
+ * @return array<int, array<string, mixed>>
+ */
+function buildCompactPromptDays(array $days, bool $includeNotesHints): array
+{
+    $result = [];
+    foreach ($days as $day) {
+        $compact = [
+            'day_of_week' => (int) ($day['day_of_week'] ?? 0),
+            'type' => (string) ($day['type'] ?? 'rest'),
+        ];
+
+        foreach (['subtype', 'pace', 'description'] as $field) {
+            $value = trim((string) ($day[$field] ?? ''));
+            if ($value !== '') {
+                $compact[$field] = $value;
+            }
+        }
+
+        foreach (['distance_km', 'warmup_km', 'cooldown_km', 'tempo_km', 'interval_m', 'rest_m', 'duration_minutes'] as $field) {
+            if (isset($day[$field]) && is_numeric($day[$field])) {
+                $compact[$field] = (float) $day[$field];
+            }
+        }
+
+        if (isset($day['reps']) && is_numeric($day['reps'])) {
+            $compact['reps'] = (int) $day['reps'];
+        }
+
+        if (!empty($day['is_key_workout'])) {
+            $compact['is_key_workout'] = true;
+        }
+
+        if ($includeNotesHints) {
+            $compact['needs_note'] = in_array($compact['type'], ['interval', 'fartlek', 'tempo', 'control'], true)
+                || !empty($compact['is_key_workout']);
+        }
+
+        $result[] = $compact;
+    }
+
+    return $result;
 }
 
 if (!function_exists('formatPaceSec')) {

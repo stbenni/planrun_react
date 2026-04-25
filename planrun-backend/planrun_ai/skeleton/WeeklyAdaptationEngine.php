@@ -9,6 +9,8 @@
 
 require_once __DIR__ . '/../../prepare_weekly_analysis.php';
 require_once __DIR__ . '/../../services/TrainingStateBuilder.php';
+require_once __DIR__ . '/../../services/PostWorkoutFollowupService.php';
+require_once __DIR__ . '/../../services/AthleteSignalsService.php';
 require_once __DIR__ . '/../prompt_builder.php';
 
 class WeeklyAdaptationEngine
@@ -53,7 +55,7 @@ class WeeklyAdaptationEngine
         $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
 
         // Шаг 3: Считаем метрики
-        $metrics = $this->computeMetrics($analysis);
+        $metrics = $this->computeMetrics($userId, $analysis);
 
         // Шаг 4: Проверяем историю предыдущих недель (для consecutive low compliance)
         $recentHistory = $this->getRecentWeeksHistory($userId, $weekNumber, 3);
@@ -90,7 +92,7 @@ class WeeklyAdaptationEngine
     /**
      * Вычислить метрики за неделю из данных анализа.
      */
-    private function computeMetrics(array $analysis): array
+    private function computeMetrics(int $userId, array $analysis): array
     {
         $stats = $analysis['statistics'] ?? [];
         $week = $analysis['week'] ?? [];
@@ -151,6 +153,9 @@ class WeeklyAdaptationEngine
             ? (int) round(array_sum($actualEasyPaces) / count($actualEasyPaces))
             : null;
 
+        $feedbackMetrics = $this->getSubjectiveFeedbackMetrics($userId, (string) ($week['start_date'] ?? ''));
+        $athleteSignals = $this->getAthleteSignalsMetrics($userId, (string) ($week['start_date'] ?? ''));
+
         return [
             'planned_volume_km' => $plannedVolume,
             'actual_volume_km' => $actualVolume,
@@ -163,7 +168,32 @@ class WeeklyAdaptationEngine
             'planned_days' => (int) ($stats['planned_days'] ?? 0),
             'completion_rate' => (float) ($stats['completion_rate'] ?? 0),
             'avg_actual_easy_pace_sec' => $avgActualEasyPaceSec,
+            'planned_easy_pace_sec' => isset($analysis['user']['easy_pace_sec']) ? (int) $analysis['user']['easy_pace_sec'] : null,
             'avg_heart_rate' => $stats['avg_heart_rate'] ?? null,
+            'subjective_feedback_total' => (int) ($feedbackMetrics['total_responses'] ?? 0),
+            'subjective_good_count' => (int) ($feedbackMetrics['good_count'] ?? 0),
+            'subjective_fatigue_count' => (int) ($feedbackMetrics['fatigue_count'] ?? 0),
+            'subjective_pain_count' => (int) ($feedbackMetrics['pain_count'] ?? 0),
+            'subjective_recovery_risk' => (float) ($feedbackMetrics['recent_average_recovery_risk'] ?? 0.0),
+            'subjective_risk_level' => (string) ($feedbackMetrics['risk_level'] ?? 'low'),
+            'subjective_recent_session_rpe' => (float) ($feedbackMetrics['recent_session_rpe_avg'] ?? 0.0),
+            'subjective_session_rpe_delta' => (float) ($feedbackMetrics['session_rpe_delta'] ?? 0.0),
+            'subjective_recent_legs_score' => (float) ($feedbackMetrics['recent_legs_score_avg'] ?? 0.0),
+            'subjective_recent_breath_score' => (float) ($feedbackMetrics['recent_breath_score_avg'] ?? 0.0),
+            'subjective_recent_hr_strain_score' => (float) ($feedbackMetrics['recent_hr_strain_score_avg'] ?? 0.0),
+            'subjective_recent_pain_score' => (float) ($feedbackMetrics['recent_pain_score_avg'] ?? 0.0),
+            'subjective_pain_score_delta' => (float) ($feedbackMetrics['pain_score_delta'] ?? 0.0),
+            'subjective_load_delta' => (float) ($feedbackMetrics['subjective_load_delta'] ?? 0.0),
+            'athlete_signal_overall_risk_level' => (string) ($athleteSignals['overall_risk_level'] ?? 'low'),
+            'athlete_signal_note_risk_level' => (string) ($athleteSignals['note_risk_level'] ?? 'low'),
+            'athlete_signal_note_risk_score' => (float) ($athleteSignals['note_risk_score'] ?? 0.0),
+            'athlete_signal_note_pain_count' => (int) ($athleteSignals['note_pain_count'] ?? 0),
+            'athlete_signal_note_fatigue_count' => (int) ($athleteSignals['note_fatigue_count'] ?? 0),
+            'athlete_signal_note_sleep_count' => (int) ($athleteSignals['note_sleep_count'] ?? 0),
+            'athlete_signal_note_illness_count' => (int) ($athleteSignals['note_illness_count'] ?? 0),
+            'athlete_signal_note_stress_count' => (int) ($athleteSignals['note_stress_count'] ?? 0),
+            'athlete_signal_note_travel_count' => (int) ($athleteSignals['note_travel_count'] ?? 0),
+            'athlete_signal_highlights' => (array) ($athleteSignals['highlights'] ?? []),
         ];
     }
 
@@ -238,6 +268,43 @@ class WeeklyAdaptationEngine
             }
         }
 
+        if (
+            ($metrics['subjective_pain_count'] ?? 0) > 0
+            || (float) ($metrics['subjective_recent_pain_score'] ?? 0.0) >= 4.0
+            || (float) ($metrics['subjective_pain_score_delta'] ?? 0.0) >= 2.0
+        ) {
+            $triggers[] = 'subjective_pain_signal';
+        }
+
+        if (
+            ($metrics['subjective_fatigue_count'] ?? 0) >= 2
+            || (float) ($metrics['subjective_recovery_risk'] ?? 0.0) >= 0.60
+            || (float) ($metrics['subjective_load_delta'] ?? 0.0) >= 0.75
+            || (
+                (float) ($metrics['subjective_recent_session_rpe'] ?? 0.0) >= 7.5
+                && (float) ($metrics['subjective_session_rpe_delta'] ?? 0.0) >= 0.75
+            )
+            || (float) ($metrics['subjective_recent_legs_score'] ?? 0.0) >= 8.0
+            || (float) ($metrics['subjective_recent_breath_score'] ?? 0.0) >= 8.0
+            || (float) ($metrics['subjective_recent_hr_strain_score'] ?? 0.0) >= 8.0
+        ) {
+            $triggers[] = 'subjective_fatigue_signal';
+        }
+
+        if (($metrics['athlete_signal_note_illness_count'] ?? 0) > 0) {
+            $triggers[] = 'athlete_illness_signal';
+        }
+
+        if (
+            (float) ($metrics['athlete_signal_note_risk_score'] ?? 0.0) >= 0.55
+            ||
+            ($metrics['athlete_signal_note_sleep_count'] ?? 0) > 0
+            || ($metrics['athlete_signal_note_stress_count'] ?? 0) > 0
+            || ($metrics['athlete_signal_note_travel_count'] ?? 0) > 0
+        ) {
+            $triggers[] = 'athlete_recovery_context_signal';
+        }
+
         // 6. Consecutive low compliance (2+ недели подряд < 70%)
         $consecutiveLow = 0;
         if ($metrics['compliance'] < self::COMPLIANCE_LOW) {
@@ -267,8 +334,24 @@ class WeeklyAdaptationEngine
         }
 
         // Приоритет триггеров (от более серьёзных к менее)
+        if (in_array('athlete_illness_signal', $triggers, true)) {
+            return 'insert_recovery';
+        }
+
+        if (in_array('subjective_pain_signal', $triggers, true)) {
+            return 'insert_recovery';
+        }
+
         if (in_array('consecutive_low_compliance', $triggers, true)) {
             return 'volume_down_significant'; // снизить на 15-20%
+        }
+
+        if (in_array('subjective_fatigue_signal', $triggers, true)) {
+            return 'volume_down';
+        }
+
+        if (in_array('athlete_recovery_context_signal', $triggers, true)) {
+            return 'volume_down';
         }
 
         if (in_array('many_skipped_days', $triggers, true)) {
@@ -484,7 +567,7 @@ class WeeklyAdaptationEngine
         ?string $adaptationType,
         ?array $goalStatus
     ): ?string {
-        $weekData = buildWeeklyReviewPromptData($analysis);
+        $weekData = $this->buildWeeklyReviewPromptData($analysis);
 
         // Дополняем контекстом адаптации
         $adaptationContext = '';
@@ -505,9 +588,14 @@ class WeeklyAdaptationEngine
             $adaptationContext .= "\n\nЦЕЛЬ: " . $goalStatus['message'];
         }
 
+        $signalHighlights = array_slice((array) ($metrics['athlete_signal_highlights'] ?? []), 0, 3);
+        if (!empty($signalHighlights)) {
+            $adaptationContext .= "\n\nATHLETE SIGNALS: " . implode(' | ', $signalHighlights);
+        }
+
         $username = $analysis['user']['username'] ?? 'спортсмен';
 
-        return generateWeeklyReview($weekData . $adaptationContext, $username);
+        return $this->generateWeeklyReview($weekData . $adaptationContext, $username);
     }
 
     /**
@@ -543,6 +631,26 @@ class WeeklyAdaptationEngine
             $parts[] = "Выполнено {$metrics['completed_key_workouts']} из {$metrics['planned_key_workouts']} ключевых тренировок.";
         }
 
+        if (($metrics['subjective_pain_count'] ?? 0) > 0) {
+            $parts[] = 'Ты отметил боль или тревожный сигнал по самочувствию после тренировки, поэтому приоритет сейчас — восстановление.';
+        } elseif (
+            ($metrics['subjective_fatigue_count'] ?? 0) > 0
+            || (float) ($metrics['subjective_load_delta'] ?? 0.0) >= 0.45
+            || (float) ($metrics['subjective_recent_session_rpe'] ?? 0.0) >= 7.0
+        ) {
+            $parts[] = 'По самочувствию видно накопление усталости, поэтому нагрузку лучше держать под контролем.';
+        }
+
+        if (($metrics['athlete_signal_note_illness_count'] ?? 0) > 0) {
+            $parts[] = 'В заметках недели или дня есть сигнал про болезнь или простуду, поэтому ближайшая нагрузка должна быть осторожнее.';
+        } elseif (
+            ($metrics['athlete_signal_note_sleep_count'] ?? 0) > 0
+            || ($metrics['athlete_signal_note_stress_count'] ?? 0) > 0
+            || ($metrics['athlete_signal_note_travel_count'] ?? 0) > 0
+        ) {
+            $parts[] = 'В заметках есть контекст сна, стресса или поездок, и это тоже учтено в адаптации недели.';
+        }
+
         if ($adaptationType) {
             $adaptationMessages = [
                 'volume_down' => 'Я немного снизил нагрузку на следующие недели, чтобы план был реалистичнее.',
@@ -565,6 +673,152 @@ class WeeklyAdaptationEngine
         return implode(' ', $parts);
     }
 
+    private function buildWeeklyReviewPromptData(array $analysis): string
+    {
+        $stats = $analysis['statistics'] ?? [];
+        $days = $analysis['days'] ?? [];
+        $user = $analysis['user'] ?? [];
+        $week = $analysis['week'] ?? [];
+
+        $lines = [];
+        $lines[] = "НЕДЕЛЯ #{$week['number']} (с {$week['start_date']})";
+        $lines[] = "Плановый объём: " . ($week['planned_volume_km'] ?? '?') . " км";
+        $lines[] = "Фактический объём: " . ($stats['actual_volume_km'] ?? 0) . " км";
+        $lines[] = "Выполнено тренировок: " . ($stats['completed_days'] ?? 0) . " из " . ($stats['planned_days'] ?? 0);
+        $lines[] = "% выполнения: " . ($stats['completion_rate'] ?? 0) . "%";
+
+        if (!empty($stats['avg_heart_rate'])) {
+            $lines[] = "Средний пульс: " . $stats['avg_heart_rate'] . " уд/мин";
+        }
+
+        $lines[] = "";
+        $dayLabels = [
+            'mon' => 'Пн',
+            'tue' => 'Вт',
+            'wed' => 'Ср',
+            'thu' => 'Чт',
+            'fri' => 'Пт',
+            'sat' => 'Сб',
+            'sun' => 'Вс',
+        ];
+
+        foreach ($days as $day) {
+            $dn = $dayLabels[$day['day_name'] ?? ''] ?? ($day['day_name'] ?? '');
+            $planned = $day['planned'] ?? null;
+            $actual = $day['actual'] ?? [];
+            $completed = !empty($actual);
+
+            $planType = $planned['type'] ?? 'rest';
+            $planDesc = $planned['description'] ?? '';
+            $isKey = !empty($planned['is_key_workout']);
+            $keyMark = $isKey ? ' [ключевая]' : '';
+
+            if ($planType === 'rest') {
+                $lines[] = "{$dn}: Отдых" . ($completed ? " (но была тренировка)" : "");
+                continue;
+            }
+
+            $status = $completed ? 'ВЫПОЛНЕНО' : 'ПРОПУЩЕНО';
+            $lines[] = "{$dn}: {$planDesc}{$keyMark} — {$status}";
+
+            if ($completed) {
+                foreach ($actual as $workout) {
+                    $parts = [];
+                    if (!empty($workout['distance_km'])) {
+                        $parts[] = round((float) $workout['distance_km'], 1) . ' км';
+                    }
+                    if (!empty($workout['pace'])) {
+                        $parts[] = 'темп ' . $workout['pace'];
+                    }
+                    if (!empty($workout['duration_minutes'])) {
+                        $parts[] = $workout['duration_minutes'] . ' мин';
+                    }
+                    if (!empty($workout['avg_heart_rate'])) {
+                        $parts[] = 'пульс ' . $workout['avg_heart_rate'];
+                    }
+                    if ($parts !== []) {
+                        $lines[] = '  → ' . implode(', ', $parts);
+                    }
+                }
+            }
+        }
+
+        $goalType = $user['goal_type'] ?? '';
+        $raceDate = $user['race_date'] ?? $user['target_marathon_date'] ?? '';
+        $raceTime = $user['race_target_time'] ?? $user['target_marathon_time'] ?? '';
+        $raceDist = $user['race_distance'] ?? '';
+
+        $lines[] = "";
+        if ($goalType === 'race' && $raceDate) {
+            $lines[] = "Цель: забег {$raceDist}, дата {$raceDate}, целевое время {$raceTime}";
+        } elseif ($goalType !== '') {
+            $lines[] = "Цель: {$goalType}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function generateWeeklyReview(string $weekData, string $username): ?string
+    {
+        $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
+        $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+
+        if ($baseUrl === '' || $model === '') {
+            error_log('weekly_adaptation: LLM_CHAT_BASE_URL or LLM_CHAT_MODEL not set');
+            return null;
+        }
+
+        $systemPrompt = <<<PROMPT
+Ты — AI-тренер PlanRun. Напиши еженедельное ревью тренировок.
+
+Правила:
+- 4-6 предложений, дружелюбный профессиональный тон.
+- Конкретика: упомяни объём, ключевые тренировки, темп/пульс если есть.
+- Если забег близко (<14 дней) — напомни о снижении нагрузки перед стартом и восстановлении.
+- При пропусках — мягко, без укоров. При >80% — конкретная похвала.
+- 1-2 совета на следующую неделю.
+- СТРОГО русский язык. Без emoji.
+PROMPT;
+
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => "Спортсмен: {$username}\n\nДанные недели:\n\n" . $weekData],
+            ],
+            'stream' => false,
+            'max_tokens' => 800,
+            'temperature' => 0.5,
+        ];
+
+        $url = $baseUrl . '/chat/completions';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 90,
+            CURLOPT_CONNECTTIMEOUT => 10,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode !== 200 || $response === false) {
+            error_log("weekly_adaptation: LLM HTTP {$httpCode}");
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        $content = trim((string) ($data['choices'][0]['message']['content'] ?? ''));
+        if ($content === '') {
+            return null;
+        }
+
+        return mb_substr($content, 0, 4000);
+    }
+
     /**
      * Обновить weekly_base_km пользователя.
      */
@@ -574,12 +828,9 @@ class WeeklyAdaptationEngine
             $newBase = 3.0; // минимум
         }
 
-        $stmt = $this->db->prepare("UPDATE users SET weekly_base_km = ? WHERE id = ?");
-        if ($stmt) {
-            $stmt->bind_param('di', $newBase, $userId);
-            $stmt->execute();
-            $stmt->close();
-        }
+        require_once __DIR__ . '/../../repositories/UserRepository.php';
+        $userRepo = new UserRepository($this->db);
+        $userRepo->update($userId, ['weekly_base_km' => $newBase]);
     }
 
     /**
@@ -587,10 +838,40 @@ class WeeklyAdaptationEngine
      */
     private function getPlannedEasyPaceSec(array $metrics): int
     {
-        // Будет вычислен при вызове через TrainingStateBuilder,
-        // здесь возвращаем 0 если нет данных — триггер не сработает.
-        // Реальное значение берётся из user.easy_pace_sec в анализе.
-        return 0;
+        $pace = isset($metrics['planned_easy_pace_sec']) ? (int) $metrics['planned_easy_pace_sec'] : 0;
+        return $pace > 0 ? $pace : 0;
+    }
+
+    private function getSubjectiveFeedbackMetrics(int $userId, string $weekStartDate): array
+    {
+        if (!$this->isValidDate($weekStartDate)) {
+            return [];
+        }
+
+        $weekEndDate = date('Y-m-d', strtotime($weekStartDate . ' +6 days'));
+        $service = new PostWorkoutFollowupService($this->db);
+
+        try {
+            return $service->getFeedbackAnalyticsBetween($userId, $weekStartDate, $weekEndDate);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function getAthleteSignalsMetrics(int $userId, string $weekStartDate): array
+    {
+        if (!$this->isValidDate($weekStartDate)) {
+            return [];
+        }
+
+        $weekEndDate = date('Y-m-d', strtotime($weekStartDate . ' +6 days'));
+        $service = new AthleteSignalsService($this->db);
+
+        try {
+            return $service->getSignalsBetween($userId, $weekStartDate, $weekEndDate);
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 
     /**
@@ -709,6 +990,11 @@ class WeeklyAdaptationEngine
             return sprintf('%d:%02d:%02d', $h, $m, $s);
         }
         return sprintf('%d:%02d', $m, $s);
+    }
+
+    private function isValidDate(string $date): bool
+    {
+        return (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $date);
     }
 
     private function noDataResult(string $message): array

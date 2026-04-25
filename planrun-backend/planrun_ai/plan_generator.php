@@ -6,7 +6,12 @@
 
 require_once __DIR__ . '/planrun_ai_integration.php';
 require_once __DIR__ . '/prompt_builder.php';
+require_once __DIR__ . '/plan_normalizer.php';
+require_once __DIR__ . '/plan_validator.php';
+require_once __DIR__ . '/../services/TrainingStateBuilder.php';
+require_once __DIR__ . '/../services/PlanSkeletonBuilder.php';
 require_once __DIR__ . '/../db_config.php';
+require_once __DIR__ . '/../repositories/WeekRepository.php';
 
 /**
  * Проверка доступности PlanRun AI системы
@@ -270,7 +275,7 @@ function validatePlanStructure(array $planData, int $userId): array {
             }
             // Проверка типа
             $type = strtolower(trim($day['type'] ?? ''));
-            $allowed = ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free',
+            $allowed = ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'rest', 'other', 'sbu', 'race', 'free', 'walking',
                         'easy_run', 'long_run', 'long-run', 'ofp', 'marathon'];
             if (!in_array($type, $allowed, true)) {
                 $warnings[] = "Неделя " . ($wi + 1) . " день " . ($di + 1) . ": неизвестный тип '{$type}' → rest";
@@ -342,14 +347,8 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     $cutoffDate = (new DateTime())->modify('monday this week')->format('Y-m-d');
 
     // Сколько недель в текущем плане сохраняется (до cutoff)
-    $stmt = $db->prepare(
-        "SELECT MAX(week_number) AS max_wn FROM training_plan_weeks WHERE user_id = ? AND start_date < ?"
-    );
-    $stmt->bind_param('is', $userId, $cutoffDate);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    $keptWeeks = (int) ($row['max_wn'] ?? 0);
+    $weekRepo = new WeekRepository($db);
+    $keptWeeks = $weekRepo->getMaxWeekNumberBefore($userId, $cutoffDate);
 
     // Определяем общее число недель плана и сколько генерировать
     $totalPlanWeeks = getSuggestedPlanWeeks($user, $goalType) ?? 12;
@@ -950,4 +949,213 @@ function parsePlanRunAIResponse($response) {
     }
     
     return $plan;
+}
+
+function decodeGeneratedPlanResponse(string $response, array $userData, string $sourceLabel = 'PlanRun AI'): array {
+    $plan = parseAndRepairPlanJSON($response, 0);
+    $expectedWeeks = !empty($userData['plan_skeleton']['weeks']) && is_array($userData['plan_skeleton']['weeks'])
+        ? count($userData['plan_skeleton']['weeks'])
+        : 0;
+
+    if ($expectedWeeks > 0) {
+        $actualWeeks = count($plan['weeks'] ?? []);
+        if ($actualWeeks < $expectedWeeks) {
+            throw new Exception("Неполный план от {$sourceLabel}: ожидалось {$expectedWeeks} недель, получено {$actualWeeks}.");
+        }
+        if ($actualWeeks > $expectedWeeks) {
+            $plan['weeks'] = array_values(array_slice($plan['weeks'], 0, $expectedWeeks));
+        }
+    }
+
+    return $plan;
+}
+
+function buildPlanValidationContext(array $userData): array {
+    return [
+        'goal_type' => $userData['goal_type'] ?? ($userData['training_state']['goal_type'] ?? 'health'),
+        'preferred_days' => $userData['preferred_days'] ?? ($userData['training_state']['preferred_days'] ?? []),
+        'sessions_per_week' => (int) ($userData['sessions_per_week'] ?? ($userData['training_state']['sessions_per_week'] ?? 0)),
+        'expected_skeleton' => $userData['plan_skeleton'] ?? null,
+    ];
+}
+
+function buildTrainingStateForValidation(array $userData): array {
+    $trainingState = is_array($userData['training_state'] ?? null) ? $userData['training_state'] : [];
+
+    foreach ([
+        'goal_type',
+        'race_distance',
+        'goal_pace',
+        'goal_pace_sec',
+        'preferred_days',
+        'sessions_per_week',
+        'plan_intent_contract',
+        'load_policy',
+    ] as $key) {
+        if (!array_key_exists($key, $trainingState) && array_key_exists($key, $userData)) {
+            $trainingState[$key] = $userData[$key];
+        }
+    }
+
+    return $trainingState;
+}
+
+function normalizePlanGenerationUserFields(array $user): array {
+    foreach (['preferred_days', 'preferred_ofp_days'] as $field) {
+        if (!empty($user[$field]) && is_string($user[$field])) {
+            $user[$field] = json_decode($user[$field], true) ?: [];
+        } elseif (empty($user[$field]) || !is_array($user[$field])) {
+            $user[$field] = [];
+        }
+    }
+
+    return $user;
+}
+
+function hydratePlanGenerationUserState(mysqli $db, array $user): array {
+    $user = normalizePlanGenerationUserFields($user);
+    $builder = new TrainingStateBuilder($db);
+    $user['training_state'] = $builder->buildForUser($user);
+    return $user;
+}
+
+function attachPlanSkeleton(array $user, string $goalType, array $options = []): array {
+    $user = normalizePlanGenerationUserFields($user);
+    $builder = new PlanSkeletonBuilder();
+    $user['plan_skeleton'] = $builder->build($user, $goalType, $options);
+    return $user;
+}
+
+function normalizeGeneratedPlanForValidation(array $plan, array $user, string $startDate, int $weekNumberOffset = 0): array {
+    $user = normalizePlanGenerationUserFields($user);
+    $expectedSkeleton = $user['plan_skeleton'] ?? null;
+    $trainingState = buildTrainingStateForValidation($user);
+
+    $normalized = normalizeTrainingPlan($plan, $startDate, $weekNumberOffset, $user, $expectedSkeleton);
+    $normalized = applyTrainingStatePaceRepairs($normalized, $trainingState);
+    $normalized = applyTrainingStateWorkoutDetailFallbacks($normalized, $trainingState);
+    $normalized = applyTrainingStateLoadRepairs($normalized, $trainingState);
+    $normalized = applyTrainingStateMinimumDistanceRepairs($normalized, $trainingState);
+
+    return $normalized;
+}
+
+function buildCorrectiveRegenerationPrompt(string $basePrompt, array $validationIssues, array $planData): string {
+    $lines = [
+        $basePrompt,
+        '',
+        '═══ VALIDATION FAILURE ═══',
+        'Исправь план так, чтобы устранить критические нарушения ниже. Верни только исправленный JSON-план.',
+    ];
+
+    foreach ($validationIssues as $issue) {
+        $severity = strtoupper((string) ($issue['severity'] ?? 'warning'));
+        $code = (string) ($issue['code'] ?? 'unknown_issue');
+        $message = (string) ($issue['message'] ?? '');
+        $lines[] = "- {$severity} {$code}: {$message}";
+    }
+
+    $lines[] = '';
+    $lines[] = 'Текущий проблемный план:';
+    $lines[] = json_encode($planData, JSON_UNESCAPED_UNICODE);
+
+    return implode("\n", $lines);
+}
+
+function maybeApplyCorrectiveRegenerationToPlan(
+    array $planData,
+    array $userData,
+    string $basePrompt,
+    string $startDate,
+    int $weekNumberOffset,
+    $userId = 0,
+    $generator = null,
+    string $sourceLabel = 'PlanRun AI',
+    string $generationMode = 'generate'
+): array {
+    $validationContext = buildPlanValidationContext($userData);
+    $trainingState = buildTrainingStateForValidation($userData);
+
+    $normalized = normalizeTrainingPlan($planData, $startDate, $weekNumberOffset, $userData, $validationContext['expected_skeleton']);
+    $issues = collectNormalizedPlanValidationIssues($normalized, $trainingState, $validationContext);
+    $needsRepair = shouldRunCorrectiveRegeneration($issues);
+
+    $metadata = [
+        'generation_mode' => $generationMode,
+        'repair_count' => 0,
+        'corrective_regeneration_used' => false,
+        'vdot_source' => $trainingState['vdot_source'] ?? null,
+        'validation_issue_count_before' => count($issues),
+    ];
+
+    if (!$needsRepair) {
+        $planData['_generation_metadata'] = $metadata;
+        return $planData;
+    }
+
+    if (!is_callable($generator)) {
+        $generator = static function (string $prompt) use ($userData, $userId): string {
+            $resolvedUserId = is_numeric($userId) ? (int) $userId : null;
+            return callAIAPI($prompt, $userData, 1, $resolvedUserId);
+        };
+    }
+
+    $correctivePrompt = buildCorrectiveRegenerationPrompt($basePrompt, $issues, $planData);
+    $rawCorrected = $generator($correctivePrompt);
+    if (!is_string($rawCorrected) || trim($rawCorrected) === '') {
+        $planData['_generation_metadata'] = $metadata;
+        return $planData;
+    }
+
+    try {
+        $correctedPlan = decodeGeneratedPlanResponse($rawCorrected, $userData, $sourceLabel);
+    } catch (Exception $e) {
+        $planData['_generation_metadata'] = $metadata;
+        return $planData;
+    }
+
+    $normalizedCorrected = normalizeTrainingPlan($correctedPlan, $startDate, $weekNumberOffset, $userData, $validationContext['expected_skeleton']);
+    $correctedIssues = collectNormalizedPlanValidationIssues($normalizedCorrected, $trainingState, $validationContext);
+
+    if (scoreValidationIssues($correctedIssues) <= scoreValidationIssues($issues)) {
+        $metadata['repair_count'] = 1;
+        $metadata['corrective_regeneration_used'] = true;
+        $metadata['validation_issue_count_after'] = count($correctedIssues);
+        $correctedPlan['_generation_metadata'] = $metadata;
+        return $correctedPlan;
+    }
+
+    $planData['_generation_metadata'] = $metadata;
+    return $planData;
+}
+
+function isRunningRelevantWorkoutEntry(array $workout): bool {
+    $distanceKm = (float) ($workout['distance_km'] ?? 0.0);
+    if ($distanceKm <= 0.0) {
+        return false;
+    }
+
+    $source = trim(mb_strtolower((string) ($workout['source'] ?? ''), 'UTF-8'));
+    if ($source === 'manual') {
+        return true;
+    }
+
+    $activityType = trim(mb_strtolower((string) ($workout['activity_type'] ?? ''), 'UTF-8'));
+    if (in_array($activityType, ['walking', 'walk', 'hiking'], true)) {
+        return false;
+    }
+    if (in_array($activityType, ['running', 'run', 'trail running', 'treadmill'], true)) {
+        return true;
+    }
+
+    $planType = trim(mb_strtolower((string) ($workout['plan_type'] ?? ''), 'UTF-8'));
+    return in_array($planType, ['easy', 'long', 'tempo', 'interval', 'fartlek', 'control', 'race', 'free'], true);
+}
+
+function resolveRecalculationCutoffDateValue(string $today, bool $hasRunningWorkoutToday): string {
+    if (!$hasRunningWorkoutToday) {
+        return $today;
+    }
+
+    return date('Y-m-d', strtotime($today . ' +1 day'));
 }
