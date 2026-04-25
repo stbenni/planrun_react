@@ -24,7 +24,12 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
         $cacheKey = "training_plan_{$userId}";
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
-            return $cached;
+            $cachedWeeks = isset($cached['weeks_data']) && is_array($cached['weeks_data'])
+                ? $cached['weeks_data']
+                : [];
+            if (!empty($cachedWeeks)) {
+                return $cached;
+            }
         }
     }
     
@@ -136,7 +141,7 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
     ];
     
     // Кешируем результат (15 минут - план может изменяться)
-    if ($useCache) {
+    if ($useCache && !empty($weeks_data)) {
         $cacheKey = "training_plan_{$userId}";
         if (Cache::set($cacheKey, $result, 900)) {
             Logger::debug("Training plan cached", [
@@ -149,9 +154,14 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
     return $result;
 }
 
-// Для обратной совместимости: если вызывается напрямую без параметра
-if (!function_exists('getCurrentUserId')) {
-    die('Error: user_functions.php not loaded');
-}
+// Для обратной совместимости выполняем загрузку только при прямом запуске файла.
+// При require_once файл должен лишь объявлять функцию, иначе API-запросы могут
+// закешировать пустой план до завершения фоновой генерации.
+$scriptFilename = isset($_SERVER['SCRIPT_FILENAME']) ? realpath((string) $_SERVER['SCRIPT_FILENAME']) : false;
+if ($scriptFilename !== false && $scriptFilename === __FILE__) {
+    if (!function_exists('getCurrentUserId')) {
+        die('Error: user_functions.php not loaded');
+    }
 
-return loadTrainingPlanForUser(getCurrentUserId());
+    return loadTrainingPlanForUser(getCurrentUserId());
+}
