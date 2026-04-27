@@ -9,6 +9,7 @@ require_once __DIR__ . '/../calendar_access.php';
 require_once __DIR__ . '/../query_helpers.php';
 require_once __DIR__ . '/../repositories/WorkoutRepository.php';
 require_once __DIR__ . '/../validators/WorkoutValidator.php';
+require_once __DIR__ . '/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/WorkoutShareCardCacheService.php';
 
 class WorkoutService extends BaseService {
@@ -52,6 +53,37 @@ class WorkoutService extends BaseService {
                 'error' => $e->getMessage(),
             ]);
             return 0;
+        }
+    }
+
+    private function schedulePostWorkoutFollowup(int $userId, string $workoutDate, string $sourceKind, int $sourceId, ?int $analysisMessageId = null): bool {
+        if ($userId <= 0 || $sourceId <= 0) {
+            return false;
+        }
+
+        try {
+            $scheduled = (new PostWorkoutFollowupService($this->db))->scheduleForWorkout(
+                $userId,
+                $workoutDate,
+                $sourceKind,
+                $sourceId,
+                $analysisMessageId
+            );
+            $this->logDebug('Post-workout followup scheduling checked', [
+                'user_id' => $userId,
+                'source_kind' => $sourceKind,
+                'source_id' => $sourceId,
+                'scheduled' => $scheduled,
+            ]);
+            return $scheduled;
+        } catch (Throwable $e) {
+            $this->logError('Post-workout followup scheduling failed', [
+                'user_id' => $userId,
+                'source_kind' => $sourceKind,
+                'source_id' => $sourceId,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
         }
     }
 
@@ -622,6 +654,8 @@ class WorkoutService extends BaseService {
             if ($shareQueueJobs > 0) {
                 $this->launchWorkoutShareWorkerAsync();
             }
+
+            $this->schedulePostWorkoutFollowup((int) $userId, $date, 'workout_log', $workoutLogId);
             
             return ['success' => true, 'workout_log_id' => $workoutLogId];
         } catch (Exception $e) {
@@ -700,6 +734,7 @@ class WorkoutService extends BaseService {
                     $this->saveWorkoutTimeline((int)$existing['id'], $w['timeline'] ?? null);
                     $this->saveWorkoutLaps((int)$existing['id'], $w['laps'] ?? null);
                     $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, (int) $existing['id'], WorkoutShareCardCacheService::KIND_WORKOUT);
+                    $this->schedulePostWorkoutFollowup((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', (int) $existing['id']);
                 } else {
                     $skipped++;
                 }
@@ -763,6 +798,7 @@ class WorkoutService extends BaseService {
                 $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
                 $this->saveWorkoutLaps($workoutId, $w['laps'] ?? null);
                 $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, $workoutId, WorkoutShareCardCacheService::KIND_WORKOUT);
+                $this->schedulePostWorkoutFollowup((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', $workoutId);
             } else {
                 $skipped++;
             }

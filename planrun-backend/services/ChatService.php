@@ -15,6 +15,7 @@ require_once __DIR__ . '/ChatConfirmationHandler.php';
 require_once __DIR__ . '/ChatActionParser.php';
 require_once __DIR__ . '/ChatMemoryManager.php';
 require_once __DIR__ . '/DateResolver.php';
+require_once __DIR__ . '/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/PushNotificationService.php';
 require_once __DIR__ . '/../config/Logger.php';
 require_once __DIR__ . '/../user_functions.php';
@@ -53,6 +54,38 @@ class ChatService extends BaseService {
         $this->confirmationHandler = new ChatConfirmationHandler($db, $this->toolRegistry);
         $this->actionParser = new ChatActionParser($db, $this->toolRegistry, $this->confirmationHandler);
         $this->memoryManager = new ChatMemoryManager($db);
+    }
+
+    private function tryHandlePostWorkoutFollowupReply(int $userId, int $conversationId, int $userMessageId, string $content): ?array {
+        try {
+            return (new PostWorkoutFollowupService($this->db))->tryHandleUserReply(
+                $userId,
+                $conversationId,
+                $userMessageId,
+                $content
+            );
+        } catch (Throwable $e) {
+            Logger::warning('Post-workout followup reply handling failed', [
+                'userId' => $userId,
+                'messageId' => $userMessageId,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    private function persistPostWorkoutFollowupReply(int $userId, int $conversationId, array $followupReply): int {
+        $assistantContent = trim((string) ($followupReply['assistant_content'] ?? ''));
+        if ($assistantContent === '') {
+            return 0;
+        }
+
+        $metadata = is_array($followupReply['metadata'] ?? null) ? $followupReply['metadata'] : [];
+        $messageId = $this->repository->addMessage($conversationId, 'ai', null, $assistantContent, $metadata);
+        $this->repository->touchConversation($conversationId);
+        $this->triggerMemoryExtraction($userId, $conversationId);
+
+        return (int) $messageId;
     }
 
     // ═══ Health ═══
@@ -141,8 +174,15 @@ class ChatService extends BaseService {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
-        $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
+        $userMessageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
         $this->repository->touchConversation($conversation['id']);
+
+        $followupReply = $this->tryHandlePostWorkoutFollowupReply($userId, (int) $conversation['id'], $userMessageId, $content);
+        if ($followupReply !== null) {
+            $messageId = $this->persistPostWorkoutFollowupReply($userId, (int) $conversation['id'], $followupReply);
+            return ['content' => (string) ($followupReply['assistant_content'] ?? ''), 'message_id' => $messageId];
+        }
+
         $this->applyHistorySummarization($userId, $conversation['id'], $history);
 
         $context = $this->contextBuilder->buildContextForUser($userId);
@@ -174,8 +214,21 @@ class ChatService extends BaseService {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
-        $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
+        $userMessageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
         $this->repository->touchConversation($conversation['id']);
+
+        $followupReply = $this->tryHandlePostWorkoutFollowupReply($userId, (int) $conversation['id'], $userMessageId, $content);
+        if ($followupReply !== null) {
+            $assistantContent = (string) ($followupReply['assistant_content'] ?? '');
+            $this->persistPostWorkoutFollowupReply($userId, (int) $conversation['id'], $followupReply);
+            if ($assistantContent !== '') {
+                echo json_encode(['chunk' => $assistantContent], JSON_UNESCAPED_UNICODE) . "\n";
+            }
+            echo json_encode(['done' => true]) . "\n";
+            flush();
+            return;
+        }
+
         $this->applyHistorySummarization($userId, $conversation['id'], $history);
 
         $context = '';

@@ -97,7 +97,10 @@
 |--------|------------|
 | `plan_generation_worker.php` | Worker очереди генерации: `reserveNextJob()` -> `PlanGenerationProcessorService->process()` -> `markCompleted/markFailed` |
 | `weekly_ai_review.php` | Еженедельный cron: либо старое LLM review в чат, либо новый `AdaptationService->runWeeklyAdaptation()` при skeleton path |
+| `daily_briefing.php` | Ежедневный утренний брифинг AI-тренера по сегодняшней тренировке |
+| `weekly_digest.php` | Еженедельный дайджест AI-тренера по фактической неделе |
 | `eval_plan_generation.php` | Batch-eval AI генерации на реальных пользователях или synthetic fixtures; собирает артефакты `first-pass` и `full` режимов |
+| `post_workout_followups.php` | Cron после тренировок: отправляет due check-in от AI-тренера по записям `post_workout_followups` |
 
 ### Что важно про `weekly_ai_review.php`
 

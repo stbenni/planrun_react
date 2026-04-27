@@ -6,6 +6,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../services/PostWorkoutFollowupService.php';
+require_once __DIR__ . '/../../services/ChatService.php';
 require_once __DIR__ . '/../../repositories/ChatRepository.php';
 
 class PostWorkoutFollowupServiceTest extends TestCase {
@@ -165,6 +166,82 @@ class PostWorkoutFollowupServiceTest extends TestCase {
         $this->assertTrue($summary['has_recent_fatigue']);
         $this->assertGreaterThanOrEqual(8.0, (float) $summary['recent_session_rpe_avg']);
         $this->assertSame('moderate', $summary['risk_level']);
+    }
+
+    public function test_chatService_routesFirstReplyToPostWorkoutFollowupWithoutLlm(): void {
+        $userId = $this->createTestUser();
+        $today = date('Y-m-d');
+
+        $insertWorkout = $this->db->prepare(
+            "INSERT INTO workout_log
+                (user_id, training_date, week_number, day_name, activity_type_id, is_completed, is_successful, distance_km, duration_minutes, updated_at)
+             VALUES (?, ?, 1, 'fri', 1, 1, 1, 9.1, 51, NOW())"
+        );
+        $insertWorkout->bind_param('is', $userId, $today);
+        $insertWorkout->execute();
+        $workoutLogId = (int) $this->db->insert_id;
+        $insertWorkout->close();
+
+        $chatRepo = new \ChatRepository($this->db);
+        $conversation = $chatRepo->getOrCreateConversation($userId, 'ai');
+        $followupMessageId = $chatRepo->addMessage(
+            (int) $conversation['id'],
+            'ai',
+            null,
+            'Как ощущения после тренировки?',
+            ['proactive_type' => 'post_workout_checkin']
+        );
+
+        $insertFollowup = $this->db->prepare(
+            "INSERT INTO post_workout_followups
+                (user_id, source_kind, source_id, workout_date, followup_message_id, status, due_at, sent_at)
+             VALUES (?, 'workout_log', ?, ?, ?, 'sent', NOW(), NOW())"
+        );
+        $insertFollowup->bind_param('iisi', $userId, $workoutLogId, $today, $followupMessageId);
+        $insertFollowup->execute();
+        $followupId = (int) $this->db->insert_id;
+        $insertFollowup->close();
+
+        $chatService = new \ChatService($this->db);
+        $response = $chatService->sendMessageAndGetResponse(
+            $userId,
+            'Очень тяжело, ноги забились. Тяжесть 7/10, ноги 8/10, дыхание 6/10, пульс 7/10, боль 0/10'
+        );
+
+        $assistantContent = mb_strtolower((string) ($response['content'] ?? ''));
+        $this->assertTrue(
+            str_contains($assistantContent, 'сохранил') || str_contains($assistantContent, 'отметил'),
+            'Ответ должен быть локальным post-workout ответом, а не обычным LLM-чатом.'
+        );
+
+        $followupStmt = $this->db->prepare(
+            "SELECT status, response_message_id, note_id, classification
+             FROM post_workout_followups
+             WHERE id = ?"
+        );
+        $followupStmt->bind_param('i', $followupId);
+        $followupStmt->execute();
+        $followupRow = $followupStmt->get_result()->fetch_assoc();
+        $followupStmt->close();
+
+        $this->assertSame('completed', $followupRow['status']);
+        $this->assertNotEmpty($followupRow['response_message_id']);
+        $this->assertNotEmpty($followupRow['note_id']);
+        $this->assertSame('fatigue', $followupRow['classification']);
+
+        $messageStmt = $this->db->prepare(
+            "SELECT metadata
+             FROM chat_messages
+             WHERE id = ? AND sender_type = 'ai'
+             LIMIT 1"
+        );
+        $messageId = (int) ($response['message_id'] ?? 0);
+        $messageStmt->bind_param('i', $messageId);
+        $messageStmt->execute();
+        $messageRow = $messageStmt->get_result()->fetch_assoc();
+        $messageStmt->close();
+
+        $this->assertStringContainsString('post_workout_checkin_reply', (string) ($messageRow['metadata'] ?? ''));
     }
 
     public function test_getRecentFeedbackAnalytics_computesStructuredMetricDeltasFromBaseline(): void {
