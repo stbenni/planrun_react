@@ -238,7 +238,166 @@ class TrainingStateBuilder {
             $state['goal_realism'] = $this->resolveGoalRealism($user, $state);
         }
 
+        // Phase B.1 (PR3): recent_compliance — последние 4 ISO-недели для recalc/next_plan.
+        // Phase B.2 (PR3): recent_workouts_detailed — последние 14 дней с RPE/HR/pace.
+        // Включаем только если у пользователя есть ID и данные за период.
+        if ($userId > 0 && $this->isRecentContextFeatureEnabled()) {
+            $recentCompliance = $this->buildRecentCompliance($userId);
+            if (!empty($recentCompliance)) {
+                $state['recent_compliance'] = $recentCompliance;
+            }
+            $recentWorkouts = $this->buildRecentWorkoutsDetailed($userId, 14);
+            if (!empty($recentWorkouts)) {
+                $state['recent_workouts_detailed'] = $recentWorkouts;
+            }
+        }
+
         return $state;
+    }
+
+    /**
+     * Phase B (PR3): feature flag для recent_compliance/recent_workouts_detailed.
+     * По умолчанию включено; отключается через PLANRUN_AI_STATE_RECENT_CONTEXT=0.
+     */
+    private function isRecentContextFeatureEnabled(): bool {
+        $raw = function_exists('env') ? env('PLANRUN_AI_STATE_RECENT_CONTEXT', '1') : '1';
+        $value = strtolower(trim((string) $raw));
+        return !in_array($value, ['0', 'false', 'no', 'off'], true);
+    }
+
+    /**
+     * Phase B.1 (PR3): compliance за последние 4 ISO-недели для FACTS_JSON.
+     * Возвращает массив (старая → свежая) с полями:
+     *   week_start, week_end, planned_count, completed_count, actual_km,
+     *   key_workout_planned, key_workout_completed, compliance_ratio,
+     *   key_workout_completion_pct, skipped_count.
+     *
+     * DeepSeek по этому массиву видит, как реально тренировался спортсмен:
+     * пропускал ли key workouts, не успевает ли по объёму, не перебирает ли.
+     */
+    private function buildRecentCompliance(int $userId, int $weeks = 4): array {
+        $now = new DateTimeImmutable('now');
+        $today = $now->format('Y-m-d');
+        $monday = $now->modify('monday this week')->format('Y-m-d');
+        $earliestMonday = (new DateTimeImmutable($monday))->modify('-' . ($weeks - 1) . ' weeks')->format('Y-m-d');
+
+        try {
+            $repo = $this->workoutRepo();
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        $result = [];
+        for ($i = $weeks - 1; $i >= 0; $i--) {
+            $weekStart = (new DateTimeImmutable($monday))->modify('-' . $i . ' weeks');
+            $weekEnd = $weekStart->modify('+6 days');
+            $weekStartStr = $weekStart->format('Y-m-d');
+            $weekEndStr = $weekEnd->format('Y-m-d');
+
+            // Не включаем будущие даты для текущей (последней) недели.
+            $effectiveEnd = $weekEndStr > $today ? $today : $weekEndStr;
+
+            try {
+                $compliance = $repo->getDetailedCompliance($userId, $weekStartStr, $effectiveEnd);
+            } catch (Throwable $e) {
+                continue;
+            }
+
+            $planned = (int) ($compliance['planned_count'] ?? 0);
+            $completed = (int) ($compliance['completed_count'] ?? 0);
+            $keyPlanned = (int) ($compliance['key_workout_planned'] ?? 0);
+            $keyDone = (int) ($compliance['key_workout_completed'] ?? 0);
+            $actualKm = (float) ($compliance['actual_km'] ?? 0.0);
+
+            $complianceRatio = $planned > 0 ? round($completed / $planned, 2) : null;
+            $keyPct = $keyPlanned > 0 ? round($keyDone / $keyPlanned, 2) : null;
+            $skipped = max(0, $planned - $completed);
+
+            // Пропускаем неделю, в которой не было ни плана, ни активности — нечего показывать DeepSeek.
+            if ($planned === 0 && $completed === 0 && $actualKm <= 0.0) {
+                continue;
+            }
+
+            $result[] = [
+                'week_start' => $weekStartStr,
+                'week_end' => $weekEndStr,
+                'planned_count' => $planned,
+                'completed_count' => $completed,
+                'skipped_count' => $skipped,
+                'actual_km' => $actualKm,
+                'key_workout_planned' => $keyPlanned,
+                'key_workout_completed' => $keyDone,
+                'compliance_ratio' => $complianceRatio,
+                'key_workout_completion_pct' => $keyPct,
+                'is_current_week' => ($weekStartStr === $monday),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Phase B.2 (PR3): recent_workouts_detailed для FACTS_JSON.
+     * Последние N дней (default 14) с типом, дистанцией, темпом, HR, RPE, заметками.
+     * DeepSeek видит фактическую усталость: pace deviation, HR drift, RPE rise.
+     */
+    private function buildRecentWorkoutsDetailed(int $userId, int $days = 14): array {
+        $today = (new DateTimeImmutable('now'))->format('Y-m-d');
+        $from = (new DateTimeImmutable('now'))->modify('-' . max(1, $days) . ' days')->format('Y-m-d');
+
+        try {
+            $repo = $this->workoutRepo();
+            $rows = $repo->getRecentDetailedWorkouts($userId, $from, $today);
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $distanceKm = isset($row['distance_km']) ? (float) $row['distance_km'] : 0.0;
+            $duration = isset($row['duration_minutes']) ? (int) $row['duration_minutes'] : null;
+
+            $paceSec = null;
+            if ($distanceKm > 0 && $duration !== null && $duration > 0) {
+                $paceSec = (int) round(($duration * 60.0) / $distanceKm);
+            }
+            $paceFormatted = null;
+            if ($paceSec !== null && $paceSec > 0 && function_exists('formatPaceSec')) {
+                $paceFormatted = formatPaceSec($paceSec);
+            } elseif (!empty($row['pace'])) {
+                $paceFormatted = (string) $row['pace'];
+            }
+
+            $hr = isset($row['avg_heart_rate']) && $row['avg_heart_rate'] !== null
+                ? (int) $row['avg_heart_rate']
+                : null;
+            $rpe = isset($row['rating']) && $row['rating'] !== null && $row['rating'] !== ''
+                ? (int) $row['rating']
+                : null;
+            $notes = isset($row['notes']) ? trim((string) $row['notes']) : '';
+            if (mb_strlen($notes) > 200) {
+                $notes = mb_substr($notes, 0, 200) . '…';
+            }
+
+            $entry = [
+                'date' => (string) ($row['date'] ?? ''),
+                'type' => (string) ($row['type'] ?? 'running'),
+                'is_key_workout' => !empty($row['is_key_workout']),
+                'distance_km' => $distanceKm > 0 ? round($distanceKm, 2) : null,
+                'duration_minutes' => $duration,
+                'pace_sec' => $paceSec,
+                'pace' => $paceFormatted,
+                'hr_avg' => $hr,
+                'rpe' => $rpe,
+                'source' => (string) ($row['source'] ?? 'manual'),
+            ];
+            if ($notes !== '') {
+                $entry['notes'] = $notes;
+            }
+            $result[] = $entry;
+        }
+
+        return $result;
     }
 
     private function isScenarioFeatureEnabled(): bool {

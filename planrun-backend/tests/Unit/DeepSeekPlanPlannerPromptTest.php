@@ -205,6 +205,31 @@ class DeepSeekPlanPlannerPromptTest extends TestCase
         $this->assertStringContainsString('recommended_target_time', $prompt);
     }
 
+    public function test_full_plan_prompt_includes_recent_compliance_and_workouts_guidance(): void
+    {
+        $method = new \ReflectionMethod($this->planner, 'buildFullPlanPrompt');
+        $method->setAccessible(true);
+
+        $prompt = $method->invoke($this->planner, [
+            'weeks_count' => 12,
+            'training_state' => ['load_policy' => null],
+            'recent_compliance' => [
+                ['week_start' => '2026-04-13', 'planned_count' => 5, 'completed_count' => 3, 'compliance_ratio' => 0.6],
+            ],
+            'recent_workouts' => [
+                ['date' => '2026-04-25', 'type' => 'easy', 'pace_sec' => 320, 'hr_avg' => 150, 'rpe' => 4],
+            ],
+            'hard_rules' => ['allowed_run_day_numbers' => [1, 3, 5, 7]],
+        ]);
+
+        $this->assertStringContainsString('recent_compliance', $prompt);
+        $this->assertStringContainsString('Контекст последних недель', $prompt);
+        $this->assertStringContainsString('key_workout_completion_pct', $prompt);
+        $this->assertStringContainsString('recent_workouts', $prompt);
+        $this->assertStringContainsString('hr_avg', $prompt);
+        $this->assertStringContainsString('rpe', $prompt);
+    }
+
     // Phase A.5 (PR3): compactPlanningScenario / compactGoalRealism удалены — DeepSeek получает
     // полный объект как есть. Соответствующий unit-тест удалён, новые проверки full-data попадают
     // в test_full_plan_prompt_includes_planning_scenario_and_goal_realism_guidance.

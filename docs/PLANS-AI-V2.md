@@ -439,20 +439,19 @@
 
 ### Phase B — контекст вместо контроля
 
-#### B.1 Recent compliance в FACTS_JSON
-- Для `recalculate` / `next_plan` (а опционально и для `generate`, если есть workout_log) добавить в FACTS_JSON:
-  - За последние 4 недели: `planned_km`, `actual_km`, `compliance_ratio`, `key_workout_completion_pct`, `easy_pace_deviation_sec`, `long_pace_deviation_sec`, `skipped_days`.
-  - DeepSeek принимает решение: ускорять, замедлять, добавить recovery, оставить как есть.
+#### B.1 ✅ Recent compliance в FACTS_JSON
+- ✅ `WorkoutRepository::getDetailedCompliance($userId, $from, $to)` — детальный compliance за период: `planned_count`, `completed_count`, `actual_km`, `key_workout_planned`, `key_workout_completed` (с дедупликацией workout_log + workouts).
+- ✅ `TrainingStateBuilder::buildRecentCompliance($userId, $weeks=4)` — массив compliance за последние 4 ISO-недели в `state['recent_compliance']`. Поля: `week_start`, `week_end`, `planned_count`, `completed_count`, `skipped_count`, `actual_km`, `key_workout_planned`, `key_workout_completed`, `compliance_ratio`, `key_workout_completion_pct`, `is_current_week`.
+- ✅ В FACTS_JSON через `DeepSeekPlanPlanner::buildPlannerContext` под ключом `recent_compliance`.
+- ✅ Системный prompt обучен использовать compliance: при <60% выполнения key workouts или <70% общего compliance → план был слишком амбициозным, понизь объём; при >85% и actual≥planned → есть запас.
+- Feature flag `PLANRUN_AI_STATE_RECENT_CONTEXT=0` отключает блок целиком (на случай регрессий).
 
-#### B.2 Recent workouts с RPE и HR
-- Если в БД есть RPE / HR / pace для последних 14 дней — передавать массив `recent_workouts_detailed`:
-  ```json
-  [{
-    "date": "2026-04-22", "type": "tempo", "distance_km": 10.0,
-    "pace_sec": 260, "hr_avg": 165, "rpe": 7, "felt": "ok"
-  }]
-  ```
-- DeepSeek может оценить: модель устаёт от tempo? пульс растёт без причины? темп слишком оптимистичный?
+#### B.2 ✅ Recent workouts с RPE и HR
+- ✅ `WorkoutRepository::getRecentDetailedWorkouts($userId, $from, $to)` — UNION workout_log + workouts (с дедупликацией) за период. Возвращает поля: date, type, is_key_workout, distance_km, duration_minutes, pace, avg_heart_rate, rating, notes, source.
+- ✅ `TrainingStateBuilder::buildRecentWorkoutsDetailed($userId, $days=14)` — нормализация в `state['recent_workouts_detailed']`. Поля: `date`, `type`, `is_key_workout`, `distance_km`, `duration_minutes`, `pace_sec`, `pace`, `hr_avg`, `rpe` (rating 1..5), `source`, `notes`.
+- ✅ `pace_sec` вычисляется из `duration_minutes / distance_km` (если оба есть).
+- ✅ В FACTS_JSON под ключом `recent_workouts` (заменяет старый 8-недельный raw-лог; raw оставлен только локально для `buildRecentLongEffortGuard`).
+- ✅ Системный prompt: «Сравни pace в recent_workouts с training_paces.easy/marathon/threshold; если фактический темп easy медленнее ожидаемого — не форсируй интенсивность. Учитывай rpe (1=очень легко..5=очень тяжело), hr_avg, notes (жалобы на боль/усталость/болезнь = осторожнее)».
 
 #### B.3 Climate / season hints
 - Простой блок в FACTS_JSON:
@@ -539,14 +538,14 @@
 | PR | Содержит | Тесты | Когда |
 |---|---|---|---|
 | ✅ PR1 | P0.1 + P0.2 + P0.3 + P0.4 + auto-mode softening | Unit + расширенные snapshot | Готово (этот PR) |
-| ✅ PR2 | Phase A.1–A.8 (skeleton-out, single_pass, single model, repair-loop удалён, slim hard_rules, medical thresholds, no macrocycle precompute, normalizer warnings) | Unit 335/336 | Готово (этот PR) |
-| PR3 | Phase B.1+B.2 (recent_compliance, recent_workouts с RPE/HR) | Unit context | Следующий |
-| PR4 | Phase B.3+B.4+B.5 (climate, best_races, goal_realism v2) | Unit + integration | |
+| ✅ PR2 | Phase A.1–A.8 (skeleton-out, single_pass, single model, repair-loop удалён, slim hard_rules, medical thresholds, no macrocycle precompute, normalizer warnings) | Unit 335/336 | Готово (предыдущий PR) |
+| ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (этот PR) |
+| PR4 | Phase B.3+B.4+B.5 (climate, best_races, goal_realism v2) | Unit + integration | Следующий |
 | PR5 | Phase C.1+C.2 (deepseek-reasoner, targeted retry) | E2E reasoner | |
 | PR6 | Phase D.1+D.2 (plan quality dashboard, A/B test) | Observability | |
 | PR7 | Phase D.3 (rollout + cleanup `_legacy/skeleton/`) | Canary | |
 
-**Этот PR (PR1+PR2 объединённый):** P0 + Phase A полностью. P1–P4 (recalc/observability/UX) перенесены в PR3+ под именем Phase B/C/D, часть из них уже покрыта Phase A.
+**Этот PR (PR3):** Phase B.1+B.2 — DeepSeek получает в FACTS_JSON фактическое поведение спортсмена за последний цикл (compliance, RPE, HR, pace), решения принимаются по реальной форме, а не только по статичному профилю.
 
 ---
 

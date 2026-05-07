@@ -163,6 +163,12 @@ class DeepSeekPlanPlanner
             . "- planning_scenario.flags содержит 'pain_protective' / 'illness_protective' / 'high_caution' → quality сессии исключаются минимум на 1 неделю; объём стабильно или вниз.\n"
             . "- planning_scenario.flags содержит 'b_race_before_a_race' → tune-up идёт как control, без полной подводки.\n"
             . "- goal_realism.severity='major' → используй goal_realism.recommended_target_time как опорный темп; в plan_summary/risk_review отметь пересмотр цели.\n\n"
+            . "Контекст последних недель (recent_compliance, recent_workouts) — не блокирующий, но твой первый источник правды о форме:\n"
+            . "- recent_compliance показывает по неделям planned/completed_count, actual_km, key_workout_completion_pct, skipped_count. Если человек регулярно срывает >30% запланированного или ключевые тренировки выполнены <60% — план был слишком амбициозным, понизь объём и плотность качества.\n"
+            . "- Если compliance стабильно высокий (>0.85) и actual_km ≥ planned_km — есть запас, можно держать темп прогресса.\n"
+            . "- recent_workouts (за ~14 дней) содержит pace_sec, hr_avg, rpe (1=очень легко .. 5=очень тяжело), notes. Используй: рост HR при том же темпе или RPE>3 на easy — признак усталости, замедли темпы или дай recovery.\n"
+            . "- Сравни pace в recent_workouts с training_paces.easy/marathon/threshold: если фактический темп easy медленнее ожидаемого — не форсируй интенсивность, дай адаптацию.\n"
+            . "- Учитывай notes: жалобы на боль/усталость/болезнь = осторожнее даже если HR/pace в норме. Игнорируй recent_workouts только если массив пустой.\n\n"
             . "Темпы и структура (для понятной тренировки):\n"
             . "- Для простого бега pace относится ко всей тренировке, duration_minutes согласуй с distance_km.\n"
             . "- Для interval/tempo заполни структурные поля: warmup_km, cooldown_km, tempo_km, reps/interval_m/interval_pace/rest_m/rest_type.\n"
@@ -338,7 +344,14 @@ class DeepSeekPlanPlanner
             'planning_scenario' => is_array($state['planning_scenario'] ?? null) ? $state['planning_scenario'] : null,
             'goal_realism' => is_array($state['goal_realism'] ?? null) ? $state['goal_realism'] : null,
             'hard_rules' => $this->buildHardRules($user, $state, $startDate, $recentWorkouts),
-            'recent_workouts' => $recentWorkouts,
+            // Phase B.1 (PR3): recent_compliance — последние 4 ISO-недели для оценки нагрузки.
+            'recent_compliance' => is_array($state['recent_compliance'] ?? null) ? $state['recent_compliance'] : null,
+            // Phase B.2 (PR3): recent_workouts — компактные тренировки за 14 дней с RPE/HR/pace.
+            // Если recent_workouts_detailed заполнен (TrainingStateBuilder), используем его;
+            // иначе fallback на raw 8-недельный лог (для backwards compat).
+            'recent_workouts' => is_array($state['recent_workouts_detailed'] ?? null)
+                ? $state['recent_workouts_detailed']
+                : $recentWorkouts,
         ];
     }
 

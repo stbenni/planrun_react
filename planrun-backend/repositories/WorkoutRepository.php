@@ -32,7 +32,7 @@ class WorkoutRepository extends BaseRepository {
         return $this->fetchAll(
             "SELECT wl.training_date, wl.week_number, wl.day_name, wl.result_time,
                     wl.distance_km AS result_distance, wl.pace AS result_pace,
-                    wl.notes, wl.created_at AS completed_at,
+                    CONVERT(wl.notes USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes, wl.created_at AS completed_at,
                     LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) AS activity_type
              FROM workout_log wl
              LEFT JOIN activity_types at ON wl.activity_type_id = at.id
@@ -389,5 +389,123 @@ class WorkoutRepository extends BaseRepository {
             'completed' => $completed,
             'missed' => max(0, $planned - $completed),
         ];
+    }
+
+    // ══════════════════════════════════════════════
+    //  Phase B.1: detailed compliance per period
+    //  Phase B.2: recent workouts detailed (RPE/HR/pace)
+    // ══════════════════════════════════════════════
+
+    /**
+     * Phase B.1 (PR3): детальный compliance за период [from..to]:
+     *   - planned_count / completed_count / planned_km / actual_km
+     *   - key_workout_planned / key_workout_completed (по training_plan_days.is_key_workout)
+     * Дедупликация: одна тренировка в один день учитывается один раз.
+     */
+    public function getDetailedCompliance(int $userId, string $from, string $to): array {
+        $row = $this->fetchOne(
+            "SELECT
+                COUNT(*) AS planned_count,
+                COALESCE(SUM(d.is_key_workout), 0) AS key_planned
+             FROM training_plan_days d
+             JOIN training_plan_weeks w ON d.week_id = w.id
+             WHERE w.user_id = ? AND d.date >= ? AND d.date <= ? AND d.type != 'rest'",
+            [$userId, $from, $to], 'iss'
+        );
+        $plannedCount = (int) ($row['planned_count'] ?? 0);
+        $keyPlanned = (int) ($row['key_planned'] ?? 0);
+
+        $logRow = $this->fetchOne(
+            "SELECT
+                COUNT(*) AS done_count,
+                COALESCE(SUM(wl.distance_km), 0) AS done_km,
+                COALESCE(SUM(CASE WHEN d.is_key_workout = 1 THEN 1 ELSE 0 END), 0) AS key_done
+             FROM workout_log wl
+             LEFT JOIN training_plan_days d
+                ON d.user_id = wl.user_id AND d.date = wl.training_date
+             WHERE wl.user_id = ? AND wl.is_completed = 1
+                AND wl.training_date >= ? AND wl.training_date <= ?",
+            [$userId, $from, $to], 'iss'
+        );
+        $doneFromLog = (int) ($logRow['done_count'] ?? 0);
+        $doneKmFromLog = (float) ($logRow['done_km'] ?? 0);
+        $keyDone = (int) ($logRow['key_done'] ?? 0);
+
+        $imp = $this->fetchOne(
+            "SELECT
+                COUNT(DISTINCT DATE(start_time)) AS done_count,
+                COALESCE(SUM(distance_km), 0) AS done_km
+             FROM workouts
+             WHERE user_id = ? AND DATE(start_time) >= ? AND DATE(start_time) <= ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM workout_log wl
+                    WHERE wl.user_id = workouts.user_id
+                      AND wl.training_date = DATE(workouts.start_time)
+                      AND wl.is_completed = 1
+                )",
+            [$userId, $from, $to], 'iss'
+        );
+        $doneFromImport = (int) ($imp['done_count'] ?? 0);
+        $doneKmFromImport = (float) ($imp['done_km'] ?? 0);
+
+        return [
+            'planned_count' => $plannedCount,
+            'completed_count' => $doneFromLog + $doneFromImport,
+            'planned_km' => null,
+            'actual_km' => round($doneKmFromLog + $doneKmFromImport, 1),
+            'key_workout_planned' => $keyPlanned,
+            'key_workout_completed' => $keyDone,
+        ];
+    }
+
+    /**
+     * Phase B.2 (PR3): детальные тренировки за период [from..to] для FACTS_JSON.
+     * Поля: date, type, is_key_workout, distance_km, duration_minutes, pace,
+     * avg_heart_rate, rating (RPE), notes, source.
+     * Объединяет workout_log (manual + completion) и workouts (import) с дедупликацией.
+     */
+    public function getRecentDetailedWorkouts(int $userId, string $from, string $to): array {
+        $rows = $this->fetchAll(
+            "(SELECT wl.training_date AS date,
+                     COALESCE(CONVERT(d.type USING utf8mb4) COLLATE utf8mb4_unicode_ci, LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) COLLATE utf8mb4_unicode_ci) AS type,
+                     COALESCE(d.is_key_workout, 0) AS is_key_workout,
+                     wl.distance_km,
+                     wl.duration_minutes,
+                     CONVERT(wl.pace USING utf8mb4) COLLATE utf8mb4_unicode_ci AS pace,
+                     wl.avg_heart_rate,
+                     wl.rating,
+                     CONVERT(wl.notes USING utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
+                     'manual' COLLATE utf8mb4_unicode_ci AS source
+              FROM workout_log wl
+              LEFT JOIN activity_types at ON at.id = wl.activity_type_id
+              LEFT JOIN training_plan_days d ON d.user_id = wl.user_id AND d.date = wl.training_date
+              WHERE wl.user_id = ? AND wl.is_completed = 1
+                AND wl.training_date >= ? AND wl.training_date <= ?)
+             UNION ALL
+             (SELECT DATE(workouts.start_time) AS date,
+                     COALESCE(CONVERT(d.type USING utf8mb4) COLLATE utf8mb4_unicode_ci, LOWER(COALESCE(NULLIF(TRIM(workouts.activity_type), ''), 'running')) COLLATE utf8mb4_unicode_ci) AS type,
+                     COALESCE(d.is_key_workout, 0) AS is_key_workout,
+                     workouts.distance_km,
+                     workouts.duration_minutes,
+                     CONVERT(workouts.avg_pace USING utf8mb4) COLLATE utf8mb4_unicode_ci AS pace,
+                     workouts.avg_heart_rate,
+                     NULL AS rating,
+                     CAST(NULL AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci AS notes,
+                     COALESCE(workouts.source, 'import') COLLATE utf8mb4_unicode_ci AS source
+              FROM workouts
+              LEFT JOIN training_plan_days d
+                  ON d.user_id = workouts.user_id AND d.date = DATE(workouts.start_time)
+              WHERE workouts.user_id = ?
+                AND DATE(workouts.start_time) >= ? AND DATE(workouts.start_time) <= ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM workout_log wl
+                    WHERE wl.user_id = workouts.user_id
+                      AND wl.training_date = DATE(workouts.start_time)
+                      AND wl.is_completed = 1
+                ))
+             ORDER BY date DESC",
+            [$userId, $from, $to, $userId, $from, $to], 'ississ'
+        );
+        return is_array($rows) ? $rows : [];
     }
 }

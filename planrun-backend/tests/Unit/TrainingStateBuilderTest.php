@@ -439,6 +439,194 @@ class TrainingStateBuilderTest extends TestCase {
         $this->assertSame('clear', $state['plan_readiness_check']['interpretation']);
     }
 
+    public function test_buildForUser_includes_recent_compliance_for_completed_workouts(): void {
+        $userId = $this->createTestUser();
+
+        // Используем прошлую полностью завершённую неделю (Mon..Sun), чтобы не зависеть от дня запуска теста.
+        $thisMonday = new \DateTimeImmutable('monday this week');
+        $prevMonday = $thisMonday->modify('-1 week');
+        $prevMondayStr = $prevMonday->format('Y-m-d');
+
+        $weekId = $this->insertPlanWeek($userId, $prevMondayStr);
+        $this->insertPlanDay($userId, $weekId, $prevMondayStr, 1, 'easy', 0);
+        $this->insertPlanDay($userId, $weekId, $prevMonday->modify('+2 days')->format('Y-m-d'), 3, 'tempo', 1);
+        $this->insertPlanDay($userId, $weekId, $prevMonday->modify('+4 days')->format('Y-m-d'), 5, 'easy', 0);
+        $this->insertPlanDay($userId, $weekId, $prevMonday->modify('+5 days')->format('Y-m-d'), 6, 'long', 1);
+
+        $this->insertCompletedLog($userId, $prevMondayStr, 1, 'mon', 8.0, 50);
+        $this->insertCompletedLog($userId, $prevMonday->modify('+2 days')->format('Y-m-d'), 1, 'wed', 10.0, 55);
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'half',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 30,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayHasKey('recent_compliance', $state);
+        $this->assertIsArray($state['recent_compliance']);
+        $this->assertNotEmpty($state['recent_compliance']);
+
+        $byStart = [];
+        foreach ($state['recent_compliance'] as $row) {
+            $byStart[$row['week_start']] = $row;
+        }
+        $this->assertArrayHasKey($prevMondayStr, $byStart);
+
+        $week = $byStart[$prevMondayStr];
+        $this->assertFalse($week['is_current_week']);
+        $this->assertSame(4, $week['planned_count']);
+        $this->assertSame(2, $week['completed_count']);
+        $this->assertSame(2, $week['skipped_count']);
+        $this->assertSame(18.0, $week['actual_km']);
+        $this->assertSame(2, $week['key_workout_planned']);
+        $this->assertSame(1, $week['key_workout_completed']);
+        $this->assertSame(0.5, $week['compliance_ratio']);
+        $this->assertSame(0.5, $week['key_workout_completion_pct']);
+    }
+
+    public function test_buildForUser_includes_recent_workouts_detailed_with_rpe_hr_pace(): void {
+        $userId = $this->createTestUser();
+
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('Y-m-d');
+        $threeDaysAgo = (new \DateTimeImmutable('-3 days'))->format('Y-m-d');
+
+        // Лог с RPE (rating) и средним пульсом — для тестирования B.2.
+        $this->insertCompletedLogWithRating($userId, $threeDaysAgo, 1, 'mon', 10.0, 56, 4, 145);
+        $this->insertWorkout($userId, 'running', $yesterday . ' 07:00:00', $yesterday . ' 08:10:00', 12.0, 70);
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'half',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 35,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayHasKey('recent_workouts_detailed', $state);
+        $rows = $state['recent_workouts_detailed'];
+        $this->assertIsArray($rows);
+        $this->assertCount(2, $rows);
+
+        $byDate = [];
+        foreach ($rows as $row) {
+            $byDate[$row['date']] = $row;
+        }
+
+        $this->assertArrayHasKey($yesterday, $byDate);
+        $this->assertSame(12.0, $byDate[$yesterday]['distance_km']);
+        $this->assertSame(70, $byDate[$yesterday]['duration_minutes']);
+        $this->assertSame(350, $byDate[$yesterday]['pace_sec']);
+        $this->assertSame('5:50', $byDate[$yesterday]['pace']);
+
+        $this->assertArrayHasKey($threeDaysAgo, $byDate);
+        $this->assertSame(10.0, $byDate[$threeDaysAgo]['distance_km']);
+        $this->assertSame(56, $byDate[$threeDaysAgo]['duration_minutes']);
+        $this->assertSame(336, $byDate[$threeDaysAgo]['pace_sec']);
+        $this->assertSame(4, $byDate[$threeDaysAgo]['rpe']);
+        $this->assertSame(145, $byDate[$threeDaysAgo]['hr_avg']);
+        $this->assertSame('manual', $byDate[$threeDaysAgo]['source']);
+    }
+
+    public function test_buildForUser_skips_recent_context_when_feature_flag_disabled(): void {
+        $previous = getenv('PLANRUN_AI_STATE_RECENT_CONTEXT');
+        putenv('PLANRUN_AI_STATE_RECENT_CONTEXT=0');
+
+        try {
+            $userId = $this->createTestUser();
+            $this->insertCompletedLog($userId, gmdate('Y-m-d'), 1, 'mon', 5.0, 30);
+
+            $builder = new TrainingStateBuilder($this->db);
+            $state = $builder->buildForUser([
+                'id' => $userId,
+                'goal_type' => 'race',
+                'race_distance' => '10k',
+                'sessions_per_week' => 3,
+                'weekly_base_km' => 25,
+                'experience_level' => 'intermediate',
+            ]);
+
+            $this->assertArrayNotHasKey('recent_compliance', $state);
+            $this->assertArrayNotHasKey('recent_workouts_detailed', $state);
+        } finally {
+            if ($previous === false) {
+                putenv('PLANRUN_AI_STATE_RECENT_CONTEXT');
+            } else {
+                putenv('PLANRUN_AI_STATE_RECENT_CONTEXT=' . $previous);
+            }
+        }
+    }
+
+    private function insertPlanWeek(int $userId, string $weekStart): int {
+        $stmt = $this->db->prepare(
+            'INSERT INTO training_plan_weeks (user_id, week_number, start_date) VALUES (?, ?, ?)'
+        );
+        $weekNumber = 1;
+        $stmt->bind_param('iis', $userId, $weekNumber, $weekStart);
+        $stmt->execute();
+        $weekId = (int) $this->db->insert_id;
+        $stmt->close();
+        return $weekId;
+    }
+
+    private function insertPlanDay(int $userId, int $weekId, string $date, int $dayOfWeek, string $type, int $isKey): void {
+        $stmt = $this->db->prepare(
+            'INSERT INTO training_plan_days (user_id, week_id, day_of_week, date, type, is_key_workout)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->bind_param('iiissi', $userId, $weekId, $dayOfWeek, $date, $type, $isKey);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    private function insertCompletedLog(int $userId, string $date, int $weekNumber, string $dayName, float $distanceKm, int $durationMinutes, int $activityTypeId = 1): void {
+        $stmt = $this->db->prepare(
+            'INSERT INTO workout_log (user_id, training_date, week_number, day_name, activity_type_id, is_completed, distance_km, duration_minutes)
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
+        );
+        $stmt->bind_param('isisidi', $userId, $date, $weekNumber, $dayName, $activityTypeId, $distanceKm, $durationMinutes);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    private function insertCompletedLogWithRating(
+        int $userId,
+        string $date,
+        int $weekNumber,
+        string $dayName,
+        float $distanceKm,
+        int $durationMinutes,
+        int $rating,
+        int $avgHr,
+        int $activityTypeId = 1
+    ): void {
+        $stmt = $this->db->prepare(
+            'INSERT INTO workout_log
+                (user_id, training_date, week_number, day_name, activity_type_id, is_completed,
+                 distance_km, duration_minutes, rating, avg_heart_rate)
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+        );
+        $stmt->bind_param(
+            'isisidiii',
+            $userId,
+            $date,
+            $weekNumber,
+            $dayName,
+            $activityTypeId,
+            $distanceKm,
+            $durationMinutes,
+            $rating,
+            $avgHr
+        );
+        $stmt->execute();
+        $stmt->close();
+    }
+
     private function createTestUser(): int {
         $suffix = bin2hex(random_bytes(4));
         $username = 'feedback_state_' . $suffix;
