@@ -677,6 +677,15 @@ try {
             planrunRouteControllerAction($db, AdminController::class, 'resetNotificationTemplate', $method, 'POST');
             break;
 
+        // PR6 / Phase D.1: AI plan generation observability
+        case 'admin_ai_plan_metrics':
+            planrunRouteControllerAction($db, AdminController::class, 'getAiPlanMetrics', $method, 'GET');
+            break;
+
+        case 'admin_ai_plan_events':
+            planrunRouteControllerAction($db, AdminController::class, 'getAiPlanRecentEvents', $method, 'GET');
+            break;
+
         case 'request_password_reset':
             planrunRouteControllerAction($db, AuthController::class, 'requestPasswordReset', $method);
             break;

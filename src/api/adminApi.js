@@ -41,3 +41,20 @@ export function resetAdminNotificationTemplate(client, payload) {
 export function getSiteSettings(client) {
   return client.request('get_site_settings', {}, 'GET');
 }
+
+// PR6 / Phase D.1: AI plan generation observability — admin dashboard
+export function getAiPlanMetrics(client, params = {}) {
+  const query = {};
+  if (params.hours != null) query.hours = params.hours;
+  return client.request('admin_ai_plan_metrics', query, 'GET');
+}
+
+export function getAiPlanRecentEvents(client, params = {}) {
+  const query = {};
+  if (params.limit != null) query.limit = params.limit;
+  if (params.user_id != null) query.user_id = params.user_id;
+  if (params.cohort) query.cohort = params.cohort;
+  if (params.status) query.status = params.status;
+  if (params.since) query.since = params.since;
+  return client.request('admin_ai_plan_events', query, 'GET');
+}

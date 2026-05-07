@@ -259,4 +259,51 @@ class AdminController extends BaseController {
             $this->handleException($e);
         }
     }
+
+    // ==================== AI PLAN METRICS (PR6 / Phase D.1) ====================
+
+    /**
+     * GET admin_ai_plan_metrics — агрегаты по событиям генерации планов AI.
+     * Параметры: hours (default 24, max 720).
+     */
+    public function getAiPlanMetrics() {
+        if (!$this->requireAdmin()) return;
+        try {
+            require_once __DIR__ . '/../services/AiPlanGenerationEventLogger.php';
+            $hours = max(1, min(720, (int) ($this->getParam('hours') ?? 24)));
+            $logger = new AiPlanGenerationEventLogger($this->db);
+            $this->returnSuccess($logger->getMetricsSummary($hours));
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * GET admin_ai_plan_events — последние события (для диагностики/дашборда).
+     * Параметры: limit (default 50, max 500), user_id, cohort, status, since.
+     */
+    public function getAiPlanRecentEvents() {
+        if (!$this->requireAdmin()) return;
+        try {
+            require_once __DIR__ . '/../services/AiPlanGenerationEventLogger.php';
+            $limit = max(1, min(500, (int) ($this->getParam('limit') ?? 50)));
+            $filters = [];
+            if (($v = trim((string) ($this->getParam('user_id') ?? ''))) !== '') {
+                $filters['user_id'] = (int) $v;
+            }
+            if (($v = trim((string) ($this->getParam('cohort') ?? ''))) !== '') {
+                $filters['cohort'] = $v;
+            }
+            if (($v = trim((string) ($this->getParam('status') ?? ''))) !== '') {
+                $filters['status'] = $v;
+            }
+            if (($v = trim((string) ($this->getParam('since') ?? ''))) !== '') {
+                $filters['since'] = $v;
+            }
+            $logger = new AiPlanGenerationEventLogger($this->db);
+            $this->returnSuccess(['events' => $logger->getRecentEvents($limit, $filters)]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
 }

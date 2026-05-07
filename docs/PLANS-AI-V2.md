@@ -491,22 +491,24 @@
 
 ### Phase D — Observability и rollout упрощённой архитектуры
 
-#### D.1 Plan quality dashboard
-- Новая таблица `ai_plan_generation_events`:
-  - `user_id`, `job_type`, `cohort` (healthy_marathon / return_after_injury / health / ...), `model`, `duration_ms`, `retries`, `gate_status`, `gate_mode`, `issue_codes[]`, `applied_repairs[]`, `prompt_token_count`, `completion_token_count`.
-- Простой endpoint `/admin/api/ai-metrics` с агрегатами по cohort'ам:
-  - bad-plan rate (severity=error after gate);
-  - repair rate (применился safety repair);
-  - average duration / token usage.
+#### D.1 ✅ Plan quality dashboard
+- ✅ Новая таблица `ai_plan_generation_events` (миграция `scripts/migrate_ai_plan_generation_events.php`):
+  - `user_id`, `job_type`, `cohort` (healthy / return_after_injury / pregnant_or_postpartum / pain_signal / illness_signal / unrealistic_goal), `model`, `model_selection_reason`, `complexity_score`, `enable_thinking`, `planner_strategy`, `duration_ms`, `prompt/completion/total_tokens`, `gate_mode`, `gate_resolved_mode`, `gate_status`, `retries`, `issue_codes[]`, `applied_repair_codes[]`, `normalizer_warning_codes[]`, `status` (success/failure), `error_code`, `error_message`, `prompt_version`, `trace_id`, `metadata` (JSON snapshot).
+  - Индексы на `(user_id, created_at)`, `(cohort, created_at)`, `(status, created_at)`, `(model, created_at)`, `(trace_id)`.
+- ✅ `AiPlanGenerationEventLogger` сервис: `recordSuccess`, `recordFailure`, `getRecentEvents(limit, filters)`, `getMetricsSummary(hours)`, `deriveCohort(trainingState)`. Cohort вычисляется по `special_population_flags` + `planning_scenario.flags` + `goal_realism.severity` (приоритет: pregnancy > injury > pain > illness > unrealistic_goal > healthy).
+- ✅ Интеграция в `PlanGenerationProcessorService::process()` — запись success/failure событий **только** для llm_planner production-пути (legacy/skeleton не отслеживаются).
+- ✅ Admin endpoints: `admin_ai_plan_metrics` (GET, параметры: `hours` 1..720, default 24) и `admin_ai_plan_events` (GET, параметры: `limit` 1..500, `user_id`, `cohort`, `status`, `since`).
+- ✅ Frontend: `ApiClient.getAiPlanMetrics()`, `ApiClient.getAiPlanRecentEvents()` (admin only). Сам UI дашборда — на следующую итерацию (для PR8 будет нужен).
+- ✅ Метрики в `getMetricsSummary`: total / success / failure / blocked / repaired count, avg_duration_ms, bad_plan_rate, repair_rate, blocked_rate, failure_rate. Группировка by_cohort и by_model.
+- ✅ Feature flag: `PLAN_AI_EVENT_LOG_ENABLED` (default 1, можно отключить для тестов).
 
-#### D.2 A/B test упрощённой архитектуры
-- Feature flag `PLAN_AI_SIMPLIFIED=N%` (или `PLAN_AI_SIMPLIFIED_USERS=user_id1,user_id2`).
-- Для % пользователей — новая упрощённая (Phase A). Для остальных — старая.
-- Сравнить compliance / completion / NPS / bad-plan rate за 2 недели.
+#### D.2 ⚠️ A/B test упрощённой архитектуры — N/A
+- Изначально планировалось как `PLAN_AI_SIMPLIFIED=N%` для постепенного rollout. По факту Phase A была закоммичена и вкачена в production одним блоком (по решению пользователя), без A/B этапа.
+- A/B можно вернуть в будущем — например, для тестирования C.3 multi-pass или новых prompt-версий (`prompt_version` уже логируется в `ai_plan_generation_events`).
 
-#### D.3 Canary rollout
-- Если A/B показывает не хуже (или лучше) старой по всем ключевым метрикам — переключаем 100%.
-- Старый код Phase A.* удаляется окончательно (раньше переносится в `_legacy/`, теперь — `git rm`).
+#### D.3 ⚠️ Canary rollout — частично выполнено / переосмыслено
+- Изначально: «Если A/B показывает не хуже — переключаем 100%, удаляем legacy». В нашем случае Phase A была раскачена сразу 100%, без canary, через blocking-режим: `processViaSkeleton` бросает `RuntimeException`. Боевые планы идут через `processViaLlmPlanner` (DeepSeek V4 + simplified architecture).
+- Что осталось: **очистить `_legacy/skeleton/`** и удалить `USE_SKELETON_GENERATOR` (PR7).
 
 ---
 
@@ -536,11 +538,11 @@
 | ✅ PR2 | Phase A.1–A.8 (skeleton-out, single_pass, single model, repair-loop удалён, slim hard_rules, medical thresholds, no macrocycle precompute, normalizer warnings) | Unit 335/336 | Готово (предыдущий PR) |
 | ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (предыдущий PR) |
 | ✅ PR4 | Phase B.3+B.4+B.5 (season/climate hints, best_races_progression top 5k/10k/half/marathon за 52 нед., goal_realism v2 — best_races_at_target_distance) | Unit 346/346 | Готово (предыдущий PR) |
-| ✅ PR5 | Phase C.1 (auto-эскалация на `deepseek-reasoner` при complexity score ≥2) + C.2 утилита (regenerateWeeks для targeted retry до 4 недель) | Unit 364/364 | Готово (этот PR) |
-| PR6 | Phase D.1 (plan quality dashboard: ai_plan_generation_events table + endpoint) | Observability | Следующий |
-| PR7 | Phase D.3 (cleanup `_legacy/skeleton/` + USE_SKELETON_GENERATOR; D.2/A/B и D.3 canary помечены outdated — simplified arch уже в проде) | — | После PR6 |
+| ✅ PR5 | Phase C.1 (auto-эскалация на `deepseek-reasoner` при complexity score ≥2) + C.2 утилита (regenerateWeeks для targeted retry до 4 недель) | Unit 364/364 | Готово (предыдущий PR) |
+| ✅ PR6 | Phase D.1 (plan quality dashboard: `ai_plan_generation_events` table + `AiPlanGenerationEventLogger` + admin endpoints `admin_ai_plan_metrics` / `admin_ai_plan_events`) | Unit 376/376 | Готово (этот PR) |
+| PR7 | Cleanup `_legacy/skeleton/` + `USE_SKELETON_GENERATOR`; D.2 (A/B) / D.3 (canary) помечены как N/A — simplified arch уже в проде | — | Следующий |
 
-**Этот PR (PR5):** Phase C — `deepseek-reasoner` для сложных кейсов (комбинации risk-флагов) и утилитарные методы для targeted retry конкретных недель плана. Автоматическая интеграция targeted retry в pipeline отложена до момента, когда у нас будет дашборд (PR6) и можно будет оценить, какие issues realistically локализуются по неделям.
+**Этот PR (PR6):** Phase D.1 — observability layer для plan generation. Каждая успешная или неудавшаяся генерация плана через DeepSeek V4 пишется в `ai_plan_generation_events` с разбивкой по cohort'у (healthy / return_after_injury / pregnant_or_postpartum / pain_signal / illness_signal / unrealistic_goal), модели (deepseek-chat / deepseek-reasoner), gate_status (ok / warnings / blocked), applied repair codes и issue codes. Admin может смотреть агрегаты через `admin_ai_plan_metrics` (bad_plan_rate, repair_rate, by_cohort, by_model) и последние события через `admin_ai_plan_events` (с фильтрами по user_id, cohort, status, since).
 
 ---
 

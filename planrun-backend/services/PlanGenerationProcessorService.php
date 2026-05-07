@@ -12,6 +12,7 @@ require_once __DIR__ . '/../repositories/UserRepository.php';
 require_once __DIR__ . '/TrainingStateBuilder.php';
 require_once __DIR__ . '/PlanExplanationService.php';
 require_once __DIR__ . '/AiObservabilityService.php';
+require_once __DIR__ . '/AiPlanGenerationEventLogger.php';
 require_once __DIR__ . '/PlanQualityGate.php';
 
 class PlanGenerationProcessorService extends BaseService {
@@ -28,6 +29,11 @@ class PlanGenerationProcessorService extends BaseService {
         if ($jobId !== null && $jobId > 0) {
             $obsPayload['job_id'] = $jobId;
         }
+
+        // PR6 / Phase D.1: structured event logger для plan-generation observability.
+        $planEventLogger = new AiPlanGenerationEventLogger($this->db);
+        $planEventTrainingState = [];
+        $planEventLogged = false;
 
         try {
             // Phase A.1: единственный production-путь — llm_planner (DeepSeek V4).
@@ -58,6 +64,9 @@ class PlanGenerationProcessorService extends BaseService {
                 $mutableFromDate = $result['mutable_from_date'] ?? null;
                 $generatedStartDate = $result['start_date'] ?? null;
                 $trainingState = is_array($result['training_state'] ?? null) ? $result['training_state'] : null;
+                if (is_array($trainingState)) {
+                    $planEventTrainingState = $trainingState;
+                }
             } elseif ($useSkeletonGenerator) {
                 // Phase A.1: skeleton-first отключён. Метод processViaSkeleton бросит explicit-exception.
                 $this->processViaSkeleton($userId, $jobType, $payload);
@@ -157,10 +166,52 @@ class PlanGenerationProcessorService extends BaseService {
             $obsPayload['weeks_count'] = $resultPayload['weeks_count'];
             $obsPayload['generator'] = $planData['_generation_metadata']['generator'] ?? ($useSkeletonGenerator ? 'PlanSkeletonGenerator' : 'legacy');
             $obsPayload['explanation_summary'] = $planData['_generation_metadata']['explanation']['summary'] ?? null;
+
+            // PR6 / Phase D.1: записываем success-событие только для llm_planner production-пути.
+            if ($useLlmPlanner) {
+                $generationMetadata = is_array($planData['_generation_metadata'] ?? null)
+                    ? (array) $planData['_generation_metadata']
+                    : [];
+                $planEventLogger->recordSuccess(
+                    $userId,
+                    $jobType,
+                    $generationMetadata,
+                    $planEventTrainingState,
+                    (int) round((microtime(true) - $startedAt) * 1000),
+                    $traceId
+                );
+                $planEventLogged = true;
+            }
+
             return $resultPayload;
         } catch (Throwable $e) {
             $obsStatus = 'error';
             $obsPayload['error'] = $e->getMessage();
+
+            // PR6 / Phase D.1: записываем failure-событие только если ещё не записывали и
+            // только для llm_planner-пути (legacy/skeleton не отслеживаются в новой таблице).
+            if (!$planEventLogged) {
+                $generationMode = strtolower(trim((string) env('PLAN_GENERATION_MODE', '')));
+                if ($generationMode === 'llm_planner') {
+                    try {
+                        $planEventLogger->recordFailure(
+                            $userId,
+                            $jobType,
+                            $e,
+                            [],
+                            $planEventTrainingState,
+                            (int) round((microtime(true) - $startedAt) * 1000),
+                            $traceId
+                        );
+                    } catch (Throwable $logErr) {
+                        $this->logError('Не удалось записать failure-событие плана', [
+                            'user_id' => $userId,
+                            'error' => $logErr->getMessage(),
+                        ]);
+                    }
+                }
+            }
+
             throw $e;
         } finally {
             $observability->logEvent(

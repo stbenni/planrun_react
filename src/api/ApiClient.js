@@ -84,6 +84,8 @@ import {
   resetAdminNotificationTemplate as performResetAdminNotificationTemplate,
   getSiteSettings as performGetSiteSettings,
   updateAdminNotificationTemplate as performUpdateAdminNotificationTemplate,
+  getAiPlanMetrics as performGetAiPlanMetrics,
+  getAiPlanRecentEvents as performGetAiPlanRecentEvents,
 } from './adminApi';
 import {
   chatGetMessages as performChatGetMessages,
@@ -1328,6 +1330,17 @@ class ApiClient {
   /** Сбросить override шаблона уведомления. */
   async resetAdminNotificationTemplate(payload) {
     return performResetAdminNotificationTemplate(this, payload);
+  }
+
+  // PR6 / Phase D.1: AI plan generation observability
+  /** Агрегаты по событиям генерации планов AI (admin only). */
+  async getAiPlanMetrics(params = {}) {
+    return performGetAiPlanMetrics(this, params);
+  }
+
+  /** Последние события генерации плана (admin only). */
+  async getAiPlanRecentEvents(params = {}) {
+    return performGetAiPlanRecentEvents(this, params);
   }
 
   /**
