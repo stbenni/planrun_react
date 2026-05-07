@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../bootstrap.php';
-require_once __DIR__ . '/../../planrun_ai/skeleton/SkeletonValidator.php';
+require_once __DIR__ . '/../../planrun_ai/_legacy/skeleton/SkeletonValidator.php';
 
 class SkeletonValidatorTest extends TestCase
 {

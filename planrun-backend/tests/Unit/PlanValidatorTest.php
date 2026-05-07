@@ -195,6 +195,76 @@ class PlanValidatorTest extends TestCase {
         $this->assertNotContains('tempo_pace_out_of_range', $codes);
     }
 
+    public function test_collectNormalizedPlanValidationIssues_uses_threshold_for_marathon_context_without_goal_specific_tempo(): void {
+        $normalized = [
+            'weeks' => [[
+                'week_number' => 3,
+                'total_volume' => 72.0,
+                'days' => [
+                    [
+                        'date' => '2026-03-24',
+                        'type' => 'tempo',
+                        'pace' => '4:17',
+                        'distance_km' => 8.0,
+                        'warmup_km' => 2.0,
+                        'cooldown_km' => 1.5,
+                        'notes' => 'Пороговый блок для марафонской подготовки: 3x2 км, пауза 2 мин трусцой',
+                        'exercises' => [],
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectNormalizedPlanValidationIssues($normalized, [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'goal_pace_sec' => 299,
+            'pace_rules' => [
+                'tempo_sec' => 257,
+                'tempo_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertNotContains('tempo_pace_out_of_range', $codes);
+    }
+
+    public function test_collectNormalizedPlanValidationIssues_uses_goal_pace_for_race_pace_subtype(): void {
+        $normalized = [
+            'weeks' => [[
+                'week_number' => 3,
+                'total_volume' => 72.0,
+                'days' => [
+                    [
+                        'date' => '2026-03-24',
+                        'type' => 'tempo',
+                        'subtype' => 'race_pace',
+                        'pace' => '4:17',
+                        'distance_km' => 10.0,
+                        'warmup_km' => 2.0,
+                        'cooldown_km' => 1.5,
+                        'notes' => 'Разминка, затем устойчивый блок, заминка',
+                        'exercises' => [],
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectNormalizedPlanValidationIssues($normalized, [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'goal_pace_sec' => 299,
+            'pace_rules' => [
+                'tempo_sec' => 257,
+                'tempo_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertContains('race_pace_tempo_out_of_range', $codes);
+        $this->assertNotContains('tempo_pace_out_of_range', $codes);
+    }
+
     public function test_collectNormalizedPlanValidationIssues_flagsControlWithoutConcreteTask(): void {
         $normalized = [
             'weeks' => [[
@@ -411,5 +481,214 @@ class PlanValidatorTest extends TestCase {
 
         $codes = array_column($issues, 'code');
         $this->assertContains('special_population_quality_not_allowed', $codes);
+    }
+
+    // ── P0.4: pace_validator coverage for intervals, fartlek, race_pace tempo ──
+
+    public function test_collectPaceValidationIssues_flagsIntervalPaceTooSlow(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 4,
+                'days' => [
+                    [
+                        'date' => '2026-04-08',
+                        'type' => 'interval',
+                        'reps' => 6,
+                        'interval_m' => 600,
+                        'interval_pace' => '4:30',
+                        'rest_m' => 400,
+                        'rest_type' => 'jog',
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'interval_sec' => 230,
+                'interval_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertContains('interval_pace_out_of_range', $codes);
+        $intervalIssue = array_values(array_filter($issues, static fn(array $i): bool => ($i['code'] ?? '') === 'interval_pace_out_of_range'));
+        $this->assertSame('error', $intervalIssue[0]['severity'] ?? null);
+    }
+
+    public function test_collectPaceValidationIssues_acceptsIntervalPaceWithinTolerance(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 4,
+                'days' => [
+                    [
+                        'date' => '2026-04-08',
+                        'type' => 'interval',
+                        'reps' => 6,
+                        'interval_m' => 600,
+                        'interval_pace' => '4:00',
+                        'rest_m' => 400,
+                        'rest_type' => 'jog',
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'interval_sec' => 240,
+                'interval_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertNotContains('interval_pace_out_of_range', $codes);
+    }
+
+    public function test_collectPaceValidationIssues_flagsRacePaceTempoFarFromGoalPace(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 6,
+                'days' => [
+                    [
+                        'date' => '2026-04-22',
+                        'type' => 'tempo',
+                        'subtype' => 'race_pace',
+                        'pace' => '4:00',
+                        'distance_km' => 12.0,
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'tempo_sec' => 260,
+                'tempo_tolerance_sec' => 10,
+                'race_pace_sec' => 300,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertContains('race_pace_tempo_out_of_range', $codes);
+    }
+
+    public function test_collectPaceValidationIssues_acceptsRacePaceTempoNearGoalPace(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 6,
+                'days' => [
+                    [
+                        'date' => '2026-04-22',
+                        'type' => 'tempo',
+                        'subtype' => 'race_pace',
+                        'pace' => '4:55',
+                        'distance_km' => 10.0,
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'tempo_sec' => 260,
+                'tempo_tolerance_sec' => 10,
+                'race_pace_sec' => 300,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertNotContains('race_pace_tempo_out_of_range', $codes);
+        $this->assertNotContains('tempo_pace_out_of_range', $codes);
+    }
+
+    public function test_collectPaceValidationIssues_flagsFartlekFastSegmentWayTooSlow(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 5,
+                'days' => [
+                    [
+                        'date' => '2026-04-15',
+                        'type' => 'fartlek',
+                        'segments' => [
+                            ['type' => 'fast', 'reps' => 8, 'distance_m' => 400, 'pace' => '6:00'],
+                            ['type' => 'recovery', 'distance_m' => 200, 'pace' => '7:00'],
+                        ],
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'tempo_sec' => 260,
+                'tempo_tolerance_sec' => 10,
+                'interval_sec' => 240,
+                'interval_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertContains('fartlek_segment_pace_out_of_range', $codes);
+    }
+
+    public function test_collectPaceValidationIssues_ignoresFartlekRecoverySegments(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 5,
+                'days' => [
+                    [
+                        'date' => '2026-04-15',
+                        'type' => 'fartlek',
+                        'segments' => [
+                            ['type' => 'fast', 'reps' => 6, 'distance_m' => 400, 'pace' => '4:10'],
+                            ['type' => 'recovery', 'distance_m' => 200, 'pace' => '7:00'],
+                            ['type' => 'easy', 'distance_m' => 1000, 'pace' => '6:30'],
+                        ],
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'tempo_sec' => 260,
+                'tempo_tolerance_sec' => 10,
+                'interval_sec' => 240,
+                'interval_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertNotContains('fartlek_segment_pace_out_of_range', $codes);
+    }
+
+    public function test_collectPaceValidationIssues_flagsFartlekIntervalSegmentTooSlow(): void {
+        $plan = [
+            'weeks' => [[
+                'week_number' => 5,
+                'days' => [
+                    [
+                        'date' => '2026-04-15',
+                        'type' => 'fartlek',
+                        'segments' => [
+                            ['type' => 'interval', 'reps' => 6, 'distance_m' => 400, 'pace' => '5:30'],
+                        ],
+                    ],
+                ],
+            ]],
+        ];
+
+        $issues = collectPaceValidationIssues($plan, [
+            'pace_rules' => [
+                'tempo_sec' => 260,
+                'tempo_tolerance_sec' => 10,
+                'interval_sec' => 240,
+                'interval_tolerance_sec' => 8,
+            ],
+        ]);
+
+        $codes = array_column($issues, 'code');
+        $this->assertContains('fartlek_segment_pace_out_of_range', $codes);
     }
 }

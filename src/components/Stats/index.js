@@ -11,6 +11,7 @@ export { default as DistanceChart } from './DistanceChart';
 export { default as WeeklyProgressChart } from './WeeklyProgressChart';
 export { default as HeartRateChart } from './HeartRateChart';
 export { default as PaceChart } from './PaceChart';
+export { default as CombinedWorkoutChart } from './CombinedWorkoutChart';
 
 // Компоненты списков
 export { default as RecentWorkoutsList } from './RecentWorkoutsList';

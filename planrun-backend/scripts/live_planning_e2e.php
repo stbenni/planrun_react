@@ -9,7 +9,8 @@ require_once $baseDir . '/config/env_loader.php';
 require_once $baseDir . '/db_config.php';
 require_once $baseDir . '/services/PlanGenerationProcessorService.php';
 require_once $baseDir . '/services/AdaptationService.php';
-require_once $baseDir . '/planrun_ai/skeleton/PlanSkeletonGenerator.php';
+// Phase A.1: skeleton-first перенесён в planrun_ai/_legacy/skeleton/. Скрипт diagnostic.
+require_once $baseDir . '/planrun_ai/_legacy/skeleton/PlanSkeletonGenerator.php';
 
 function parseCliArgs(array $argv): array
 {

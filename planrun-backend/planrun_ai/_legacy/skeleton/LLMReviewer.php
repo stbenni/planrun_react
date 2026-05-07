@@ -13,6 +13,8 @@ class LLMReviewer
 {
     private string $baseUrl;
     private string $model;
+    private string $provider;
+    private string $apiKey;
     private int $maxTokens;
     private bool $enableThinking;
     private int $timeoutSeconds;
@@ -23,11 +25,18 @@ class LLMReviewer
         ?string $model = null,
         ?int $maxTokens = null
     ) {
-        $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->model = $model ?? $this->getEnv('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
-        $this->maxTokens = $maxTokens ?? $this->getEnvInt('LLM_REVIEWER_MAX_TOKENS', 1536, 128, 3072);
-        $this->timeoutSeconds = $this->getEnvInt('LLM_REVIEWER_TIMEOUT_SECONDS', 45, 10, 300);
-        $this->connectTimeoutSeconds = $this->getEnvInt('LLM_REVIEWER_CONNECT_TIMEOUT_SECONDS', 5, 1, 60);
+        $this->baseUrl = rtrim($baseUrl ?? $this->getEnv('PLAN_LLM_BASE_URL', $this->getEnv('LLM_CHAT_BASE_URL', 'https://api.deepseek.com')), '/');
+        $this->model = $model ?? $this->getEnv('PLAN_LLM_REVIEWER_MODEL', $this->getEnv('PLAN_LLM_MODEL', $this->getEnv('LLM_CHAT_MODEL', 'deepseek-v4-flash')));
+        $this->provider = $this->resolveProvider();
+        $this->apiKey = trim($this->getEnv('PLAN_LLM_API_KEY', $this->getEnv('LLM_CHAT_API_KEY', $this->getEnv('DEEPSEEK_API_KEY', ''))));
+        $this->maxTokens = $maxTokens ?? $this->getEnvInt(
+            'PLAN_LLM_REVIEWER_MAX_TOKENS',
+            $this->getEnvInt('LLM_REVIEWER_MAX_TOKENS', 1536, 128, 3072),
+            128,
+            65536
+        );
+        $this->timeoutSeconds = $this->getEnvInt('PLAN_LLM_REVIEWER_TIMEOUT_SECONDS', $this->getEnvInt('LLM_REVIEWER_TIMEOUT_SECONDS', 45, 10, 300), 10, 300);
+        $this->connectTimeoutSeconds = $this->getEnvInt('PLAN_LLM_CONNECT_TIMEOUT_SECONDS', $this->getEnvInt('LLM_REVIEWER_CONNECT_TIMEOUT_SECONDS', 5, 1, 60), 1, 60);
         // Reviewer downstream uses only structured JSON, so reasoning mode adds noise and hurts parseability.
         $this->enableThinking = false;
     }
@@ -99,7 +108,7 @@ class LLMReviewer
     {
         $url = $this->baseUrl . '/chat/completions';
 
-        $payload = json_encode([
+        $payloadData = [
             'model' => $this->model,
             'messages' => [
                 ['role' => 'system', 'content' => 'Ты — рецензент тренировочных планов. Отвечай только валидным JSON по заданной схеме: без markdown, без пояснений, без <think>. Пиши только на русском языке.'],
@@ -109,14 +118,31 @@ class LLMReviewer
             'max_tokens' => $this->maxTokens,
             'stream' => false,
             'response_format' => $this->buildResponseFormat(),
-            'chat_template_kwargs' => ['enable_thinking' => $enableThinking],
-        ], JSON_UNESCAPED_UNICODE);
+        ];
+
+        if ($this->provider === 'deepseek') {
+            $payloadData['thinking'] = ['type' => $enableThinking ? 'enabled' : 'disabled'];
+            if ($enableThinking) {
+                $payloadData['reasoning_effort'] = 'high';
+            }
+        } else {
+            $payloadData['chat_template_kwargs'] = ['enable_thinking' => $enableThinking];
+        }
+
+        $payload = json_encode($payloadData, JSON_UNESCAPED_UNICODE);
+        if ($payload === false) {
+            return null;
+        }
 
         $ch = curl_init($url);
+        $headers = ['Content-Type: application/json'];
+        if ($this->apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $this->apiKey;
+        }
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeoutSeconds,
             CURLOPT_CONNECTTIMEOUT => $this->connectTimeoutSeconds,
@@ -150,6 +176,10 @@ class LLMReviewer
 
     private function buildResponseFormat(): array
     {
+        if ($this->provider === 'deepseek') {
+            return ['type' => 'json_object'];
+        }
+
         return [
             'type' => 'json_schema',
             'json_schema' => [
@@ -397,5 +427,15 @@ class LLMReviewer
         }
 
         return max($min, min($max, (int) $raw));
+    }
+
+    private function resolveProvider(): string
+    {
+        $provider = strtolower(trim($this->getEnv('PLAN_LLM_PROVIDER', $this->getEnv('LLM_PROVIDER', ''))));
+        if ($provider !== '') {
+            return $provider;
+        }
+
+        return stripos($this->baseUrl, 'deepseek') !== false ? 'deepseek' : 'openai-compatible';
     }
 }

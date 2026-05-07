@@ -7,11 +7,12 @@
  * при необходимости пересчитывает оставшиеся недели через PlanSkeletonGenerator.
  */
 
-require_once __DIR__ . '/../../prepare_weekly_analysis.php';
-require_once __DIR__ . '/../../services/TrainingStateBuilder.php';
-require_once __DIR__ . '/../../services/PostWorkoutFollowupService.php';
-require_once __DIR__ . '/../../services/AthleteSignalsService.php';
-require_once __DIR__ . '/../prompt_builder.php';
+require_once __DIR__ . '/../../../prepare_weekly_analysis.php';
+require_once __DIR__ . '/../../../services/TrainingStateBuilder.php';
+require_once __DIR__ . '/../../../services/PostWorkoutFollowupService.php';
+require_once __DIR__ . '/../../../services/AthleteSignalsService.php';
+require_once __DIR__ . '/../../../services/LlmGateway.php';
+require_once __DIR__ . '/../../prompt_builder.php';
 
 class WeeklyAdaptationEngine
 {
@@ -390,7 +391,7 @@ class WeeklyAdaptationEngine
             require_once __DIR__ . '/PlanSkeletonGenerator.php';
             require_once __DIR__ . '/LLMEnricher.php';
             require_once __DIR__ . '/SkeletonValidator.php';
-            require_once __DIR__ . '/../../services/PlanGenerationProcessorService.php';
+            require_once __DIR__ . '/../../../services/PlanGenerationProcessorService.php';
 
             // Определяем cutoff_date — понедельник следующей недели
             $cutoffDate = (new DateTime())->modify('monday next week')->format('Y-m-d');
@@ -760,8 +761,8 @@ class WeeklyAdaptationEngine
 
     private function generateWeeklyReview(string $weekData, string $username): ?string
     {
-        $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+        $model = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
 
         if ($baseUrl === '' || $model === '') {
             error_log('weekly_adaptation: LLM_CHAT_BASE_URL or LLM_CHAT_MODEL not set');
@@ -780,7 +781,7 @@ class WeeklyAdaptationEngine
 - СТРОГО русский язык. Без emoji.
 PROMPT;
 
-        $payload = [
+        $payload = LlmGateway::withThinkingMode([
             'model' => $model,
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt],
@@ -789,28 +790,21 @@ PROMPT;
             'stream' => false,
             'max_tokens' => 800,
             'temperature' => 0.5,
-        ];
+        ], $baseUrl, false);
 
-        $url = $baseUrl . '/chat/completions';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 90,
-            CURLOPT_CONNECTTIMEOUT => 10,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200 || $response === false) {
-            error_log("weekly_adaptation: LLM HTTP {$httpCode}");
+        try {
+            $data = LlmGateway::requestChatCompletion($baseUrl, $payload, [
+                'feature' => 'weekly_adaptation',
+                'purpose' => 'chat',
+                'timeout' => 90,
+                'connect_timeout' => 10,
+                'max_attempts' => 1,
+            ]);
+        } catch (Throwable $e) {
+            error_log('weekly_adaptation: LLM error: ' . $e->getMessage());
             return null;
         }
 
-        $data = json_decode($response, true);
         $content = trim((string) ($data['choices'][0]['message']['content'] ?? ''));
         if ($content === '') {
             return null;
@@ -828,7 +822,7 @@ PROMPT;
             $newBase = 3.0; // минимум
         }
 
-        require_once __DIR__ . '/../../repositories/UserRepository.php';
+        require_once __DIR__ . '/../../../repositories/UserRepository.php';
         $userRepo = new UserRepository($this->db);
         $userRepo->update($userId, ['weekly_base_km' => $newBase]);
     }

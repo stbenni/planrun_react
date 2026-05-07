@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext js,jsx",
     "apk": "rm -f public/planrun.apk && npm run build && npx cap sync android && cd android && JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk21} ./gradlew assembleRelease && cd .. && cp android/app/build/outputs/apk/release/app-release.apk test.apk && cp test.apk public/planrun.apk && npm run build"

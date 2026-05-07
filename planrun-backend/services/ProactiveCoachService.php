@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../config/Logger.php';
+require_once __DIR__ . '/LlmGateway.php';
 require_once __DIR__ . '/../user_functions.php';
 
 class ProactiveCoachService {
@@ -48,8 +49,8 @@ class ProactiveCoachService {
 
     public function __construct($db) {
         $this->db = $db;
-        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
     }
 
     /**
@@ -278,7 +279,7 @@ class ProactiveCoachService {
             'vdot_improvement' => "VDOT пользователя {$name} вырос на {$data['delta']} (с {$data['previous_vdot']} до {$data['current_vdot']}). Форма растёт!",
             'volume_record' => "Пользователь {$name} пробежал рекордный недельный объём: {$data['weekly_km']} км.",
             'consistency_streak' => "Пользователь {$name} стабильно тренируется уже {$data['weeks']} недель подряд.",
-            'goal_achievable' => "Прогнозное время пользователя {$name} впервые стало быстрее целевого (прогноз vs цель: " . gmdate('H:i:s', $data['predicted_sec']) . " vs " . gmdate('H:i:s', $data['target_sec']) . ").",
+            'goal_achievable' => "Прогнозное время пользователя {$name} впервые стало быстрее целевого (прогноз: " . gmdate('H:i:s', $data['predicted_sec']) . ", цель: " . gmdate('H:i:s', $data['target_sec']) . ").",
             default => '',
         };
 
@@ -291,6 +292,7 @@ class ProactiveCoachService {
 
 ПРАВИЛА:
 - СТРОГО на русском.
+- Обращайся к спортсмену на «ты», не на «вы».
 - Тон: дружелюбный, заботливый тренер.
 - При паузе: мягко, без укоров. «Заметил паузу, как ты? Если нужна помощь с планом — напиши».
 - При перегрузке: серьёзно. «Нагрузка высокая, рекомендую отдых/лёгкий бег».
@@ -304,7 +306,7 @@ class ProactiveCoachService {
 - НЕ используй эмодзи. Без «Привет!» — сразу к делу.
 PROMPT;
 
-        $content = $this->callLlmSimple($prompt, 200);
+        $content = $this->callLlmSimple($prompt, 200, $userId);
         return $content !== '' ? $content : $this->getFallbackMessage($type, $data);
     }
 
@@ -452,14 +454,15 @@ PROMPT;
 
 ПРАВИЛА:
 - СТРОГО на русском.
+- Обращайся к спортсмену на «ты», не на «вы».
 - Тон: мотивирующий, конкретный.
 - Назови тип тренировки и используй детали из описания плана, если они есть.
 - Дай один ключевой совет.
 - Если ACWR высокий — предупреди о нагрузке.
-- НЕ используй эмодзи.
+- НЕ используй эмодзи. Без «Привет!» и «Доброе утро!» — сразу к делу.
 PROMPT;
 
-                $message = $this->callLlmSimple($prompt, 260);
+                $message = $this->callLlmSimple($prompt, 260, $userId);
                 if ($message === '') {
                     $message = $this->getDailyBriefingFallback($typeRu, $description, $isKey, $acwrZone);
                 }
@@ -528,15 +531,16 @@ PROMPT;
 
 ПРАВИЛА:
 - СТРОГО на русском.
+- Обращайся к спортсмену на «ты», не на «вы».
 - Начни с общей оценки недели.
 - Отметь объём и регулярность.
 - Если выполнение ниже 70%, мягко спроси о причинах и предложи скорректировать план.
 - Если нагрузка высокая, напомни про восстановление.
 - Дай 1-2 рекомендации на следующую неделю.
-- НЕ используй эмодзи.
+- НЕ используй эмодзи. Без приветствий — сразу к оценке недели.
 PROMPT;
 
-                $message = $this->callLlmSimple($prompt, 420);
+                $message = $this->callLlmSimple($prompt, 420, $userId);
                 if ($message === '') {
                     $message = "Итог недели: {$weekStats} На следующей неделе держи нагрузку ровно и внимательно следи за восстановлением.";
                 }
@@ -557,37 +561,36 @@ PROMPT;
         return $stats;
     }
 
-    private function callLlmSimple(string $prompt, int $maxTokens = 300): string {
-        $url = $this->llmBaseUrl . '/chat/completions';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->llmModel,
-                'messages' => [
-                    ['role' => 'system', 'content' => $prompt],
-                    ['role' => 'user', 'content' => 'Напиши сообщение.'],
-                ],
-                'stream' => false,
-                'max_tokens' => $maxTokens,
-                'temperature' => 0.7,
-                'chat_template_kwargs' => ['enable_thinking' => false],
-            ]),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_CONNECTTIMEOUT => 5,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+    private function callLlmSimple(string $prompt, int $maxTokens = 300, ?int $userId = null): string {
+        $payload = LlmGateway::withThinkingMode([
+            'model' => $this->llmModel,
+            'messages' => [
+                ['role' => 'system', 'content' => $prompt],
+                ['role' => 'user', 'content' => 'Напиши сообщение.'],
+            ],
+            'stream' => false,
+            'max_tokens' => $maxTokens,
+            'temperature' => 0.7,
+        ], $this->llmBaseUrl, false);
 
-        if ($httpCode !== 200 || $response === false) {
-            Logger::warning('ProactiveCoach: LLM call failed', ['http' => $httpCode]);
+        try {
+            $response = LlmGateway::requestChatCompletion($this->llmBaseUrl, $payload, [
+                'feature' => 'Proactive coach message',
+                'purpose' => 'chat',
+                'db' => $this->db,
+                'surface' => 'proactive_coach',
+                'event_type' => 'llm_request',
+                'user_id' => $userId,
+                'timeout' => 30,
+                'connect_timeout' => 5,
+                'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+            ]);
+        } catch (Throwable $e) {
+            Logger::warning('ProactiveCoach: LLM call failed', ['error' => $e->getMessage(), 'userId' => $userId]);
             return '';
         }
 
-        return trim(json_decode($response, true)['choices'][0]['message']['content'] ?? '');
+        return trim((string) ($response['choices'][0]['message']['content'] ?? ''));
     }
 
     private function countPlannedWorkouts(int $userId, string $startDate, string $endDate): int {

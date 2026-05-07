@@ -12,6 +12,7 @@ const ActivityHeatmap = ({ data }) => {
   const [isSwiping, setIsSwiping] = useState(false);
   const swipeStartX = useRef(0);
   const swipeStartY = useRef(0);
+  const heatmapRef = useRef(null);
   const containerRef = useRef(null);
 
   if (!data || !Array.isArray(data) || data.length === 0) {
@@ -141,10 +142,11 @@ const ActivityHeatmap = ({ data }) => {
 
   const handleDayClick = (e, day) => {
     const rect = e.currentTarget.getBoundingClientRect();
+    const heatmapRect = heatmapRef.current?.getBoundingClientRect();
     setSelectedDay(day);
     setTooltipPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10
+      x: heatmapRect ? rect.left - heatmapRect.left + rect.width / 2 : rect.width / 2,
+      y: heatmapRect ? rect.top - heatmapRect.top - 10 : 0
     });
   };
 
@@ -160,7 +162,7 @@ const ActivityHeatmap = ({ data }) => {
   const calendarDays = getMonthCalendar(currentMonth.year, currentMonth.month);
 
   return (
-    <div className="activity-heatmap">
+    <div className="activity-heatmap" ref={heatmapRef}>
       <div className="heatmap-header">
         <div className="chart-legend">
           <div className="legend-item">

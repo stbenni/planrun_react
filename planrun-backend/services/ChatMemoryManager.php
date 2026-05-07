@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../config/Logger.php';
+require_once __DIR__ . '/LlmGateway.php';
 require_once __DIR__ . '/../user_functions.php';
 
 class ChatMemoryManager {
@@ -20,8 +21,8 @@ class ChatMemoryManager {
 
     public function __construct($db) {
         $this->db = $db;
-        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
     }
 
     /**
@@ -32,7 +33,7 @@ class ChatMemoryManager {
         if (count($recentMessages) < self::MIN_MESSAGES_FOR_EXTRACTION) return false;
 
         $existingMemory = $this->getMemory($userId);
-        $newFacts = $this->extractFacts($recentMessages, $existingMemory);
+        $newFacts = $this->extractFacts($recentMessages, $existingMemory, $userId);
         if (empty($newFacts)) return false;
 
         $merged = $this->mergeFacts($existingMemory, $newFacts);
@@ -43,7 +44,7 @@ class ChatMemoryManager {
      * Извлекает факты из диалога с помощью LLM.
      * @return string[] Массив фактов-строк
      */
-    private function extractFacts(array $messages, string $existingMemory): array {
+    private function extractFacts(array $messages, string $existingMemory, int $userId): array {
         $dialogText = '';
         $count = 0;
         foreach (array_slice($messages, -20) as $m) {
@@ -81,32 +82,35 @@ class ChatMemoryManager {
 
 PROMPT;
 
-        $url = $this->llmBaseUrl . '/chat/completions';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->llmModel,
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemPrompt],
-                    ['role' => 'user', 'content' => "Извлеки факты из диалога:\n\n" . mb_substr($dialogText, 0, 8000)],
-                ],
-                'stream' => false, 'max_tokens' => 600, 'temperature' => 0.1,
-            ]),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 45, CURLOPT_CONNECTTIMEOUT => 5,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $payload = LlmGateway::withThinkingMode([
+            'model' => $this->llmModel,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => "Извлеки факты из диалога:\n\n" . mb_substr($dialogText, 0, 8000)],
+            ],
+            'stream' => false,
+            'max_tokens' => 600,
+            'temperature' => 0.1,
+        ], $this->llmBaseUrl, false);
 
-        if ($httpCode !== 200 || $response === false) {
-            Logger::warning('Memory extraction LLM call failed', ['http' => $httpCode, 'error' => curl_error($ch)]);
+        try {
+            $response = LlmGateway::requestChatCompletion($this->llmBaseUrl, $payload, [
+                'feature' => 'Chat memory extraction',
+                'purpose' => 'chat',
+                'db' => $this->db,
+                'surface' => 'chat_memory',
+                'event_type' => 'llm_request',
+                'user_id' => $userId,
+                'timeout' => 45,
+                'connect_timeout' => 5,
+                'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+            ]);
+        } catch (Throwable $e) {
+            Logger::warning('Memory extraction LLM call failed', ['userId' => $userId, 'error' => $e->getMessage()]);
             return [];
         }
 
-        $data = json_decode($response, true);
-        $content = trim($data['choices'][0]['message']['content'] ?? '');
+        $content = trim((string) ($response['choices'][0]['message']['content'] ?? ''));
 
         if ($content === '' || mb_stripos($content, 'ПУСТО') !== false || mb_stripos($content, 'пусто') !== false) {
             return [];

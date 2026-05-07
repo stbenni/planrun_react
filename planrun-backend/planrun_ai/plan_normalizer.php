@@ -83,16 +83,75 @@ function calculateFartlekTotalKm(array $day): float {
     $warmup = (float)($day['warmup_km'] ?? 0);
     $cooldown = (float)($day['cooldown_km'] ?? 0);
     $total = $warmup + $cooldown;
-    $segments = $day['segments'] ?? [];
-    if (is_array($segments)) {
-        foreach ($segments as $seg) {
-            $reps = (int)($seg['reps'] ?? 0);
-            $distM = (int)($seg['distance_m'] ?? 0);
-            $recM = (int)($seg['recovery_m'] ?? 0);
-            $total += ($reps * ($distM + $recM)) / 1000.0;
-        }
+    foreach (normalizeFartlekSegments($day['segments'] ?? []) as $seg) {
+        $reps = (int)($seg['reps'] ?? 0);
+        $distM = (int)($seg['distance_m'] ?? 0);
+        $recM = (int)($seg['recovery_m'] ?? 0);
+        $total += ($reps * ($distM + $recM)) / 1000.0;
     }
     return $total;
+}
+
+function normalizeFartlekSegments(mixed $segments): array {
+    if (!is_array($segments)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($segments as $seg) {
+        if (!is_array($seg)) {
+            continue;
+        }
+
+        $reps = (int)($seg['reps'] ?? 0);
+        $distanceM = (int)($seg['distance_m'] ?? ($seg['accelDistM'] ?? ($seg['interval_m'] ?? 0)));
+        $recoveryM = (int)($seg['recovery_m'] ?? ($seg['recoveryDistM'] ?? ($seg['rest_m'] ?? 0)));
+        if ($reps < 1 || $distanceM < 50) {
+            continue;
+        }
+
+        $normalized[] = [
+            'reps' => $reps,
+            'distance_m' => $distanceM,
+            'pace' => isset($seg['pace']) && trim((string)$seg['pace']) !== ''
+                ? trim((string)$seg['pace'])
+                : (isset($seg['accelPace']) && trim((string)$seg['accelPace']) !== '' ? trim((string)$seg['accelPace']) : null),
+            'recovery_m' => max(0, $recoveryM),
+            'recovery_type' => isset($seg['recovery_type']) && trim((string)$seg['recovery_type']) !== ''
+                ? trim((string)$seg['recovery_type'])
+                : (isset($seg['recoveryType']) && trim((string)$seg['recoveryType']) !== '' ? trim((string)$seg['recoveryType']) : 'jog'),
+        ];
+    }
+
+    return $normalized;
+}
+
+function hasUsableFartlekSegments(array $day): bool {
+    return normalizeFartlekSegments($day['segments'] ?? []) !== [];
+}
+
+function ensureFartlekWorkoutStructure(array $day): array {
+    $segments = normalizeFartlekSegments($day['segments'] ?? []);
+    if ($segments !== []) {
+        $day['segments'] = $segments;
+        return $day;
+    }
+
+    $day['warmup_km'] = isset($day['warmup_km']) && (float)$day['warmup_km'] > 0.0 ? (float)$day['warmup_km'] : 2.0;
+    $day['cooldown_km'] = isset($day['cooldown_km']) && (float)$day['cooldown_km'] > 0.0 ? (float)$day['cooldown_km'] : 1.5;
+    $day['segments'] = [[
+        'reps' => 8,
+        'distance_m' => 400,
+        'pace' => isset($day['interval_pace']) && trim((string)$day['interval_pace']) !== '' ? trim((string)$day['interval_pace']) : '4:15',
+        'recovery_m' => 200,
+        'recovery_type' => 'jog',
+    ]];
+
+    if (empty($day['notes'])) {
+        $day['notes'] = 'Фартлек дополнен структурой: 8×400 м с восстановлением 200 м трусцой.';
+    }
+
+    return $day;
 }
 
 /**
@@ -119,7 +178,7 @@ function buildDescriptionFromFields(array $day): string {
             } else {
                 $lines[] = "{$dist} км";
             }
-            $notes = $day['notes'] ?? '';
+            $notes = sanitizeRunNotesForDescription($day, $type);
             if ($notes !== '') {
                 $lines[] = $notes;
             }
@@ -160,7 +219,7 @@ function buildDescriptionFromFields(array $day): string {
     if ($type === 'fartlek') {
         $warmup = $day['warmup_km'] ?? 2;
         $cooldown = $day['cooldown_km'] ?? 1.5;
-        $segments = $day['segments'] ?? [];
+        $segments = normalizeFartlekSegments($day['segments'] ?? []);
 
         $desc = "Разминка: {$warmup} км. ";
         $segParts = [];
@@ -224,6 +283,82 @@ function buildDescriptionFromFields(array $day): string {
 
     // rest / free
     return '';
+}
+
+function formatPlanDistanceKm(float $distanceKm): string {
+    $formatted = number_format(round($distanceKm, 1), 1, '.', '');
+    return rtrim(rtrim($formatted, '0'), '.');
+}
+
+function noteLooksLikeNumericRunPrescription(string $notes): bool {
+    $normalized = trim($notes);
+    if ($normalized === '') {
+        return false;
+    }
+
+    return (bool) preg_match('/(\d+(?:[.,]\d+)?\s*(?:км|km|м\b|мин\b|мин\/км)|[0-9]+[\s]*[×xх][\s]*[0-9]+|темп)/iu', $normalized);
+}
+
+function sanitizeRunNotesForDescription(array $day, string $type): string {
+    $notes = trim((string) ($day['notes'] ?? ''));
+    if ($notes === '') {
+        return '';
+    }
+
+    $type = normalizeTrainingType($type);
+    if (in_array($type, ['easy', 'long', 'walking', 'race'], true) && noteLooksLikeNumericRunPrescription($notes)) {
+        return '';
+    }
+
+    return $notes;
+}
+
+function refreshRunNotesAfterDistanceChange(array $day): array {
+    $type = normalizeTrainingType($day['type'] ?? null);
+    $notes = trim((string) ($day['notes'] ?? ''));
+    $distanceKm = isset($day['distance_km']) && $day['distance_km'] !== null
+        ? round((float) $day['distance_km'], 1)
+        : null;
+
+    if ($distanceKm === null || $distanceKm <= 0.0 || !in_array($type, PLAN_RUN_TYPES, true)) {
+        return $day;
+    }
+
+    if ($type === 'tempo') {
+        $warmup = isset($day['warmup_km']) && (float) $day['warmup_km'] > 0.0 ? (float) $day['warmup_km'] : 2.0;
+        $cooldown = isset($day['cooldown_km']) && (float) $day['cooldown_km'] > 0.0 ? (float) $day['cooldown_km'] : 1.5;
+        $stimulusKm = round(max(0.0, $distanceKm - $warmup - $cooldown), 1);
+        $pace = isset($day['pace']) && trim((string) $day['pace']) !== '' ? trim((string) $day['pace']) : null;
+        $isGoalSpecific = preg_match('/целев|марафонск|полумарафонск|goal pace|mp-run|hmp-run/iu', $notes) === 1;
+
+        if ($stimulusKm > 0.0) {
+            $stimulusText = formatPlanDistanceKm($stimulusKm) . ' км';
+            $effortText = $isGoalSpecific
+                ? 'в районе целевого темпа'
+                : ($pace !== null ? "в темпе {$pace}" : 'в ровном темповом усилии');
+            $day['notes'] = 'Разминка ' . formatPlanDistanceKm($warmup) . " км. Темповый отрезок {$stimulusText} {$effortText}. Заминка " . formatPlanDistanceKm($cooldown) . ' км';
+        } else {
+            $day['notes'] = 'Короткая темповая работа внутри общего объёма. Держи ровное контролируемое усилие.';
+        }
+
+        return $day;
+    }
+
+    if ($type === 'control') {
+        $warmup = isset($day['warmup_km']) && (float) $day['warmup_km'] > 0.0 ? (float) $day['warmup_km'] : 2.0;
+        $cooldown = isset($day['cooldown_km']) && (float) $day['cooldown_km'] > 0.0 ? (float) $day['cooldown_km'] : 1.5;
+        $controlKm = round(max(0.0, $distanceKm - $warmup - $cooldown), 1);
+        if ($controlKm > 0.0) {
+            $day['notes'] = 'Разминка ' . formatPlanDistanceKm($warmup) . ' км. Контрольный непрерывный забег ' . formatPlanDistanceKm($controlKm) . ' км ровным усилием. Заминка ' . formatPlanDistanceKm($cooldown) . ' км';
+        }
+        return $day;
+    }
+
+    if (in_array($type, ['easy', 'long', 'race'], true) && noteLooksLikeNumericRunPrescription($notes)) {
+        $day['notes'] = '';
+    }
+
+    return $day;
 }
 
 /**
@@ -423,6 +558,7 @@ function normalizeTrainingDay(array $day, string $computedDate, int $dayOfWeek):
         $distanceKm = round(calculateIntervalTotalKm($day), 1);
         $pace = null;
     } elseif ($type === 'fartlek') {
+        $day = ensureFartlekWorkoutStructure($day);
         $distanceKm = round(calculateFartlekTotalKm($day), 1);
         $pace = null;
     }
@@ -598,9 +734,10 @@ function rebuildNormalizedDayArtifacts(array $day): array {
     $pace = isset($day['pace']) && $day['pace'] !== '' ? trim((string) $day['pace']) : null;
     $durationMin = isset($day['duration_minutes']) && $day['duration_minutes'] !== null ? (int) $day['duration_minutes'] : null;
 
-    if ($type === 'interval' && ($distanceKm === null || $distanceKm <= 0)) {
+    if ($type === 'interval') {
         $distanceKm = round(calculateIntervalTotalKm($day), 1);
-    } elseif ($type === 'fartlek' && ($distanceKm === null || $distanceKm <= 0)) {
+    } elseif ($type === 'fartlek') {
+        $day = ensureFartlekWorkoutStructure($day);
         $distanceKm = round(calculateFartlekTotalKm($day), 1);
     } elseif ($durationMin === null && $distanceKm !== null && $pace !== null && in_array($type, ['easy', 'long', 'tempo', 'race', 'control', 'walking'], true)) {
         $durationMin = calculateDurationMinutes($distanceKm, $pace);
@@ -1019,6 +1156,10 @@ function normalizeTrainingPlan(array $rawPlan, string $startDate, int $weekNumbe
             'phase_label' => isset($week['phase_label']) ? (string) $week['phase_label'] : null,
             'is_recovery' => !empty($week['is_recovery']),
             'target_volume_km' => isset($week['target_volume_km']) ? round((float) $week['target_volume_km'], 1) : $weekVolume,
+            'target_volume_source' => isset($week['target_volume_km']) ? 'llm' : 'calculated',
+            'macro_adjustment_reason' => isset($week['macro_adjustment_reason']) && trim((string) $week['macro_adjustment_reason']) !== ''
+                ? trim((string) $week['macro_adjustment_reason'])
+                : null,
             'actual_volume_km' => isset($week['actual_volume_km']) ? round((float) $week['actual_volume_km'], 1) : $weekVolume,
             'total_volume' => $weekVolume,
             'days'        => $normalizedDays,
@@ -1049,6 +1190,7 @@ function updateRunExercisePace(array &$day): void {
 }
 
 function updateSimpleRunDayAfterDistanceChange(array $day): array {
+    $day = refreshRunNotesAfterDistanceChange($day);
     $day = rebuildNormalizedDayArtifacts($day);
     updateRunExercisePace($day);
     return $day;
@@ -1062,6 +1204,7 @@ function applyTrainingStatePaceRepairs(array $normalized, array $trainingState):
 
     $weeks = $normalized['weeks'];
     foreach ($weeks as &$week) {
+        $weekNumber = (int) ($week['week_number'] ?? 0);
         foreach ($week['days'] as &$day) {
             $type = normalizeTrainingType($day['type'] ?? null);
             $pace = $day['pace'] ?? null;
@@ -1076,16 +1219,14 @@ function applyTrainingStatePaceRepairs(array $normalized, array $trainingState):
             } elseif ($type === 'long' && isset($paceRules['long_min_sec'], $paceRules['long_max_sec'])) {
                 $newPaceSec = max((int) $paceRules['long_min_sec'], min((int) $paceRules['long_max_sec'], $paceSec));
             } elseif ($type === 'tempo' && isset($paceRules['tempo_sec'])) {
-                $goalPaceSec = isset($trainingState['goal_pace_sec']) ? (int) $trainingState['goal_pace_sec'] : null;
                 $tempoTol = isset($paceRules['tempo_tolerance_sec']) ? (int) $paceRules['tempo_tolerance_sec'] : 8;
-                $notesText = mb_strtolower(trim((string) (($day['notes'] ?? '') . ' ' . ($day['description'] ?? ''))), 'UTF-8');
-                $isGoalSpecificMarathonTempo = $goalPaceSec !== null
-                    && str_contains($notesText, 'целев')
-                    && str_contains($notesText, 'марафон');
-                if ($isGoalSpecificMarathonTempo && abs($paceSec - $goalPaceSec) <= 15) {
-                    continue;
-                }
-                if (abs($paceSec - (int) $paceRules['tempo_sec']) > $tempoTol) {
+                $goalSpecificTargetSec = resolveGoalSpecificTempoPaceTargetSec($day, $trainingState, $weekNumber);
+                if ($goalSpecificTargetSec !== null) {
+                    $goalTolerance = max($tempoTol + 5, 20);
+                    if (abs($paceSec - $goalSpecificTargetSec) > $goalTolerance) {
+                        $newPaceSec = $goalSpecificTargetSec;
+                    }
+                } elseif (abs($paceSec - (int) $paceRules['tempo_sec']) > $tempoTol) {
                     $newPaceSec = (int) $paceRules['tempo_sec'];
                 }
             }
@@ -1548,7 +1689,7 @@ function applyTrainingStateWorkoutDetailFallbacks(array $normalized, array $trai
                 $day['cooldown_km'] = $day['cooldown_km'] ?? 1.5;
                 $day = updateSimpleRunDayAfterDistanceChange($day);
                 $warnings[] = "Неделя {$weekNumber}: control дополнен benchmark-структурой";
-            } elseif ($type === 'fartlek' && empty($day['segments'])) {
+            } elseif ($type === 'fartlek' && !hasUsableFartlekSegments($day)) {
                 $day['warmup_km'] = 2.0;
                 $day['cooldown_km'] = 1.5;
                 $day['segments'] = [[
@@ -1631,6 +1772,10 @@ function resolveGoalSpecificTempoPaceTargetSec(array $day, array $trainingState,
         return null;
     }
 
+    if (($day['subtype'] ?? null) === 'race_pace') {
+        return $goalPaceSec;
+    }
+
     $contract = findWeekIntentContract($trainingState, $weekNumber, 'tempo');
     if (($contract['intent'] ?? null) === 'goal_pace_specific') {
         return $goalPaceSec;
@@ -1641,11 +1786,17 @@ function resolveGoalSpecificTempoPaceTargetSec(array $day, array $trainingState,
         'UTF-8'
     );
 
-    $goalPaceHints = ['целев', 'goal pace', 'марфонск', 'марафонск'];
-    foreach ($goalPaceHints as $hint) {
-        if (str_contains($text, $hint)) {
-            return $goalPaceSec;
-        }
+    if ($text === '') {
+        return null;
+    }
+
+    if (
+        preg_match('/\b(?:goal|race)[\s-]?pace\b/u', $text) === 1
+        || preg_match('/\b(?:mp|hmp)[\s-]?run\b/u', $text) === 1
+        || (str_contains($text, 'целев') && str_contains($text, 'темп'))
+        || preg_match('/(?:марафонск[а-яё]*\s+темп|темп[а-яё]*\s+марафон|полумарафонск[а-яё]*\s+темп|темп[а-яё]*\s+полумарафон)/u', $text) === 1
+    ) {
+        return $goalPaceSec;
     }
 
     return null;

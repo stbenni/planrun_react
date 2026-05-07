@@ -329,6 +329,10 @@ try {
             planrunRouteControllerAction($db, TrainingPlanController::class, 'generateNextPlan', $method, 'POST');
             break;
 
+        case 'submit_plan_readiness_check':
+            planrunRouteControllerAction($db, TrainingPlanController::class, 'submitReadinessCheck', $method, 'POST');
+            break;
+
         case 'reactivate_plan':
             planrunRouteControllerAction($db, TrainingPlanController::class, 'reactivatePlan', $method, 'POST');
             break;

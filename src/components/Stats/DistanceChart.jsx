@@ -2,11 +2,12 @@
  * Компонент графика дистанции (для десктопов)
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 const DistanceChart = ({ data }) => {
   const [tooltip, setTooltip] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const chartRef = useRef(null);
 
   if (!data || data.length === 0) {
     return <div className="chart-empty">Нет данных для графика</div>;
@@ -37,6 +38,7 @@ const DistanceChart = ({ data }) => {
 
   const handleMouseEnter = (e, item) => {
     const rect = e.currentTarget.getBoundingClientRect();
+    const chartRect = chartRef.current?.getBoundingClientRect();
     
     setTooltip({
       date: item.dateLabel,
@@ -44,10 +46,9 @@ const DistanceChart = ({ data }) => {
       workouts: item.workouts
     });
     
-    // Позиционируем подсказку относительно столбца графика
     setTooltipPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10
+      x: chartRect ? rect.left - chartRect.left + rect.width / 2 : rect.width / 2,
+      y: chartRect ? rect.top - chartRect.top - 10 : 0
     });
   };
 
@@ -56,7 +57,7 @@ const DistanceChart = ({ data }) => {
   };
 
   return (
-    <div className="distance-chart">
+    <div className="distance-chart" ref={chartRef}>
       <div className="chart-header">
         <div className="chart-legend">
           <div className="legend-item">

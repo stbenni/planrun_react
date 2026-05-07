@@ -21,17 +21,309 @@ class PlanGenerationProcessorServiceTest extends TestCase {
         parent::tearDown();
     }
 
+    public function test_resolveQualityGateMode_returns_permissive_for_healthy_marathon_runner_in_auto_mode(): void {
+        // Trust-the-model: здоровый бегун с реалистичной целью на марафон не должен
+        // получать блокирующий strict только из-за длинной дистанции — DeepSeek
+        // получает достаточный контекст в FACTS_JSON и сам строит безопасный план.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+        ], [
+            'race_distance' => 'marathon',
+            'special_population_flags' => [],
+            'goal_realism' => [
+                'verdict' => 'realistic',
+                'severity' => 'none',
+            ],
+        ]);
+
+        $this->assertSame('permissive', $result[0]);
+        $this->assertSame('auto_default_permissive', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_permissive_for_healthy_half_marathon_runner_in_auto_mode(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => 'half',
+        ], [
+            'race_distance' => 'half',
+            'special_population_flags' => [],
+            'goal_realism' => [
+                'verdict' => 'realistic',
+                'severity' => 'none',
+            ],
+        ]);
+
+        $this->assertSame('permissive', $result[0]);
+        $this->assertSame('auto_default_permissive', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_strict_for_marathon_with_return_after_injury(): void {
+        // Травмо-критическая когорта остаётся под strict (даже на марафоне).
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+        ], [
+            'race_distance' => 'marathon',
+            'special_population_flags' => ['return_after_injury'],
+        ]);
+
+        $this->assertSame('strict', $result[0]);
+        $this->assertStringContainsString('return_after_injury', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_does_not_force_strict_for_return_after_break_scenario(): void {
+        // return_after_break — про восстановительный объём, не про injury risk.
+        // DeepSeek с FACTS_JSON разруливает сам; gate работает в permissive.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => '10k',
+        ], [
+            'race_distance' => '10k',
+            'special_population_flags' => [],
+            'planning_scenario' => [
+                'flags' => ['return_after_break'],
+            ],
+            'goal_realism' => [
+                'verdict' => 'realistic',
+                'severity' => 'none',
+            ],
+        ]);
+
+        $this->assertSame('permissive', $result[0]);
+        $this->assertSame('auto_default_permissive', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_strict_for_return_after_injury_flag(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => '10k',
+        ], [
+            'race_distance' => '10k',
+            'special_population_flags' => ['return_after_injury'],
+        ]);
+
+        $this->assertSame('strict', $result[0]);
+        $this->assertStringContainsString('return_after_injury', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_strict_for_unrealistic_goal_realism(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => '5k',
+        ], [
+            'race_distance' => '5k',
+            'special_population_flags' => [],
+            'goal_realism' => [
+                'verdict' => 'unrealistic',
+                'severity' => 'major',
+            ],
+        ]);
+
+        $this->assertSame('strict', $result[0]);
+        $this->assertSame('auto_goal_unrealistic', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_strict_for_protective_scenario_flags(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'health',
+        ], [
+            'race_distance' => null,
+            'special_population_flags' => [],
+            'planning_scenario' => [
+                'flags' => ['pain_protective'],
+            ],
+        ]);
+
+        $this->assertSame('strict', $result[0]);
+        $this->assertStringContainsString('pain_protective', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_returns_permissive_for_healthy_runner_in_auto_mode(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'auto', [
+            'goal_type' => 'race',
+            'race_distance' => '10k',
+        ], [
+            'race_distance' => '10k',
+            'special_population_flags' => [],
+            'planning_scenario' => [
+                'flags' => ['standard_race_build'],
+            ],
+            'goal_realism' => [
+                'verdict' => 'realistic',
+                'severity' => 'none',
+            ],
+        ]);
+
+        $this->assertSame('permissive', $result[0]);
+        $this->assertSame('auto_default_permissive', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_respects_explicit_strict_env(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'strict', [
+            'goal_type' => 'race',
+            'race_distance' => '10k',
+        ], [
+            'race_distance' => '10k',
+            'special_population_flags' => [],
+        ]);
+
+        $this->assertSame('strict', $result[0]);
+        $this->assertSame('env_explicit', $result[1]);
+    }
+
+    public function test_resolveQualityGateMode_respects_explicit_permissive_env(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'resolveQualityGateMode');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($service, 'permissive', [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+        ], [
+            'race_distance' => 'marathon',
+            'special_population_flags' => ['return_after_injury'],
+        ]);
+
+        $this->assertSame('permissive', $result[0]);
+        $this->assertSame('env_explicit', $result[1]);
+    }
+
+    public function test_applySinglePassHardSafetyRepairs_caps_late_marathon_long_runs(): void {
+        // Phase A.6 (PR3): после поднятия longShareCap до 0.60 (медицинский потолок) при
+        // late-long cap до 32 км и week_total ~62 км share становится 0.51 < 0.60 — share cap
+        // не срабатывает. Остаётся только медицинский late-long repair.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'applySinglePassHardSafetyRepairs');
+        $method->setAccessible(true);
+
+        [$plan, $repairs] = $method->invoke($service, [
+            '_generation_metadata' => [
+                'macro_plan' => [
+                    'weeks' => [[
+                        'week' => 7,
+                        'target_volume_km' => 68.0,
+                        'long_run_km' => 38.0,
+                    ]],
+                ],
+            ],
+            'weeks' => [[
+                'week_number' => 7,
+                'phase' => 'peak',
+                'days' => [
+                    ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 10.0],
+                    ['day_of_week' => 2, 'type' => 'rest'],
+                    ['day_of_week' => 3, 'type' => 'easy', 'distance_km' => 10.0],
+                    ['day_of_week' => 4, 'type' => 'rest'],
+                    ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 10.0],
+                    ['day_of_week' => 6, 'type' => 'rest'],
+                    ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 38.0, 'pace' => '5:30'],
+                ],
+            ]],
+        ], [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+        ], '2026-05-04');
+
+        $this->assertSame(32.0, (float) ($plan['weeks'][0]['days'][6]['distance_km'] ?? 0.0));
+        $this->assertSame(62.0, (float) ($plan['weeks'][0]['target_volume_km'] ?? 0.0));
+        $this->assertSame(32.0, (float) ($plan['_generation_metadata']['macro_plan']['weeks'][0]['long_run_km'] ?? 0.0));
+        $this->assertCount(1, $repairs);
+        $this->assertSame('cap_late_marathon_long_run', $repairs[0]['code'] ?? null);
+        $this->assertSame(13, (int) ($repairs[0]['days_to_race'] ?? 0));
+    }
+
+    public function test_applySinglePassHardSafetyRepairs_caps_extreme_long_share(): void {
+        // Phase A.6 (PR3): share cap (medical 0.60) срабатывает только при экстремальном перекосе.
+        // Конфигурация: week_total=44, long=30, share=30/44=0.682 — выше 0.60, попадает под repair.
+        // Ожидаемый результат: max long = 14 * 0.6 / (1 - 0.6) = 21.0; cap до 21 км.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'applySinglePassHardSafetyRepairs');
+        $method->setAccessible(true);
+
+        [$plan, $repairs] = $method->invoke($service, [
+            '_generation_metadata' => ['macro_plan' => ['weeks' => [[
+                'week' => 4,
+                'target_volume_km' => 44.0,
+                'long_run_km' => 30.0,
+            ]]]],
+            'weeks' => [[
+                'week_number' => 4,
+                'phase' => 'build',
+                'days' => [
+                    ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 6.0],
+                    ['day_of_week' => 2, 'type' => 'rest'],
+                    ['day_of_week' => 3, 'type' => 'easy', 'distance_km' => 4.0],
+                    ['day_of_week' => 4, 'type' => 'rest'],
+                    ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 4.0],
+                    ['day_of_week' => 6, 'type' => 'rest'],
+                    ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 30.0, 'pace' => '6:00'],
+                ],
+            ]],
+        ], [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-09-13',
+        ], '2026-05-04');
+
+        $this->assertSame(21.0, (float) ($plan['weeks'][0]['days'][6]['distance_km'] ?? 0.0));
+        $this->assertCount(1, $repairs);
+        $this->assertSame('cap_long_run_week_share', $repairs[0]['code'] ?? null);
+        $this->assertSame(0.60, (float) ($repairs[0]['share_cap'] ?? 0.0));
+    }
+
     public function test_enrichRecalculatePayload_excludesWalkingAndManualCrossTrainingFromActualWeeklyKm(): void {
         $userId = $this->createTestUser();
         $runningTypeId = $this->ensureActivityType('running');
         $cyclingTypeId = $this->ensureActivityType('cycling_test');
 
-        $this->insertWorkout($userId, 'running', '2026-04-08 07:00:00', '2026-04-08 08:00:00', 10.0, 60);
-        $this->insertWorkout($userId, 'walking', '2026-04-09 07:00:00', '2026-04-09 08:00:00', 5.0, 60);
-        $this->insertWorkout($userId, 'running', '2026-03-31 07:00:00', '2026-03-31 07:45:00', 8.0, 45);
+        $runningWorkoutDate = date('Y-m-d', strtotime('-7 days'));
+        $walkingWorkoutDate = date('Y-m-d', strtotime('-6 days'));
+        $oldRunningWorkoutDate = date('Y-m-d', strtotime('-35 days'));
+        $manualRunDate = date('Y-m-d', strtotime('-14 days'));
+        $manualCyclingDate = date('Y-m-d', strtotime('-13 days'));
 
-        $this->insertWorkoutLog($userId, '2026-04-03', $runningTypeId, 7.0, 42);
-        $this->insertWorkoutLog($userId, '2026-04-04', $cyclingTypeId, 20.0, 55);
+        $this->insertWorkout($userId, 'running', $runningWorkoutDate . ' 07:00:00', $runningWorkoutDate . ' 08:00:00', 10.0, 60);
+        $this->insertWorkout($userId, 'walking', $walkingWorkoutDate . ' 07:00:00', $walkingWorkoutDate . ' 08:00:00', 5.0, 60);
+        $this->insertWorkout($userId, 'running', $oldRunningWorkoutDate . ' 07:00:00', $oldRunningWorkoutDate . ' 07:45:00', 8.0, 45);
+
+        $this->insertWorkoutLog($userId, $manualRunDate, $runningTypeId, 7.0, 42);
+        $this->insertWorkoutLog($userId, $manualCyclingDate, $cyclingTypeId, 20.0, 55);
 
         $service = new \PlanGenerationProcessorService($this->db);
         $method = new \ReflectionMethod($service, 'enrichRecalculatePayload');
@@ -39,7 +331,7 @@ class PlanGenerationProcessorServiceTest extends TestCase {
 
         $payload = $method->invoke($service, $userId, ['reason' => 'тестовый пересчёт']);
 
-        $this->assertSame(12.5, $payload['actual_weekly_km_4w']);
+        $this->assertSame(8.5, $payload['actual_weekly_km_4w']);
     }
 
     public function test_enrichRecalculatePayload_sets_mutable_from_date_to_tomorrow_when_running_workout_today_exists(): void {
@@ -58,12 +350,15 @@ class PlanGenerationProcessorServiceTest extends TestCase {
     }
 
     public function test_enrichRecalculatePayload_aligns_cutoff_to_future_plan_start_and_includes_current_phase(): void {
+        $planStartDate = date('Y-m-d', strtotime('monday next week'));
+        $raceDate = date('Y-m-d', strtotime($planStartDate . ' +8 weeks +6 days'));
+
         $userId = $this->createPlanningUser([
             'goal_type' => 'race',
             'race_distance' => '10k',
-            'race_date' => '2026-06-21',
+            'race_date' => $raceDate,
             'race_target_time' => '00:48:46',
-            'training_start_date' => '2026-04-27',
+            'training_start_date' => $planStartDate,
             'weekly_base_km' => 3.0,
             'sessions_per_week' => 4,
             'experience_level' => 'novice',
@@ -71,7 +366,7 @@ class PlanGenerationProcessorServiceTest extends TestCase {
             'easy_pace_sec' => 380,
         ]);
 
-        $this->insertPlanWeek($userId, 1, '2026-04-27', 6.8, ['easy', 'easy', 'rest', 'easy', 'long', 'rest', 'rest']);
+        $this->insertPlanWeek($userId, 1, $planStartDate, 6.8, ['easy', 'easy', 'rest', 'easy', 'long', 'rest', 'rest']);
 
         $service = new \PlanGenerationProcessorService($this->db);
         $method = new \ReflectionMethod($service, 'enrichRecalculatePayload');
@@ -79,12 +374,12 @@ class PlanGenerationProcessorServiceTest extends TestCase {
 
         $payload = $method->invoke($service, $userId, ['reason' => 'пересчитать план']);
 
-        $this->assertSame('2026-04-27', $payload['cutoff_date'] ?? null);
+        $this->assertSame($planStartDate, $payload['cutoff_date'] ?? null);
         $this->assertSame(0, (int) ($payload['kept_weeks'] ?? -1));
         $this->assertIsArray($payload['current_phase'] ?? null);
         $this->assertSame('base', $payload['current_phase']['phase'] ?? null);
         $this->assertSame('recalculate', $payload['continuation_context']['mode'] ?? null);
-        $this->assertSame('2026-04-27', $payload['continuation_context']['anchor_date'] ?? null);
+        $this->assertSame($planStartDate, $payload['continuation_context']['anchor_date'] ?? null);
     }
 
     public function test_enrichRecalculatePayload_builds_progression_counters_from_completed_key_days(): void {
@@ -130,12 +425,19 @@ class PlanGenerationProcessorServiceTest extends TestCase {
     }
 
     public function test_enrichNextPlanPayload_uses_recent_non_race_weeks_before_new_start(): void {
+        $nextPlanStart = date('Y-m-d', strtotime('monday this week'));
+        $weekOneStart = date('Y-m-d', strtotime($nextPlanStart . ' -4 weeks'));
+        $weekTwoStart = date('Y-m-d', strtotime($nextPlanStart . ' -3 weeks'));
+        $weekThreeStart = date('Y-m-d', strtotime($nextPlanStart . ' -2 weeks'));
+        $weekFourStart = date('Y-m-d', strtotime($nextPlanStart . ' -1 week'));
+        $raceDate = date('Y-m-d', strtotime($nextPlanStart . ' +4 weeks +6 days'));
+
         $userId = $this->createPlanningUser([
             'goal_type' => 'race',
             'race_distance' => '10k',
-            'race_date' => '2026-05-24',
+            'race_date' => $raceDate,
             'race_target_time' => '00:48:46',
-            'training_start_date' => '2026-03-23',
+            'training_start_date' => $weekOneStart,
             'weekly_base_km' => 8.0,
             'sessions_per_week' => 4,
             'experience_level' => 'intermediate',
@@ -143,10 +445,10 @@ class PlanGenerationProcessorServiceTest extends TestCase {
             'easy_pace_sec' => 360,
         ]);
 
-        $this->insertPlanWeek($userId, 1, '2026-03-23', 7.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
-        $this->insertPlanWeek($userId, 2, '2026-03-30', 8.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
-        $this->insertPlanWeek($userId, 3, '2026-04-06', 20.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'race']);
-        $this->insertPlanWeek($userId, 4, '2026-04-13', 9.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
+        $this->insertPlanWeek($userId, 1, $weekOneStart, 7.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
+        $this->insertPlanWeek($userId, 2, $weekTwoStart, 8.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
+        $this->insertPlanWeek($userId, 3, $weekThreeStart, 20.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'race']);
+        $this->insertPlanWeek($userId, 4, $weekFourStart, 9.0, ['easy', 'rest', 'easy', 'rest', 'easy', 'rest', 'long']);
 
         $service = new \PlanGenerationProcessorService($this->db);
         $method = new \ReflectionMethod($service, 'enrichNextPlanPayload');
@@ -154,7 +456,7 @@ class PlanGenerationProcessorServiceTest extends TestCase {
 
         $payload = $method->invoke($service, $userId, []);
 
-        $this->assertSame('2026-04-20', $payload['cutoff_date'] ?? null);
+        $this->assertSame($nextPlanStart, $payload['cutoff_date'] ?? null);
         $this->assertSame(8.0, (float) ($payload['last_plan_avg_km'] ?? 0.0));
         $this->assertSame('next_plan', $payload['continuation_context']['mode'] ?? null);
         $this->assertCount(3, $payload['continuation_context']['recent_plan_weeks'] ?? []);
@@ -278,6 +580,38 @@ class PlanGenerationProcessorServiceTest extends TestCase {
             'SELECT COUNT(*) AS cnt FROM user_training_plans WHERE user_id = ' . (int) $userId . ' AND is_active = 1'
         )->fetch_assoc();
         $this->assertSame(1, (int) ($activeCount['cnt'] ?? 0));
+    }
+
+    public function test_syncLatestTrainingPlanSnapshot_keeps_hour_component_for_marathon_target(): void {
+        $userId = $this->createTestUserWithGoal([
+            'goal_type' => 'race',
+            'race_date' => '2026-07-04',
+            'race_target_time' => '03:30:00',
+            'training_start_date' => '2026-05-04',
+        ]);
+
+        $stmt = $this->db->prepare(
+            'INSERT INTO user_training_plans (user_id, start_date, marathon_date, target_time, is_active, error_message, plan_description)
+             VALUES (?, ?, ?, ?, 0, NULL, NULL)'
+        );
+        $oldStartDate = '2026-04-01';
+        $oldPlanDate = '2026-05-03';
+        $oldTargetTime = '30:00';
+        $stmt->bind_param('isss', $userId, $oldStartDate, $oldPlanDate, $oldTargetTime);
+        $stmt->execute();
+        $stmt->close();
+
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'syncLatestTrainingPlanSnapshot');
+        $method->setAccessible(true);
+
+        $method->invoke($service, $userId, '2026-05-04', ['weeks' => []]);
+
+        $row = $this->db->query(
+            'SELECT target_time FROM user_training_plans WHERE user_id = ' . (int) $userId . ' ORDER BY id DESC LIMIT 1'
+        )->fetch_assoc();
+
+        $this->assertSame('3:30:00', $row['target_time'] ?? null);
     }
 
     public function test_enforceRaceDayConsistency_restores_target_marathon_distance_and_pace(): void {

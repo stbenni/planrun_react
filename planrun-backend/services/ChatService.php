@@ -17,6 +17,8 @@ require_once __DIR__ . '/ChatMemoryManager.php';
 require_once __DIR__ . '/DateResolver.php';
 require_once __DIR__ . '/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/PushNotificationService.php';
+require_once __DIR__ . '/LlmGateway.php';
+require_once __DIR__ . '/AiObservabilityService.php';
 require_once __DIR__ . '/../config/Logger.php';
 require_once __DIR__ . '/../user_functions.php';
 
@@ -42,8 +44,8 @@ class ChatService extends BaseService {
         parent::__construct($db);
         $this->repository = new ChatRepository($db);
         $this->contextBuilder = new ChatContextBuilder($db);
-        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-        $this->llmModel = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+        $this->llmBaseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+        $this->llmModel = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
         $this->historyLimit = (int) env('CHAT_HISTORY_MESSAGES_LIMIT', self::DEFAULT_HISTORY_LIMIT);
         if ($this->historyLimit < 1) {
             $this->historyLimit = self::DEFAULT_HISTORY_LIMIT;
@@ -93,7 +95,12 @@ class ChatService extends BaseService {
     public function checkLlmHealth(): bool {
         $url = $this->llmBaseUrl . '/models';
         $ch = curl_init($url);
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2]);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 3,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_HTTPHEADER => LlmGateway::headers($this->llmBaseUrl, null, 'chat'),
+        ]);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErr = curl_error($ch);
@@ -146,26 +153,31 @@ class ChatService extends BaseService {
             "ПРОЧЕЕ: другая важная информация о пользователе.\n\n" .
             "Не повторяй общие фразы. Только конкретика. До 500 символов.";
 
-        $url = $this->llmBaseUrl . '/chat/completions';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode([
-                'model' => $this->llmModel,
-                'messages' => [['role' => 'system', 'content' => $systemPrompt], ['role' => 'user', 'content' => "Суммаризируй диалог:\n\n" . mb_substr($text, 0, 12000)]],
-                'stream' => false, 'max_tokens' => 800
-            ]),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_CONNECTTIMEOUT => 10
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($httpCode !== 200 || $response === false) {
-            Logger::warning('Chat summarization failed', ['http' => $httpCode, 'userId' => $userId]);
+        $payload = LlmGateway::withThinkingMode([
+            'model' => $this->llmModel,
+            'messages' => [['role' => 'system', 'content' => $systemPrompt], ['role' => 'user', 'content' => "Суммаризируй диалог:\n\n" . mb_substr($text, 0, 12000)]],
+            'stream' => false,
+            'max_tokens' => 800,
+        ], $this->llmBaseUrl, false);
+
+        try {
+            $response = LlmGateway::requestChatCompletion($this->llmBaseUrl, $payload, [
+                'feature' => 'Chat summarization',
+                'purpose' => 'chat',
+                'db' => $this->db,
+                'surface' => 'chat',
+                'event_type' => 'llm_request',
+                'user_id' => $userId,
+                'timeout' => 60,
+                'connect_timeout' => 10,
+                'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+            ]);
+        } catch (Throwable $e) {
+            Logger::warning('Chat summarization failed', ['error' => $e->getMessage(), 'userId' => $userId]);
             return '';
         }
-        return trim(json_decode($response, true)['choices'][0]['message']['content'] ?? '');
+
+        return trim((string) ($response['choices'][0]['message']['content'] ?? ''));
     }
 
     // ═══ AI messaging (non-streaming) ═══
@@ -277,12 +289,10 @@ class ChatService extends BaseService {
             echo json_encode(['plan_generating_next' => true]) . "\n"; flush();
         }
 
-        // Stream with think/action buffering
+        // Stream with think-tag buffering
         $chunks = [];
         $thinkBuffer = '';
         $insideThink = false;
-        $actionBuffer = '';
-        $insideAction = false;
 
         $emitChunk = function (string $text) use (&$chunks) {
             if ($text === '') return;
@@ -291,7 +301,7 @@ class ChatService extends BaseService {
             flush();
         };
 
-        $this->callLlmStream($messages, function ($chunk) use (&$chunks, &$thinkBuffer, &$insideThink, &$actionBuffer, &$insideAction, $emitChunk) {
+        $this->callLlmStream($messages, function ($chunk) use (&$chunks, &$thinkBuffer, &$insideThink, $emitChunk) {
             $thinkBuffer .= $chunk;
 
             if ($insideThink) {
@@ -327,36 +337,8 @@ class ChatService extends BaseService {
 
             $out = $thinkBuffer;
             $thinkBuffer = '';
-
-            if ($insideAction) {
-                $actionBuffer .= $out;
-                if (strpos($actionBuffer, '-->') !== false) {
-                    $parts = explode('-->', $actionBuffer, 2);
-                    $insideAction = false;
-                    $actionBuffer = '';
-                    $after = trim($parts[1] ?? '');
-                    if ($after !== '') $emitChunk($after);
-                }
-                return;
-            }
-
-            if (preg_match('/<!--\s*ACTION/i', $out)) {
-                $pos = strpos($out, '<!--');
-                $before = substr($out, 0, $pos);
-                $rest = substr($out, $pos);
-                if ($before !== '' && $before !== false) $emitChunk($before);
-                if (strpos($rest, '-->') !== false) {
-                    $parts = explode('-->', $rest, 2);
-                    if (trim($parts[1] ?? '') !== '') $emitChunk(trim($parts[1]));
-                } else {
-                    $insideAction = true;
-                    $actionBuffer = $rest;
-                }
-                return;
-            }
-
             $emitChunk($out);
-        });
+        }, $userId);
 
         $fullContent = $this->actionParser->sanitizeResponse(implode('', $chunks));
         $planWasUpdated = false;
@@ -395,11 +377,10 @@ class ChatService extends BaseService {
 
         $tools = $this->toolRegistry->getChatTools();
         $maxToolRounds = 5;
-        $toolMessages = $this->promptBuilder->buildToolResolutionMessages($messages);
 
         for ($round = 0; $round < $maxToolRounds; $round++) {
             try {
-                $result = $this->callLlmDirect($toolMessages, $tools);
+                $result = $this->callLlmDirect($messages, $tools, $userId);
             } catch (Throwable $e) {
                 Logger::warning('Tool resolution failed, streaming without tools', [
                     'error' => $e->getMessage(), 'round' => $round, 'tools_used_so_far' => $toolsUsed,
@@ -418,29 +399,10 @@ class ChatService extends BaseService {
             ]);
 
             if (empty($toolCalls)) {
-                // Text-based tool call fallback: name[ARGS]{...}
-                if (preg_match('/(\w+)\[ARGS\]\s*(\{[^}]+\})/i', $contentText, $textToolMatch)) {
-                    $textToolName = $textToolMatch[1];
-                    $textToolArgs = $textToolMatch[2];
-                    Logger::info('resolveToolCalls: parsed text-based tool call', ['name' => $textToolName, 'args' => $textToolArgs, 'round' => $round]);
-                    echo json_encode(['tool_executing' => $textToolName]) . "\n"; flush();
-                    $output = $this->toolRegistry->executeTool($textToolName, $textToolArgs, $userId);
-                    $toolsUsed[] = $textToolName;
-                    $fakeId = 'text-' . uniqid();
-                    $toolCallMsg = ['role' => 'assistant', 'content' => '', 'tool_calls' => [['id' => $fakeId, 'type' => 'function', 'function' => ['name' => $textToolName, 'arguments' => $textToolArgs]]]];
-                    $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $fakeId, 'content' => $output];
-                    $messages[] = $toolCallMsg;
-                    $messages[] = $toolResultMsg;
-                    $toolMessages[] = $toolCallMsg;
-                    $toolMessages[] = $toolResultMsg;
-                    continue;
-                }
                 return $messages;
             }
 
-            $assistantMsg = ['role' => 'assistant', 'content' => $contentText, 'tool_calls' => $toolCalls];
-            $messages[] = $assistantMsg;
-            $toolMessages[] = $assistantMsg;
+            $messages[] = ['role' => 'assistant', 'content' => $contentText, 'tool_calls' => $toolCalls];
 
             foreach ($toolCalls as $tc) {
                 $id = $tc['id'] ?? '';
@@ -451,9 +413,7 @@ class ChatService extends BaseService {
                 $output = $this->toolRegistry->executeTool($name, $argsJson, $userId);
                 $toolsUsed[] = $name;
                 Logger::debug('Tool executed', ['name' => $name, 'args' => $argsJson, 'output_preview' => mb_substr($output, 0, 200)]);
-                $toolResultMsg = ['role' => 'tool', 'tool_call_id' => $id, 'content' => $output];
-                $messages[] = $toolResultMsg;
-                $toolMessages[] = $toolResultMsg;
+                $messages[] = ['role' => 'tool', 'tool_call_id' => $id, 'content' => $output];
             }
         }
 
@@ -473,7 +433,7 @@ class ChatService extends BaseService {
         try {
             $msg = null;
             for ($round = 0; $round <= $maxToolRounds; $round++) {
-                $result = $this->callLlmDirect($messages, $tools);
+                $result = $this->callLlmDirect($messages, $tools, $userId);
                 $msg = $result['message'] ?? null;
                 if (isset($result['usage']) && !empty($result['usage'])) $totalUsage = $result['usage'];
                 $toolCalls = $msg['tool_calls'] ?? [];
@@ -496,44 +456,26 @@ class ChatService extends BaseService {
         }
     }
 
-    private function callLlmDirect(array $messages, ?array $tools = null): array {
-        $url = $this->llmBaseUrl . '/chat/completions';
+    private function callLlmDirect(array $messages, ?array $tools = null, ?int $userId = null): array {
         $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
         $payload = ['model' => $this->llmModel, 'messages' => $messages, 'stream' => false, 'max_tokens' => $maxTokens];
         if ($tools !== null && $tools !== []) {
             $payload['tools'] = $tools;
             $payload['tool_choice'] = 'auto';
         }
-        $body = json_encode($payload);
-        $maxRetries = (int) env('LLM_MAX_RETRIES', 3);
-        $retryableCodes = [500, 502, 503, 429];
+        $payload = LlmGateway::withThinkingMode($payload, $this->llmBaseUrl, false);
 
-        $response = false;
-        $httpCode = 0;
-        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_CONNECTTIMEOUT => 10]);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErr = curl_error($ch);
-            curl_close($ch);
-
-            if ($curlErr) {
-                Logger::warning('LLM connection error, retry', ['attempt' => $attempt, 'max' => $maxRetries, 'error' => $curlErr]);
-                if ($attempt < $maxRetries) { usleep($attempt * 500000); continue; }
-                throw new Exception('LLM-сервер недоступен: ' . $curlErr);
-            }
-            if ($httpCode === 200 && $response !== false) break;
-            if (in_array($httpCode, $retryableCodes) && $attempt < $maxRetries) {
-                Logger::warning('LLM API error, retry', ['attempt' => $attempt, 'max' => $maxRetries, 'http_code' => $httpCode]);
-                usleep($attempt * 500000); continue;
-            }
-            Logger::error('LLM API error', ['http_code' => $httpCode, 'response' => substr($response ?? '', 0, 500), 'attempt' => $attempt]);
-            throw new Exception('LLM-сервер вернул ошибку ' . $httpCode . '.');
-        }
-
-        $data = json_decode($response, true);
-        if (!$data) throw new Exception('Ошибка ответа LLM-сервера');
+        $data = LlmGateway::requestChatCompletion($this->llmBaseUrl, $payload, [
+            'feature' => 'Chat response',
+            'purpose' => 'chat',
+            'db' => $this->db,
+            'surface' => 'chat',
+            'event_type' => 'llm_request',
+            'user_id' => $userId,
+            'timeout' => 120,
+            'connect_timeout' => 10,
+            'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+        ]);
         $msg = $data['choices'][0]['message'] ?? [];
         return ['content' => $msg['content'] ?? '', 'message' => $msg, 'usage' => $data['usage'] ?? []];
     }
@@ -554,13 +496,13 @@ class ChatService extends BaseService {
         return ['content' => $data['content'] ?? '', 'usage' => $data['usage'] ?? []];
     }
 
-    private function callLlmStream(array $messages, callable $onChunk): void {
+    private function callLlmStream(array $messages, callable $onChunk, ?int $userId = null): void {
         if ((int) env('CHAT_USE_PLANRUN_AI', 0) === 1) {
             $this->callPlanRunAIChatStream($messages, $onChunk);
             return;
         }
         try {
-            $this->callLlmStreamDirect($messages, $onChunk);
+            $this->callLlmStreamDirect($messages, $onChunk, $userId);
         } catch (Throwable $e) {
             if ((int) env('CHAT_FALLBACK_TO_PLANRUN_AI', 0) === 1) {
                 Logger::warning('LLM stream failed, using PlanRun AI fallback', ['error' => $e->getMessage()]);
@@ -571,54 +513,136 @@ class ChatService extends BaseService {
         }
     }
 
-    private function callLlmStreamDirect(array $messages, callable $onChunk): void {
+    private function callLlmStreamDirect(array $messages, callable $onChunk, ?int $userId = null): void {
         $url = $this->llmBaseUrl . '/chat/completions';
+        $startedAt = microtime(true);
+        $traceId = (new AiObservabilityService($this->db))->createTraceId('chat_stream');
+        $status = 'ok';
+        $attemptsUsed = 0;
+        $httpCode = 0;
+        $curlErr = '';
+        $chunksCount = 0;
+        $charsCount = 0;
+        $finishReason = null;
+        $errorMessage = null;
         $maxTokens = max((int) env('CHAT_MAX_TOKENS', 87000), 1);
-        $body = json_encode(['model' => $this->llmModel, 'messages' => $messages, 'stream' => true, 'max_tokens' => $maxTokens]);
-        $maxRetries = (int) env('LLM_MAX_RETRIES', 3);
+        $payload = LlmGateway::withThinkingMode([
+            'model' => $this->llmModel,
+            'messages' => $messages,
+            'stream' => true,
+            'max_tokens' => $maxTokens,
+        ], $this->llmBaseUrl, false);
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $maxRetries = max(1, (int) env('LLM_MAX_RETRIES', 3));
         $retryableCodes = [500, 502, 503, 429];
+        $limiterLease = null;
 
-        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-            $buffer = '';
-            $chunksReceived = false;
-
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-                CURLOPT_TIMEOUT => 180, CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$buffer, &$chunksReceived) {
-                    $buffer .= $data;
-                    $lines = explode("\n", $buffer);
-                    $buffer = array_pop($lines);
-                    foreach ($lines as $line) {
-                        $line = trim($line);
-                        if ($line === '' || strpos($line, 'data: ') !== 0) continue;
-                        $json = substr($line, 6);
-                        if (trim($json) === '[DONE]') continue;
-                        $decoded = json_decode($json, true);
-                        if (!$decoded || empty($decoded['choices'][0])) continue;
-                        $content = $decoded['choices'][0]['delta']['content'] ?? '';
-                        if ($content !== '') { $chunksReceived = true; $onChunk($content); }
-                    }
-                    return strlen($data);
-                }
+        try {
+            $limiterLease = LlmGateway::acquireConcurrencyLease([
+                'db' => $this->db,
+                'purpose' => 'chat',
+                'feature' => 'Chat stream',
+                'model' => $this->llmModel,
+                'timeout' => 180,
+                'max_attempts' => max(1, $maxRetries),
+                'limit_ttl_seconds' => 240,
             ]);
 
-            curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErr = curl_error($ch);
-            curl_close($ch);
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                $attemptsUsed = $attempt;
+                $buffer = '';
+                $chunksReceived = false;
 
-            if (!$curlErr && $httpCode === 200) return;
-            if ($chunksReceived) { if ($curlErr) Logger::error('LLM stream interrupted', ['error' => $curlErr]); return; }
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
+                    CURLOPT_HTTPHEADER => LlmGateway::headers($this->llmBaseUrl, null, 'chat'),
+                    CURLOPT_TIMEOUT => 180, CURLOPT_CONNECTTIMEOUT => 10,
+                    CURLOPT_WRITEFUNCTION => function ($ch, $data) use ($onChunk, &$buffer, &$chunksReceived, &$chunksCount, &$charsCount, &$finishReason) {
+                        $buffer .= $data;
+                        $lines = explode("\n", $buffer);
+                        $buffer = array_pop($lines);
+                        foreach ($lines as $line) {
+                            $line = trim($line);
+                            if ($line === '' || strpos($line, 'data: ') !== 0) continue;
+                            $json = substr($line, 6);
+                            if (trim($json) === '[DONE]') continue;
+                            $decoded = json_decode($json, true);
+                            if (!$decoded || empty($decoded['choices'][0])) continue;
+                            if (isset($decoded['choices'][0]['finish_reason']) && $decoded['choices'][0]['finish_reason'] !== null) {
+                                $finishReason = (string) $decoded['choices'][0]['finish_reason'];
+                            }
+                            $content = $decoded['choices'][0]['delta']['content'] ?? '';
+                            if ($content !== '') {
+                                $chunksReceived = true;
+                                $chunksCount++;
+                                $charsCount += mb_strlen((string) $content, 'UTF-8');
+                                $onChunk($content);
+                            }
+                        }
+                        return strlen($data);
+                    }
+                ]);
 
-            $canRetry = $attempt < $maxRetries;
-            if ($curlErr && $canRetry) { Logger::warning('LLM stream error, retry', ['attempt' => $attempt, 'error' => $curlErr]); usleep($attempt * 500000); continue; }
-            if (in_array($httpCode, $retryableCodes) && $canRetry) { Logger::warning('LLM stream API error, retry', ['attempt' => $attempt, 'http_code' => $httpCode]); usleep($attempt * 500000); continue; }
+                curl_exec($ch);
+                $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlErr = (string) curl_error($ch);
+                curl_close($ch);
 
-            if ($curlErr) throw new Exception('LLM-сервер недоступен: ' . $curlErr);
-            throw new Exception('LLM-сервер вернул ошибку ' . $httpCode . '.');
+                if (!$curlErr && $httpCode === 200) return;
+                if ($chunksReceived) { if ($curlErr) Logger::error('LLM stream interrupted', ['error' => $curlErr]); return; }
+
+                $canRetry = $attempt < $maxRetries;
+                if ($curlErr && $canRetry) { Logger::warning('LLM stream error, retry', ['attempt' => $attempt, 'error' => $curlErr]); usleep($attempt * 500000); continue; }
+                if (in_array($httpCode, $retryableCodes) && $canRetry) { Logger::warning('LLM stream API error, retry', ['attempt' => $attempt, 'http_code' => $httpCode]); usleep($attempt * 500000); continue; }
+
+                if ($curlErr) {
+                    $errorMessage = 'LLM-сервер недоступен: ' . $curlErr;
+                    throw new Exception($errorMessage);
+                }
+                $errorMessage = 'LLM-сервер вернул ошибку ' . $httpCode . '.';
+                throw new Exception($errorMessage);
+            }
+        } catch (Throwable $e) {
+            $status = 'error';
+            $errorMessage = $errorMessage ?: $e->getMessage();
+            throw $e;
+        } finally {
+            LlmGateway::releaseConcurrencyLease($limiterLease);
+            $this->logLlmStreamEvent(
+                $traceId,
+                $userId,
+                $status,
+                [
+                    'feature' => 'Chat stream',
+                    'model' => $this->llmModel,
+                    'provider' => LlmGateway::provider($this->llmBaseUrl),
+                    'http_status' => $httpCode,
+                    'attempts' => $attemptsUsed,
+                    'max_attempts' => $maxRetries,
+                    'retry_count' => max(0, $attemptsUsed - 1),
+                    'finish_reason' => $finishReason,
+                    'chunks_count' => $chunksCount,
+                    'chars_count' => $charsCount,
+                    'error' => $errorMessage,
+                ] + LlmGateway::describeConcurrencyLease($limiterLease),
+                (int) round((microtime(true) - $startedAt) * 1000)
+            );
+        }
+    }
+
+    private function logLlmStreamEvent(string $traceId, ?int $userId, string $status, array $payload, int $durationMs): void {
+        try {
+            (new AiObservabilityService($this->db))->logEvent(
+                'chat',
+                'llm_stream',
+                $status,
+                array_filter($payload, static fn($value): bool => $value !== null),
+                $userId,
+                $traceId,
+                $durationMs
+            );
+        } catch (Throwable) {
         }
     }
 

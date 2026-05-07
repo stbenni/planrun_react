@@ -11,6 +11,7 @@ require_once __DIR__ . '/../repositories/WorkoutRepository.php';
 require_once __DIR__ . '/../validators/WorkoutValidator.php';
 require_once __DIR__ . '/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/WorkoutShareCardCacheService.php';
+require_once __DIR__ . '/LlmGateway.php';
 
 class WorkoutService extends BaseService {
     
@@ -85,6 +86,314 @@ class WorkoutService extends BaseService {
             ]);
             return false;
         }
+    }
+
+    private function handlePostWorkoutCoachFlow(int $userId, string $workoutDate, string $sourceKind, int $sourceId): void {
+        $this->schedulePostWorkoutFollowup($userId, $workoutDate, $sourceKind, $sourceId);
+
+        if (!$this->isPostWorkoutAnalysisEnabled()) {
+            return;
+        }
+
+        $followup = $this->getPostWorkoutFollowupRow($userId, $sourceKind, $sourceId);
+        if ($followup === null) {
+            return;
+        }
+
+        $status = (string) ($followup['status'] ?? '');
+        if (!in_array($status, ['pending', 'sent', 'completed'], true)) {
+            return;
+        }
+
+        if (!empty($followup['analysis_message_id'])) {
+            return;
+        }
+
+        try {
+            $messageId = $this->createPostWorkoutAnalysisMessage($userId, $workoutDate, $sourceKind, $sourceId);
+            if ($messageId > 0) {
+                $this->attachPostWorkoutAnalysisMessage($userId, $sourceKind, $sourceId, $messageId);
+            }
+        } catch (Throwable $e) {
+            $this->logError('Post-workout analysis generation failed', [
+                'user_id' => $userId,
+                'source_kind' => $sourceKind,
+                'source_id' => $sourceId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function isPostWorkoutAnalysisEnabled(): bool {
+        $explicit = env('POST_WORKOUT_ANALYSIS_ENABLED', null);
+        if ((string) ($_ENV['APP_ENV'] ?? '') === 'testing' && $explicit === null) {
+            return false;
+        }
+
+        return (int) env('POST_WORKOUT_ANALYSIS_ENABLED', 1) === 1;
+    }
+
+    private function getPostWorkoutFollowupRow(int $userId, string $sourceKind, int $sourceId): ?array {
+        $stmt = $this->db->prepare(
+            "SELECT id, status, analysis_message_id
+             FROM post_workout_followups
+             WHERE user_id = ? AND source_kind = ? AND source_id = ?
+             LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('isi', $userId, $sourceKind, $sourceId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return $row ?: null;
+    }
+
+    private function attachPostWorkoutAnalysisMessage(int $userId, string $sourceKind, int $sourceId, int $messageId): void {
+        $stmt = $this->db->prepare(
+            "UPDATE post_workout_followups
+             SET analysis_message_id = ?
+             WHERE user_id = ? AND source_kind = ? AND source_id = ?"
+        );
+        if (!$stmt) {
+            return;
+        }
+        $stmt->bind_param('iisi', $messageId, $userId, $sourceKind, $sourceId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    private function createPostWorkoutAnalysisMessage(int $userId, string $workoutDate, string $sourceKind, int $sourceId): int {
+        $summary = $this->fetchWorkoutAnalysisSummary($userId, $sourceKind, $sourceId);
+        if ($summary === null) {
+            return 0;
+        }
+
+        $planned = $this->fetchPlannedWorkoutForDate($userId, (string) ($summary['workout_date'] ?? $workoutDate));
+        $analysis = $this->generatePostWorkoutAnalysisText($userId, $summary, $planned);
+        if ($analysis === '') {
+            return 0;
+        }
+
+        require_once __DIR__ . '/ChatService.php';
+        $chatService = new ChatService($this->db);
+        $result = $chatService->addAIMessageToUser($userId, $analysis, [
+            'event_key' => 'chat.ai_message',
+            'title' => 'Разбор тренировки',
+            'link' => '/chat',
+            'proactive_type' => 'post_workout_analysis',
+            'push_data' => ['post_workout_analysis' => true],
+        ]);
+
+        return (int) ($result['message_id'] ?? 0);
+    }
+
+    private function fetchWorkoutAnalysisSummary(int $userId, string $sourceKind, int $sourceId): ?array {
+        if ($sourceKind === 'workout') {
+            $stmt = $this->db->prepare(
+                "SELECT id,
+                        DATE(COALESCE(end_time, start_time)) AS workout_date,
+                        LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) AS activity_type,
+                        distance_km,
+                        duration_minutes,
+                        duration_seconds,
+                        avg_pace AS pace,
+                        avg_heart_rate,
+                        max_heart_rate,
+                        elevation_gain,
+                        source
+                 FROM workouts
+                 WHERE id = ? AND user_id = ?
+                 LIMIT 1"
+            );
+            if (!$stmt) {
+                return null;
+            }
+            $stmt->bind_param('ii', $sourceId, $userId);
+        } else {
+            $stmt = $this->db->prepare(
+                "SELECT wl.id,
+                        wl.training_date AS workout_date,
+                        LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) AS activity_type,
+                        wl.distance_km,
+                        wl.duration_minutes,
+                        NULL AS duration_seconds,
+                        COALESCE(NULLIF(TRIM(wl.pace), ''), NULLIF(TRIM(wl.result_time), '')) AS pace,
+                        wl.avg_heart_rate,
+                        wl.max_heart_rate,
+                        wl.elevation_gain,
+                        'manual' AS source,
+                        wl.rating,
+                        wl.notes
+                 FROM workout_log wl
+                 LEFT JOIN activity_types at ON at.id = wl.activity_type_id
+                 WHERE wl.id = ? AND wl.user_id = ?
+                 LIMIT 1"
+            );
+            if (!$stmt) {
+                return null;
+            }
+            $stmt->bind_param('ii', $sourceId, $userId);
+        }
+
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return $row ?: null;
+    }
+
+    private function fetchPlannedWorkoutForDate(int $userId, string $date): ?array {
+        if ($date === '') {
+            return null;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT d.type, d.description
+             FROM training_plan_days d
+             INNER JOIN training_plan_weeks w ON w.id = d.week_id
+             WHERE w.user_id = ? AND d.date = ?
+             ORDER BY d.id ASC
+             LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('is', $userId, $date);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return $row ?: null;
+    }
+
+    private function generatePostWorkoutAnalysisText(int $userId, array $summary, ?array $planned): string {
+        $fake = trim((string) env('POST_WORKOUT_ANALYSIS_FAKE_RESPONSE', ''));
+        if ((string) ($_ENV['APP_ENV'] ?? '') === 'testing' && $fake !== '') {
+            return $fake;
+        }
+
+        $facts = $this->buildPostWorkoutAnalysisFacts($summary, $planned);
+        if ($facts === '') {
+            return '';
+        }
+
+        $llmText = $this->callPostWorkoutAnalysisLlm($facts, $userId);
+        if ($llmText !== '') {
+            return $llmText;
+        }
+
+        return $this->buildPostWorkoutAnalysisFallback($summary, $planned);
+    }
+
+    private function buildPostWorkoutAnalysisFacts(array $summary, ?array $planned): string {
+        $lines = [];
+        $lines[] = 'Фактическая тренировка:';
+        $lines[] = '- дата: ' . (string) ($summary['workout_date'] ?? '');
+        $lines[] = '- тип активности: ' . (string) ($summary['activity_type'] ?? 'running');
+
+        if (isset($summary['distance_km']) && (float) $summary['distance_km'] > 0) {
+            $lines[] = '- дистанция: ' . round((float) $summary['distance_km'], 2) . ' км';
+        }
+        if (isset($summary['duration_minutes']) && (int) $summary['duration_minutes'] > 0) {
+            $lines[] = '- длительность: ' . (int) $summary['duration_minutes'] . ' мин';
+        } elseif (isset($summary['duration_seconds']) && (int) $summary['duration_seconds'] > 0) {
+            $lines[] = '- длительность: ' . round((int) $summary['duration_seconds'] / 60) . ' мин';
+        }
+        if (!empty($summary['pace'])) {
+            $lines[] = '- темп/результат: ' . trim((string) $summary['pace']);
+        }
+        if (!empty($summary['avg_heart_rate'])) {
+            $lines[] = '- средний пульс: ' . (int) $summary['avg_heart_rate'];
+        }
+        if (!empty($summary['max_heart_rate'])) {
+            $lines[] = '- максимальный пульс: ' . (int) $summary['max_heart_rate'];
+        }
+        if (!empty($summary['rating'])) {
+            $lines[] = '- оценка пользователя: ' . (int) $summary['rating'] . '/5';
+        }
+        if (!empty($summary['notes'])) {
+            $lines[] = '- заметки пользователя: ' . mb_substr(trim((string) $summary['notes']), 0, 500, 'UTF-8');
+        }
+
+        if ($planned !== null) {
+            $lines[] = '';
+            $lines[] = 'План на этот день:';
+            $lines[] = '- тип: ' . (string) ($planned['type'] ?? '');
+            $description = trim((string) ($planned['description'] ?? ''));
+            if ($description !== '') {
+                $lines[] = '- описание: ' . mb_substr($description, 0, 700, 'UTF-8');
+            }
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function callPostWorkoutAnalysisLlm(string $facts, int $userId): string {
+        $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+        $model = trim((string) env('LLM_CHAT_MODEL', 'deepseek-v4-flash'));
+        if ($baseUrl === '' || $model === '') {
+            return '';
+        }
+
+        $systemPrompt = 'Ты — AI-тренер PlanRun. Напиши короткий разбор только что завершённой тренировки. ' .
+            'Пиши только на русском, обращайся к пользователю на «ты». Используй только факты из входных данных, ничего не выдумывай. ' .
+            'Не используй английские конструкции вроде plan vs fact, easy, recovery, check-in. ' .
+            'Формат: 2–4 коротких пункта через дефис без длинного вступления. ' .
+            'Отметь, что получилось, что важно восстановить или отследить, и как это соотносится с планом, если план есть. ' .
+            'Не задавай вопрос о самочувствии: отдельный чек-ин придёт позже.';
+
+        $payload = LlmGateway::withThinkingMode([
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => $facts],
+            ],
+            'stream' => false,
+            'max_tokens' => max(200, min(1200, (int) env('POST_WORKOUT_ANALYSIS_MAX_TOKENS', 650))),
+            'temperature' => 0.25,
+        ], $baseUrl, false);
+
+        try {
+            $response = LlmGateway::requestChatCompletion($baseUrl, $payload, [
+                'feature' => 'Post-workout analysis',
+                'purpose' => 'chat',
+                'db' => $this->db,
+                'surface' => 'post_workout_analysis',
+                'event_type' => 'llm_request',
+                'user_id' => $userId,
+                'timeout' => max(5, min(90, (int) env('POST_WORKOUT_ANALYSIS_TIMEOUT_SECONDS', 25))),
+                'connect_timeout' => max(1, min(20, (int) env('POST_WORKOUT_ANALYSIS_CONNECT_TIMEOUT_SECONDS', 5))),
+                'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+            ]);
+        } catch (Throwable $e) {
+            $this->logError('Post-workout analysis LLM call failed', [
+                'error' => $e->getMessage(),
+            ]);
+            return '';
+        }
+
+        $content = trim((string) ($response['choices'][0]['message']['content'] ?? ''));
+        return mb_substr($content, 0, 2500, 'UTF-8');
+    }
+
+    private function buildPostWorkoutAnalysisFallback(array $summary, ?array $planned): string {
+        $distance = isset($summary['distance_km']) && (float) $summary['distance_km'] > 0
+            ? round((float) $summary['distance_km'], 1) . ' км'
+            : 'тренировка';
+        $duration = isset($summary['duration_minutes']) && (int) $summary['duration_minutes'] > 0
+            ? ', ' . (int) $summary['duration_minutes'] . ' мин'
+            : '';
+
+        $text = "Разбор тренировки: {$distance}{$duration} сохранена. ";
+        if ($planned !== null && trim((string) ($planned['type'] ?? '')) !== '') {
+            $text .= 'Я сопоставил её с планом на день и оставил как выполненную работу. ';
+        }
+        $text .= 'Отдельно через некоторое время спрошу про самочувствие, чтобы понять восстановление после нагрузки.';
+
+        return $text;
     }
 
     private function deleteWorkoutShareCards(int $userId, int $workoutId, string $workoutKind): void {
@@ -655,7 +964,7 @@ class WorkoutService extends BaseService {
                 $this->launchWorkoutShareWorkerAsync();
             }
 
-            $this->schedulePostWorkoutFollowup((int) $userId, $date, 'workout_log', $workoutLogId);
+            $this->handlePostWorkoutCoachFlow((int) $userId, $date, 'workout_log', $workoutLogId);
             
             return ['success' => true, 'workout_log_id' => $workoutLogId];
         } catch (Exception $e) {
@@ -734,7 +1043,7 @@ class WorkoutService extends BaseService {
                     $this->saveWorkoutTimeline((int)$existing['id'], $w['timeline'] ?? null);
                     $this->saveWorkoutLaps((int)$existing['id'], $w['laps'] ?? null);
                     $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, (int) $existing['id'], WorkoutShareCardCacheService::KIND_WORKOUT);
-                    $this->schedulePostWorkoutFollowup((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', (int) $existing['id']);
+                    $this->handlePostWorkoutCoachFlow((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', (int) $existing['id']);
                 } else {
                     $skipped++;
                 }
@@ -798,7 +1107,7 @@ class WorkoutService extends BaseService {
                 $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
                 $this->saveWorkoutLaps($workoutId, $w['laps'] ?? null);
                 $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, $workoutId, WorkoutShareCardCacheService::KIND_WORKOUT);
-                $this->schedulePostWorkoutFollowup((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', $workoutId);
+                $this->handlePostWorkoutCoachFlow((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', $workoutId);
             } else {
                 $skipped++;
             }

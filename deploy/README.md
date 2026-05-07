@@ -16,37 +16,18 @@
 
 ## AI serving stack
 
-- **install-llama-serving-stack.sh** — ставит и включает production-стек для локальной LLM:
-  - `llama-server.service` с `Ministral-3-14B-Reasoning`
-  - `planrun-ai.service` для `/api/v1/chat`, `/api/v1/generate-plan`, `/api/v1/retrieve-knowledge`
-  - `lm-studio.service.d/load-models.conf` для автозагрузки embedding-модели в LM Studio
+Основная production-архитектура — **DeepSeek API** (`https://api.deepseek.com`):
 
-Запуск:
+- Чат: `deepseek-v4-flash` через `LLM_CHAT_BASE_URL`
+- Планогенерация: `deepseek-v4-pro` (planner/repair) + `deepseek-v4-flash` (detail/enricher)
+- Все LLM-запросы идут через `LlmGateway` с retry, concurrency limiter, key pool
 
-```bash
-sudo ./deploy/install-llama-serving-stack.sh
-```
+### Legacy: локальный llama-server (не используется в production)
 
-Архитектура после установки:
+Скрипты для локального стека остались для справки:
 
-- `llama-server :8081` — reasoning-модель для чата и генерации планов
-- `lm-studio :1234` — только embedding-модель `text-embedding-nomic-embed-text-v1.5`
-- `planrun-ai :8000` — Python orchestration layer, RAG, plan JSON parsing/validation
-
-Проверка:
-
-```bash
-systemctl status llama-server planrun-ai lm-studio --no-pager
-curl -s http://127.0.0.1:8081/v1/models
-curl -s http://127.0.0.1:1234/v1/models
-curl -s http://127.0.0.1:8000/health
-```
-
-Если LM Studio нужен только для embedding-модели, можно отдельно переустановить именно этот кусок:
-
-```bash
-sudo ./deploy/install-lm-studio-models.sh
-```
+- **install-llama-serving-stack.sh** — ставит llama-server + planrun-ai + LM Studio
+- `planrun-ai :8000` — Python orchestration layer, RAG (используется при `USE_SKELETON_GENERATOR=0`)
 
 ## Если в браузере 404 на /api/
 
@@ -68,6 +49,7 @@ php scripts/migrate_all.php
 - **password_reset_tokens** — для сброса пароля по ссылке из письма.  
 - **refresh_tokens** — для входа с JWT (в т.ч. с мобильного приложения).
 - **plan_generation_jobs** — для очереди AI-генерации и пересчёта планов.
+- **llm_gateway_locks** — для DB-backed ограничения одновременных запросов к DeepSeek.
 
 ## Telegram Login
 
@@ -96,12 +78,25 @@ php scripts/plan_generation_worker.php --daemon --sleep=10
 - Разовый прогон для диагностики: `php scripts/plan_generation_worker.php --once`
 - Для постоянной работы через `systemd`: `sudo ./deploy/install-plan-generation-worker.sh`
 - После установки unit-файла: `sudo systemctl enable --now planrun-plan-generation-worker`
+- Для параллельной обработки планов используйте template unit после установки:
+
+```bash
+sudo systemctl enable --now \
+  planrun-plan-generation-worker@1 \
+  planrun-plan-generation-worker@2 \
+  planrun-plan-generation-worker@3
+```
+
+Начинайте с 3 воркеров и повышайте количество только если в логах DeepSeek нет частых `429`/`503`.
+Если есть несколько DeepSeek ключей, добавьте их в `PLAN_LLM_API_KEYS` через запятую/пробел/новую строку: общий `LlmGateway` будет распределять plan-запросы по пулу и писать fingerprint выбранного ключа в `ai_runtime_events`, не сохраняя сам ключ.
+Одновременность регулируется через `LLM_GATEWAY_GLOBAL_MAX_CONCURRENT`, `PLAN_LLM_MAX_CONCURRENT` и `LLM_CHAT_MAX_CONCURRENT`. Для старта на одном DeepSeek ключе держите примерно `global=8`, `plan=3`, `chat=5`; если появятся `429`/`503`, снижайте сначала `chat`, затем `global`.
 
 ## Важные замечания по chat/AI env
 
-- `PLANRUN_AI_API_URL` должен указывать на `http://127.0.0.1:8000/api/v1/generate-plan`
-- Если хотите вести chat через общий orchestration layer, используйте `CHAT_USE_PLANRUN_AI=1`
-- Если нужен прямой chat в backend без PlanRun AI, `LMSTUDIO_BASE_URL` можно оставить на `:1234` или переключить на `http://127.0.0.1:8081/v1` только после проверки tool-calling сценариев
+- `LLM_CHAT_BASE_URL` и `PLAN_LLM_BASE_URL` — по умолчанию `https://api.deepseek.com`
+- `LLM_CHAT_MODEL` — по умолчанию `deepseek-v4-flash`
+- API ключи: `PLAN_LLM_API_KEY` (или пул `PLAN_LLM_API_KEYS`), fallback на `DEEPSEEK_API_KEY`
+- `PLANRUN_AI_API_URL` — legacy orchestration layer, используется только при `PLAN_GENERATION_MODE` != `llm_planner`
 
 ## Proxy / Xray / Strava note (2026-03-24)
 

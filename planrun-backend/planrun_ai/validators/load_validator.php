@@ -16,6 +16,17 @@ function collectLoadValidationIssues(array $normalizedPlan, array $trainingState
         };
     $preThresholdVolumeKm = (float) ($loadPolicy['pre_threshold_volume_km'] ?? 0.0);
     $preThresholdAbsoluteGrowthKm = (float) ($loadPolicy['pre_threshold_absolute_growth_km'] ?? 0.0);
+    $weeklyBaseKm = isset($trainingState['weekly_base_km']) ? (float) $trainingState['weekly_base_km'] : 0.0;
+    $startVolumeKm = isset($loadPolicy['start_volume_km']) ? (float) $loadPolicy['start_volume_km'] : 0.0;
+    $baseReentryCeilingKm = 0.0;
+    if ($weeklyBaseKm >= 50.0) {
+        $baseReentryRatio = $readiness === 'high' ? 0.90 : 0.80;
+        $baseReentryCeilingKm = max($baseReentryCeilingKm, $weeklyBaseKm * $baseReentryRatio);
+    }
+    if ($startVolumeKm >= 50.0) {
+        $baseReentryRatio = $readiness === 'high' ? 0.90 : 0.80;
+        $baseReentryCeilingKm = max($baseReentryCeilingKm, $startVolumeKm * $baseReentryRatio);
+    }
 
     $prevVolume = null;
     $prevWasRecovery = false;
@@ -44,18 +55,21 @@ function collectLoadValidationIssues(array $normalizedPlan, array $trainingState
                 && $volumeCap !== null
                 && $weekVolume > ($volumeCap + 0.75)
             ) {
-                $ratio = $referenceVolume > 0 ? ($weekVolume / $referenceVolume) : 0.0;
-                $severity = ($referenceVolume >= 12 && ($weekVolume - $volumeCap) >= 3.0)
-                    || $ratio >= ($allowedGrowth + 0.08)
-                    ? 'error'
-                    : 'warning';
-                $issues[] = [
-                    'severity' => $severity,
-                    'code' => 'weekly_volume_spike',
-                    'week_number' => $weekNumber,
-                    'date' => null,
-                    'message' => "Неделя {$weekNumber}: объём {$weekVolume} км выглядит слишком агрессивным после {$referenceVolume} км (readiness={$readiness}).",
-                ];
+                $isBaseReentry = $baseReentryCeilingKm > 0.0 && $weekVolume <= ($baseReentryCeilingKm + 0.1);
+                if (!$isBaseReentry) {
+                    $ratio = $referenceVolume > 0 ? ($weekVolume / $referenceVolume) : 0.0;
+                    $severity = ($referenceVolume >= 12 && ($weekVolume - $volumeCap) >= 3.0)
+                        || $ratio >= ($allowedGrowth + 0.08)
+                        ? 'error'
+                        : 'warning';
+                    $issues[] = [
+                        'severity' => $severity,
+                        'code' => 'weekly_volume_spike',
+                        'week_number' => $weekNumber,
+                        'date' => null,
+                        'message' => "Неделя {$weekNumber}: объём {$weekVolume} км выглядит слишком агрессивным после {$referenceVolume} км (readiness={$readiness}).",
+                    ];
+                }
             } elseif (
                 $preThresholdVolumeKm > 0.0
                 && $preThresholdAbsoluteGrowthKm > 0.0

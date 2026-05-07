@@ -1,7 +1,7 @@
 <?php
 /**
  * Генератор планов тренировок через PlanRun AI
- * Использует локальную LLM (Ministral 3 14B Reasoning) с RAG для создания персональных планов
+ * Использует DeepSeek API с RAG для создания персональных планов
  */
 
 require_once __DIR__ . '/planrun_ai_integration.php';

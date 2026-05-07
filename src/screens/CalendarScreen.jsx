@@ -103,7 +103,16 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [addTrainingModal, setAddTrainingModal] = useState({ isOpen: false, date: null, planDay: null, editResultData: null });
   const [dayModalRefreshKey, setDayModalRefreshKey] = useState(0);
   const [workoutDetailsModal, setWorkoutDetailsModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, weekNumber: null, dayKey: null, selectedWorkoutId: null });
-  const { recalculating, recalculatePlan, generatingNext, generateNextPlan } = usePlanStore();
+  const {
+    recalculating,
+    recalculatePlan,
+    generatingNext,
+    generateNextPlan,
+    planReadinessCheck,
+    readinessSubmitting,
+    submitPlanReadinessCheck,
+    dismissPlanReadinessCheck,
+  } = usePlanStore();
   const planFromStore = usePlanStore((s) => s.plan);
   const isGenerating = usePlanStore((s) => s.isGenerating);
   const generationLabel = usePlanStore((s) => s.generationLabel);
@@ -113,6 +122,18 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [nextPlanGoals, setNextPlanGoals] = useState('');
   const [showClearPlanConfirm, setShowClearPlanConfirm] = useState(false);
   const [clearingPlan, setClearingPlan] = useState(false);
+  const [readinessPainScore, setReadinessPainScore] = useState(0);
+  const [readinessWorsened, setReadinessWorsened] = useState(null);
+  const [readinessTechniqueChanged, setReadinessTechniqueChanged] = useState(null);
+  const [readinessText, setReadinessText] = useState('');
+
+  useEffect(() => {
+    if (!planReadinessCheck) return;
+    setReadinessPainScore(0);
+    setReadinessWorsened(null);
+    setReadinessTechniqueChanged(null);
+    setReadinessText('');
+  }, [planReadinessCheck?.id]);
   const getWeeksData = (p) => {
     if (!p) return null;
     if (Array.isArray(p.weeks_data) && p.weeks_data.length > 0) return p.weeks_data;
@@ -182,6 +203,16 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       setClearingPlan(false);
     }
   }, [api]);
+
+  const handleSubmitReadinessCheck = useCallback(async () => {
+    if (readinessWorsened === null || readinessTechniqueChanged === null) return;
+    await submitPlanReadinessCheck({
+      current_pain_score: readinessPainScore,
+      pain_worsened_after_runs: readinessWorsened,
+      technique_changed: readinessTechniqueChanged,
+      answer_text: readinessText.trim(),
+    });
+  }, [readinessPainScore, readinessWorsened, readinessTechniqueChanged, readinessText, submitPlanReadinessCheck]);
 
   // Инициализируем viewMode: если передан externalViewMode, используем его, иначе 'week'
   // Если externalViewMode задан, он фиксирует режим (для публичных профилей)
@@ -674,6 +705,98 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
               <div className="recalc-confirm-actions">
                 <button className="btn btn-secondary" onClick={() => setShowNextPlanModal(false)}>Отмена</button>
                 <button className="btn btn-primary" onClick={handleGenerateNextPlan}>Создать новый план</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {planReadinessCheck && (
+          <div className="modal" style={{ display: 'block' }} onClick={dismissPlanReadinessCheck}>
+            <div className="modal-content recalc-confirm-modal readiness-check-modal" onClick={e => e.stopPropagation()}>
+              <h3>Уточнить самочувствие</h3>
+              <p>{planReadinessCheck.question}</p>
+              {planReadinessCheck.source?.summary && (
+                <p className="recalc-confirm-note">
+                  Последний сигнал: {planReadinessCheck.source.date_label}, {planReadinessCheck.source.summary}
+                  {planReadinessCheck.source.subsequent_run_count > 0
+                    ? `. После него было беговых тренировок: ${planReadinessCheck.source.subsequent_run_count}.`
+                    : '.'}
+                </p>
+              )}
+
+              <div className="readiness-check-field">
+                <div className="readiness-check-label">Боль или дискомфорт сейчас</div>
+                <div className="readiness-pain-scale">
+                  {Array.from({ length: 11 }, (_, value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`readiness-score-btn${readinessPainScore === value ? ' active' : ''}`}
+                      onClick={() => setReadinessPainScore(value)}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="readiness-check-field">
+                <div className="readiness-check-label">После последних пробежек боль усиливалась?</div>
+                <div className="readiness-segmented">
+                  <button
+                    type="button"
+                    className={readinessWorsened === false ? 'active' : ''}
+                    onClick={() => setReadinessWorsened(false)}
+                  >
+                    Нет
+                  </button>
+                  <button
+                    type="button"
+                    className={readinessWorsened === true ? 'active' : ''}
+                    onClick={() => setReadinessWorsened(true)}
+                  >
+                    Да
+                  </button>
+                </div>
+              </div>
+
+              <div className="readiness-check-field">
+                <div className="readiness-check-label">Техника бега менялась из-за ноги?</div>
+                <div className="readiness-segmented">
+                  <button
+                    type="button"
+                    className={readinessTechniqueChanged === false ? 'active' : ''}
+                    onClick={() => setReadinessTechniqueChanged(false)}
+                  >
+                    Нет
+                  </button>
+                  <button
+                    type="button"
+                    className={readinessTechniqueChanged === true ? 'active' : ''}
+                    onClick={() => setReadinessTechniqueChanged(true)}
+                  >
+                    Да
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                className="recalc-reason-input"
+                placeholder="Можно добавить короткий комментарий"
+                value={readinessText}
+                onChange={e => setReadinessText(e.target.value)}
+                rows={3}
+                maxLength={1000}
+              />
+
+              <div className="recalc-confirm-actions">
+                <button className="btn btn-secondary" onClick={dismissPlanReadinessCheck} disabled={readinessSubmitting}>Отмена</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSubmitReadinessCheck}
+                  disabled={readinessSubmitting || readinessWorsened === null || readinessTechniqueChanged === null}
+                >
+                  {readinessSubmitting ? 'Сохраняю...' : 'Сохранить и рассчитать'}
+                </button>
               </div>
             </div>
           </div>

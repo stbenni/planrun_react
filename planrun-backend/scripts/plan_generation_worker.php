@@ -10,6 +10,7 @@
 $baseDir = dirname(__DIR__);
 require_once $baseDir . '/config/env_loader.php';
 require_once $baseDir . '/db_config.php';
+require_once $baseDir . '/services/LlmGateway.php';
 require_once $baseDir . '/services/PlanGenerationQueueService.php';
 require_once $baseDir . '/services/PlanGenerationProcessorService.php';
 
@@ -54,13 +55,19 @@ do {
     }
 
     try {
-        $result = $processor->process($userId, $jobType, $payload);
+        $result = $processor->process($userId, $jobType, $payload, $jobId);
         $queue->markCompleted($jobId, $result);
         fwrite(STDOUT, "OK job={$jobId} user={$userId} type={$jobType}\n");
     } catch (Throwable $e) {
         $errorMessage = 'Ошибка генерации плана: ' . $e->getMessage();
         $processor->persistFailure($userId, $errorMessage);
-        $queue->markFailed($jobId, $errorMessage, $attempts, $maxAttempts);
+        $retryDelaySeconds = LlmGateway::isRetryableThrowable($e)
+            ? LlmGateway::queueRetryDelaySeconds($e, $attempts)
+            : 300;
+        $attemptsForQueue = ($e instanceof LlmGatewayRequestException && !$e->isRetryable())
+            ? $maxAttempts
+            : $attempts;
+        $queue->markFailed($jobId, $errorMessage, $attemptsForQueue, $maxAttempts, $retryDelaySeconds);
         fwrite(STDERR, "FAIL job={$jobId} user={$userId} type={$jobType}: {$errorMessage}\n");
         if ($once) {
             exit(1);

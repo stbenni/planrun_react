@@ -10,18 +10,21 @@ require_once __DIR__ . '/../user_functions.php';
 require_once __DIR__ . '/../repositories/TrainingPlanRepository.php';
 require_once __DIR__ . '/../validators/TrainingPlanValidator.php';
 require_once __DIR__ . '/PlanGenerationQueueService.php';
+require_once __DIR__ . '/PlanReadinessCheckService.php';
 
 class TrainingPlanService extends BaseService {
     
     protected $repository;
     protected $validator;
     protected $queueService;
+    protected $readinessCheckService;
     
     public function __construct($db) {
         parent::__construct($db);
         $this->repository = new TrainingPlanRepository($db);
         $this->validator = new TrainingPlanValidator();
         $this->queueService = new PlanGenerationQueueService($db);
+        $this->readinessCheckService = new PlanReadinessCheckService($db);
     }
 
     private function startSessionIfAvailable(): void {
@@ -229,6 +232,10 @@ class TrainingPlanService extends BaseService {
             );
         }
 
+        if ($check = $this->buildReadinessCheckResponse((int) $userId, 'generate')) {
+            return $check;
+        }
+
         // Очищаем старую ошибку через репозиторий
         $this->repository->clearErrorMessage($userId);
         $queueResult = $this->queueService->enqueue((int) $userId, 'generate');
@@ -257,6 +264,10 @@ class TrainingPlanService extends BaseService {
      * @throws Exception
      */
     public function regeneratePlanWithProgress($userId) {
+        if ($check = $this->buildReadinessCheckResponse((int) $userId, 'recalculate')) {
+            return $check;
+        }
+
         // Очищаем старую ошибку через репозиторий
         $this->repository->clearErrorMessage($userId);
 
@@ -310,12 +321,17 @@ class TrainingPlanService extends BaseService {
      * Будущие тренировки пересчитываются, прошлые (workout_log) сохраняются.
      */
     public function recalculatePlan($userId, $reason = null, array $options = []) {
-        $this->repository->clearErrorMessage($userId);
-        
         $queuePayload = array_merge(
             ['reason' => $reason],
             $this->normalizePlanningContext($options)
         );
+
+        if ($check = $this->buildReadinessCheckResponse((int) $userId, 'recalculate', $queuePayload)) {
+            return $check;
+        }
+
+        $this->repository->clearErrorMessage($userId);
+
         $queueResult = $this->queueService->enqueue((int) $userId, 'recalculate', $queuePayload);
         $this->deactivateActivePlans((int) $userId);
         
@@ -341,12 +357,17 @@ class TrainingPlanService extends BaseService {
      * Собирает полную историю тренировок и передаёт AI для правильной прогрессии.
      */
     public function generateNextPlan($userId, $goals = null, array $options = []) {
-        $this->repository->clearErrorMessage($userId);
-
         $queuePayload = array_merge(
             ['goals' => $goals],
             $this->normalizePlanningContext($options)
         );
+
+        if ($check = $this->buildReadinessCheckResponse((int) $userId, 'next_plan', $queuePayload)) {
+            return $check;
+        }
+
+        $this->repository->clearErrorMessage($userId);
+
         $queueResult = $this->queueService->enqueue((int) $userId, 'next_plan', $queuePayload);
         $this->deactivateActivePlans((int) $userId);
 
@@ -364,6 +385,24 @@ class TrainingPlanService extends BaseService {
             'message' => 'Генерация нового плана запущена. Учитываются все ваши достижения из предыдущего плана.',
             'job_id' => $queueResult['job_id'] ?? null,
             'queued' => true
+        ];
+    }
+
+    public function submitReadinessCheckAnswer($userId, int $checkId, array $answer): array {
+        return $this->readinessCheckService->submitAnswer((int) $userId, $checkId, $answer);
+    }
+
+    private function buildReadinessCheckResponse(int $userId, string $jobType, array $payload = []): ?array {
+        $check = $this->readinessCheckService->maybeCreatePendingCheck($userId, $jobType, $payload);
+        if ($check === null) {
+            return null;
+        }
+
+        return [
+            'message' => 'Перед расчётом плана нужно уточнить текущее самочувствие.',
+            'queued' => false,
+            'requires_readiness_check' => true,
+            'readiness_check' => $check,
         ];
     }
 

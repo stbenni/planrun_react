@@ -6,7 +6,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config/env_loader.php';
 require_once __DIR__ . '/../db_config.php';
 require_once __DIR__ . '/../services/PlanGenerationProcessorService.php';
-require_once __DIR__ . '/../planrun_ai/skeleton/PlanSkeletonGenerator.php';
+// Phase A.1: skeleton-first перенесён в planrun_ai/_legacy/skeleton/. Скрипт diagnostic.
+require_once __DIR__ . '/../planrun_ai/_legacy/skeleton/PlanSkeletonGenerator.php';
 require_once __DIR__ . '/../services/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/../repositories/ChatRepository.php';
 

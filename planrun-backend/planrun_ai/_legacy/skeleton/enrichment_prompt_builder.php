@@ -72,7 +72,7 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
    Пример для tempo (MP-run): "Разминка 2 км. MP-run: бег 12 км в марафонском темпе 4:59. Заминка 1.5 км"
    Пример для tempo (HMP-run): "Разминка 2 км. HMP-run: бег 8 км в темпе полумарафона 4:35. Заминка 1.5 км"
    Пример для tempo (R-pace): "Разминка 2 км. R-pace: 6×300м в темпе 3:47, пауза 300м шагом. Заминка 1.5 км"
-   Пример для long: "Длительный бег 18 км. Последние 3 км можно в марафонском темпе"
+   Пример для long: "Последние 3 км можно в марафонском темпе"
 2. Для 2-3 дней в неделю (не каждый) можно добавить короткий полезный совет.
 3. Если есть health_notes — учти их в notes.
 4. Для части rest-дней можно добавить короткую рекомендацию вроде "Активное восстановление: прогулка 30 мин".
@@ -83,7 +83,11 @@ function buildEnrichmentPrompt(array $skeleton, array $user, array $state, array
   Неправильно: "Warm up 2 km. 5x1000m at 4:40 pace, 400m jog recovery. Cool down 1.5 km"
   Правильно: "Лёгкий восстановительный бег. Следи за пульсом, не торопись."
   Неправильно: "Easy recovery run. Keep your heart rate low."
+- Если в профиле есть промежуточные забеги — добавь notes к дням type=race с описанием подводки (1-2 дня до: облегчённая нагрузка) и восстановления (1-2 дня после: лёгкий бег/отдых).
 - НЕ меняй числа или типы тренировок.
+- НЕ добавляй notes для type=easy или type=walking.
+- Для type=long НЕ повторяй общую дистанцию длительной. Пиши только совет/акцент, например "Последние 3 км можно спокойно ускорить".
+- Не используй недельный объём как дистанцию отдельного дня.
 - НЕ возвращай весь план целиком.
 - Возвращай ТОЛЬКО объект JSON такого вида:
   {"notes":[{"week_number":1,"day_of_week":2,"notes":"..."}]}
@@ -172,6 +176,17 @@ function buildReviewPrompt(array $plan, array $user, array $state): string
         }
     }
 
+    $intermediateRaces = $state['intermediate_races'] ?? [];
+    if (!empty($intermediateRaces)) {
+        $scenarioBlock .= "\n\nПРОМЕЖУТОЧНЫЕ ЗАБЕГИ:";
+        foreach ($intermediateRaces as $ir) {
+            $desc = trim((string) ($ir['description'] ?? ''));
+            $dist = !empty($ir['distance_km']) ? " ({$ir['distance_km']} км)" : '';
+            $scenarioBlock .= "\n- {$ir['date']}: " . ($desc !== '' ? $desc : 'забег') . $dist;
+        }
+        $scenarioBlock .= "\n- ВАЖНО: Снижение нагрузки за 1-3 дня до промежуточного забега — это НЕ ошибка. Не отмечай как taper_violation или volume_jump.";
+    }
+
     return <<<PROMPT
 Ты — эксперт-рецензент тренировочных планов по бегу.
 
@@ -191,6 +206,13 @@ function buildReviewPrompt(array $plan, array $user, array $state): string
 6. ПОДВОДКА (TAPER): если phase=taper, объём должен снижаться от недели к неделе.
 7. ЗДОРОВЬЕ: если есть health_notes — проверь, нет ли тренировок, противопоказанных при данном состоянии.
 8. АГРЕССИВНОСТЬ: слишком быстрая прогрессия для возраста/уровня.
+
+КРИТИЧЕСКИ ВАЖНО:
+- В issues включай только реальные ошибки, которые требуют исправления.
+- Если в описании выходит "ошибки нет", "в пределах нормы", "допустимо" или "может быть нормально" — НЕ добавляй такую issue.
+- Неделя 1 не может иметь volume_jump: у неё нет предыдущей недели.
+- Снижение объёма не является volume_jump.
+- Верни максимум 8 самых важных issues. Если ошибок больше, выбери только блокирующие.
 
 Ответь строго JSON:
 {
@@ -255,6 +277,19 @@ function buildCompactProfile(array $user, array $state): string
     }
     if ($flagsStr !== 'нет') {
         $lines[] = "- Особые флаги: {$flagsStr}";
+    }
+
+    $intermediateRaces = $state['intermediate_races'] ?? [];
+    if (!empty($intermediateRaces)) {
+        $raceLines = [];
+        foreach ($intermediateRaces as $ir) {
+            $parts = [$ir['date']];
+            $desc = trim((string) ($ir['description'] ?? ''));
+            if ($desc !== '') $parts[] = $desc;
+            if (!empty($ir['distance_km'])) $parts[] = $ir['distance_km'] . ' км';
+            $raceLines[] = implode(' — ', $parts);
+        }
+        $lines[] = "- Промежуточные забеги: " . implode('; ', $raceLines);
     }
 
     return implode("\n", $lines);

@@ -1,7 +1,7 @@
 <?php
 /**
  * Интеграция PlanRun AI с PlanRun
- * Использует локальную LLM (Qwen3 14B) с RAG для генерации планов
+ * Использует DeepSeek API с RAG для генерации планов
  */
 
 require_once __DIR__ . '/planrun_ai_config.php';

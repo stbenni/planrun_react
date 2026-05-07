@@ -10,6 +10,25 @@ class NotificationSettingsService extends BaseService {
 
     public const CHANNEL_KEYS = ['mobile_push', 'web_push', 'telegram', 'email'];
 
+    private const AI_COACH_EVENTS = [
+        'coach.proactive_pause' => ['Пауза в тренировках', 'Мягкое сообщение после нескольких дней без тренировок'],
+        'coach.proactive_overload' => ['Риск перегрузки', 'Предупреждение, когда нагрузка стала слишком высокой'],
+        'coach.proactive_overload_warning' => ['Рост нагрузки', 'Мягкое предупреждение при быстром росте нагрузки'],
+        'coach.proactive_race_approaching' => ['Забег близко', 'Совет перед приближающимся стартом'],
+        'coach.proactive_low_compliance' => ['План выполняется реже', 'Сообщение, когда выполнение плана заметно снизилось'],
+        'coach.proactive_distance_record' => ['Рекорд дистанции', 'Поздравление с новым личным рекордом дистанции'],
+        'coach.proactive_vdot_improvement' => ['Форма растёт', 'Сообщение при улучшении VDOT'],
+        'coach.proactive_volume_record' => ['Рекорд недельного объёма', 'Поздравление с рекордным недельным объёмом'],
+        'coach.proactive_consistency_streak' => ['Серия стабильности', 'Поддержка за регулярные тренировки'],
+        'coach.proactive_goal_achievable' => ['Цель стала достижимой', 'Сообщение, когда прогноз стал лучше целевого результата'],
+        'coach.proactive_daily_briefing' => ['Утренний брифинг', 'Короткий совет перед сегодняшней тренировкой'],
+        'coach.proactive_weekly_digest' => ['Еженедельный итог', 'Итог недели и рекомендации на следующую'],
+        'coach.proactive_post_workout_checkin' => ['Вопрос после тренировки', 'Короткий вопрос о состоянии после тренировки'],
+        'coach.proactive_post_workout_analysis' => ['Разбор после тренировки', 'AI-разбор выполненной тренировки'],
+        'coach.proactive_post_workout_checkin_reply' => ['Ответ на состояние', 'AI-ответ после сообщения о самочувствии'],
+        'coach.proactive_message' => ['Сообщение от тренера', 'Общее проактивное сообщение от AI-тренера'],
+    ];
+
     public function ensureSchema(): void {
         if (self::$schemaEnsured) {
             return;
@@ -197,6 +216,12 @@ class NotificationSettingsService extends BaseService {
                 ],
             ],
             [
+                'key' => 'ai_coach',
+                'label' => 'AI-тренер',
+                'description' => 'Проактивные сообщения, брифинги и разборы тренировок',
+                'events' => self::getAiCoachCatalogEvents(),
+            ],
+            [
                 'key' => 'plan',
                 'label' => 'План и адаптация',
                 'description' => 'Изменения плана, заметки и AI-обзоры',
@@ -297,6 +322,32 @@ class NotificationSettingsService extends BaseService {
             }
         }
         return $definitions;
+    }
+
+    private static function getAiCoachCatalogEvents(): array {
+        $events = [];
+        foreach (self::AI_COACH_EVENTS as $eventKey => $meta) {
+            $events[] = [
+                'event_key' => $eventKey,
+                'label' => $meta[0],
+                'description' => $meta[1],
+                'channels' => self::CHANNEL_KEYS,
+            ];
+        }
+        return $events;
+    }
+
+    private static function buildAiCoachDefaultPreferences(bool $mobilePushEnabled): array {
+        $preferences = [];
+        foreach (array_keys(self::AI_COACH_EVENTS) as $eventKey) {
+            $preferences[$eventKey] = [
+                'mobile_push_enabled' => $mobilePushEnabled,
+                'web_push_enabled' => false,
+                'telegram_enabled' => false,
+                'email_enabled' => false,
+            ];
+        }
+        return $preferences;
     }
 
     public function getSettings(int $userId): array {
@@ -1305,7 +1356,7 @@ class NotificationSettingsService extends BaseService {
                     'telegram_enabled' => false,
                     'email_enabled' => true,
                 ],
-            ],
+            ] + self::buildAiCoachDefaultPreferences($legacyChatEnabled),
         ];
     }
 

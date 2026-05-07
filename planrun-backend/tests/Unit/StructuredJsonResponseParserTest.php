@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . '/../../planrun_ai/skeleton/StructuredJsonResponseParser.php';
+require_once __DIR__ . '/../../planrun_ai/_legacy/skeleton/StructuredJsonResponseParser.php';
 
 use PHPUnit\Framework\TestCase;
 
@@ -143,7 +143,7 @@ TXT;
         $response = <<<TXT
 <think>Я сначала порассуждаю, но это не должно попасть в JSON.</think>
 {
-  // Qwen иногда добавляет комментарии и trailing comma
+  // LLM иногда добавляет комментарии и trailing comma
   "valid": false,
   "errors": [
     "Пиковая длительная слишком короткая для марафона",

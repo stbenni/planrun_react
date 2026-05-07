@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../config/env_loader.php';
+require_once __DIR__ . '/../services/LlmGateway.php';
 require_once __DIR__ . '/plan_normalizer.php';
 
 /**
@@ -65,8 +66,8 @@ function buildPlanSummaryForReview(array $planData, string $startDate): string {
  * @return string|null Текст рецензии или null при ошибке
  */
 function generatePlanReview(array $planData, string $startDate, string $mode = 'ГЕНЕРАЦИЯ'): ?string {
-    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'http://127.0.0.1:8081/v1'), '/');
-    $model = env('LLM_CHAT_MODEL', 'mistralai/ministral-3-14b-reasoning');
+    $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
+    $model = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
 
     if ($baseUrl === '' || $model === '') {
         error_log('plan_review_generator: LLM_CHAT_BASE_URL или LLM_CHAT_MODEL не заданы');
@@ -99,7 +100,7 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
     $connectTimeoutSeconds = max(1, min(60, (int) env('PLAN_REVIEW_LLM_CONNECT_TIMEOUT_SECONDS', 5)));
     $maxTokens = max(200, min(1500, (int) env('PLAN_REVIEW_LLM_MAX_TOKENS', 700)));
 
-    $payload = [
+    $payload = LlmGateway::withThinkingMode([
         'model' => $model,
         'messages' => [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -108,29 +109,25 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
         'stream' => false,
         'max_tokens' => $maxTokens,
         'temperature' => 0.3,
-        'chat_template_kwargs' => ['enable_thinking' => false],
-    ];
+    ], $baseUrl, false);
 
-    $url = $baseUrl . '/chat/completions';
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => $timeoutSeconds,
-        CURLOPT_CONNECTTIMEOUT => $connectTimeoutSeconds
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || $response === false) {
-        error_log("plan_review_generator: LLM HTTP {$httpCode} или пустой ответ");
+    try {
+        $db = function_exists('getDBConnection') ? getDBConnection() : null;
+        $data = LlmGateway::requestChatCompletion($baseUrl, $payload, [
+            'feature' => 'Plan review',
+            'purpose' => 'chat',
+            'db' => $db,
+            'surface' => 'plan_review',
+            'event_type' => 'llm_request',
+            'timeout' => $timeoutSeconds,
+            'connect_timeout' => $connectTimeoutSeconds,
+            'max_attempts' => max(1, min(5, (int) env('LLM_MAX_RETRIES', 1))),
+        ]);
+    } catch (Throwable $e) {
+        error_log('plan_review_generator: LLM error: ' . $e->getMessage());
         return null;
     }
 
-    $data = json_decode($response, true);
     $content = trim($data['choices'][0]['message']['content'] ?? '');
     if ($content === '') {
         return null;

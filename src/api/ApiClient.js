@@ -25,6 +25,7 @@ import {
   regeneratePlan as performRegeneratePlan,
   recalculatePlan as performRecalculatePlan,
   generateNextPlan as performGenerateNextPlan,
+  submitPlanReadinessCheck as performSubmitPlanReadinessCheck,
   checkPlanStatus as performCheckPlanStatus,
   clearPlan as performClearPlan,
 } from './planApi';
@@ -1157,6 +1158,10 @@ class ApiClient {
 
   async generateNextPlan(goals = null) {
     return performGenerateNextPlan(this, goals);
+  }
+
+  async submitPlanReadinessCheck(payload) {
+    return performSubmitPlanReadinessCheck(this, payload);
   }
 
   /**

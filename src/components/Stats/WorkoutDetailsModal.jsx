@@ -15,7 +15,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import html2canvas from 'html2canvas';
-import { HeartRateChart, PaceChart } from './index';
+import CombinedWorkoutChart from './CombinedWorkoutChart';
 import WorkoutShareCard from './WorkoutShareCard';
 import Modal from '../common/Modal';
 import LogoLoading from '../common/LogoLoading';
@@ -1202,8 +1202,7 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
             {/* ── Tab: Графики ── */}
             {activeTab === 'charts' && hasTimeline && (
               <div className="wd-tab-content">
-                <HeartRateChart timeline={timeline} onHoverIndex={setTimelineHoverIndex} />
-                <PaceChart timeline={timeline} onHoverIndex={setTimelineHoverIndex} />
+                <CombinedWorkoutChart timeline={timeline} onHoverIndex={setTimelineHoverIndex} />
               </div>
             )}
           </div>

@@ -56,6 +56,32 @@ class PlanNormalizerTest extends TestCase {
         $this->assertSame('4:35', $intervalDay['interval_pace'] ?? null);
     }
 
+    public function test_normalizeTrainingPlan_adds_default_fartlek_segments_when_missing(): void {
+        $rawPlan = [
+            'weeks' => [[
+                'days' => [
+                    ['type' => 'rest'],
+                    ['type' => 'fartlek', 'warmup_km' => 3.0, 'cooldown_km' => 2.0, 'duration_minutes' => 68, 'segments' => null, 'is_key_workout' => true],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                ],
+            ]],
+        ];
+
+        $normalized = normalizeTrainingPlan($rawPlan, '2026-05-11');
+        $fartlekDay = $normalized['weeks'][0]['days'][1];
+
+        $this->assertSame('fartlek', $fartlekDay['type']);
+        $this->assertNotEmpty($fartlekDay['segments']);
+        $this->assertSame(8, (int) ($fartlekDay['segments'][0]['reps'] ?? 0));
+        $this->assertSame(400, (int) ($fartlekDay['segments'][0]['distance_m'] ?? 0));
+        $this->assertSame(9.8, (float) ($fartlekDay['distance_km'] ?? 0.0));
+        $this->assertStringContainsString('8×400', $fartlekDay['description']);
+    }
+
     public function test_normalizeTrainingPlan_converts_zero_long_run_to_rest(): void {
         $rawPlan = [
             'weeks' => [[
@@ -327,6 +353,45 @@ class PlanNormalizerTest extends TestCase {
         $this->assertSame('7:04', $days[2]['pace'], 'Long pace should clamp to the upper bound of the allowed range.');
     }
 
+    public function test_updateSimpleRunDayAfterDistanceChange_drops_stale_numeric_easy_note(): void {
+        $day = updateSimpleRunDayAfterDistanceChange([
+            'date' => '2026-06-01',
+            'day_of_week' => 1,
+            'type' => 'easy',
+            'distance_km' => 1.9,
+            'pace' => '5:03',
+            'duration_minutes' => null,
+            'notes' => 'Лёгкий бег 3.3 км в темпе 5:03',
+            'is_key_workout' => false,
+            'exercises' => [],
+        ]);
+
+        $this->assertStringContainsString('1.9 км', $day['description']);
+        $this->assertStringNotContainsString('3.3 км', $day['description']);
+        $this->assertSame($day['description'], $day['exercises'][0]['notes']);
+    }
+
+    public function test_updateSimpleRunDayAfterDistanceChange_rebuilds_tempo_note_from_current_distance(): void {
+        $day = updateSimpleRunDayAfterDistanceChange([
+            'date' => '2026-06-02',
+            'day_of_week' => 2,
+            'type' => 'tempo',
+            'distance_km' => 5.8,
+            'pace' => '4:17',
+            'duration_minutes' => null,
+            'warmup_km' => 2.0,
+            'cooldown_km' => 1.5,
+            'notes' => 'Разминка 2 км. Темповый бег 7 км в темпе 4:17. Заминка 1.5 км',
+            'is_key_workout' => true,
+            'exercises' => [],
+        ]);
+
+        $this->assertStringContainsString('5.8 км', $day['description']);
+        $this->assertStringContainsString('Темповый отрезок 2.3 км', $day['description']);
+        $this->assertStringNotContainsString('7 км', $day['description']);
+        $this->assertSame($day['description'], $day['exercises'][0]['notes']);
+    }
+
     public function test_applyControlWorkoutFallback_for_marathon_keeps_control_as_benchmark_not_mp_work(): void {
         $day = [
             'type' => 'control',
@@ -384,6 +449,81 @@ class PlanNormalizerTest extends TestCase {
         $tempoDay = $repaired['weeks'][0]['days'][0];
 
         $this->assertSame('5:00', $tempoDay['pace']);
+    }
+
+    public function test_applyTrainingStatePaceRepairs_keeps_race_pace_tempo_at_goal_pace(): void {
+        $normalized = [
+            'weeks' => [[
+                'week_number' => 3,
+                'days' => [[
+                    'date' => '2026-05-20',
+                    'day_of_week' => 3,
+                    'type' => 'tempo',
+                    'subtype' => 'race_pace',
+                    'pace' => '4:59',
+                    'distance_km' => 11.5,
+                    'duration_minutes' => 57,
+                    'warmup_km' => 2.0,
+                    'cooldown_km' => 1.5,
+                    'tempo_km' => 8.0,
+                    'notes' => 'Разминка, затем устойчивый блок, заминка',
+                    'description' => '',
+                    'exercises' => [],
+                ]],
+            ]],
+        ];
+
+        $trainingState = [
+            'race_distance' => 'marathon',
+            'goal_pace_sec' => 299,
+            'pace_rules' => [
+                'tempo_sec' => 257,
+                'tempo_tolerance_sec' => 8,
+            ],
+        ];
+
+        $repaired = applyTrainingStatePaceRepairs($normalized, $trainingState);
+        $tempoDay = $repaired['weeks'][0]['days'][0];
+
+        $this->assertSame('4:59', $tempoDay['pace']);
+    }
+
+    public function test_applyTrainingStatePaceRepairs_repairs_race_pace_tempo_to_goal_pace(): void {
+        $normalized = [
+            'weeks' => [[
+                'week_number' => 3,
+                'days' => [[
+                    'date' => '2026-05-20',
+                    'day_of_week' => 3,
+                    'type' => 'tempo',
+                    'subtype' => 'race_pace',
+                    'pace' => '4:17',
+                    'distance_km' => 11.5,
+                    'duration_minutes' => 49,
+                    'warmup_km' => 2.0,
+                    'cooldown_km' => 1.5,
+                    'tempo_km' => 8.0,
+                    'notes' => 'Разминка, затем устойчивый блок, заминка',
+                    'description' => '',
+                    'exercises' => [],
+                ]],
+            ]],
+        ];
+
+        $trainingState = [
+            'race_distance' => 'marathon',
+            'goal_pace_sec' => 299,
+            'pace_rules' => [
+                'tempo_sec' => 257,
+                'tempo_tolerance_sec' => 8,
+            ],
+        ];
+
+        $repaired = applyTrainingStatePaceRepairs($normalized, $trainingState);
+        $tempoDay = $repaired['weeks'][0]['days'][0];
+
+        $this->assertSame('4:59', $tempoDay['pace']);
+        $this->assertSame(57, $tempoDay['duration_minutes']);
     }
 
     public function test_applyTrainingStateLoadRepairs_capsAggressiveSpikeWithoutBreakingLongRun(): void {
@@ -698,7 +838,7 @@ class PlanNormalizerTest extends TestCase {
         $controlDay = $repaired['weeks'][0]['days'][0];
         $this->assertSame(2.0, $controlDay['warmup_km']);
         $this->assertSame(1.5, $controlDay['cooldown_km']);
-        $this->assertStringContainsString('контрольный непрерывный забег', $controlDay['notes']);
+        $this->assertStringContainsString('контрольный непрерывный забег', mb_strtolower($controlDay['notes'], 'UTF-8'));
         $this->assertStringNotContainsString('целевого марафонского темпа', $controlDay['notes']);
         $this->assertStringContainsString('разминка', mb_strtolower($controlDay['description']));
     }

@@ -42,24 +42,19 @@ function hasMeaningfulControlStructure(array $day): bool {
 }
 
 function hasMeaningfulComplexWorkoutStructure(array $day): bool {
+    $type = normalizeTrainingType($day['type'] ?? null);
+    if ($type === 'fartlek') {
+        return hasUsableFartlekSegments($day);
+    }
+
     $reps = isset($day['reps']) ? (int) $day['reps'] : 0;
     $intervalM = isset($day['interval_m']) ? (int) $day['interval_m'] : 0;
     if ($reps > 0 && $intervalM > 0) {
         return true;
     }
 
-    $segments = $day['segments'] ?? null;
-    if (is_array($segments) && !empty($segments)) {
-        return true;
-    }
-
-    $durationMinutes = isset($day['duration_minutes']) ? (int) $day['duration_minutes'] : 0;
-    if ($durationMinutes > 0) {
-        return true;
-    }
-
     $notes = trim((string) ($day['notes'] ?? ''));
-    return $notes !== '';
+    return $notes !== '' && preg_match('/(\d+\s*[×xх]\s*\d+|\d+\s*(?:м|мин)|отрез|ускор|повтор)/iu', $notes) === 1;
 }
 
 function resolvePersonalizedTempoStimulusFloorKm(array $trainingState, int $weekNumber, ?int $raceWeekNumber): ?float {

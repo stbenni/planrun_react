@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../bootstrap.php';
-require_once __DIR__ . '/../../planrun_ai/skeleton/WeeklyAdaptationEngine.php';
+require_once __DIR__ . '/../../planrun_ai/_legacy/skeleton/WeeklyAdaptationEngine.php';
 
 class WeeklyAdaptationEngineTest extends TestCase {
     public function test_detectTriggers_marks_subjective_pain_signal_and_prefers_recovery_adaptation(): void {

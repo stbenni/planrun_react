@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../bootstrap.php';
-require_once __DIR__ . '/../../planrun_ai/skeleton/VolumeDistributor.php';
+require_once __DIR__ . '/../../planrun_ai/_legacy/skeleton/VolumeDistributor.php';
 
 class VolumeDistributorTest extends TestCase {
     public function test_distribute_caps_long_run_share_for_conservative_profiles(): void {

@@ -8,6 +8,7 @@ use TrainingStateBuilder;
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../services/TrainingStateBuilder.php';
 require_once __DIR__ . '/../../services/PostWorkoutFollowupService.php';
+require_once __DIR__ . '/../../services/PlanReadinessCheckService.php';
 require_once __DIR__ . '/../../repositories/ChatRepository.php';
 
 class TrainingStateBuilderTest extends TestCase {
@@ -303,6 +304,139 @@ class TrainingStateBuilderTest extends TestCase {
         $this->assertSame(40.0, $state['reported_weekly_base_km']);
         $this->assertSame(20.0, $state['weekly_base_km']);
         $this->assertContains('return_after_break', $state['special_population_flags']);
+    }
+
+    public function test_buildForUser_populates_planning_scenario_for_b_race_before_a_race(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'race_target_time' => '03:30:00',
+            'sessions_per_week' => 5,
+            'weekly_base_km' => 60,
+            'experience_level' => 'intermediate',
+            'preferred_days' => ['mon', 'wed', 'fri', 'sat', 'sun'],
+            'training_start_date' => '2026-04-13',
+        ], 'generate', [
+            'tune_up_event' => [
+                'date' => '2026-06-28',
+                'distance' => 'half',
+                'type' => 'race',
+            ],
+        ]);
+
+        $this->assertIsArray($state['planning_scenario'] ?? null);
+        $this->assertContains('b_race_before_a_race', (array) ($state['planning_scenario']['flags'] ?? []));
+        $this->assertSame('b_race_before_a_race', $state['planning_scenario']['primary'] ?? null);
+        $this->assertIsArray($state['planning_scenario']['tune_up_event'] ?? null);
+        $this->assertSame('2026-06-28', $state['planning_scenario']['tune_up_event']['date'] ?? null);
+    }
+
+    public function test_buildForUser_populates_goal_realism_for_unrealistic_marathon_target(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'race_target_time' => '02:30:00',
+            'sessions_per_week' => 3,
+            'weekly_base_km' => 18,
+            'experience_level' => 'novice',
+            'easy_pace_sec' => 360,
+            'training_start_date' => '2026-05-04',
+        ]);
+
+        $this->assertIsArray($state['goal_realism'] ?? null);
+        $this->assertSame('major', $state['goal_realism']['severity'] ?? null);
+        $this->assertSame('unrealistic', $state['goal_realism']['verdict'] ?? null);
+        $this->assertNotEmpty($state['goal_realism']['issues'] ?? []);
+    }
+
+    public function test_buildForUser_omits_goal_realism_for_health_goal(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'health',
+            'sessions_per_week' => 3,
+            'weekly_base_km' => 15,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayHasKey('goal_realism', $state);
+        $this->assertNull($state['goal_realism']);
+    }
+
+    public function test_buildForUser_skips_scenario_fields_when_feature_flag_disabled(): void {
+        $previous = getenv('PLANRUN_AI_STATE_SCENARIO');
+        putenv('PLANRUN_AI_STATE_SCENARIO=0');
+        $_ENV['PLANRUN_AI_STATE_SCENARIO'] = '0';
+
+        try {
+            $builder = new TrainingStateBuilder($this->db);
+            $state = $builder->buildForUser([
+                'goal_type' => 'race',
+                'race_distance' => 'marathon',
+                'race_date' => '2026-07-04',
+                'race_target_time' => '03:30:00',
+                'sessions_per_week' => 5,
+                'weekly_base_km' => 60,
+                'training_start_date' => '2026-04-13',
+            ]);
+
+            $this->assertArrayNotHasKey('planning_scenario', $state);
+            $this->assertArrayNotHasKey('goal_realism', $state);
+        } finally {
+            if ($previous === false) {
+                putenv('PLANRUN_AI_STATE_SCENARIO');
+                unset($_ENV['PLANRUN_AI_STATE_SCENARIO']);
+            } else {
+                putenv('PLANRUN_AI_STATE_SCENARIO=' . $previous);
+                $_ENV['PLANRUN_AI_STATE_SCENARIO'] = $previous;
+            }
+        }
+    }
+
+    public function test_buildForUser_uses_clear_plan_readiness_check_to_unblock_stale_pain_signal(): void {
+        $userId = $this->createTestUser();
+        $painDate = gmdate('Y-m-d', strtotime('-13 days'));
+        $recentRunDate = gmdate('Y-m-d', strtotime('-2 days'));
+
+        (new \PostWorkoutFollowupService($this->db))->ensureSchema();
+        $this->insertCompletedFollowup($userId, 9301, $painDate, 'pain', 1, 0, 5, 6, 6, 6, 2, 0.84);
+        $this->insertWorkout($userId, 'running', $recentRunDate . ' 07:00:00', $recentRunDate . ' 08:00:00', 12.0, 60);
+
+        $readinessService = new \PlanReadinessCheckService($this->db);
+        $check = $readinessService->maybeCreatePendingCheck($userId, 'recalculate');
+        $this->assertIsArray($check);
+        $this->assertSame('stale_pain_signal', $check['check_type']);
+
+        $answer = $readinessService->submitAnswer($userId, (int) $check['id'], [
+            'current_pain_score' => 0,
+            'pain_worsened_after_runs' => false,
+            'technique_changed' => false,
+            'answer_text' => 'Сейчас боли нет, последние пробежки прошли нормально.',
+        ]);
+        $this->assertSame('clear', $answer['interpretation']);
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'race_target_time' => '03:30:00',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 80,
+            'experience_level' => 'intermediate',
+            'planning_benchmark_distance' => 'half',
+            'planning_benchmark_time' => '01:38:00',
+        ]);
+
+        $this->assertSame('high', $state['readiness']);
+        $this->assertNotContains('recent_pain_signal', $state['special_population_flags']);
+        $this->assertSame('neutral', $state['load_policy']['feedback_guard_level']);
+        $this->assertFalse((bool) $state['feedback_analytics']['has_recent_pain']);
+        $this->assertSame('clear', $state['plan_readiness_check']['interpretation']);
     }
 
     private function createTestUser(): int {

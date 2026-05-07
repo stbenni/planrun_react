@@ -1,7 +1,7 @@
 <?php
 /**
  * Сборка system prompt и массивов сообщений для LLM-чата.
- * Оптимизирован для 16K-контекстных моделей: сжатый промпт,
+ * Оптимизирован для DeepSeek API (128K контекст): нативные tools,
  * динамические секции, бюджетирование токенов.
  */
 
@@ -11,10 +11,10 @@ require_once __DIR__ . '/../user_functions.php';
 
 class ChatPromptBuilder {
 
-    private const MAX_CONTEXT_TOKENS = 14000;
-    private const SYSTEM_PROMPT_BUDGET = 5000;
-    private const CONTEXT_BUDGET = 4000;
-    private const HISTORY_BUDGET = 4000;
+    private const MAX_CONTEXT_TOKENS = 32000;
+    private const SYSTEM_PROMPT_BUDGET = 6000;
+    private const CONTEXT_BUDGET = 10000;
+    private const HISTORY_BUDGET = 14000;
     private const CHARS_PER_TOKEN = 3.2;
 
     /** @var mixed */
@@ -30,7 +30,7 @@ class ChatPromptBuilder {
 
     /**
      * Оценка количества токенов для русского текста.
-     * Для кириллицы ~3.2 символа на токен (эмпирически для Mistral tokenizer).
+     * Для кириллицы ~3.2 символа на токен (эмпирика, примерно совпадает для DeepSeek).
      */
     public function estimateTokens(string $text): int {
         $len = mb_strlen($text);
@@ -128,21 +128,7 @@ class ChatPromptBuilder {
 
 НЕ ПОВТОРЯЙСЯ: Каждый ответ — НОВАЯ информация. Контекст точечно. Не вываливай все данные.
 
-ИНСТРУМЕНТЫ — вызывай ПРОАКТИВНО, не выдумывай цифры:
-1. get_plan(date) — план недели. 2. get_workouts(date_from, date_to) — история.
-3. get_day_details(date) — план+результат дня.
-4. update_training_day(date, type, description) — изменить. Подтверждение!
-5. swap_training_days(date1, date2) — поменять. 6. delete_training_day(date) — удалить.
-7. move_training_day(source_date, target_date) — перенести.
-8. recalculate_plan(reason) — пересчитать (3-5 мин). 9. generate_next_plan(goals) — новый план.
-10. log_workout(date, distance_km, duration_minutes?, avg_heart_rate?, rating?, notes?) — записать результат.
-11. get_stats(period?) — статистика (week/month/plan/all).
-12. race_prediction(distance?) — VDOT (5k/10k/half/marathon).
-13. get_profile() 14. update_profile(field, value) 15. get_training_load() — ACWR/ATL/CTL/TSB.
-16. add_training_day(date, type, description?) 17. copy_day(source_date, target_date)
-18. get_date(phrase) — если не уверен в дате, вызови этот инструмент.
-
-Все даты в tools: Y-m-d. Система АВТОМАТИЧЕСКИ преобразует «завтра»/«в среду»/«вчера» в дату.
+ИНСТРУМЕНТЫ: Тебе доступны tools (function calling). Вызывай их ПРОАКТИВНО — не выдумывай цифры, даты и данные. Все даты в аргументах tools: Y-m-d. Write-операции (update, delete, swap, move, add, recalculate, generate, log) — ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.
 
 ПОДТВЕРЖДЕНИЯ: Перед записью — опиши с КОНКРЕТНЫМИ ДАТАМИ, получи «да»/«ок». Не вызывай tool повторно после подтверждения.
 
@@ -165,8 +151,7 @@ PROMPT;
     }
 
     private function getAddTrainingAddon(?string $resolvedDate): string {
-        $addon = "\n\nДОБАВЛЕНИЕ ТРЕНИРОВКИ: Уточни тип/детали. При подтверждении выведи ACTION-блок:\n";
-        $addon .= "<!-- ACTION add_training_day date=Y-m-d type=TYPE description=\"...\" -->\n";
+        $addon = "\n\nДОБАВЛЕНИЕ ТРЕНИРОВКИ: Уточни тип/детали. При подтверждении вызови tool add_training_day.\n";
         $addon .= "Типы: easy|long|tempo|interval|fartlek|rest|other|sbu|race|marathon|control|free.\n";
         $addon .= "Форматы description:\n";
         $addon .= "Бег: «Легкий бег: X км» или «X км или ЧЧ:ММ:СС, темп M:SS». Темп — M:SS без ~/км.\n";
@@ -241,7 +226,7 @@ PROMPT;
     }
 
     /**
-     * llama.cpp chat template для Ministral требует строгого чередования user/assistant.
+     * DeepSeek и большинство LLM требуют строгого чередования user/assistant.
      * История сайта может содержать:
      * - подряд несколько user-сообщений после неуспешных ответов,
      * - подряд несколько assistant-сообщений из системных AI-уведомлений,
@@ -316,89 +301,6 @@ PROMPT;
         }
 
         return $normalized;
-    }
-
-    /**
-     * Строит сокращённый набор messages для tool-resolution раундов.
-     * Полный system prompt слишком велик — модель теряет способность вызывать tools.
-     * Берём: короткий system (только tool-инструкции) + последние сообщения + user question.
-     */
-    public function buildToolResolutionMessages(array $fullMessages): array {
-        // Извлекаем system message
-        $systemMsg = null;
-        $otherMessages = [];
-        foreach ($fullMessages as $msg) {
-            if (($msg['role'] ?? '') === 'system' && $systemMsg === null) {
-                $systemMsg = $msg;
-            } else {
-                $otherMessages[] = $msg;
-            }
-        }
-
-        // Извлекаем дату из оригинального system prompt (уже с правильным часовым поясом пользователя)
-        $origContent = $systemMsg['content'] ?? '';
-        if (preg_match('/Сегодня:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})\.\s*Завтра:\s*(\S+),\s*(\d{4}-\d{2}-\d{2})/u', $origContent, $dm)) {
-            $todayDow = $dm[1];
-            $today = $dm[2];
-            $tomorrowDow = $dm[3];
-            $tomorrow = $dm[4];
-        } else {
-            $now = new DateTime();
-            $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
-            $todayDow = $daysRu[(int) $now->format('N')] ?? '';
-            $today = $now->format('Y-m-d');
-            $tomorrowObj = (clone $now)->modify('+1 day');
-            $tomorrowDow = $daysRu[(int) $tomorrowObj->format('N')] ?? '';
-            $tomorrow = $tomorrowObj->format('Y-m-d');
-        }
-
-        $yesterdayDt = (new DateTime($today))->modify('-1 day');
-        $daysRu2 = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
-        $yesterday = $yesterdayDt->format('Y-m-d');
-        $yesterdayDow = $daysRu2[(int) $yesterdayDt->format('N')] ?? '';
-
-        $shortSystem = <<<PROMPT
-Ты — PlanRun, тренер по бегу. Вчера: {$yesterdayDow}, {$yesterday}. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
-
-ДАТЫ: вчера={$yesterday}, сегодня={$today}, завтра={$tomorrow}. Передавай в tools дату Y-m-d напрямую.
-
-ИНСТРУМЕНТЫ — вызывай ПРОАКТИВНО, не выдумывай данные:
-1. get_plan(date) — план недели. 2. get_workouts(date_from, date_to) — история.
-3. get_day_details(date) — план+результат дня.
-4. update_training_day(date, type, description) — изменить. Подтверждение!
-5. swap_training_days(date1, date2) — поменять. 6. delete_training_day(date) — удалить.
-7. move_training_day(source_date, target_date) — перенести.
-8. recalculate_plan(reason) — пересчитать. 9. generate_next_plan(goals) — новый.
-
-ПРАВИЛА:
-- ЛЮБОЙ вопрос о тренировках — СНАЧАЛА вызови tool, потом отвечай.
-- «вчера» = {$yesterday}. «позавчера» = вычти день. Не спрашивай пользователя какая дата!
-- После подтверждения (да, давай, ок) — НЕМЕДЛЕННО вызови write-tool. НЕ пиши текст — ВЫЗОВИ TOOL.
-- Система автоматически выполнит после подтверждения, не вызывай повторно.
-- 100% русский язык. Без emoji.
-PROMPT;
-
-        $result = [['role' => 'system', 'content' => $shortSystem]];
-
-        // Берём последние сообщения (до 6), чтобы сохранить контекст диалога.
-        // Фильтруем tool-роли (llama.cpp Jinja не принимает их в tool-resolution раунде)
-        // и нормализуем чередование user/assistant — иначе Ministral вернёт 500.
-        $tail = array_slice($otherMessages, -6);
-        foreach ($tail as $msg) {
-            $role = $msg['role'] ?? '';
-            // Пропускаем tool-результаты и assistant-сообщения с tool_calls —
-            // они от предыдущих resolveToolCalls раундов, Jinja их не поймёт
-            if ($role === 'tool' || !empty($msg['tool_calls'])) {
-                continue;
-            }
-            if (!in_array($role, ['user', 'assistant'], true)) {
-                continue;
-            }
-            $result[] = ['role' => $role, 'content' => trim((string)($msg['content'] ?? ''))];
-        }
-
-        // Нормализуем: склеиваем подряд идущие сообщения с одинаковой ролью
-        return $this->normalizeMessagesForStrictAlternation($result);
     }
 
     /**

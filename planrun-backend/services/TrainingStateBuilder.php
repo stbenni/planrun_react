@@ -3,6 +3,8 @@
 require_once __DIR__ . '/StatsService.php';
 require_once __DIR__ . '/PostWorkoutFollowupService.php';
 require_once __DIR__ . '/AthleteSignalsService.php';
+require_once __DIR__ . '/PlanReadinessCheckService.php';
+require_once __DIR__ . '/PlanScenarioResolver.php';
 require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
 require_once __DIR__ . '/../repositories/WorkoutRepository.php';
 
@@ -12,6 +14,7 @@ class TrainingStateBuilder {
     private PostWorkoutFollowupService $postWorkoutFollowupService;
     private AthleteSignalsService $athleteSignalsService;
     private ?WorkoutRepository $workoutRepo = null;
+    private ?PlanScenarioResolver $scenarioResolver = null;
 
     public function __construct(mysqli $db) {
         $this->db = $db;
@@ -47,7 +50,12 @@ class TrainingStateBuilder {
         return $this->buildForUser($user);
     }
 
-    public function buildForUser(array $user): array {
+    /**
+     * Расширенная сигнатура: $mode и $payload используются для вычисления planning_scenario и goal_realism
+     * (P0.2 — чтобы поля были доступны и в режиме llm_planner, а не только в skeleton-first).
+     * Дефолтные значения сохраняют обратную совместимость с прежним вызовом buildForUser($user).
+     */
+    public function buildForUser(array $user, string $mode = 'generate', array $payload = []): array {
         $userId = (int) ($user['id'] ?? 0);
         $goalType = (string) ($user['goal_type'] ?? 'health');
         $ageYears = $this->computeAgeYears($user['birth_year'] ?? null);
@@ -156,9 +164,20 @@ class TrainingStateBuilder {
             ];
         }
 
+        $mainRaceDate = $user['race_date'] ?? ($user['target_marathon_date'] ?? null);
+        $intermediateRaces = $userId > 0 ? $this->getIntermediateRaces($userId, $mainRaceDate) : [];
+
         $daysSinceLastWorkout = $userId > 0 ? $this->getDaysSinceLastWorkout($userId) : null;
         $athleteSignals = $userId > 0 ? $this->getRecentAthleteSignals($userId) : [];
         $feedbackAnalytics = is_array($athleteSignals['feedback'] ?? null) ? $athleteSignals['feedback'] : [];
+        $planReadinessCheck = $userId > 0 ? $this->getLatestPlanReadinessCheckAnswer($userId) : null;
+        if ($planReadinessCheck !== null) {
+            [$feedbackAnalytics, $athleteSignals] = $this->applyPlanReadinessCheckAnswer(
+                $feedbackAnalytics,
+                $athleteSignals,
+                $planReadinessCheck
+            );
+        }
         $expLevelForDetraining = $user['experience_level'] ?? 'intermediate';
         $detrainingFactor = $daysSinceLastWorkout !== null ? calculateDetrainingFactor($daysSinceLastWorkout, $expLevelForDetraining) : null;
         $reportedWeeklyBaseKm = isset($user['weekly_base_km']) ? (float) $user['weekly_base_km'] : 0.0;
@@ -170,7 +189,7 @@ class TrainingStateBuilder {
         $effectiveUser['weekly_base_km'] = $effectiveWeeklyBaseKm;
         $loadPolicy = $this->buildLoadPolicy($effectiveUser, $goalType, $readiness, $specialPopulationFlags, $weeksToGoal, $feedbackAnalytics, $athleteSignals);
 
-        return [
+        $state = [
             'goal_type' => $goalType,
             'race_distance' => $user['race_distance'] ?? null,
             'race_date' => $user['race_date'] ?? ($user['target_marathon_date'] ?? null),
@@ -204,10 +223,162 @@ class TrainingStateBuilder {
             'special_population_flags' => $specialPopulationFlags,
             'feedback_analytics' => $feedbackAnalytics,
             'athlete_signals' => $athleteSignals,
+            'plan_readiness_check' => $this->compactPlanReadinessCheckAnswer($planReadinessCheck),
             'return_to_run_state' => in_array('return_after_break', $specialPopulationFlags, true) || in_array('return_after_injury', $specialPopulationFlags, true)
                 ? 'conservative'
                 : null,
+            'intermediate_races' => $intermediateRaces,
         ];
+
+        // P0.2: planning_scenario и goal_realism теперь доступны независимо от пути генерации
+        // (skeleton-first уже вычисляет их сам, llm_planner раньше получал null).
+        // Управляется feature flag PLANRUN_AI_STATE_SCENARIO (default 1).
+        if ($this->isScenarioFeatureEnabled()) {
+            $state['planning_scenario'] = $this->resolvePlanningScenario($user, $state, $mode, $payload);
+            $state['goal_realism'] = $this->resolveGoalRealism($user, $state);
+        }
+
+        return $state;
+    }
+
+    private function isScenarioFeatureEnabled(): bool {
+        $raw = function_exists('env') ? env('PLANRUN_AI_STATE_SCENARIO', '1') : '1';
+        $value = strtolower(trim((string) $raw));
+        if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+        return true;
+    }
+
+    private function resolvePlanningScenario(array $user, array $state, string $mode, array $payload): ?array {
+        try {
+            $resolver = $this->scenarioResolver ??= new PlanScenarioResolver();
+            return $resolver->resolve($user, $state, $mode, $payload);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Возвращает компактную выжимку assessGoalRealism для llm_planner и quality gate.
+     * Только для goal_type ∈ {race, time_improvement} — иначе null, чтобы не добавлять
+     * в FACTS_JSON шум.
+     */
+    private function resolveGoalRealism(array $user, array $state): ?array {
+        $goalType = (string) ($state['goal_type'] ?? $user['goal_type'] ?? '');
+        if (!in_array($goalType, ['race', 'time_improvement'], true)) {
+            return null;
+        }
+
+        try {
+            $userData = $user;
+            $userData['training_state'] = [
+                'vdot' => $state['vdot'] ?? null,
+                'vdot_source_label' => $state['vdot_source_label'] ?? null,
+                'training_paces' => $state['training_paces'] ?? null,
+            ];
+            $assessment = assessGoalRealism($userData);
+        } catch (Throwable $e) {
+            return null;
+        }
+
+        if (!is_array($assessment)) {
+            return null;
+        }
+
+        $verdict = (string) ($assessment['verdict'] ?? 'realistic');
+        $severity = match ($verdict) {
+            'unrealistic' => 'major',
+            'challenging', 'caution' => 'moderate',
+            default => 'none',
+        };
+
+        $issueMessages = [];
+        foreach ((array) ($assessment['messages'] ?? []) as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+            $type = (string) ($message['type'] ?? 'info');
+            if (!in_array($type, ['warning', 'error'], true)) {
+                continue;
+            }
+            $text = trim((string) ($message['text'] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+            $issueMessages[] = $text;
+            if (count($issueMessages) >= 3) {
+                break;
+            }
+        }
+
+        $recommendedTargetTime = null;
+        foreach ((array) ($assessment['messages'] ?? []) as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+            foreach ((array) ($message['suggestions'] ?? []) as $suggestion) {
+                if (!is_array($suggestion)) {
+                    continue;
+                }
+                $action = $suggestion['action'] ?? null;
+                if (is_array($action) && (string) ($action['field'] ?? '') === 'race_target_time') {
+                    $recommendedTargetTime = (string) ($action['value'] ?? '');
+                    break 2;
+                }
+            }
+        }
+
+        return [
+            'verdict' => $verdict,
+            'severity' => $severity,
+            'issue_count' => count((array) ($assessment['messages'] ?? [])),
+            'issues' => $issueMessages,
+            'recommended_target_time' => $recommendedTargetTime !== '' ? $recommendedTargetTime : null,
+            'recommended_weeks' => $assessment['recommended_weeks'] ?? null,
+            'recommended_sessions' => $assessment['recommended_sessions'] ?? null,
+            'predictions' => $assessment['predictions'] ?? null,
+            'vdot' => $assessment['vdot'] ?? null,
+        ];
+    }
+
+    private function getIntermediateRaces(int $userId, ?string $mainRaceDate): array {
+        $sql = "
+            SELECT d.date, d.description, MAX(tde.distance_m) / 1000 AS distance_km
+            FROM training_plan_days d
+            JOIN training_plan_weeks w ON d.week_id = w.id
+            LEFT JOIN training_day_exercises tde ON tde.plan_day_id = d.id AND tde.category = 'run'
+            WHERE d.user_id = ? AND w.user_id = ? AND d.type = 'race' AND d.date >= CURDATE()
+        ";
+        $params = [$userId, $userId];
+        $types = 'ii';
+
+        if ($mainRaceDate !== null && $mainRaceDate !== '') {
+            $sql .= " AND d.date != ?";
+            $params[] = $mainRaceDate;
+            $types .= 's';
+        }
+
+        $sql .= " GROUP BY d.id, d.date, d.description ORDER BY d.date ASC LIMIT 10";
+
+        $stmt = $this->db->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $races = [];
+        while ($row = $result->fetch_assoc()) {
+            $races[] = [
+                'date' => $row['date'],
+                'description' => $row['description'] ?? null,
+                'distance_km' => $row['distance_km'] !== null ? (float) $row['distance_km'] : null,
+            ];
+        }
+        $stmt->close();
+        return $races;
     }
 
     private function buildPaceRules(?array $trainingPaces, array $user, ?float $vdot = null): ?array {
@@ -870,6 +1041,76 @@ class TrainingStateBuilder {
             || (float) ($feedbackAnalytics['subjective_load_delta'] ?? 0.0) >= 0.45
             || (float) ($feedbackAnalytics['session_rpe_delta'] ?? 0.0) >= 0.75
             || (float) ($feedbackAnalytics['recent_session_rpe_avg'] ?? 0.0) >= 7.0;
+    }
+
+    private function getLatestPlanReadinessCheckAnswer(int $userId): ?array {
+        try {
+            return (new PlanReadinessCheckService($this->db))->getLatestValidAnswer($userId);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function applyPlanReadinessCheckAnswer(array $feedbackAnalytics, array $athleteSignals, array $answer): array {
+        $interpretation = (string) ($answer['interpretation'] ?? '');
+        if (!in_array($interpretation, ['clear', 'mild_clear'], true)) {
+            return [$feedbackAnalytics, $athleteSignals];
+        }
+
+        $riskCap = $interpretation === 'clear' ? 0.30 : 0.45;
+        foreach (['average_recovery_risk', 'recent_average_recovery_risk', 'max_recovery_risk', 'latest_recovery_risk'] as $key) {
+            if (isset($feedbackAnalytics[$key])) {
+                $feedbackAnalytics[$key] = round(min((float) $feedbackAnalytics[$key], $riskCap), 2);
+            }
+        }
+
+        $painScore = isset($answer['current_pain_score']) ? (int) $answer['current_pain_score'] : 0;
+        $feedbackAnalytics['pain_count'] = 0;
+        $feedbackAnalytics['pain_flag_count'] = 0;
+        $feedbackAnalytics['has_recent_pain'] = false;
+        $feedbackAnalytics['recent_pain_score_avg'] = min((float) ($feedbackAnalytics['recent_pain_score_avg'] ?? 0.0), (float) $painScore);
+        $feedbackAnalytics['pain_score_delta'] = 0.0;
+        if (($feedbackAnalytics['latest_classification'] ?? null) === 'pain') {
+            $feedbackAnalytics['latest_classification'] = 'neutral';
+        }
+        $feedbackAnalytics['risk_level'] = $interpretation === 'clear' ? 'low' : 'moderate';
+        $feedbackAnalytics['plan_readiness_check_applied'] = true;
+
+        $athleteSignals['feedback'] = $feedbackAnalytics;
+        if (isset($athleteSignals['overall_risk_score'])) {
+            $athleteSignals['overall_risk_score'] = round(min((float) $athleteSignals['overall_risk_score'], $riskCap), 2);
+        }
+        if (empty($athleteSignals['has_note_pain_signal'])) {
+            $athleteSignals['overall_risk_level'] = $interpretation === 'clear' ? 'low' : 'moderate';
+            $athleteSignals['planning_biases'] = array_values(array_filter(
+                (array) ($athleteSignals['planning_biases'] ?? []),
+                static fn($bias): bool => (string) $bias !== 'protect_injury'
+            ));
+            $athleteSignals['highlights'] = array_values(array_filter(
+                (array) ($athleteSignals['highlights'] ?? []),
+                static fn($highlight): bool => !str_contains(mb_strtolower((string) $highlight), 'болев')
+            ));
+        }
+        $athleteSignals['plan_readiness_check_applied'] = true;
+        $athleteSignals['prompt_summary'] = trim((string) ($athleteSignals['prompt_summary'] ?? '') . '; readiness-check: текущая боль ' . $painScore . '/10, сигнал уточнён');
+
+        return [$feedbackAnalytics, $athleteSignals];
+    }
+
+    private function compactPlanReadinessCheckAnswer(?array $answer): ?array {
+        if ($answer === null) {
+            return null;
+        }
+
+        return [
+            'id' => isset($answer['id']) ? (int) $answer['id'] : null,
+            'source_date' => $answer['source_date'] ?? null,
+            'current_pain_score' => isset($answer['current_pain_score']) ? (int) $answer['current_pain_score'] : null,
+            'pain_worsened_after_runs' => isset($answer['pain_worsened_after_runs']) ? ((int) $answer['pain_worsened_after_runs'] === 1) : null,
+            'technique_changed' => isset($answer['technique_changed']) ? ((int) $answer['technique_changed'] === 1) : null,
+            'interpretation' => $answer['interpretation'] ?? null,
+            'valid_until' => $answer['valid_until'] ?? null,
+        ];
     }
 
     private function getRecentFeedbackAnalytics(int $userId): array {

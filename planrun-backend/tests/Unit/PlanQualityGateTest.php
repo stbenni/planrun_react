@@ -9,6 +9,29 @@ require_once __DIR__ . '/../../services/PlanQualityGate.php';
 
 class PlanQualityGateTest extends TestCase
 {
+    public function test_workout_completeness_rejects_duration_only_fartlek(): void
+    {
+        $issues = \collectWorkoutCompletenessValidationIssues([
+            'weeks' => [[
+                'week_number' => 2,
+                'days' => [[
+                    'date' => '2026-05-13',
+                    'type' => 'fartlek',
+                    'warmup_km' => 3.0,
+                    'cooldown_km' => 2.0,
+                    'duration_minutes' => 68,
+                    'segments' => null,
+                    'notes' => '',
+                    'description' => 'Разминка: 3 км. . Заминка: 2 км',
+                ]],
+            ]],
+        ], ['goal_type' => 'race']);
+
+        $codes = array_column($issues, 'code');
+
+        $this->assertContains('complex_workout_missing_structure', $codes);
+    }
+
     public function test_evaluate_blocks_tune_up_week_with_long_run_and_extra_quality(): void
     {
         $gate = new \PlanQualityGate();
@@ -148,6 +171,51 @@ class PlanQualityGateTest extends TestCase
             'planning_scenario' => [
                 'flags' => ['short_runway_taper', 'high_caution'],
             ],
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+
+        $this->assertNotContains('missing_run_on_required_day', $codes);
+    }
+
+    public function test_evaluate_relaxes_required_run_day_contract_for_fresh_long_effort_recovery_week(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'is_recovery' => true,
+                'days' => [
+                    ['type' => 'rest'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 8.0, 'pace' => '5:30'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 8.0, 'pace' => '5:30'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 18.0, 'pace' => '5:45'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-04', [
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'sessions_per_week' => 4,
+            'preferred_days' => ['mon', 'wed', 'fri', 'sun'],
+            'load_policy' => [
+                'long_share_cap' => 0.55,
+            ],
+        ], [
+            'preferred_days' => ['mon', 'wed', 'fri', 'sun'],
+            'sessions_per_week' => 4,
+            'planner_hard_rules' => [
+                'fresh_long_effort_guard' => [
+                    'applies' => true,
+                    'week_1_must_be_recovery' => true,
+                ],
+            ],
+            'disable_repairs' => true,
         ]);
 
         $codes = array_column($result['issues'], 'code');
@@ -433,6 +501,106 @@ class PlanQualityGateTest extends TestCase
         ));
     }
 
+    public function test_evaluate_does_not_flag_base_reentry_below_high_weekly_base(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [
+                [
+                    'week_number' => 1,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 12.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 12.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 11.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'long', 'distance_km' => 18.0, 'pace' => '5:40'],
+                    ],
+                ],
+                [
+                    'week_number' => 2,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 14.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 14.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 14.0, 'pace' => '5:20'],
+                        ['type' => 'easy', 'distance_km' => 7.0, 'pace' => '5:20'],
+                        ['type' => 'long', 'distance_km' => 18.0, 'pace' => '5:40'],
+                    ],
+                ],
+            ],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-11', [
+            'readiness' => 'high',
+            'weekly_base_km' => 110.6,
+            'race_distance' => 'marathon',
+            'load_policy' => [
+                'allowed_growth_ratio' => 1.12,
+                'start_volume_km' => 116.0,
+                'long_share_cap' => 0.45,
+            ],
+        ]);
+
+        $this->assertSame([], array_filter(
+            $result['issues'],
+            static fn(array $issue): bool => ($issue['code'] ?? '') === 'weekly_volume_spike'
+        ));
+    }
+
+    public function test_evaluate_allows_high_base_reentry_near_ninety_percent_of_base(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [
+                [
+                    'week_number' => 1,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 20.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 20.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 18.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'long', 'distance_km' => 24.0, 'pace' => '5:40'],
+                    ],
+                ],
+                [
+                    'week_number' => 2,
+                    'days' => [
+                        ['type' => 'easy', 'distance_km' => 24.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 24.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'easy', 'distance_km' => 20.0, 'pace' => '5:20'],
+                        ['type' => 'rest'],
+                        ['type' => 'long', 'distance_km' => 28.0, 'pace' => '5:40'],
+                    ],
+                ],
+            ],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-06-01', [
+            'readiness' => 'high',
+            'weekly_base_km' => 110.6,
+            'race_distance' => 'marathon',
+            'load_policy' => [
+                'allowed_growth_ratio' => 1.12,
+                'start_volume_km' => 116.0,
+                'long_share_cap' => 0.45,
+            ],
+        ]);
+
+        $this->assertSame([], array_filter(
+            $result['issues'],
+            static fn(array $issue): bool => ($issue['code'] ?? '') === 'weekly_volume_spike'
+        ));
+    }
+
     public function test_evaluate_preserves_recovery_week_metadata_under_schedule_enforcement(): void
     {
         $gate = new \PlanQualityGate();
@@ -602,5 +770,273 @@ class PlanQualityGateTest extends TestCase
         $this->assertNotEmpty($spikes);
         $this->assertSame('warning', $spikes[0]['severity'] ?? null);
         $this->assertFalse($result['should_block_save']);
+    }
+
+    public function test_evaluate_blocks_llm_planner_prompt_contract_violations(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'phase' => 'base',
+                'is_recovery' => false,
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 32.0, 'pace' => '5:20', 'notes' => 'Long run with marathon-pace segments'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-04', [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'load_policy' => [
+                'long_share_cap' => 0.43,
+            ],
+        ], [
+            'macro_plan' => [
+                'weeks' => [[
+                    'week' => 1,
+                    'target_volume_km' => 116.0,
+                    'long_run_km' => 32.0,
+                    'quality_focus' => 'Long run build',
+                    'risk_note' => 'Recovery risk after race',
+                ]],
+            ],
+            'planner_hard_rules' => [
+                'race_distance' => 'marathon',
+                'race_distance_km' => 42.2,
+                'race_date' => '2026-07-04',
+                'fresh_long_effort_guard' => [
+                    'applies' => true,
+                    'week_1_must_be_recovery' => true,
+                    'week_1_quality_allowed' => false,
+                    'week_1_long_run_max_km' => 24.0,
+                ],
+            ],
+            'disable_repairs' => true,
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+
+        $this->assertTrue($result['should_block_save']);
+        $this->assertContains('english_user_facing_plan_text', $codes);
+        $this->assertContains('english_user_facing_macro_text', $codes);
+        $this->assertContains('macro_detail_volume_mismatch', $codes);
+        $this->assertContains('long_run_share_too_high', $codes);
+        $this->assertContains('fresh_long_effort_week1_not_recovery', $codes);
+        $this->assertContains('fresh_long_effort_week1_long_too_large', $codes);
+    }
+
+    public function test_evaluate_downgrades_llm_planner_contract_violations_in_permissive_mode(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'phase' => 'base',
+                'is_recovery' => false,
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 32.0, 'pace' => '5:20', 'notes' => 'Long run with marathon-pace segments'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-04', [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'load_policy' => [
+                'long_share_cap' => 0.43,
+            ],
+        ], [
+            'macro_plan' => [
+                'weeks' => [[
+                    'week' => 1,
+                    'target_volume_km' => 116.0,
+                    'long_run_km' => 32.0,
+                    'quality_focus' => 'Long run build',
+                    'risk_note' => 'Recovery risk after race',
+                ]],
+            ],
+            'planner_hard_rules' => [
+                'race_distance' => 'marathon',
+                'race_distance_km' => 42.2,
+                'race_date' => '2026-07-04',
+                'fresh_long_effort_guard' => [
+                    'applies' => true,
+                    'week_1_must_be_recovery' => true,
+                    'week_1_quality_allowed' => false,
+                    'week_1_long_run_max_km' => 24.0,
+                ],
+            ],
+            'disable_repairs' => true,
+            'blocking_policy' => 'permissive',
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+        $severitiesByCode = array_column($result['issues'], 'severity', 'code');
+
+        $this->assertFalse($result['should_block_save']);
+        $this->assertSame('permissive', $result['blocking_policy']);
+        $this->assertContains('long_run_share_too_high', $codes);
+        $this->assertSame('warning', $severitiesByCode['long_run_share_too_high'] ?? null);
+        $this->assertSame('warning', $severitiesByCode['fresh_long_effort_week1_long_too_large'] ?? null);
+    }
+
+    public function test_evaluate_allows_short_race_long_run_to_exceed_race_distance(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'phase' => 'build',
+                'is_recovery' => false,
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 7.0, 'pace' => '5:40'],
+                    ['type' => 'rest'],
+                    ['type' => 'tempo', 'distance_km' => 8.0, 'pace' => '4:40', 'warmup_km' => 2.0, 'tempo_km' => 4.5, 'cooldown_km' => 1.5],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 6.0, 'pace' => '5:40'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 14.0, 'pace' => '5:55'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-04', [
+            'race_distance' => '10k',
+            'load_policy' => [
+                'long_share_cap' => 0.45,
+            ],
+        ], [
+            'planner_hard_rules' => [
+                'race_distance' => '10k',
+                'race_distance_km' => 10.0,
+                'long_run_safety' => [
+                    'short_race_long_runs_may_exceed_race_distance' => true,
+                    'no_training_run_at_or_above_race_distance_except_race_day' => false,
+                ],
+            ],
+            'disable_repairs' => true,
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+
+        $this->assertFalse($result['should_block_save']);
+        $this->assertNotContains('training_long_run_at_race_distance', $codes);
+    }
+
+    public function test_evaluate_accepts_detail_week_target_when_macro_is_revised_with_reason(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 2,
+                'phase' => 'build',
+                'is_recovery' => false,
+                'target_volume_km' => 52.0,
+                'macro_adjustment_reason' => 'Снижен объём из-за лимита длительной и четырёх беговых дней.',
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 10.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'tempo', 'distance_km' => 10.0, 'pace' => '4:59', 'subtype' => 'race_pace', 'warmup_km' => 2.0, 'tempo_km' => 6.0, 'cooldown_km' => 2.0],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 10.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 22.0, 'pace' => '5:30'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-11', [
+            'race_distance' => 'marathon',
+            'load_policy' => [
+                'long_share_cap' => 0.45,
+            ],
+        ], [
+            'macro_plan' => [
+                'weeks' => [[
+                    'week' => 2,
+                    'target_volume_km' => 65.0,
+                    'long_run_km' => 22.0,
+                    'quality_focus' => 'Целевой марафонский темп',
+                    'risk_note' => 'Следить за восстановлением',
+                ]],
+            ],
+            'planner_hard_rules' => [
+                'race_distance' => 'marathon',
+                'race_distance_km' => 42.2,
+            ],
+            'disable_repairs' => true,
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+
+        $this->assertFalse($result['should_block_save']);
+        $this->assertNotContains('macro_detail_volume_mismatch', $codes);
+    }
+
+    public function test_evaluate_skips_macro_detail_contract_for_single_pass_planner(): void
+    {
+        $gate = new \PlanQualityGate();
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 2,
+                'phase' => 'build',
+                'target_volume_km' => 52.0,
+                'days' => [
+                    ['type' => 'easy', 'distance_km' => 10.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'tempo', 'distance_km' => 10.0, 'pace' => '4:59', 'subtype' => 'race_pace', 'warmup_km' => 2.0, 'tempo_km' => 6.0, 'cooldown_km' => 2.0],
+                    ['type' => 'rest'],
+                    ['type' => 'easy', 'distance_km' => 10.0, 'pace' => '5:20'],
+                    ['type' => 'rest'],
+                    ['type' => 'long', 'distance_km' => 22.0, 'pace' => '5:30'],
+                ],
+            ]],
+        ];
+
+        $result = $gate->evaluate($plan, '2026-05-11', [
+            'race_distance' => 'marathon',
+            'load_policy' => [
+                'long_share_cap' => 0.45,
+            ],
+        ], [
+            'planner_strategy' => 'single_pass',
+            'macro_plan' => [
+                'weeks' => [[
+                    'week' => 2,
+                    'target_volume_km' => 80.0,
+                    'long_run_km' => 30.0,
+                ]],
+            ],
+            'planner_hard_rules' => [
+                'race_distance' => 'marathon',
+                'race_distance_km' => 42.2,
+            ],
+            'disable_repairs' => true,
+        ]);
+
+        $codes = array_column($result['issues'], 'code');
+
+        $this->assertFalse($result['should_block_save']);
+        $this->assertNotContains('macro_detail_volume_mismatch', $codes);
+        $this->assertNotContains('macro_detail_long_run_mismatch', $codes);
     }
 }

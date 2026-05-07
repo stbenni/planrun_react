@@ -27,6 +27,11 @@ const usePlanStore = create((set, get) => ({
   // Текст для баннера
   generationLabel: '',
 
+  // Короткий check-in перед генерацией, если старый pain-сигнал может исказить план
+  planReadinessCheck: null,
+  pendingReadinessAction: null,
+  readinessSubmitting: false,
+
   // --- Внутренний хелпер: пересчитать isGenerating и label ---
   _updateGeneratingState: () => {
     const { recalculating, generatingNext, planStatus } = get();
@@ -157,6 +162,19 @@ const usePlanStore = create((set, get) => ({
     get()._updateGeneratingState();
   },
 
+  _requireReadinessCheck: (result, pendingAction) => {
+    set({
+      loading: false,
+      recalculating: false,
+      generatingNext: false,
+      planReadinessCheck: result?.readiness_check ?? null,
+      pendingReadinessAction: pendingAction,
+      planStatus: get().hasPlan ? { has_plan: true } : { has_plan: false },
+      error: null,
+    });
+    get()._updateGeneratingState();
+  },
+
   // === Загрузка плана ===
   loadPlan: async (userId = null) => {
     const { api } = useAuthStore.getState();
@@ -263,6 +281,10 @@ const usePlanStore = create((set, get) => ({
       } else {
         result = await api.request('regenerate_plan', {}, 'POST');
       }
+      if (result?.requires_readiness_check) {
+        get()._requireReadinessCheck(result, { type: withProgress ? 'recalculate' : 'generate', reason: null, goals: null, withProgress });
+        return false;
+      }
       get().applyQueuedPlanState(result);
       useWorkoutRefreshStore.getState().triggerRefresh();
       return true;
@@ -289,7 +311,11 @@ const usePlanStore = create((set, get) => ({
     get()._updateGeneratingState();
 
     try {
-      await api.recalculatePlan(reason);
+      const result = await api.recalculatePlan(reason);
+      if (result?.requires_readiness_check) {
+        get()._requireReadinessCheck(result, { type: 'recalculate', reason, goals: null });
+        return false;
+      }
 
       const poll = async (attempts = 0) => {
         if (attempts >= 40) {
@@ -342,7 +368,11 @@ const usePlanStore = create((set, get) => ({
     get()._updateGeneratingState();
 
     try {
-      await api.generateNextPlan(goals);
+      const result = await api.generateNextPlan(goals);
+      if (result?.requires_readiness_check) {
+        get()._requireReadinessCheck(result, { type: 'next_plan', reason: null, goals });
+        return false;
+      }
 
       const poll = async (attempts = 0) => {
         if (attempts >= 50) {
@@ -383,6 +413,53 @@ const usePlanStore = create((set, get) => ({
     }
   },
 
+  submitPlanReadinessCheck: async (answer) => {
+    const { api } = useAuthStore.getState();
+    const { planReadinessCheck, pendingReadinessAction } = get();
+    if (!api || !planReadinessCheck?.id) {
+      set({ error: 'Readiness-check не найден' });
+      return false;
+    }
+
+    set({ readinessSubmitting: true, error: null });
+    try {
+      await api.submitPlanReadinessCheck({
+        check_id: planReadinessCheck.id,
+        ...answer,
+      });
+
+      const action = pendingReadinessAction;
+      set({
+        readinessSubmitting: false,
+        planReadinessCheck: null,
+        pendingReadinessAction: null,
+      });
+
+      if (!action) return true;
+      if (action.type === 'next_plan') {
+        return await get().generateNextPlan(action.goals || null);
+      }
+      if (action.type === 'generate') {
+        return await get().regeneratePlan(false);
+      }
+      return await get().recalculatePlan(action.reason || null);
+    } catch (error) {
+      set({
+        readinessSubmitting: false,
+        error: error.message || 'Не удалось сохранить самочувствие',
+      });
+      return false;
+    }
+  },
+
+  dismissPlanReadinessCheck: () => {
+    set({
+      planReadinessCheck: null,
+      pendingReadinessAction: null,
+      readinessSubmitting: false,
+    });
+  },
+
   // === Очистка плана ===
   clearPlan: () => {
     set({
@@ -392,6 +469,9 @@ const usePlanStore = create((set, get) => ({
       error: null,
       isGenerating: false,
       generationLabel: '',
+      planReadinessCheck: null,
+      pendingReadinessAction: null,
+      readinessSubmitting: false,
     });
   },
 

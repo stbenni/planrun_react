@@ -17,6 +17,7 @@ if (!$db) {
 $migrations = [
     'email_verification_codes' => trim((string) file_get_contents($baseDir . '/migrations/create_email_verification_codes.sql')),
     'plan_generation_jobs' => trim((string) file_get_contents($baseDir . '/migrations/create_plan_generation_jobs.sql')),
+    'llm_gateway_locks' => trim((string) file_get_contents($baseDir . '/migrations/create_llm_gateway_locks.sql')),
     'workout_share_jobs' => "CREATE TABLE IF NOT EXISTS workout_share_jobs (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id INT UNSIGNED NOT NULL,

@@ -3,7 +3,7 @@
  * Выше = быстрее (меньше мин/км), ниже = медленнее.
  */
 
-import React, { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { ZapIcon } from '../common/Icons';
 
@@ -11,6 +11,116 @@ const formatPaceFromSeconds = (seconds) => {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const percentile = (sortedValues, ratio) => {
+  if (!sortedValues.length) return null;
+  const index = (sortedValues.length - 1) * ratio;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sortedValues[lower];
+  const weight = index - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+};
+
+const getPaceDomain = (paceValues) => {
+  const sortedValues = [...paceValues].sort((a, b) => a - b);
+  const minPace = sortedValues[0];
+  const maxPace = sortedValues[sortedValues.length - 1];
+  const median = percentile(sortedValues, 0.5) ?? minPace;
+  let displayMin = minPace;
+  let displayMax = maxPace;
+
+  if (sortedValues.length >= 8) {
+    const q1 = percentile(sortedValues, 0.25) ?? minPace;
+    const q3 = percentile(sortedValues, 0.75) ?? maxPace;
+    const p10 = percentile(sortedValues, 0.1) ?? minPace;
+    const p90 = percentile(sortedValues, 0.9) ?? maxPace;
+    const iqr = Math.max(20, q3 - q1);
+    const fastFence = q1 - iqr * 1.5;
+    const slowFence = q3 + iqr * 1.5;
+    const fastCap = Math.max(60, median - Math.max(120, median * 0.35));
+    const slowCap = median + Math.max(300, median * 0.75);
+
+    displayMin = clamp(Math.min(p10, fastFence), minPace, maxPace);
+    displayMax = clamp(Math.max(p90, slowFence), minPace, maxPace);
+    displayMin = Math.max(displayMin, fastCap);
+    displayMax = Math.min(displayMax, slowCap);
+
+    if (displayMin >= displayMax) {
+      displayMin = Math.max(60, median - 30);
+      displayMax = median + 30;
+    }
+  }
+
+  let displayRange = displayMax - displayMin;
+  const minRange = 60;
+  if (displayRange < minRange) {
+    const center = (displayMin + displayMax) / 2;
+    displayMin = Math.max(60, center - minRange / 2);
+    displayMax = displayMin + minRange;
+    displayRange = displayMax - displayMin;
+  }
+
+  const padding = Math.max(15, displayRange * 0.08);
+  const adjustedMinPace = Math.max(60, displayMin - padding);
+  const adjustedMaxPace = displayMax + padding;
+
+  return {
+    minPace,
+    maxPace,
+    adjustedMinPace,
+    adjustedMaxPace,
+    adjustedRange: adjustedMaxPace - adjustedMinPace || 1,
+  };
+};
+
+const getPaceSmoothingWindowMs = (durationMinutes) => {
+  if (durationMinutes <= 45) return 15 * 1000;
+  if (durationMinutes <= 90) return 20 * 1000;
+  if (durationMinutes <= 150) return 30 * 1000;
+  return 45 * 1000;
+};
+
+const getTrimmedMean = (values) => {
+  if (!values.length) return null;
+  const sortedValues = [...values].sort((a, b) => a - b);
+  const trimCount = sortedValues.length >= 5 ? Math.floor(sortedValues.length * 0.2) : 0;
+  const trimmedValues = sortedValues.slice(trimCount, sortedValues.length - trimCount);
+  const usableValues = trimmedValues.length ? trimmedValues : sortedValues;
+  return usableValues.reduce((sum, value) => sum + value, 0) / usableValues.length;
+};
+
+const smoothPaceData = (points, durationMinutes) => {
+  const windowMs = getPaceSmoothingWindowMs(durationMinutes);
+
+  return points.map((point, index) => {
+    const centerTime = new Date(point.timestamp).getTime();
+    const minTime = centerTime - windowMs / 2;
+    const maxTime = centerTime + windowMs / 2;
+    const values = [];
+
+    for (let i = index; i >= 0; i -= 1) {
+      const candidate = points[i];
+      const candidateTime = new Date(candidate.timestamp).getTime();
+      if (candidateTime < minTime) break;
+      values.push(candidate.paceSeconds);
+    }
+
+    for (let i = index + 1; i < points.length; i += 1) {
+      const candidate = points[i];
+      const candidateTime = new Date(candidate.timestamp).getTime();
+      if (candidateTime > maxTime) break;
+      values.push(candidate.paceSeconds);
+    }
+
+    return {
+      ...point,
+      smoothedPaceSeconds: getTrimmedMean(values) ?? point.paceSeconds,
+    };
+  });
 };
 
 const PaceChart = ({ timeline, onHoverIndex }) => {
@@ -50,24 +160,18 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
     for (let i = 0; i < dataPoints.length; i += step) sampledIndices.add(i);
     if (dataPoints.length > 1) sampledIndices.add(dataPoints.length - 1);
     const sampledData = dataPoints.filter((_, i) => sampledIndices.has(i));
+    const startTime = new Date(dataPoints[0].timestamp);
+    const endTime = new Date(dataPoints[dataPoints.length - 1].timestamp);
+    const durationMinutes = (endTime - startTime) / (1000 * 60);
+    const smoothedData = smoothPaceData(sampledData, durationMinutes);
 
-    const minPace = Math.min(...sampledData.map(d => d.paceSeconds));
-    const maxPace = Math.max(...sampledData.map(d => d.paceSeconds));
-    const paceRange = maxPace - minPace || 30;
-    const paddingPercent = 0.05;
-    const adjustedMinPace = Math.max(60, minPace - paceRange * paddingPercent);
-    const adjustedMaxPace = maxPace + paceRange * paddingPercent;
-    const adjustedRange = adjustedMaxPace - adjustedMinPace;
+    const paceDomain = getPaceDomain(smoothedData.map(d => d.smoothedPaceSeconds));
 
     return {
-      data: sampledData,
-      minPace,
-      maxPace,
-      adjustedMinPace,
-      adjustedMaxPace,
-      adjustedRange,
-      startTime: new Date(dataPoints[0].timestamp),
-      endTime: new Date(dataPoints[dataPoints.length - 1].timestamp)
+      data: smoothedData,
+      ...paceDomain,
+      startTime,
+      endTime
     };
   }, [timeline]);
 
@@ -93,7 +197,8 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
 
   // Ось Y: темп (сек/км). Выше на графике = быстрее (меньше мин/км)
   const paceScale = (paceSeconds) => {
-    return margin.top + ((paceSeconds - chartData.adjustedMinPace) / chartData.adjustedRange) * chartHeight;
+    const visiblePace = clamp(paceSeconds, chartData.adjustedMinPace, chartData.adjustedMaxPace);
+    return margin.top + ((visiblePace - chartData.adjustedMinPace) / chartData.adjustedRange) * chartHeight;
   };
 
   // Обратная функция для получения значения по X координате
@@ -144,7 +249,7 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
     const scaleX = rect.width / viewBoxWidth;
     
     const x = timeScale(point.timestamp) * scaleX;
-    const y = paceScale(point.paceSeconds) * (rect.height / viewBoxHeight);
+    const y = paceScale(point.smoothedPaceSeconds) * (rect.height / viewBoxHeight);
     
     const time = new Date(point.timestamp);
     const hours = String(time.getHours()).padStart(2, '0');
@@ -154,7 +259,10 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
     setTooltip({
       x: rect.left + x,
       y: rect.top + y,
-      value: formatPaceFromSeconds(point.paceSeconds),
+      value: formatPaceFromSeconds(point.smoothedPaceSeconds),
+      rawValue: Math.abs(point.paceSeconds - point.smoothedPaceSeconds) >= 15
+        ? formatPaceFromSeconds(point.paceSeconds)
+        : null,
       time: `${hours}:${minutes}:${seconds}`,
       point: point
     });
@@ -169,11 +277,11 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
   // Формируем путь для графика (линия продлевается до правого края, чтобы не было пустого отступа)
   const chartRight = margin.left + chartWidth;
   const lastPoint = chartData.data[chartData.data.length - 1];
-  const lastY = lastPoint ? paceScale(lastPoint.paceSeconds) : margin.top + chartHeight / 2;
+  const lastY = lastPoint ? paceScale(lastPoint.smoothedPaceSeconds) : margin.top + chartHeight / 2;
   const pathData = chartData.data
     .map((point, index) => {
       const x = timeScale(point.timestamp);
-      const y = paceScale(point.paceSeconds);
+      const y = paceScale(point.smoothedPaceSeconds);
       return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
     })
     .join(' ') + (lastPoint ? ` L ${chartRight} ${lastY}` : '');
@@ -230,7 +338,7 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
     }
   });
 
-  const avgPaceSeconds = chartData.data.reduce((sum, d) => sum + d.paceSeconds, 0) / chartData.data.length;
+  const avgPaceSeconds = chartData.data.reduce((sum, d) => sum + d.smoothedPaceSeconds, 0) / chartData.data.length;
 
   return (
     <div className="workout-chart-container">
@@ -357,7 +465,7 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
               <circle
                 className="workout-chart-marker"
                 cx={timeScale(tooltip.point.timestamp)}
-                cy={paceScale(tooltip.point.paceSeconds)}
+                cy={paceScale(tooltip.point.smoothedPaceSeconds)}
                 r="4"
                 fill="var(--primary-500)"
                 strokeWidth="2"
@@ -378,6 +486,7 @@ const PaceChart = ({ timeline, onHoverIndex }) => {
           >
             <div className="tooltip-time">{tooltip.time}</div>
             <div className="tooltip-value">{tooltip.value} /км</div>
+            {tooltip.rawValue && <div className="tooltip-time">точка {tooltip.rawValue} /км</div>}
           </div>
         )}
       </div>

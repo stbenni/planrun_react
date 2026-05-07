@@ -247,12 +247,12 @@ class StatsService extends BaseService {
         $logStmt = $this->db->prepare("
             SELECT wl.distance_km, wl.result_time, wl.training_date
             FROM workout_log wl
-            INNER JOIN activity_types at ON wl.activity_type_id = at.id
+            LEFT JOIN activity_types at ON wl.activity_type_id = at.id
             WHERE wl.user_id = ? AND wl.is_completed = 1
               AND wl.training_date >= ?
               AND wl.distance_km >= 2 AND wl.distance_km <= 25 AND wl.distance_km IS NOT NULL
               AND wl.result_time IS NOT NULL AND TRIM(wl.result_time) != ''
-              AND LOWER(TRIM(at.name)) = 'running'
+              AND LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
         ");
         $logStmt->bind_param("is", $userId, $cutoff);
         $logStmt->execute();
@@ -284,7 +284,7 @@ class StatsService extends BaseService {
             FROM workouts
             WHERE user_id = ? AND DATE(start_time) >= ?
               AND distance_km >= 2 AND distance_km <= 25 AND distance_km IS NOT NULL
-              AND LOWER(TRIM(COALESCE(activity_type, ''))) = 'running'
+              AND LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
         ");
         $autoStmt->bind_param("is", $userId, $cutoff);
         $autoStmt->execute();

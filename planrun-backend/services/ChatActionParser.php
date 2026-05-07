@@ -21,11 +21,6 @@ class ChatActionParser {
         'swap_training_days', 'add_training_day',
     ];
 
-    private const WRITE_TOOLS = [
-        'move_training_day', 'update_training_day', 'delete_training_day',
-        'swap_training_days',
-    ];
-
     public function __construct($db, ChatToolRegistry $toolRegistry, ChatConfirmationHandler $confirmationHandler) {
         $this->db = $db;
         $this->toolRegistry = $toolRegistry;
@@ -97,169 +92,25 @@ class ChatActionParser {
     }
 
     /**
-     * Единый метод: парсит и выполняет все ACTION-блоки + fallback для подтверждений.
+     * Strips any residual ACTION blocks from LLM output and handles confirmation fallbacks.
+     * ACTION blocks are legacy — native tool calling handles all tool invocations now.
      */
     public function parseAndExecuteActions(string $text, int $userId, array $history = [], ?string $currentUserMessage = null, bool &$planWasUpdated = false, array $alreadyUsedTools = []): string {
-        $text = $this->stripAlreadyHandledBlocks($text, $alreadyUsedTools);
+        // Strip any residual ACTION blocks the LLM might still emit
+        $text = $this->stripAllActionBlocks($text);
 
-        $isConfirmation = $currentUserMessage !== null && $this->confirmationHandler->isConfirmationMessage($currentUserMessage);
-        $text = $this->executeAllActionBlocks($text, $userId, $planWasUpdated, $isConfirmation);
-
-        if (!$planWasUpdated && $isConfirmation) {
-            $fallbackParams = $this->confirmationHandler->tryExtractFromLastProposal($history, $userId);
-            if ($fallbackParams !== null && !empty($fallbackParams['date']) && !empty($fallbackParams['type'])) {
-                $text = $this->executeAddTrainingFallback($text, $userId, $fallbackParams, $planWasUpdated);
-            }
-        }
-
-        return $text;
-    }
-
-    /**
-     * Strips ACTION blocks for tools that were already executed by confirmation handlers.
-     */
-    private function stripAlreadyHandledBlocks(string $text, array $alreadyUsedTools): string {
-        if (empty($alreadyUsedTools)) return $text;
-        $handled = array_intersect($alreadyUsedTools, self::WRITE_TOOLS);
-        foreach ($handled as $tool) {
-            $text = preg_replace('/\s*<!--\s*ACTION\s+' . preg_quote($tool, '/') . '\s+[\s\S]+?\s*-->\s*/', '', $text);
-        }
-        return $text;
-    }
-
-    /**
-     * Unified ACTION block executor for all tool types.
-     */
-    private function executeAllActionBlocks(string $text, int $userId, bool &$planWasUpdated, bool $isConfirmation): string {
-        $toolPattern = implode('|', array_map(fn($t) => preg_quote($t, '/'), self::ACTION_TOOLS));
-        $pattern = '/\s*<!--\s*ACTION\s+(' . $toolPattern . ')\s+([\s\S]+?)\s*-->\s*/';
-
-        if (!preg_match($pattern, $text)) return $text;
-
-        $hasWriteBlocks = false;
-        if (preg_match_all($pattern, $text, $allMatches)) {
-            foreach ($allMatches[1] as $toolName) {
-                if (in_array($toolName, self::WRITE_TOOLS, true)) { $hasWriteBlocks = true; break; }
-            }
-        }
-
-        if ($hasWriteBlocks && !$isConfirmation) {
-            $askingConfirmation = preg_match('/(подтверди|подтверж|правильно\s*\?|подходит\s*\?|согласен|нужно.*\?|хоч|переставлю|перенесу|обновлю|заменю)/ui', $text);
-            if ($askingConfirmation) {
-                Logger::debug('ACTION blocks in proposal — stripping without executing');
-                return trim(preg_replace($pattern, '', $text));
-            }
-        }
-
-        while (preg_match($pattern, $text, $m)) {
-            $toolName = $m[1];
-            $attrs = trim($m[2]);
-            $args = $this->parseActionAttributes($attrs);
-
-            if ($toolName === 'add_training_day') {
-                if (empty($args['date']) || empty($args['type'])) {
-                    $text = preg_replace($pattern, '', $text, 1);
-                    continue;
-                }
-                if (!$this->validateAddTrainingParams($args)) {
-                    $text = preg_replace($pattern, '', $text, 1);
-                    continue;
-                }
-            }
-
-            try {
-                $output = $this->toolRegistry->executeTool($toolName, json_encode($args), $userId);
-                $result = json_decode($output, true);
-                if (!isset($result['error'])) {
-                    $planWasUpdated = true;
-                    Logger::info('ACTION block executed', ['tool' => $toolName, 'args' => $args]);
-                } else {
-                    Logger::warning('ACTION block failed', ['tool' => $toolName, 'error' => $result['error']]);
-                }
-            } catch (Throwable $e) {
-                Logger::warning('ACTION block exception', ['tool' => $toolName, 'error' => $e->getMessage()]);
-            }
-
-            $text = preg_replace($pattern, '', $text, 1);
-        }
-
-        // Also handle JSON-format action blocks
-        $text = $this->executeJsonActionBlocks($text, $userId, $planWasUpdated);
+        // Strip any JSON-format action blocks
+        $text = preg_replace('/\{[^{}]*"action"\s*:\s*"add_training_day"[^{}]*\}/', '', $text) ?? $text;
 
         return trim($text);
     }
 
     /**
-     * Handles JSON-format action: {"action":"add_training_day",...}
+     * Strip all ACTION blocks from text (safety net for any legacy output).
      */
-    private function executeJsonActionBlocks(string $text, int $userId, bool &$planWasUpdated): string {
-        if (!preg_match('/(\{[^{}]*"action"\s*:\s*"add_training_day"[^{}]*\})/', $text, $jm)) return $text;
-
-        $jsonData = json_decode($jm[1], true);
-        if (!$jsonData || empty($jsonData['date']) || empty($jsonData['type'])) return $text;
-
-        $params = ['date' => $jsonData['date'], 'type' => $jsonData['type'], 'description' => $jsonData['description'] ?? ''];
-        if (!$this->validateAddTrainingParams($params)) {
-            return str_replace($jm[0], '', $text);
-        }
-
-        try {
-            $output = $this->toolRegistry->executeTool('add_training_day', json_encode($params), $userId);
-            $result = json_decode($output, true);
-            if (!isset($result['error'])) {
-                $planWasUpdated = true;
-                Logger::info('JSON action block executed', ['args' => $params]);
-            }
-        } catch (Throwable $e) {
-            Logger::warning('JSON action block exception', ['error' => $e->getMessage()]);
-        }
-
-        return trim(str_replace($jm[0], '', $text));
-    }
-
-    /**
-     * Fallback: add training from last AI proposal after user confirmation.
-     */
-    private function executeAddTrainingFallback(string $text, int $userId, array $params, bool &$planWasUpdated): string {
-        if (!$this->validateAddTrainingParams($params)) return $text;
-
-        try {
-            $output = $this->toolRegistry->executeTool('add_training_day', json_encode($params), $userId);
-            $result = json_decode($output, true);
-            if (!isset($result['error'])) {
-                $planWasUpdated = true;
-                Logger::info('Add training fallback executed', ['params' => $params]);
-            }
-        } catch (Throwable $e) {
-            Logger::warning('Add training fallback failed', ['error' => $e->getMessage()]);
-        }
-
-        return $text;
-    }
-
-    private function validateAddTrainingParams(array $params): bool {
-        $validTypes = ['rest', 'easy', 'long', 'tempo', 'interval', 'fartlek', 'marathon', 'control', 'race', 'other', 'free', 'sbu'];
-        if (!in_array($params['type'] ?? '', $validTypes, true)) return false;
-        $dateObj = DateTime::createFromFormat('Y-m-d', $params['date'] ?? '');
-        if (!$dateObj) return false;
-        $maxDate = (new DateTime())->modify('+1 year')->format('Y-m-d');
-        if (($params['date'] ?? '') > $maxDate) return false;
-        return true;
-    }
-
-    private function parseActionAttributes(string $attrs): array {
-        $args = [];
-        foreach (['source_date', 'target_date', 'date1', 'date2', 'date', 'type', 'reason'] as $key) {
-            if (preg_match('/' . $key . '=([^\s"\']+|"[^"]*"|\'[^\']*\')/', $attrs, $km)) {
-                $args[$key] = trim($km[1], '"\'');
-            }
-        }
-        if (preg_match('/description=("((?:[^"\\\\]|\\\\.)*)"|\'((?:[^\'\\\\]|\\\\.)*)\')/', $attrs, $dm)) {
-            $args['description'] = stripslashes(trim($dm[2] ?? $dm[3] ?? '', '"\''));
-        } elseif (preg_match('/description=([\s\S]+)/', $attrs, $dm)) {
-            $args['description'] = trim($dm[1], '"\' ');
-        }
-        return $args;
+    private function stripAllActionBlocks(string $text): string {
+        $toolPattern = implode('|', array_map(fn($t) => preg_quote($t, '/'), self::ACTION_TOOLS));
+        return preg_replace('/\s*<!--\s*ACTION\s+(?:' . $toolPattern . ')\s+[\s\S]+?\s*-->\s*/', '', $text) ?? $text;
     }
 
     // ── English term replacement ──

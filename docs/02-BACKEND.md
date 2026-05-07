@@ -169,14 +169,16 @@ Client -> api/api_wrapper.php?action=...
 
 `planrun-backend/planrun_ai/` отвечает за генерацию и постобработку плана.
 
-Важно: в проекте существуют **два реальных пути генерации**, и документация должна отражать оба.
+Важно: production-путь — **`LLM planner` (DeepSeek V4 single-pass)**. После Phase A (PR2) skeleton-first перенесён в `_legacy/`, staged-стратегия удалена. Legacy-пути сохранены только для backwards-compat / диагностики.
 
 ### Режимы генерации
 
-1. `Legacy LLM-first`
-   `plan_generator.php` строит большой prompt, вызывает PlanRun AI API, затем ответ проходит через `parseAndRepairPlanJSON()`, `plan_normalizer.php`, `plan_validator.php` и сохранение в БД.
-2. `Skeleton-first`
-   `PlanGenerationProcessorService` при `USE_SKELETON_GENERATOR=1` запускает `PlanSkeletonGenerator`, затем LLM используется уже не для чисел, а для `notes` и машинно-читаемого review. Числовая структура в этом пути генерируется алгоритмически.
+1. `LLM planner` (production default — DeepSeek)
+   `PLAN_GENERATION_MODE=llm_planner` — единственный production-путь. `PlanGenerationProcessorService::processViaLlmPlanner()` строит `trainingState` через `TrainingStateBuilder`, передаёт его в `DeepSeekPlanPlanner`, который через `LlmGateway` делает один запрос к DeepSeek API (`single_pass`, одна модель из `PLAN_LLM_MODEL`) и получает готовый план. Дальше план проходит `applySinglePassHardSafetyRepairs()` (если `PLAN_LLM_HARD_SAFETY_REPAIRS=1`), race-week capping (если `PLAN_LLM_RACE_WEEK_CAP_REPAIRS=1`), `PlanQualityGate` (auto / strict / permissive) и сохраняется. Skeleton-fallback **не используется** — при ошибке планировщика пользователь увидит сообщение «обратитесь к админу или повторите позже».
+2. `Legacy LLM-first` (старый путь, не рекомендуется)
+   `plan_generator.php` строит большой prompt, вызывает PlanRun AI API, затем ответ проходит через `parseAndRepairPlanJSON()`, `plan_normalizer.php`, `plan_validator.php` и сохранение в БД. Используется только когда `PLAN_GENERATION_MODE` не равен `llm_planner` и `USE_SKELETON_GENERATOR=0`.
+3. `Skeleton-first` (DEPRECATED, Phase A.1 / PR2)
+   Перенесён в `planrun_ai/_legacy/skeleton/`. При `USE_SKELETON_GENERATOR=1` `PlanGenerationProcessorService::processViaSkeleton()` бросает явный `RuntimeException` («skeleton-first отключён в production»). Diagnostic-скрипты (`live_planning_e2e.php`, `recalc_feedback_scenarios.php`) и `WeeklyAdaptationEngine` через `services/AdaptationService.php` продолжают использовать `_legacy/skeleton/` напрямую.
 
 ### Что оркестрирует backend вокруг AI
 
@@ -185,7 +187,7 @@ Client -> api/api_wrapper.php?action=...
 | `TrainingPlanService` | Ставит job в очередь, отслеживает статус и отдаёт фронтенду состояние генерации |
 | `PlanGenerationQueueService` | Хранит задания `generate` / `recalculate` / `next_plan`, резервирует job для worker'а |
 | `scripts/plan_generation_worker.php` | Поднимает queue-worker и вызывает processor |
-| `PlanGenerationProcessorService` | Центральный orchestrator: выбирает legacy или skeleton path, сохраняет план, активирует последнюю версию, добавляет AI-review в чат |
+| `PlanGenerationProcessorService` | Центральный orchestrator: маршрутизирует в `processViaLlmPlanner()` (production) или legacy-путь, сохраняет план, активирует последнюю версию, добавляет AI-review в чат |
 | `TrainingStateBuilder` | Строит `training state`: VDOT, pace rules, load policy, readiness, weeks_to_goal, special flags |
 | `PlanSkeletonBuilder` | Определяет типы дней по неделям и дням недели, опираясь на preferred days, phases и race placement |
 | `ChatContextBuilder` | Используется при recalculate/next plan для фактической истории тренировок, compliance, ACWR и recent workouts |
@@ -204,23 +206,43 @@ PlanGenerationProcessorService
   -> ChatService::addAIMessageToUser()
 ```
 
-### Skeleton-first path
+### Skeleton-first path (DEPRECATED, перенесено в `_legacy/`)
+
+После Phase A.1 (PR2) skeleton-первый путь не используется в production. `processViaSkeleton()` остаётся как explicit `RuntimeException` (для пользователей, у кого ещё остался env-флаг). Историческая структура (числовой генератор `PlanSkeletonGenerator` → `LLMEnricher` → `SkeletonValidator` → `LLMReviewer` → `PlanAutoFixer`) сохранена в `planrun_ai/_legacy/skeleton/` для diagnostic-скриптов и `WeeklyAdaptationEngine`. Не использовать как production fallback.
+
+### LLM planner path (DeepSeek V4, production default — после Phase A)
 
 ```text
-PlanGenerationProcessorService::processViaSkeleton()
-  -> PlanSkeletonGenerator::generate()
-      -> TrainingStateBuilder
-      -> PlanSkeletonBuilder
-      -> computeMacrocycle() / computeHealthMacrocycle()
-      -> VolumeDistributor + workout builders
-  -> LLMEnricher::enrich()                # только notes / текстовые подсказки
-  -> SkeletonValidator::validateAgainstOriginal()
-  -> LLMReviewer::review()                # machine-readable issues
-  -> PlanAutoFixer::fix()                 # автоисправление issues
-  -> SkeletonValidator::validateConsistency()
+PlanGenerationProcessorService::processViaLlmPlanner()
+  -> TrainingStateBuilder::buildForUser($userId, $mode, $payload)
+      -> + planning_scenario (PlanScenarioResolver)
+      -> + goal_realism      (assessGoalRealism)
+  -> DeepSeekPlanPlanner::generate($userId, $jobType, $payload)
+      -> buildPlannerContext()   # FACTS_JSON со всем training_state, planning_scenario, goal_realism
+      -> buildFullPlanPrompt()   # single_pass всегда (Phase A.2)
+      -> LlmGateway::request()   # одна модель PLAN_LLM_MODEL (Phase A.3); retries, concurrency
+      -> JSON-extraction + sanitize
+  -> enforceRaceDayConsistency()         # позиция race day и race-week cap
+  -> applySinglePassHardSafetyRepairs()  # PLAN_LLM_HARD_SAFETY_REPAIRS=1
+  -> normalizeTrainingPlan()
+  -> PlanQualityGate::evaluate()         # mode = auto / strict / permissive
   -> saveTrainingPlan() / saveRecalculatedPlan()
   -> generatePlanReview()
 ```
+
+Phase A (PR2) упрощения, отражённые в этом пайплайне:
+- ❌ Убрана `staged` стратегия (`generateMacroPlan` + `generateDetailBatch` пакеты по 3 недели). Теперь **только `single_pass`**.
+- ❌ Убраны три модели (`plannerModel`/`detailModel`/`repairModel`). Одна `PLAN_LLM_MODEL` (default `deepseek-chat`).
+- ❌ Убран LLM repair-loop (`repairPlan` + `buildRepairPrompt`). При quality gate failure — explicit error; targeted retry — задача Phase C.2.
+- ❌ Убран `buildExpectedSkeletonContract` (был для skeleton-flow).
+
+**Quality gate auto-mode** (`PLAN_LLM_QUALITY_GATE_MODE=auto` — default). По философии «trust the model + injury-only guardrails» (см. `docs/PLANS-AI-V2.md` раздел 0a) `resolveQualityGateMode()` переключается в `strict` ТОЛЬКО при:
+
+- `special_population_flags` содержат `pregnant_or_postpartum`, `return_after_injury`, `recent_pain_signal` или `recent_illness_signal`;
+- `planning_scenario.flags` содержат `pain_protective`, `illness_protective` или `return_after_injury`;
+- `goal_realism.severity === 'major'` (явно нереалистичная цель).
+
+В остальных случаях — `permissive`. Это включает marathon / half у здорового бегуна, `return_after_break`, `overload_recovery`, `b_race_before_a_race`, `short_runway*` и т.д. Для них валидаторы продолжают эмитить issues, но `permissive` режим даунгрейдит большинство ошибок до warning, и план сохраняется. Безопасность для длинных дистанций обеспечивается hard safety repairs (long run cap, race-week cap, volume spikes) и контекстом в FACTS_JSON, а не блокирующим quality gate.
 
 ### Верхнеуровневые AI-модули
 
@@ -250,26 +272,28 @@ PlanGenerationProcessorService::processViaSkeleton()
 | Legacy generation entrypoints | `buildTrainingPlanPrompt`, `computePlanChunks`, `_splitByMacrocyclePhases`, `buildPartialPlanPrompt` |
 | Recalculate / next plan entrypoints | `buildRecalculationPrompt`, `buildRecalcTrainingPrinciplesBlock`, `buildRecalcContextBlock`, `buildNextPlanPrompt`, `buildPreviousPlanHistoryBlock` |
 
-### Skeleton subsystem
+### Skeleton subsystem (legacy, `planrun_ai/_legacy/skeleton/`)
 
-| Файл | Публичный API | Роль |
+После Phase A.1 (PR2) перенесено в `_legacy/`. Используется только из diagnostic-скриптов и `services/AdaptationService.php` (через `WeeklyAdaptationEngine`). Не подключать в production-paths.
+
+| Файл (`_legacy/skeleton/...`) | Публичный API | Роль |
 |------|---------------|------|
-| `skeleton/PlanSkeletonGenerator.php` | `generate`, `getLastUser`, `getLastState`, `getLastGoalRealism` | Главный rule-based generator: собирает user/state/macrocycle и строит полный числовой план без LLM |
-| `skeleton/VolumeDistributor.php` | `distribute` | Размазывает недельный объём по дням, назначает pace/duration и структурные поля key workouts |
-| `skeleton/IntervalProgressionBuilder.php` | `build` | Прогрессия интервальных сессий по фазам и дистанции |
-| `skeleton/TempoProgressionBuilder.php` | `build` | Прогрессия threshold tempo-блоков |
-| `skeleton/RacePaceProgressionBuilder.php` | `build` | Темповые блоки в race pace, включая continuous и repeats варианты |
-| `skeleton/FartlekBuilder.php` | `build` | Фартлек-сессии с progression по сегментам |
-| `skeleton/ControlWorkoutBuilder.php` | `build` | Контрольные тренировки и тестовые недели |
-| `skeleton/OfpProgressionBuilder.php` | `build` | Недельная схема ОФП по предпочтениям и recovery-state |
-| `skeleton/StartRunningProgramBuilder.php` | `build`, `isFixedProgram` | Фиксированные beginner-программы (`start_running`, `couch_to_5k`) |
-| `skeleton/WarmupCooldownHelper.php` | `warmup`, `cooldown` | Базовые warmup/cooldown значения по дистанции |
-| `skeleton/enrichment_prompt_builder.php` | `buildEnrichmentPrompt`, `buildReviewPrompt`, `buildCompactProfile` | Компактные prompts для enrichment/review поверх скелета |
-| `skeleton/LLMEnricher.php` | `enrich` | LLM может добавить только `notes`; числовые изменения дальше режутся validator'ом |
-| `skeleton/LLMReviewer.php` | `review` | Возвращает JSON со статусом и issues для автофикса |
-| `skeleton/SkeletonValidator.php` | `validateAgainstOriginal`, `validateConsistency`, `addAlgorithmicNotes` | Проверяет, что LLM не изменила числа, и что план логически непротиворечив |
-| `skeleton/PlanAutoFixer.php` | `fix` | Применяет machine-readable fixes: pace logic, volume jumps, consecutive key workouts, recovery/taper issues |
-| `skeleton/WeeklyAdaptationEngine.php` | `analyze` | Сравнивает план и факт по неделе, определяет adaptation triggers и запускает recalculate pipeline |
+| `PlanSkeletonGenerator.php` | `generate`, `getLastUser`, `getLastState`, `getLastGoalRealism` | Главный rule-based generator: собирает user/state/macrocycle и строит полный числовой план без LLM (legacy) |
+| `VolumeDistributor.php` | `distribute` | Размазывает недельный объём по дням, назначает pace/duration и структурные поля key workouts |
+| `IntervalProgressionBuilder.php` | `build` | Прогрессия интервальных сессий по фазам и дистанции |
+| `TempoProgressionBuilder.php` | `build` | Прогрессия threshold tempo-блоков |
+| `RacePaceProgressionBuilder.php` | `build` | Темповые блоки в race pace, включая continuous и repeats варианты |
+| `FartlekBuilder.php` | `build` | Фартлек-сессии с progression по сегментам |
+| `ControlWorkoutBuilder.php` | `build` | Контрольные тренировки и тестовые недели |
+| `OfpProgressionBuilder.php` | `build` | Недельная схема ОФП по предпочтениям и recovery-state |
+| `StartRunningProgramBuilder.php` | `build`, `isFixedProgram` | Фиксированные beginner-программы (`start_running`, `couch_to_5k`) |
+| `WarmupCooldownHelper.php` | `warmup`, `cooldown` | Базовые warmup/cooldown значения по дистанции |
+| `enrichment_prompt_builder.php` | `buildEnrichmentPrompt`, `buildReviewPrompt`, `buildCompactProfile` | Компактные prompts для enrichment/review поверх скелета (legacy) |
+| `LLMEnricher.php` | `enrich` | LLM может добавить только `notes`; числовые изменения дальше режутся validator'ом (legacy) |
+| `LLMReviewer.php` | `review` | Возвращает JSON со статусом и issues для автофикса (legacy) |
+| `SkeletonValidator.php` | `validateAgainstOriginal`, `validateConsistency`, `addAlgorithmicNotes` | Проверяет, что LLM не изменила числа, и что план логически непротиворечив (legacy) |
+| `PlanAutoFixer.php` | `fix` | Применяет machine-readable fixes (legacy) |
+| `WeeklyAdaptationEngine.php` | `analyze` | Сравнивает план и факт по неделе, определяет adaptation triggers и запускает recalculate pipeline (используется `services/AdaptationService.php`) |
 
 ### Валидаторы нормализованного плана
 
@@ -297,10 +321,31 @@ PlanGenerationProcessorService::processViaSkeleton()
 - `description` считается derived field и пересобирается из структурных полей.
 - Для `interval` и `fartlek` итоговый `distance_km` тоже считается кодом, а не LLM.
 - Enforcement расписания может принудительно превратить день в `rest`, если он не попадает в `preferred_days` / `preferred_ofp_days`.
-- В skeleton-path LLM не должна менять числа: `SkeletonValidator::validateAgainstOriginal()` сравнивает типы, дистанции и темпы с исходным скелетом.
+- В legacy `_legacy/skeleton/` LLM не должна менять числа: `SkeletonValidator::validateAgainstOriginal()` сравнивает типы, дистанции и темпы с исходным скелетом. В production не используется.
+- В llm_planner path при флагах travma/illness/pregnancy или `goal_realism.severity='major'` quality gate работает в `strict` (см. `resolveQualityGateMode`). Для здоровых бегунов (включая marathon/half) — `permissive` (философия trust the model + injury-only guardrails). Skeleton fallback при сбое DeepSeek **отключён** намеренно: пользователю показывается ошибка с просьбой повторить позже / обратиться к админу.
 - После успешного сохранения план дополняется chat-review через `generatePlanReview()` и `ChatService::addAIMessageToUser()`.
 
-Подробный ручной справочник по этим файлам: [09-AI-MODULE-REFERENCE.md](09-AI-MODULE-REFERENCE.md)
+### Ключевые переменные окружения AI-пайплайна
+
+| ENV | Default | Назначение |
+|-----|---------|------------|
+| `PLAN_GENERATION_MODE` | `llm_planner` | Production-путь. Любое другое значение → legacy LLM-first (deprecated). |
+| `PLAN_LLM_MODEL` | `deepseek-chat` | Одна модель для планировщика (Phase A.3, PR2). Legacy `PLAN_LLM_PLANNER_MODEL`/`*_REVIEWER_MODEL` читаются как fallback. |
+| `PLAN_LLM_MAX_TOKENS` | `20000` | Лимит токенов для plan-generation запроса |
+| `PLAN_LLM_TIMEOUT_SECONDS` | `240` | Таймаут одного запроса к DeepSeek |
+| `USE_SKELETON_GENERATOR` | DEPRECATED | После Phase A.1 (PR2) — приводит к explicit `RuntimeException`. Skeleton-код перенесён в `_legacy/skeleton/`. |
+| `PLAN_LLM_PLANNER_STRATEGY` | DEPRECATED | После Phase A.2 (PR2) — игнорируется, single_pass всегда. |
+| `PLAN_LLM_PLANNER_MODEL` / `PLAN_LLM_DETAIL_MODEL` / `PLAN_LLM_REPAIR_MODEL` | DEPRECATED | После Phase A.3 (PR2) — fallback only. Использовать `PLAN_LLM_MODEL`. |
+| `PLAN_LLM_QUALITY_GATE_MODE` | `auto` | `auto` / `strict` / `permissive`. В `auto` решает `resolveQualityGateMode()` |
+| `PLAN_LLM_HARD_SAFETY_REPAIRS` | `1` | Программные исправления критичных нарушений (long run cap, volume spikes) до quality gate |
+| `PLAN_LLM_RACE_WEEK_CAP_REPAIRS` | `1` | Авто-cap объёма недели гонки |
+| `PLANRUN_AI_STATE_SCENARIO` | `1` | Считать `planning_scenario` и `goal_realism` в `TrainingStateBuilder` |
+| `DEEPSEEK_API_KEY` | — | Ключ DeepSeek (обязателен для llm_planner) |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Endpoint DeepSeek |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | Модель планировщика |
+| `LMSTUDIO_BASE_URL` | `http://localhost:1234` | LM Studio для AI-чата (не для планов) |
+
+Подробный ручной справочник по этим файлам: [09-AI-MODULE-REFERENCE.md](09-AI-MODULE-REFERENCE.md). Детальная дорожная карта по AI-плану: [PLANS-AI-V2.md](PLANS-AI-V2.md).
 
 ## Скрипты и фоновые задачи
 

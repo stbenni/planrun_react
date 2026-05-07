@@ -15,7 +15,7 @@ require_once __DIR__ . '/AiObservabilityService.php';
 require_once __DIR__ . '/PlanQualityGate.php';
 
 class PlanGenerationProcessorService extends BaseService {
-    public function process(int $userId, string $jobType = 'generate', array $payload = []): array {
+    public function process(int $userId, string $jobType = 'generate', array $payload = [], ?int $jobId = null): array {
         if ($userId < 1) {
             throw new InvalidArgumentException('Не указан user_id', 400);
         }
@@ -25,9 +25,17 @@ class PlanGenerationProcessorService extends BaseService {
         $startedAt = microtime(true);
         $obsStatus = 'ok';
         $obsPayload = ['job_type' => $jobType];
+        if ($jobId !== null && $jobId > 0) {
+            $obsPayload['job_id'] = $jobId;
+        }
 
         try {
-            $useSkeletonGenerator = (bool) (env('USE_SKELETON_GENERATOR', '0'));
+            // Phase A.1: единственный production-путь — llm_planner (DeepSeek V4).
+            // Если PLAN_GENERATION_MODE не задан (legacy default), всё ещё пускаем legacy
+            // ветки до Phase A.4 (где они также будут удалены/упрощены).
+            $generationMode = strtolower(trim((string) env('PLAN_GENERATION_MODE', '')));
+            $useLlmPlanner = $generationMode === 'llm_planner';
+            $useSkeletonGenerator = !$useLlmPlanner && (bool) (env('USE_SKELETON_GENERATOR', '0'));
 
             $userReason = isset($payload['reason']) ? trim((string) $payload['reason']) : null;
             $userGoals = isset($payload['goals']) ? trim((string) $payload['goals']) : null;
@@ -38,17 +46,22 @@ class PlanGenerationProcessorService extends BaseService {
             $this->logInfo("Начало {$mode} плана", [
                 'user_id' => $userId,
                 'job_type' => $jobType,
+                'generation_mode' => $useLlmPlanner ? 'llm_planner' : ($useSkeletonGenerator ? 'skeleton' : 'legacy'),
                 'skeleton_generator' => $useSkeletonGenerator,
             ]);
 
-            if ($useSkeletonGenerator) {
-                $result = $this->processViaSkeleton($userId, $jobType, $payload);
+            if ($useLlmPlanner) {
+                $result = $this->processViaLlmPlanner($userId, $jobType, $payload, $traceId);
                 $planData = $result['plan'];
                 $cutoffDate = $result['cutoff_date'] ?? null;
                 $keptWeeks = $result['kept_weeks'] ?? null;
                 $mutableFromDate = $result['mutable_from_date'] ?? null;
                 $generatedStartDate = $result['start_date'] ?? null;
                 $trainingState = is_array($result['training_state'] ?? null) ? $result['training_state'] : null;
+            } elseif ($useSkeletonGenerator) {
+                // Phase A.1: skeleton-first отключён. Метод processViaSkeleton бросит explicit-exception.
+                $this->processViaSkeleton($userId, $jobType, $payload);
+                throw new RuntimeException('unreachable', 500);
             } elseif ($isNextPlan) {
                 $planData = generateNextPlanViaPlanRunAI($userId, $userGoals);
                 $generatedStartDate = null;
@@ -163,139 +176,97 @@ class PlanGenerationProcessorService extends BaseService {
     }
 
     /**
-     * Новый путь генерации: PlanSkeletonGenerator + LLM-обогащение + LLM-ревью.
+     * Production путь генерации (Phase A): DeepSeek V4 single-pass через LlmGateway.
+     *
+     * См. `docs/PLANS-AI-V2.md` раздел 0a (философия trust the model)
+     * и `.cursor/rules/plans-ai-v2.mdc`.
      */
-    private function processViaSkeleton(int $userId, string $jobType, array $payload): array {
-        require_once __DIR__ . '/../planrun_ai/skeleton/PlanSkeletonGenerator.php';
-        require_once __DIR__ . '/../planrun_ai/skeleton/LLMEnricher.php';
-        require_once __DIR__ . '/../planrun_ai/skeleton/SkeletonValidator.php';
-        require_once __DIR__ . '/../planrun_ai/skeleton/LLMReviewer.php';
-        require_once __DIR__ . '/../planrun_ai/skeleton/PlanAutoFixer.php';
-        require_once __DIR__ . '/../planrun_ai/skeleton/StartRunningProgramBuilder.php';
+    private function processViaLlmPlanner(int $userId, string $jobType, array $payload, ?string $traceId = null): array {
+        require_once __DIR__ . '/../planrun_ai/llm_planner/DeepSeekPlanPlanner.php';
 
-        // Шаг 0: Для recalculate — собрать реальные данные тренировок из БД
         if ($jobType === 'recalculate') {
             $payload = $this->enrichRecalculatePayload($userId, $payload);
         } elseif ($jobType === 'next_plan') {
             $payload = $this->enrichNextPlanPayload($userId, $payload);
         }
 
-        // Шаг 1: Генерация числового скелета (без LLM)
-        $generator = new PlanSkeletonGenerator($this->db);
-        $skeleton = $generator->generate($userId, $jobType, $payload);
+        $planner = new DeepSeekPlanPlanner($this->db);
+        $planner->setObservabilityContext($traceId, $userId, 'plan_generation');
+        $plannerResult = $planner->generate($userId, $jobType, $payload);
+        $plan = (array) ($plannerResult['plan'] ?? []);
+        $user = (array) ($plannerResult['user'] ?? []);
+        $state = (array) ($plannerResult['training_state'] ?? []);
+        $startDate = (string) ($plannerResult['start_date'] ?? ($payload['cutoff_date'] ?? date('Y-m-d')));
+        // Phase A.2 (PR2): planner_strategy всегда 'single_pass'; staged ветка удалена.
+        $plannerStrategy = 'single_pass';
+        // P0.3: auto-режим выбирает strict/permissive по cohort риска (см. resolveQualityGateMode).
+        $qualityGateModeConfig = strtolower(trim((string) env('PLAN_LLM_QUALITY_GATE_MODE', 'auto')));
+        if (!in_array($qualityGateModeConfig, ['auto', 'strict', 'permissive'], true)) {
+            $qualityGateModeConfig = 'auto';
+        }
+        [$qualityGateMode, $qualityGateModeReason] = $this->resolveQualityGateMode($qualityGateModeConfig, $user, $state);
+        // P0.1: дефолт включён, чтобы DeepSeek-план не сохранялся с опасной длительной/перекосом по объёму.
+        $hardSafetyRepairsEnabled = $this->envBool('PLAN_LLM_HARD_SAFETY_REPAIRS', true);
+        $raceWeekCapRepairsEnabled = $this->envBool('PLAN_LLM_RACE_WEEK_CAP_REPAIRS', true);
 
-        if (empty($skeleton['weeks'])) {
-            throw new RuntimeException('Скелет плана пуст', 500);
+        if (empty($plan['weeks'])) {
+            throw new RuntimeException('DeepSeek planner вернул пустой план', 500);
         }
 
-        $user = $generator->getLastUser();
-        $state = $generator->getLastState();
-        $paceRules = $state['pace_rules'] ?? [];
-        $loadPolicy = $state['load_policy'] ?? [];
-
-        $this->logInfo('Скелет сгенерирован', [
-            'user_id' => $userId,
-            'weeks' => count($skeleton['weeks']),
-            'vdot' => $state['vdot'] ?? null,
-        ]);
-
-        // Шаг 2: LLM-обогащение (notes, structure)
-        $enricher = new LLMEnricher();
-        $enrichContext = [
-            'reason' => $payload['reason'] ?? null,
-            'goals' => $payload['goals'] ?? null,
-            'job_type' => $jobType,
-        ];
-        $enriched = $enricher->enrich($skeleton, $user, $state, $enrichContext);
-
-        // Шаг 3: Алгоритмическая валидация — LLM не сломала числа
-        $validationErrors = SkeletonValidator::validateAgainstOriginal($skeleton, $enriched);
-        if (!empty($validationErrors)) {
-            $this->logInfo('LLM-обогащение сломало числа, используем fallback', [
-                'errors_count' => count($validationErrors),
-            ]);
-            $enriched = SkeletonValidator::addAlgorithmicNotes($skeleton);
+        $plan = $this->enforceRaceDayConsistency($plan, $state, $user, $startDate, $raceWeekCapRepairsEnabled);
+        $hardSafetyRepairs = [];
+        if ($hardSafetyRepairsEnabled) {
+            [$plan, $hardSafetyRepairs] = $this->applySinglePassHardSafetyRepairs($plan, $state, $startDate);
+            $plan['_generation_metadata']['macro_plan'] = $this->buildMacroPlanMetadataFromWeeks((array) ($plan['weeks'] ?? []));
         }
-
-        // Шаг 4: LLM-ревью (проверка логики)
-        $reviewer = new LLMReviewer();
-        $review = $reviewer->review($enriched, $user, $state);
-
-        $maxIterations = 2;
-        $iteration = 0;
-
-        while ($review['status'] === 'has_issues' && !empty($review['issues']) && $iteration < $maxIterations) {
-            $iteration++;
-            $this->logInfo("LLM-ревью нашло ошибки, автофикс (итерация {$iteration})", [
-                'issues_count' => count($review['issues']),
-            ]);
-
-            // Шаг 5: Автофикс
-            $fixResult = PlanAutoFixer::fix($enriched, $review['issues'], $paceRules, $loadPolicy);
-            $enriched = $fixResult['plan'];
-
-            if ($fixResult['fixes_applied'] === 0) {
-                break;
-            }
-
-            // Повторное ревью
-            if ($iteration < $maxIterations) {
-                $review = $reviewer->review($enriched, $user, $state);
-            }
-        }
-
-        // Шаг 6: Финальная алгоритмическая валидация + автоисправление
-        $consistencyErrors = SkeletonValidator::validateConsistency($enriched, $paceRules, $state);
-        if (!empty($consistencyErrors)) {
-            $this->logInfo('Финальная валидация нашла ошибки, исправляем', [
-                'errors' => array_map(fn($e) => $e['description'] ?? $e['type'], $consistencyErrors),
-            ]);
-            $fixResult = PlanAutoFixer::fix($enriched, $consistencyErrors, $paceRules, $loadPolicy);
-            $enriched = $fixResult['plan'];
-
-            // Повторная проверка после исправлений
-            $remainingErrors = SkeletonValidator::validateConsistency($enriched, $paceRules, $state);
-            if (!empty($remainingErrors)) {
-                $this->logInfo('Остались неисправленные ошибки после финальной валидации', [
-                    'errors' => array_map(fn($e) => $e['description'] ?? $e['type'], $remainingErrors),
-                ]);
-            }
-            $consistencyErrors = $remainingErrors;
-        }
-
-        $enriched = $this->enforceRaceDayConsistency($enriched, $state, $user);
-
-        $qualityGateStartDate = $jobType === 'recalculate'
-            ? (string) ($payload['cutoff_date'] ?? date('Y-m-d'))
-            : (string) (($skeleton['_metadata']['schedule_anchor_date'] ?? $user['training_start_date'] ?? date('Y-m-d')));
+        $qualityMacroPlan = $plan['_generation_metadata']['macro_plan'] ?? ($plannerResult['macro_plan'] ?? null);
         $qualityGate = new PlanQualityGate();
-        $qualityGateResult = $qualityGate->evaluate($enriched, $qualityGateStartDate, $state, [
+        $qualityContext = [
             'goal_type' => $user['goal_type'] ?? null,
             'preferred_days' => $this->decodeWeekdayPreferenceField($user['preferred_days'] ?? null),
             'user_preferences' => $this->loadUserPreferences((int) ($user['id'] ?? $userId)),
-            'expected_skeleton' => $this->buildExpectedSkeletonContract($skeleton),
             'planning_scenario' => $state['planning_scenario'] ?? null,
-        ]);
+            'macro_plan' => $qualityMacroPlan,
+            'planner_strategy' => $plannerStrategy,
+            'planner_hard_rules' => is_array($plannerResult['planner_context']['hard_rules'] ?? null)
+                ? $plannerResult['planner_context']['hard_rules']
+                : null,
+            // P0.1: при включённых hard safety repairs пропускаем deterministic repairs внутри gate
+            // тоже, т.к. они дублируют наши правки (применяются заново); при выключенных оставляем
+            // прежнее поведение (тоже без repairs, чтобы не делать незаметных правок).
+            'disable_repairs' => !$hardSafetyRepairsEnabled,
+            'blocking_policy' => $qualityGateMode,
+        ];
+        $qualityGateResult = $qualityGate->evaluate($plan, $startDate, $state, $qualityContext);
+
+        // Phase A.4 (PR2): repair-loop через LLM удалён.
+        // Hard safety repairs (детерминированные) уже применены выше; targeted retry — Phase C.2.
+        $repairAttempts = 0;
+
         if ($qualityGateResult['should_block_save'] ?? false) {
             throw new RuntimeException(
-                'План не прошёл final quality gate: ' . $this->buildQualityGateFailureMessage((array) ($qualityGateResult['issues'] ?? [])),
+                'DeepSeek planner plan не прошёл final quality gate: ' . $this->buildQualityGateFailureMessage((array) ($qualityGateResult['issues'] ?? [])),
                 500
             );
         }
 
         $finalPlan = is_array($qualityGateResult['normalized_plan'] ?? null)
             ? (array) $qualityGateResult['normalized_plan']
-            : $enriched;
-
-        $finalPlan['_generation_metadata'] = array_merge(
-            $skeleton['_metadata'] ?? [],
+            : $plan;
+        $finalMetadata = array_merge(
+            (array) ($plan['_generation_metadata'] ?? []),
             [
-                'llm_review_iterations' => $iteration,
-                'llm_review_final_status' => $review['status'] ?? 'ok',
-                'consistency_errors' => count($consistencyErrors),
-                'generator' => 'PlanSkeletonGenerator',
+                'generator' => 'DeepSeekPlanPlanner',
+                'generation_mode' => 'llm_planner',
+                'llm_repair_attempts' => $repairAttempts,
+                'hard_safety_repairs' => $hardSafetyRepairs,
+                'hard_safety_repairs_enabled' => $hardSafetyRepairsEnabled,
+                'race_week_cap_repairs_enabled' => $raceWeekCapRepairsEnabled,
                 'quality_gate' => [
                     'status' => $qualityGateResult['status'] ?? 'ok',
+                    'mode' => $qualityGateResult['blocking_policy'] ?? $qualityGateMode,
+                    'mode_config' => $qualityGateModeConfig,
+                    'mode_reason' => $qualityGateModeReason,
                     'score' => (int) ($qualityGateResult['score'] ?? 0),
                     'repairs_applied' => !empty($qualityGateResult['repairs_applied']),
                     'issue_codes' => array_values(array_map(
@@ -306,23 +277,341 @@ class PlanGenerationProcessorService extends BaseService {
                 ],
             ]
         );
+        $finalMetadata['macro_plan'] = $this->buildMacroPlanMetadataFromWeeks((array) ($finalPlan['weeks'] ?? []));
+        $finalPlan['_generation_metadata'] = $finalMetadata;
 
         $result = [
             'plan' => $finalPlan,
             'training_state' => $state,
         ];
 
-        // Для recalculate — передаём cutoff данные
         if ($jobType === 'recalculate') {
             $result['cutoff_date'] = $payload['cutoff_date'] ?? (new DateTime())->modify('monday this week')->format('Y-m-d');
             $result['kept_weeks'] = $payload['kept_weeks'] ?? 0;
             $result['mutable_from_date'] = $payload['mutable_from_date'] ?? null;
         } elseif ($jobType === 'next_plan') {
-            $result['start_date'] = $payload['cutoff_date']
-                ?? ($skeleton['_metadata']['schedule_anchor_date'] ?? (new DateTime())->modify('monday this week')->format('Y-m-d'));
+            $result['start_date'] = $payload['cutoff_date'] ?? $startDate;
+        } else {
+            $result['start_date'] = $startDate;
         }
 
         return $result;
+    }
+
+    /**
+     * Phase A.6 (PR3): «medical-only» пороги.
+     *
+     * - `$lateLongMaxKm = 32.0` — медицина (длительная >32 км в последние 21 день до марафона —
+     *   риск перетренированности и травмы).
+     * - `$longShareCap` поднят до 0.60 (было 0.45): в реальной практике pro/опытные бегуны иногда
+     *   делают long ≈ 50% недельного объёма в peak-неделях. 60% — реальный медицинский потолок,
+     *   за которым растут травмы. До 60% оставляем DeepSeek решать самому.
+     * - Volume spike repair не реализован — сам DeepSeek знает прогрессию (см. Phase A.5
+     *   слим hard_rules).
+     */
+    private function applySinglePassHardSafetyRepairs(array $plan, array $state, string $startDate): array {
+        $raceDistance = (string) ($state['race_distance'] ?? '');
+        $raceDate = (string) ($state['race_date'] ?? '');
+        if ($raceDate === '' || !in_array($raceDistance, ['marathon', '42.2k'], true)) {
+            return [$plan, []];
+        }
+
+        try {
+            $start = new DateTimeImmutable($startDate);
+            $race = new DateTimeImmutable($raceDate);
+        } catch (Throwable $e) {
+            return [$plan, []];
+        }
+
+        $lateLongMaxKm = 32.0;
+        // Phase A.6 (PR3): дефолт поднят до 0.60. Если load_policy задаёт более низкий — игнорируем
+        // эту «эстетику», берём 0.60 как медицинский потолок. Если load_policy задаёт >0.60 —
+        // ограничиваем 0.65 (предохранитель против совсем экстремальных значений).
+        $longShareCap = isset($state['load_policy']['long_share_cap'])
+            ? (float) $state['load_policy']['long_share_cap']
+            : 0.60;
+        $longShareCap = max(0.60, min(0.65, $longShareCap));
+        $repairs = [];
+        if (!isset($plan['weeks']) || !is_array($plan['weeks'])) {
+            return [$plan, $repairs];
+        }
+
+        $weeks = &$plan['weeks'];
+        foreach ($weeks as $weekIndex => &$week) {
+            if (!is_array($week)) {
+                continue;
+            }
+
+            $weekNumber = (int) ($week['week_number'] ?? ($weekIndex + 1));
+            $weekStart = $start->modify('+' . (($weekNumber - 1) * 7) . ' days');
+            $changedWeek = false;
+            if (!isset($week['days']) || !is_array($week['days'])) {
+                continue;
+            }
+
+            $days = &$week['days'];
+            foreach ($days as $dayIndex => &$day) {
+                if (!is_array($day) || normalizeTrainingType($day['type'] ?? null) !== 'long') {
+                    continue;
+                }
+
+                $distance = $this->resolvePlanDayDistanceKm($day);
+                if ($distance <= $lateLongMaxKm) {
+                    continue;
+                }
+
+                $dayOfWeek = isset($day['day_of_week']) ? max(1, min(7, (int) $day['day_of_week'])) : ((int) $dayIndex + 1);
+                $date = !empty($day['date'])
+                    ? new DateTimeImmutable((string) $day['date'])
+                    : $weekStart->modify('+' . ($dayOfWeek - 1) . ' days');
+                $daysToRace = (int) $date->diff($race)->format('%r%a');
+                if ($daysToRace <= 0 || $daysToRace > 21) {
+                    continue;
+                }
+
+                $oldDistance = round($distance, 1);
+                $day['distance_km'] = $lateLongMaxKm;
+                if (!empty($day['pace'])) {
+                    $paceSec = parsePaceToSeconds($day['pace']);
+                    if ($paceSec !== null) {
+                        $day['duration_minutes'] = (int) round(($lateLongMaxKm * $paceSec) / 60);
+                    }
+                }
+                $day['notes'] = trim((string) ($day['notes'] ?? ''));
+                if ($day['notes'] === '') {
+                    $day['notes'] = 'Снижено до 32 км: длительная попадает в последние 21 день перед марафоном.';
+                }
+
+                $changedWeek = true;
+                $repairs[] = [
+                    'code' => 'cap_late_marathon_long_run',
+                    'week_number' => $weekNumber,
+                    'date' => $date->format('Y-m-d'),
+                    'from_km' => $oldDistance,
+                    'to_km' => $lateLongMaxKm,
+                    'days_to_race' => $daysToRace,
+                ];
+            }
+            unset($day);
+
+            $longDayIndex = null;
+            $longDistance = 0.0;
+            $weekTotal = $this->sumWeekDistances($days);
+            foreach ($days as $dayIndex => $day) {
+                if (is_array($day) && normalizeTrainingType($day['type'] ?? null) === 'long') {
+                    $candidateDistance = $this->resolvePlanDayDistanceKm($day);
+                    if ($candidateDistance > $longDistance) {
+                        $longDistance = $candidateDistance;
+                        $longDayIndex = $dayIndex;
+                    }
+                }
+            }
+
+            if ($longDayIndex !== null && $weekTotal > 0.0 && ($longDistance / $weekTotal) > ($longShareCap + 0.005)) {
+                $otherVolume = max(0.0, $weekTotal - $longDistance);
+                if ($otherVolume > 0.0) {
+                    $maxLongByShare = floor((($otherVolume * $longShareCap) / (1 - $longShareCap)) * 10) / 10;
+                    $newDistance = max(1.0, min($longDistance, $maxLongByShare));
+                    if ($newDistance < ($longDistance - 0.05)) {
+                        $oldDistance = round($longDistance, 1);
+                        $days[$longDayIndex]['distance_km'] = round($newDistance, 1);
+                        if (!empty($days[$longDayIndex]['pace'])) {
+                            $days[$longDayIndex]['duration_minutes'] = calculateDurationMinutes(
+                                (float) $days[$longDayIndex]['distance_km'],
+                                (string) $days[$longDayIndex]['pace']
+                            );
+                        }
+                        $days[$longDayIndex]['notes'] = trim((string) ($days[$longDayIndex]['notes'] ?? ''));
+                        if ($days[$longDayIndex]['notes'] === '') {
+                            $days[$longDayIndex]['notes'] = 'Снижено, чтобы длительная не занимала слишком большую долю недели.';
+                        }
+                        if (function_exists('updateSimpleRunDayAfterDistanceChange')) {
+                            $days[$longDayIndex] = updateSimpleRunDayAfterDistanceChange($days[$longDayIndex]);
+                        }
+                        $changedWeek = true;
+                        $repairs[] = [
+                            'code' => 'cap_long_run_week_share',
+                            'week_number' => $weekNumber,
+                            'from_km' => $oldDistance,
+                            'to_km' => round((float) $days[$longDayIndex]['distance_km'], 1),
+                            'old_share' => round($longDistance / $weekTotal, 3),
+                            'share_cap' => $longShareCap,
+                        ];
+                    }
+                }
+            }
+
+            if ($changedWeek) {
+                $week['target_volume_km'] = $this->sumWeekDistances((array) ($week['days'] ?? []));
+            }
+        }
+        unset($week);
+
+        if ($repairs !== []) {
+            $plan['_generation_metadata']['macro_plan'] = $this->buildMacroPlanMetadataFromWeeks((array) ($plan['weeks'] ?? []));
+        }
+
+        return [$plan, $repairs];
+    }
+
+    private function buildMacroPlanMetadataFromWeeks(array $weeks): array {
+        $macroWeeks = [];
+        foreach ($weeks as $week) {
+            if (!is_array($week)) {
+                continue;
+            }
+
+            $longRunKm = 0.0;
+            foreach ((array) ($week['days'] ?? []) as $day) {
+                if (is_array($day) && normalizeTrainingType($day['type'] ?? null) === 'long') {
+                    $longRunKm = max($longRunKm, $this->resolvePlanDayDistanceKm($day));
+                }
+            }
+
+            $macroWeeks[] = [
+                'week' => (int) ($week['week_number'] ?? 0),
+                'phase' => (string) ($week['phase'] ?? 'build'),
+                'target_volume_km' => $this->sumWeekDistances((array) ($week['days'] ?? [])),
+                'long_run_km' => round($longRunKm, 1),
+                'quality_focus' => 'См. детальный календарь недели.',
+                'risk_note' => (string) ($week['macro_adjustment_reason'] ?? ''),
+            ];
+        }
+
+        return ['weeks' => $macroWeeks];
+    }
+
+    private function sumWeekDistances(array $days): float {
+        $sum = 0.0;
+        foreach ($days as $day) {
+            if (is_array($day)) {
+                $sum += $this->resolvePlanDayDistanceKm($day);
+            }
+        }
+
+        return round($sum, 1);
+    }
+
+    private function resolvePlanDayDistanceKm(array $day): float {
+        if (isset($day['distance_km']) && $day['distance_km'] !== null && is_numeric($day['distance_km'])) {
+            return round(max(0.0, (float) $day['distance_km']), 1);
+        }
+
+        $type = normalizeTrainingType($day['type'] ?? null);
+        if ($type === 'interval' && function_exists('calculateIntervalTotalKm')) {
+            return round(max(0.0, calculateIntervalTotalKm($day)), 1);
+        }
+        if ($type === 'fartlek' && function_exists('calculateFartlekTotalKm')) {
+            return round(max(0.0, calculateFartlekTotalKm($day)), 1);
+        }
+
+        $description = trim((string) ($day['description'] ?? ''));
+        if ($description !== '' && preg_match('/(\d+(?:[.,]\d+)?)\s*(?:км|km)\b/iu', $description, $match)) {
+            return round(max(0.0, (float) str_replace(',', '.', $match[1])), 1);
+        }
+
+        return 0.0;
+    }
+
+    private function envBool(string $key, bool $default): bool {
+        $raw = env($key, $default ? '1' : '0');
+        $value = strtolower(trim((string) $raw));
+        if (in_array($value, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+        if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+
+        return $default;
+    }
+
+    /**
+     * P0.3: Резолв quality-gate mode для llm_planner.
+     *
+     * - 'strict' / 'permissive' в env используются как есть.
+     * - 'auto' (или любое неизвестное значение) включает strict для рисковых когорт:
+     *    - race_distance ∈ {half, marathon, 21.1k, 42.2k} — длинные старты с риском.
+     *    - special_population_flags содержит pregnant_or_postpartum / return_after_injury /
+     *      recent_pain_signal / recent_illness_signal.
+     *    - planning_scenario.flags содержит pain_protective / illness_protective /
+     *      return_after_injury / return_after_break / overload_recovery.
+     *    - goal_realism.severity == 'major' (assessGoalRealism verdict='unrealistic').
+     *
+     * Возвращает [effectiveMode, reason] — чтобы записать в metadata.
+     *
+     * @return array{0: string, 1: string}
+     */
+    /**
+     * Auto-режим quality gate (P0.3, философия «trust the model»).
+     *
+     * По умолчанию мы доверяем DeepSeek с богатым FACTS_JSON и не блокируем план
+     * на «эстетических» расхождениях. `strict` (блокирующий) включается только в
+     * когортах с реальным риском травмы / здоровья / явной нереалистичности цели:
+     *  - special_population_flags: беременность, return_after_injury, pain/illness signal;
+     *  - planning_scenario.flags: pain_protective / illness_protective / return_after_injury;
+     *  - goal_realism.severity = 'major' (явный голевой mismatch).
+     *
+     * Сами по себе marathon / half / overload_recovery / return_after_break не
+     * включают strict: это нормальная высокая нагрузка, и DeepSeek получает по
+     * ним достаточный контекст в FACTS_JSON. Они идут в permissive с warnings.
+     */
+    private function resolveQualityGateMode(string $configMode, array $user, array $state): array
+    {
+        if ($configMode === 'strict' || $configMode === 'permissive') {
+            return [$configMode, 'env_explicit'];
+        }
+
+        $specialFlags = array_map('strval', (array) ($state['special_population_flags'] ?? []));
+        $strictFlags = array_intersect($specialFlags, [
+            'pregnant_or_postpartum',
+            'return_after_injury',
+            'recent_pain_signal',
+            'recent_illness_signal',
+        ]);
+        if ($strictFlags !== []) {
+            return ['strict', 'auto_special_flag_' . implode(',', $strictFlags)];
+        }
+
+        $scenario = is_array($state['planning_scenario'] ?? null) ? $state['planning_scenario'] : [];
+        $scenarioFlags = array_map('strval', (array) ($scenario['flags'] ?? []));
+        $strictScenarioFlags = array_intersect($scenarioFlags, [
+            'pain_protective',
+            'illness_protective',
+            'return_after_injury',
+        ]);
+        if ($strictScenarioFlags !== []) {
+            return ['strict', 'auto_scenario_' . implode(',', $strictScenarioFlags)];
+        }
+
+        $realism = is_array($state['goal_realism'] ?? null) ? $state['goal_realism'] : [];
+        $severity = (string) ($realism['severity'] ?? 'none');
+        if ($severity === 'major') {
+            return ['strict', 'auto_goal_unrealistic'];
+        }
+
+        return ['permissive', 'auto_default_permissive'];
+    }
+
+    /**
+     * Phase A.1: skeleton-first путь отключён в production.
+     *
+     * Сохраняем метод как явный «дисабл», чтобы `process()` мог дать понятную
+     * ошибку при `USE_SKELETON_GENERATOR=1`. Сам код `PlanSkeletonGenerator`
+     * перенесён в `planrun_ai/_legacy/skeleton/`. Используется только из
+     * diagnostic-скриптов (`live_planning_e2e.php`, `recalc_feedback_scenarios.php`)
+     * и `WeeklyAdaptationEngine` через `services/AdaptationService.php`.
+     *
+     * Production генерация — `PLAN_GENERATION_MODE=llm_planner` (DeepSeek V4).
+     * См. `docs/PLANS-AI-V2.md` раздел 2a Phase A.1.
+     */
+    private function processViaSkeleton(int $userId, string $jobType, array $payload): array {
+        throw new RuntimeException(
+            'skeleton-first plan generation отключён в production. '
+            . 'Установите PLAN_GENERATION_MODE=llm_planner (DeepSeek V4). '
+            . 'См. docs/PLANS-AI-V2.md раздел 2a Phase A.1.',
+            500
+        );
     }
 
     private function buildQualityGateFailureMessage(array $issues): string {
@@ -339,7 +628,7 @@ class PlanGenerationProcessorService extends BaseService {
         return $messages !== [] ? implode(' | ', $messages) : 'quality_gate_error';
     }
 
-    private function enforceRaceDayConsistency(array $plan, array $trainingState, array $user): array {
+    private function enforceRaceDayConsistency(array $plan, array $trainingState, array $user, ?string $startDate = null, bool $capRaceWeekSupplementary = false): array {
         $raceDistance = (string) ($trainingState['race_distance'] ?? ($user['race_distance'] ?? ''));
         $raceDistanceKm = $this->resolveRaceDistanceKm($raceDistance);
         if ($raceDistanceKm <= 0) {
@@ -355,6 +644,14 @@ class PlanGenerationProcessorService extends BaseService {
             $goalPaceSec = (int) $trainingState['training_paces']['marathon'];
         }
         $goalPace = $goalPaceSec !== null && $goalPaceSec > 0 ? formatPaceFromSec($goalPaceSec) : null;
+        $raceDate = (string) ($trainingState['race_date'] ?? ($user['race_date'] ?? ($user['target_marathon_date'] ?? '')));
+
+        if ($startDate !== null && $raceDate !== '') {
+            $plan = $this->placeRaceOnCalendarDate($plan, $startDate, $raceDate, $raceDistanceKm, $goalPace);
+            if ($capRaceWeekSupplementary) {
+                $plan = $this->capRaceWeekSupplementaryVolume($plan, $trainingState);
+            }
+        }
 
         $weeks = $plan['weeks'] ?? [];
         foreach ($weeks as &$week) {
@@ -381,6 +678,134 @@ class PlanGenerationProcessorService extends BaseService {
             if (isset($week['target_volume_km']) && (float) $week['target_volume_km'] < (float) $raceDistanceKm) {
                 $week['target_volume_km'] = calculateNormalizedWeekVolume($days);
             }
+        }
+        unset($week);
+
+        $plan['weeks'] = $weeks;
+        return $plan;
+    }
+
+    private function capRaceWeekSupplementaryVolume(array $plan, array $trainingState): array {
+        $weeks = array_values((array) ($plan['weeks'] ?? []));
+        $raceWeekIndex = null;
+        foreach ($weeks as $index => $week) {
+            foreach ((array) ($week['days'] ?? []) as $day) {
+                if (normalizeTrainingType($day['type'] ?? null) === 'race') {
+                    $raceWeekIndex = $index;
+                    break 2;
+                }
+            }
+        }
+
+        if ($raceWeekIndex === null || $raceWeekIndex < 1) {
+            return $plan;
+        }
+
+        $weekBeforeVolume = calculateNormalizedWeekVolume((array) ($weeks[$raceWeekIndex - 1]['days'] ?? []));
+        if ($weekBeforeVolume <= 0.0 || !function_exists('resolveRaceWeekSupplementaryCap')) {
+            return $plan;
+        }
+
+        $raceWeekDays = (array) ($weeks[$raceWeekIndex]['days'] ?? []);
+        $supplementaryVolume = 0.0;
+        foreach ($raceWeekDays as $day) {
+            if (normalizeTrainingType($day['type'] ?? null) === 'race') {
+                continue;
+            }
+            $supplementaryVolume += (float) ($day['distance_km'] ?? 0.0);
+        }
+
+        $cap = resolveRaceWeekSupplementaryCap($weekBeforeVolume, $trainingState);
+        if ($supplementaryVolume <= ($cap + 0.2) || $supplementaryVolume <= 0.0) {
+            return $plan;
+        }
+
+        $ratio = $cap / $supplementaryVolume;
+        foreach ($raceWeekDays as &$day) {
+            $type = normalizeTrainingType($day['type'] ?? null);
+            if ($type === 'race' || $type === 'rest' || empty($day['distance_km'])) {
+                continue;
+            }
+
+            $day['distance_km'] = round(max(0.0, (float) $day['distance_km'] * $ratio), 1);
+            if (!empty($day['pace'])) {
+                $day['duration_minutes'] = calculateDurationMinutes((float) $day['distance_km'], (string) $day['pace']);
+            }
+            if (function_exists('updateSimpleRunDayAfterDistanceChange')) {
+                $day = updateSimpleRunDayAfterDistanceChange($day);
+            }
+        }
+        unset($day);
+
+        $weeks[$raceWeekIndex]['days'] = $raceWeekDays;
+        $weeks[$raceWeekIndex]['actual_volume_km'] = calculateNormalizedWeekVolume($raceWeekDays);
+        $weeks[$raceWeekIndex]['total_volume'] = $weeks[$raceWeekIndex]['actual_volume_km'];
+        $plan['weeks'] = $weeks;
+        return $plan;
+    }
+
+    private function placeRaceOnCalendarDate(array $plan, string $startDate, string $raceDate, float $raceDistanceKm, ?string $goalPace): array {
+        try {
+            $start = new DateTimeImmutable($startDate);
+            $race = new DateTimeImmutable($raceDate);
+        } catch (Throwable $e) {
+            return $plan;
+        }
+
+        $diffDays = (int) $start->diff($race)->format('%r%a');
+        if ($diffDays < 0) {
+            return $plan;
+        }
+
+        $targetWeekNumber = intdiv($diffDays, 7) + 1;
+        $targetDayOfWeek = (int) $race->format('N');
+        $weeks = $plan['weeks'] ?? [];
+        foreach ($weeks as $weekIndex => &$week) {
+            $weekNumber = (int) ($week['week_number'] ?? ($weekIndex + 1));
+            $days = (array) ($week['days'] ?? []);
+            foreach ($days as $dayIndex => &$day) {
+                $dayOfWeek = (int) ($day['day_of_week'] ?? ($dayIndex + 1));
+                $date = $start->modify('+' . (($weekNumber - 1) * 7 + ($dayOfWeek - 1)) . ' days')->format('Y-m-d');
+                $day['date'] = $date;
+
+                if ($weekNumber === $targetWeekNumber && $dayOfWeek === $targetDayOfWeek) {
+                    $day['type'] = 'race';
+                    $day['distance_km'] = round($raceDistanceKm, 1);
+                    $day['pace'] = $goalPace;
+                    $day['duration_minutes'] = $goalPace !== null
+                        ? calculateDurationMinutes((float) $day['distance_km'], $goalPace)
+                        : ($day['duration_minutes'] ?? null);
+                    $day['is_key_workout'] = true;
+                    $day['subtype'] = null;
+                    $day['warmup_km'] = null;
+                    $day['cooldown_km'] = null;
+                    $day['tempo_km'] = null;
+                    $day['notes'] = $day['notes'] ?? 'Главный старт';
+                    if (function_exists('rebuildNormalizedDayArtifacts')) {
+                        $day = rebuildNormalizedDayArtifacts($day);
+                    }
+                    continue;
+                }
+
+                if (normalizeTrainingType($day['type'] ?? null) === 'race') {
+                    $day['type'] = 'rest';
+                    $day['distance_km'] = 0.0;
+                    $day['duration_minutes'] = null;
+                    $day['pace'] = null;
+                    $day['is_key_workout'] = false;
+                    $day['subtype'] = null;
+                    $day['notes'] = null;
+                    $day['exercises'] = [];
+                    if (function_exists('rebuildNormalizedDayArtifacts')) {
+                        $day = rebuildNormalizedDayArtifacts($day);
+                    }
+                }
+            }
+            unset($day);
+
+            $week['days'] = $days;
+            $week['actual_volume_km'] = calculateNormalizedWeekVolume($days);
+            $week['total_volume'] = $week['actual_volume_km'];
         }
         unset($week);
 
@@ -918,23 +1343,9 @@ class PlanGenerationProcessorService extends BaseService {
         return array_values(array_filter(array_map('strval', $decoded), static fn(string $value): bool => $value !== ''));
     }
 
-    private function buildExpectedSkeletonContract(array $skeleton): array
-    {
-        $contractWeeks = [];
-        foreach (($skeleton['weeks'] ?? []) as $week) {
-            $contractWeeks[] = [
-                'week_number' => (int) ($week['week_number'] ?? 0),
-                'phase' => isset($week['phase']) ? (string) $week['phase'] : null,
-                'is_recovery' => !empty($week['is_recovery']),
-                'days' => array_map(
-                    static fn(array $day): string => (string) ($day['type'] ?? 'rest'),
-                    (array) ($week['days'] ?? [])
-                ),
-            ];
-        }
-
-        return ['weeks' => $contractWeeks];
-    }
+    // Phase A.1 (PR2): buildExpectedSkeletonContract удалён — использовался только в
+    // processViaSkeleton для проверки контракта между числовым скелетом и LLM-обогащением.
+    // В llm_planner-режиме нет числового скелета, поэтому метод стал мёртвым.
 
     private function getUserRepository(): UserRepository {
         return new UserRepository($this->db);
@@ -1033,8 +1444,8 @@ class PlanGenerationProcessorService extends BaseService {
                 ? (string) $user['race_date']
                 : (!empty($user['target_marathon_date']) ? (string) $user['target_marathon_date'] : null);
             $targetTime = !empty($user['race_target_time'])
-                ? substr((string) $user['race_target_time'], -5)
-                : (!empty($user['target_marathon_time']) ? substr((string) $user['target_marathon_time'], -5) : null);
+                ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['race_target_time'])
+                : (!empty($user['target_marathon_time']) ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['target_marathon_time']) : null);
             return [$planDate, $targetTime];
         }
 
@@ -1046,8 +1457,31 @@ class PlanGenerationProcessorService extends BaseService {
         }
 
         $planDate = !empty($user['target_marathon_date']) ? (string) $user['target_marathon_date'] : null;
-        $targetTime = !empty($user['target_marathon_time']) ? substr((string) $user['target_marathon_time'], -5) : null;
+        $targetTime = !empty($user['target_marathon_time']) ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['target_marathon_time']) : null;
         return [$planDate, $targetTime];
+    }
+
+    private function formatTrainingPlanSnapshotTargetTime(?string $rawTime): ?string {
+        $time = trim((string) $rawTime);
+        if ($time === '') {
+            return null;
+        }
+
+        if (preg_match('/^(\d{1,2}):([0-5]\d):([0-5]\d)$/', $time, $matches)) {
+            $hours = (int) $matches[1];
+            $minutes = (int) $matches[2];
+            $seconds = (int) $matches[3];
+
+            return $hours > 0
+                ? sprintf('%d:%02d:%02d', $hours, $minutes, $seconds)
+                : sprintf('%02d:%02d', $minutes, $seconds);
+        }
+
+        if (preg_match('/^(\d{1,2}):([0-5]\d)$/', $time, $matches)) {
+            return sprintf('%d:%02d', (int) $matches[1], (int) $matches[2]);
+        }
+
+        return $time;
     }
 
     private function resolveTrainingPlanSnapshotDescription(array $planData): ?string {

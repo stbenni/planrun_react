@@ -5,7 +5,16 @@ server {
     listen 80;
     listen [::]:80;
     server_name planrun.ru www.planrun.ru;
-    return 301 https://planrun.ru$request_uri;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /opt/www/well_known;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://planrun.ru$request_uri;
+    }
 }
 
 server {

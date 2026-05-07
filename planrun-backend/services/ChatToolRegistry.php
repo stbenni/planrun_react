@@ -149,7 +149,7 @@ class ChatToolRegistry {
     // ── Tool helper ──
 
     private function toolDef(string $name, string $description, array $properties, array $required = []): array {
-        $params = ['type' => 'object', 'properties' => (object) $properties, 'required' => $required];
+        $parameters = ['type' => 'object', 'properties' => (object) $properties, 'required' => $required];
         return ['type' => 'function', 'function' => compact('name', 'description', 'parameters')];
     }
 

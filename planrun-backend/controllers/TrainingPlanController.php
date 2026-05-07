@@ -121,6 +121,30 @@ class TrainingPlanController extends BaseController {
         }
     }
 
+    /**
+     * POST /api_v2.php?action=submit_plan_readiness_check
+     */
+    public function submitReadinessCheck() {
+        if (!$this->requireAuth() || !$this->requireEdit()) {
+            return;
+        }
+
+        try {
+            $checkId = (int) $this->getParam('check_id', 0);
+            $answer = [
+                'current_pain_score' => $this->getParam('current_pain_score', null),
+                'pain_worsened_after_runs' => $this->getParam('pain_worsened_after_runs', null),
+                'technique_changed' => $this->getParam('technique_changed', null),
+                'answer_text' => trim(mb_substr((string) $this->getParam('answer_text', ''), 0, 1000)),
+            ];
+
+            $result = $this->planService->submitReadinessCheckAnswer($this->currentUserId, $checkId, $answer);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
     public function reactivatePlan() {
         if (!$this->requireAuth()) {
             return;

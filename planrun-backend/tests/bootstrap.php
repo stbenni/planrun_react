@@ -118,6 +118,7 @@ register_shutdown_function(static function (): void {
             'recalc_proc_%', 'skeleton_break_%', 'workout_rating_%', 'feedback_state_%', 'ai_smoke_%',
             'metrics_%', 'training_state_%', 'pending_confirm_%', 'chat_repo_%', 'chat_context_%',
             'tool_registry_%', 'repo_%', 'plan_service_%', 'athlete_signals_%', 'planning_user_%', 'post_followup_%',
+            'plan_readiness_%',
         ];
         $conditions = array_map(static fn($prefix) => "username LIKE '" . $db->real_escape_string($prefix) . "'", $prefixes);
         $res = $db->query('SELECT id, email FROM users WHERE ' . implode(' OR ', $conditions));

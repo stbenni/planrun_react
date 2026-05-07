@@ -17,9 +17,9 @@ require_once __DIR__ . '/TempoProgressionBuilder.php';
 require_once __DIR__ . '/RacePaceProgressionBuilder.php';
 require_once __DIR__ . '/FartlekBuilder.php';
 require_once __DIR__ . '/ControlWorkoutBuilder.php';
-require_once __DIR__ . '/../../services/PlanSkeletonBuilder.php';
-require_once __DIR__ . '/../../services/PlanScenarioResolver.php';
-require_once __DIR__ . '/../prompt_builder.php';
+require_once __DIR__ . '/../../../services/PlanSkeletonBuilder.php';
+require_once __DIR__ . '/../../../services/PlanScenarioResolver.php';
+require_once __DIR__ . '/../../prompt_builder.php';
 
 class PlanSkeletonGenerator
 {
@@ -64,7 +64,7 @@ class PlanSkeletonGenerator
         }
 
         // TrainingState: VDOT, темпы, load_policy, readiness
-        require_once __DIR__ . '/../../services/TrainingStateBuilder.php';
+        require_once __DIR__ . '/../../../services/TrainingStateBuilder.php';
         $stateBuilder = new TrainingStateBuilder($this->db);
         $state = $stateBuilder->buildForUser($planningUser);
         $this->lastState = $state;

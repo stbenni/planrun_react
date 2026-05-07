@@ -7,8 +7,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SRC="$PROJECT_ROOT/planrun-plan-generation-worker.service"
 DEST="/etc/systemd/system/planrun-plan-generation-worker.service"
+TEMPLATE_SRC="$PROJECT_ROOT/planrun-plan-generation-worker@.service"
+TEMPLATE_DEST="/etc/systemd/system/planrun-plan-generation-worker@.service"
 
 sed "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" "$SRC" > "$DEST"
+sed "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" "$TEMPLATE_SRC" > "$TEMPLATE_DEST"
 systemctl daemon-reload
 echo "OK: planrun-plan-generation-worker.service installed (PROJECT_ROOT=$PROJECT_ROOT)."
 echo "    systemctl enable planrun-plan-generation-worker && systemctl start planrun-plan-generation-worker"
+echo "OK: planrun-plan-generation-worker@.service installed for parallel workers."
+echo "    systemctl enable --now planrun-plan-generation-worker@1 planrun-plan-generation-worker@2 planrun-plan-generation-worker@3"

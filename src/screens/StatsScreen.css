@@ -406,6 +406,7 @@
 
 /* Heatmap календарь (мобильная версия) - простой календарь по месяцам */
 .activity-heatmap {
+  position: relative;
   margin-top: 24px;
   width: 100%;
   max-width: 100%;
@@ -613,7 +614,7 @@
 }
 
 .heatmap-tooltip {
-  position: fixed;
+  position: absolute;
   background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-bg)) 0%, var(--card-bg) 100%);
   border: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--card-border));
   border-radius: 12px;
@@ -729,7 +730,7 @@
 
 /* Tooltip для десктопного графика */
 .chart-tooltip {
-  position: fixed;
+  position: absolute;
   background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 5%, var(--card-bg)) 0%, var(--card-bg) 100%);
   border: 1px solid color-mix(in srgb, var(--primary-500) 10%, var(--card-border));
   border-radius: 12px;
@@ -784,6 +785,7 @@
 }
 
 .distance-chart {
+  position: relative;
   width: 100%;
   max-width: 100%;
   overflow: visible;
@@ -1964,6 +1966,10 @@
   aspect-ratio: 800 / 250;
 }
 
+.workout-combined-chart-svg {
+  aspect-ratio: 800 / 280;
+}
+
 .workout-chart-legend {
   display: flex;
   gap: 16px;
@@ -1982,6 +1988,34 @@
   display: inline-block;
 }
 
+.workout-chart-legend--combined {
+  align-items: center;
+}
+
+.workout-chart-legend-item {
+  position: relative;
+  padding-left: 14px;
+}
+
+.workout-chart-legend-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.workout-chart-legend-item--pace::before {
+  background: var(--primary-500);
+}
+
+.workout-chart-legend-item--hr::before {
+  background: var(--danger-500);
+}
+
 /* Стили для меток осей в SVG */
 .workout-chart-svg .workout-chart-axis-label {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -1991,6 +2025,16 @@
 
 [data-theme="dark"] .workout-chart-svg .workout-chart-axis-label {
   fill: var(--gray-400);
+}
+
+.workout-chart-svg .workout-chart-axis-label--pace,
+[data-theme="dark"] .workout-chart-svg .workout-chart-axis-label--pace {
+  fill: var(--primary-500);
+}
+
+.workout-chart-svg .workout-chart-axis-label--hr,
+[data-theme="dark"] .workout-chart-svg .workout-chart-axis-label--hr {
+  fill: var(--danger-500);
 }
 
 /* Tooltip для графиков */
@@ -2021,6 +2065,60 @@
 .workout-chart-tooltip .tooltip-value {
   font-size: 14px;
   font-weight: 600;
+}
+
+.workout-combined-chart .workout-chart-wrapper {
+  position: relative;
+}
+
+.workout-combined-chart .workout-chart-tooltip {
+  position: absolute;
+}
+
+.workout-chart-tooltip--combined {
+  min-width: 170px;
+  white-space: normal;
+}
+
+.workout-chart-tooltip--combined .tooltip-value--speed {
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.workout-chart-tooltip--combined .tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workout-chart-tooltip--combined .tooltip-row span {
+  opacity: 0.75;
+}
+
+.workout-chart-tooltip--combined .tooltip-row strong {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.workout-chart-title-icon--pace {
+  color: var(--primary-500);
+}
+
+.workout-chart-title-icon--hr {
+  color: var(--danger-500);
+  margin-left: 4px;
+}
+
+[data-theme="dark"] .workout-chart-title .workout-chart-title-icon--pace {
+  color: var(--primary-500);
+}
+
+[data-theme="dark"] .workout-chart-title .workout-chart-title-icon--hr {
+  color: var(--danger-500);
 }
 
 .plan-progress-card {

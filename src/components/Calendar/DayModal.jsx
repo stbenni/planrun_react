@@ -328,7 +328,9 @@ const DayModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, canEdit = fa
                   workoutMetrics={null}
                   results={[]}
                   planDays={dayData.planDays || []}
-                  canEdit={false}
+                  canEdit={canEdit}
+                  onEditPlanDay={(planDay) => onEditTraining?.(planDay, date)}
+                  onDeletePlanDay={(dayId) => handleDeletePlanDay(dayId)}
                   extraActions={null}
                 />
               </div>

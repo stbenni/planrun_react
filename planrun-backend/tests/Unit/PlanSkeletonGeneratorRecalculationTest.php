@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../bootstrap.php';
-require_once __DIR__ . '/../../planrun_ai/skeleton/PlanSkeletonGenerator.php';
+require_once __DIR__ . '/../../planrun_ai/_legacy/skeleton/PlanSkeletonGenerator.php';
 require_once __DIR__ . '/../../services/PlanGenerationProcessorService.php';
 
 class PlanSkeletonGeneratorRecalculationTest extends TestCase {

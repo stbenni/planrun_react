@@ -7,7 +7,7 @@
  */
 
 require_once __DIR__ . '/BaseService.php';
-require_once __DIR__ . '/../planrun_ai/skeleton/WeeklyAdaptationEngine.php';
+require_once __DIR__ . '/../planrun_ai/_legacy/skeleton/WeeklyAdaptationEngine.php';
 
 class AdaptationService extends BaseService {
 

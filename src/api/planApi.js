@@ -24,6 +24,10 @@ export function generateNextPlan(client, goals = null) {
   return client.request('generate_next_plan', params, 'POST');
 }
 
+export function submitPlanReadinessCheck(client, payload) {
+  return client.request('submit_plan_readiness_check', payload, 'POST');
+}
+
 export async function checkPlanStatus(client, userId = null) {
   const params = userId ? { user_id: userId } : {};
   return client.request('check_plan_status', params, 'GET');

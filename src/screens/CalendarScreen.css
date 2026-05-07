@@ -808,3 +808,58 @@
   background: var(--card-surface-compact-bg);
   border-color: var(--card-surface-compact-border);
 }
+
+.readiness-check-modal {
+  max-width: 520px;
+}
+
+.readiness-check-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.readiness-check-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.readiness-pain-scale {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.readiness-score-btn,
+.readiness-segmented button {
+  min-height: 36px;
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.readiness-score-btn.active,
+.readiness-segmented button.active {
+  border-color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 14%, var(--card-surface-compact-bg));
+  color: var(--primary-700);
+}
+
+.readiness-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+@media (max-width: 520px) {
+  .readiness-pain-scale {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}

@@ -30,7 +30,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_scheduleForWorkout_createsPendingFollowupForRecentManualWorkout(): void {
         $userId = 1;
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insert = $this->db->prepare(
             "INSERT INTO workout_log
@@ -64,7 +64,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_tryHandleUserReply_savesDayNoteAndCompletesFollowup(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insertWorkout = $this->db->prepare(
             "INSERT INTO workout_log
@@ -170,7 +170,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_chatService_routesFirstReplyToPostWorkoutFollowupWithoutLlm(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insertWorkout = $this->db->prepare(
             "INSERT INTO workout_log
@@ -246,13 +246,13 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_getRecentFeedbackAnalytics_computesStructuredMetricDeltasFromBaseline(): void {
         $userId = $this->createTestUser();
-        $this->insertCompletedFollowup($userId, 7001, date('Y-m-d'), 'fatigue', 0, 1, 8, 8, 8, 8, 1, 0.62);
+        $this->insertCompletedFollowup($userId, 7001, $this->todayForDefaultUser(), 'fatigue', 0, 1, 8, 8, 8, 8, 1, 0.62);
         $this->insertCompletedFollowup($userId, 7002, date('Y-m-d', strtotime('-1 day')), 'fatigue', 0, 1, 8, 8, 8, 8, 1, 0.60);
         $this->insertCompletedFollowup($userId, 7003, date('Y-m-d', strtotime('-2 day')), 'fatigue', 0, 1, 7, 8, 6, 8, 1, 0.58);
         $this->insertCompletedFollowup($userId, 7004, date('Y-m-d', strtotime('-8 day')), 'good', 0, 0, 5, 4, 4, 4, 0, 0.20);
         $this->insertCompletedFollowup($userId, 7005, date('Y-m-d', strtotime('-10 day')), 'good', 0, 0, 4, 4, 4, 4, 0, 0.18);
 
-        $summary = $this->service->getRecentFeedbackAnalytics($userId, 14, date('Y-m-d'));
+        $summary = $this->service->getRecentFeedbackAnalytics($userId, 14, $this->todayForDefaultUser());
 
         $this->assertSame(5, $summary['total_responses']);
         $this->assertGreaterThan(7.5, (float) $summary['recent_session_rpe_avg']);
@@ -263,7 +263,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_getPendingCheckinState_returnsReadySentFollowupPayload(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insert = $this->db->prepare(
             "INSERT INTO workout_log
@@ -309,7 +309,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_getPendingCheckinState_returnsUpcomingPendingFollowupBeforeDueTime(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
         $dueAt = date('Y-m-d H:i:s', time() + 1800);
 
         $insert = $this->db->prepare(
@@ -346,7 +346,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_scheduleForWorkout_skipsWalkingActivities(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
         $referenceTime = $today . ' 12:00:00';
 
         $insert = $this->db->prepare(
@@ -378,7 +378,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_scheduleForWorkout_supersedesOlderActiveFollowupsForSameUser(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
         $oldWorkout = $this->db->prepare(
@@ -450,7 +450,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_snoozeFollowup_persists_snoozed_until_and_hides_modal_until_due(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insert = $this->db->prepare(
             "INSERT INTO workout_log
@@ -492,7 +492,7 @@ class PostWorkoutFollowupServiceTest extends TestCase {
 
     public function test_tryHandleUserReply_treatsLocalizedOverloadWithoutPainAsFatigueSignal(): void {
         $userId = $this->createTestUser();
-        $today = date('Y-m-d');
+        $today = $this->todayForDefaultUser();
 
         $insertWorkout = $this->db->prepare(
             "INSERT INTO workout_log
@@ -602,5 +602,9 @@ class PostWorkoutFollowupServiceTest extends TestCase {
         $stmt->close();
 
         return $userId;
+    }
+
+    private function todayForDefaultUser(): string {
+        return (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Moscow')))->format('Y-m-d');
     }
 }

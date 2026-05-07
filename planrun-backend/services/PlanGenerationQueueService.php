@@ -63,6 +63,58 @@ class PlanGenerationQueueService extends BaseService {
         $this->assertQueueTableAvailable();
         $this->recoverStaleRunningJobs();
 
+        if ($this->canUseTransactionalReservation()) {
+            try {
+                return $this->reserveNextJobWithLock();
+            } catch (Throwable $e) {
+                if (!$this->isSkipLockedCompatibilityError($e)) {
+                    throw $e;
+                }
+                $this->logInfo('Plan generation queue: falling back to legacy reservation', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $this->reserveNextJobLegacy();
+    }
+
+    private function reserveNextJobWithLock(): ?array {
+        $this->db->begin_transaction();
+        try {
+            $result = $this->db->query(
+                "SELECT * FROM " . self::TABLE . " WHERE status = '" . self::STATUS_PENDING . "' AND available_at <= NOW() ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED"
+            );
+            if (!$result) {
+                throw new RuntimeException('Не удалось прочитать очередь задач: ' . ($this->db->error ?? ''), 500);
+            }
+
+            $job = $result->fetch_assoc();
+            if (!$job) {
+                $this->db->commit();
+                return null;
+            }
+
+            $updated = $this->markJobRunning((int) $job['id']);
+            if (!$updated) {
+                $this->db->commit();
+                return null;
+            }
+
+            $this->db->commit();
+            $job['status'] = self::STATUS_RUNNING;
+            $job['attempts'] = ((int) $job['attempts']) + 1;
+            return $job;
+        } catch (Throwable $e) {
+            try {
+                $this->db->rollback();
+            } catch (Throwable) {
+            }
+            throw $e;
+        }
+    }
+
+    private function reserveNextJobLegacy(): ?array {
         $result = $this->db->query(
             "SELECT * FROM " . self::TABLE . " WHERE status = '" . self::STATUS_PENDING . "' AND available_at <= NOW() ORDER BY id ASC LIMIT 1"
         );
@@ -75,6 +127,17 @@ class PlanGenerationQueueService extends BaseService {
             return null;
         }
 
+        $jobId = (int) $job['id'];
+        if (!$this->markJobRunning($jobId)) {
+            return null;
+        }
+
+        $job['status'] = self::STATUS_RUNNING;
+        $job['attempts'] = ((int) $job['attempts']) + 1;
+        return $job;
+    }
+
+    private function markJobRunning(int $jobId): bool {
         $update = $this->db->prepare(
             'UPDATE ' . self::TABLE . ' SET status = ?, started_at = NOW(), attempts = attempts + 1, last_error = NULL WHERE id = ? AND status = ?'
         );
@@ -84,19 +147,12 @@ class PlanGenerationQueueService extends BaseService {
 
         $running = self::STATUS_RUNNING;
         $pending = self::STATUS_PENDING;
-        $jobId = (int) $job['id'];
         $update->bind_param('sis', $running, $jobId, $pending);
         $update->execute();
         $affected = $update->affected_rows;
         $update->close();
 
-        if ($affected < 1) {
-            return null;
-        }
-
-        $job['status'] = self::STATUS_RUNNING;
-        $job['attempts'] = ((int) $job['attempts']) + 1;
-        return $job;
+        return $affected > 0;
     }
 
     public function recoverStaleRunningJobs(?int $timeoutSeconds = null): array {
@@ -259,5 +315,18 @@ class PlanGenerationQueueService extends BaseService {
                 503
             );
         }
+    }
+
+    private function canUseTransactionalReservation(): bool {
+        return method_exists($this->db, 'begin_transaction')
+            && method_exists($this->db, 'commit')
+            && method_exists($this->db, 'rollback');
+    }
+
+    private function isSkipLockedCompatibilityError(Throwable $e): bool {
+        $message = strtolower($e->getMessage());
+        return str_contains($message, 'skip locked')
+            || str_contains($message, 'for update')
+            || str_contains($message, 'syntax');
     }
 }
