@@ -27,7 +27,7 @@
 Скрипты для локального стека остались для справки:
 
 - **install-llama-serving-stack.sh** — ставит llama-server + planrun-ai + LM Studio
-- `planrun-ai :8000` — Python orchestration layer, RAG (используется при `USE_SKELETON_GENERATOR=0`)
+- `planrun-ai :8000` — Python orchestration layer, RAG (используется только AI-сервисом для retrieve-knowledge; план-генерация идёт через DeepSeek)
 
 ## Если в браузере 404 на /api/
 

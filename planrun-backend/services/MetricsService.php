@@ -94,7 +94,7 @@ class MetricsService {
     /**
      * Предсказать время на дистанцию по VDOT (секунды).
      * ЕДИНСТВЕННАЯ реализация — через prompt_builder::predictRaceTime().
-     * Удалить дубль в WeeklyAdaptationEngine при миграции.
+     * Единый источник расчёта недельной нагрузки (PR7: WeeklyAdaptationEngine удалён).
      */
     public function predictRaceTime(float $vdot, float $targetDistKm): int {
         return predictRaceTime($vdot, $targetDistKm);

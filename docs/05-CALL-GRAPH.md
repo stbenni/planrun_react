@@ -73,19 +73,7 @@ PlanGenerationProcessorService
   -> plan_saver.php
 ```
 
-Skeleton path (`USE_SKELETON_GENERATOR=1`):
-
-```text
-PlanGenerationProcessorService::processViaSkeleton()
-  -> TrainingStateBuilder
-  -> PlanSkeletonBuilder
-  -> skeleton/PlanSkeletonGenerator.php
-  -> skeleton/LLMEnricher.php
-  -> skeleton/SkeletonValidator.php
-  -> skeleton/LLMReviewer.php
-  -> skeleton/PlanAutoFixer.php
-  -> plan_saver.php
-```
+> PR7 / Phase D.3: skeleton path (`_legacy/skeleton/`, env `USE_SKELETON_GENERATOR`) полностью удалён. Production использует только `processViaLlmPlanner`.
 
 ## 4. День тренировки и результат
 
@@ -160,18 +148,22 @@ Calendar / profile views
 
 ## 9. Weekly adaptation
 
+> PR7 / Phase D.3: алгоритмический `WeeklyAdaptationEngine` удалён вместе с `AdaptationService` / `AdaptationController` / route `run_weekly_adaptation`. Adaptive recalc теперь через DeepSeek-driven recalculate pipeline.
+
 ```text
-Stats / adaptation UI
-  -> statsApi.runAdaptation()
-  -> AdaptationController
-  -> AdaptationService
-  -> skeleton/WeeklyAdaptationEngine.php
-      -> prepare_weekly_analysis.php
-      -> detectTriggers() / decideAdaptation()
-      -> PlanGenerationProcessorService::process(..., 'recalculate', ...)
+Recalculate trigger (chat tool, ручная кнопка пользователя или cron)
+  -> usePlanStore.recalculatePlan()
+  -> ApiClient.recalculatePlan()
+  -> TrainingPlanController::recalculatePlan()
+  -> TrainingPlanService::recalculatePlan()
+  -> PlanGenerationQueueService::enqueue('recalculate')
+  -> plan_generation_worker.php
+  -> PlanGenerationProcessorService::processViaLlmPlanner()  (см. п.3 выше)
   -> plan review / updated plan
   -> frontend reloads plan and stats
 ```
+
+Cron `weekly_ai_review.php` оставлен только как review-only: пишет AI-message в чат с разбором недели, без алгоритмического адаптирования плана.
 
 ## Когда этот документ особенно полезен
 

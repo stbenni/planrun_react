@@ -506,9 +506,17 @@
 - Изначально планировалось как `PLAN_AI_SIMPLIFIED=N%` для постепенного rollout. По факту Phase A была закоммичена и вкачена в production одним блоком (по решению пользователя), без A/B этапа.
 - A/B можно вернуть в будущем — например, для тестирования C.3 multi-pass или новых prompt-версий (`prompt_version` уже логируется в `ai_plan_generation_events`).
 
-#### D.3 ⚠️ Canary rollout — частично выполнено / переосмыслено
-- Изначально: «Если A/B показывает не хуже — переключаем 100%, удаляем legacy». В нашем случае Phase A была раскачена сразу 100%, без canary, через blocking-режим: `processViaSkeleton` бросает `RuntimeException`. Боевые планы идут через `processViaLlmPlanner` (DeepSeek V4 + simplified architecture).
-- Что осталось: **очистить `_legacy/skeleton/`** и удалить `USE_SKELETON_GENERATOR` (PR7).
+#### D.3 ✅ Canary rollout — переосмыслено и закрыто (PR7)
+- Изначально: «Если A/B показывает не хуже — переключаем 100%, удаляем legacy». В нашем случае Phase A была раскачена сразу 100%, без canary, через blocking-режим: `processViaSkeleton` бросал `RuntimeException`. Боевые планы шли через `processViaLlmPlanner` (DeepSeek V4 + simplified architecture).
+- ✅ В PR7 удалили skeleton-связанный legacy-код полностью:
+  - `planrun-backend/planrun_ai/_legacy/skeleton/` (17 файлов: PlanSkeletonGenerator, VolumeDistributor, SkeletonValidator, LLMReviewer, LLMEnricher, PlanAutoFixer, StructuredJsonResponseParser, WarmupCooldownHelper, enrichment_prompt_builder, 8 progression builders, WeeklyAdaptationEngine);
+  - `services/AdaptationService.php` + `controllers/AdaptationController.php` + route `run_weekly_adaptation` (полностью завязаны на `WeeklyAdaptationEngine`);
+  - `scripts/live_planning_e2e.php` + `scripts/recalc_feedback_scenarios.php` (diagnostic, использовали PlanSkeletonGenerator);
+  - 5 unit-тестов: `WeeklyAdaptationEngineTest`, `SkeletonValidatorTest`, `VolumeDistributorTest`, `PlanSkeletonGeneratorRecalculationTest`, `StructuredJsonResponseParserTest`;
+  - в `PlanGenerationProcessorService::process()` удалены ветка `useSkeletonGenerator` и метод `processViaSkeleton`;
+  - в `scripts/weekly_ai_review.php` удалена ветка `if ($useAdaptationEngine)` — теперь всегда review-only через DeepSeek чат-API;
+  - в `scripts/live_recalculate_batch.php` и `scripts/live_next_plan_batch.php` `liveSetEnv('USE_SKELETON_GENERATOR', '1')` заменены на `liveSetEnv('PLAN_GENERATION_MODE', 'llm_planner')`;
+  - env `USE_SKELETON_GENERATOR` удалён из `.env.example` и документации.
 
 ---
 
@@ -539,10 +547,10 @@
 | ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (предыдущий PR) |
 | ✅ PR4 | Phase B.3+B.4+B.5 (season/climate hints, best_races_progression top 5k/10k/half/marathon за 52 нед., goal_realism v2 — best_races_at_target_distance) | Unit 346/346 | Готово (предыдущий PR) |
 | ✅ PR5 | Phase C.1 (auto-эскалация на `deepseek-reasoner` при complexity score ≥2) + C.2 утилита (regenerateWeeks для targeted retry до 4 недель) | Unit 364/364 | Готово (предыдущий PR) |
-| ✅ PR6 | Phase D.1 (plan quality dashboard: `ai_plan_generation_events` table + `AiPlanGenerationEventLogger` + admin endpoints `admin_ai_plan_metrics` / `admin_ai_plan_events`) | Unit 376/376 | Готово (этот PR) |
-| PR7 | Cleanup `_legacy/skeleton/` + `USE_SKELETON_GENERATOR`; D.2 (A/B) / D.3 (canary) помечены как N/A — simplified arch уже в проде | — | Следующий |
+| ✅ PR6 | Phase D.1 (plan quality dashboard: `ai_plan_generation_events` table + `AiPlanGenerationEventLogger` + admin endpoints `admin_ai_plan_metrics` / `admin_ai_plan_events`) | Unit 376/376 | Готово (предыдущий PR) |
+| ✅ PR7 | Cleanup `_legacy/skeleton/` (17 файлов) + AdaptationService/Controller + 5 тестов + diagnostic-скриптов; удалён env `USE_SKELETON_GENERATOR`. D.2 (A/B) / D.3 (canary) помечены как N/A — simplified arch уже в проде. | Unit 334/334 | Готово (этот PR) |
 
-**Этот PR (PR6):** Phase D.1 — observability layer для plan generation. Каждая успешная или неудавшаяся генерация плана через DeepSeek V4 пишется в `ai_plan_generation_events` с разбивкой по cohort'у (healthy / return_after_injury / pregnant_or_postpartum / pain_signal / illness_signal / unrealistic_goal), модели (deepseek-chat / deepseek-reasoner), gate_status (ok / warnings / blocked), applied repair codes и issue codes. Admin может смотреть агрегаты через `admin_ai_plan_metrics` (bad_plan_rate, repair_rate, by_cohort, by_model) и последние события через `admin_ai_plan_events` (с фильтрами по user_id, cohort, status, since).
+**Этот PR (PR7):** финальная очистка legacy skeleton-стека. Удалено ≈5500 строк кода, который перестал использоваться после Phase A.1. **Phase A–D полностью закрыты.** Дальнейшие задачи — backlog в P5 (см. ниже).
 
 ---
 

@@ -19,7 +19,6 @@ require_once $baseDir . '/db_config.php';
 require_once $baseDir . '/prepare_weekly_analysis.php';
 require_once $baseDir . '/services/LlmGateway.php';
 require_once $baseDir . '/services/ChatService.php';
-require_once $baseDir . '/services/AdaptationService.php';
 
 $db = getDBConnection();
 if (!$db) {
@@ -27,7 +26,9 @@ if (!$db) {
     exit(1);
 }
 
-$useAdaptationEngine = (bool) (env('USE_SKELETON_GENERATOR', '0'));
+// PR7 / Phase D.3: ветка с WeeklyAdaptationEngine удалена вместе с _legacy/skeleton/.
+// Сейчас weekly review всегда идёт review-only через DeepSeek чат-API: анализ → текст в чат.
+// Если в будущем появится DeepSeek-based адаптация плана — добавить отдельный сервис.
 
 $reviewHour = 20;
 $reviewMinute = 0;
@@ -49,7 +50,6 @@ if (!$stmt) {
 
 $result = $stmt->get_result();
 $sent = 0;
-$adapted = 0;
 $errors = 0;
 
 while ($row = $result->fetch_assoc()) {
@@ -71,34 +71,24 @@ while ($row = $result->fetch_assoc()) {
     }
 
     try {
-        if ($useAdaptationEngine) {
-            // Новый путь: WeeklyAdaptationEngine (анализ + адаптация + ревью)
-            $adaptationService = new AdaptationService($db);
-            $adaptResult = $adaptationService->runWeeklyAdaptation($userId);
-            $sent++;
-            if (!empty($adaptResult['adapted'])) {
-                $adapted++;
-            }
-        } else {
-            // Старый путь: только ревью без адаптации
-            $weekNumber = getCurrentWeekNumber($userId, $db);
-            $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
-            $enrichment = collectReviewEnrichment($userId, $db);
-            $reviewText = buildWeeklyReviewPromptData($analysis, $enrichment);
-            $review = generateWeeklyReview($reviewText, $analysis['user']['username'] ?? 'спортсмен');
-            if (!$review) {
-                error_log("weekly_ai_review: LLM returned empty for user $userId");
-                $errors++;
-                continue;
-            }
-            $chatService = new ChatService($db);
-            $chatService->addAIMessageToUser($userId, $review, [
-                'event_key' => 'plan.weekly_review',
-                'title' => 'Еженедельный обзор готов',
-                'link' => '/chat',
-            ]);
-            $sent++;
+        // PR7 / Phase D.3: только review-only путь (через DeepSeek чат-API).
+        $weekNumber = getCurrentWeekNumber($userId, $db);
+        $analysis = prepareWeeklyAnalysis($userId, $weekNumber);
+        $enrichment = collectReviewEnrichment($userId, $db);
+        $reviewText = buildWeeklyReviewPromptData($analysis, $enrichment);
+        $review = generateWeeklyReview($reviewText, $analysis['user']['username'] ?? 'спортсмен');
+        if (!$review) {
+            error_log("weekly_ai_review: LLM returned empty for user $userId");
+            $errors++;
+            continue;
         }
+        $chatService = new ChatService($db);
+        $chatService->addAIMessageToUser($userId, $review, [
+            'event_key' => 'plan.weekly_review',
+            'title' => 'Еженедельный обзор готов',
+            'link' => '/chat',
+        ]);
+        $sent++;
     } catch (Throwable $e) {
         error_log("weekly_ai_review: error for user $userId: " . $e->getMessage());
         $errors++;
@@ -106,7 +96,7 @@ while ($row = $result->fetch_assoc()) {
 }
 
 if (php_sapi_name() === 'cli') {
-    echo "Weekly AI review: sent=$sent, adapted=$adapted, errors=$errors\n";
+    echo "Weekly AI review: sent=$sent, errors=$errors\n";
 }
 
 // ── Вспомогательные функции ──

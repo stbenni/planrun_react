@@ -96,7 +96,7 @@
 | Скрипт | Что делает |
 |--------|------------|
 | `plan_generation_worker.php` | Worker очереди генерации: `reserveNextJob()` -> `PlanGenerationProcessorService->process()` -> `markCompleted/markFailed` |
-| `weekly_ai_review.php` | Еженедельный cron: либо старое LLM review в чат, либо новый `AdaptationService->runWeeklyAdaptation()` при skeleton path |
+| `weekly_ai_review.php` | Еженедельный cron review-only: `prepareWeeklyAnalysis()` -> `buildWeeklyReviewPromptData()` -> `generateWeeklyReview()` -> `ChatService->addAIMessageToUser()` |
 | `daily_briefing.php` | Ежедневный утренний брифинг AI-тренера по сегодняшней тренировке |
 | `weekly_digest.php` | Еженедельный дайджест AI-тренера по фактической неделе |
 | `eval_plan_generation.php` | Batch-eval AI генерации на реальных пользователях или synthetic fixtures; собирает артефакты `first-pass` и `full` режимов |
@@ -104,12 +104,7 @@
 
 ### Что важно про `weekly_ai_review.php`
 
-В нём реально существуют два режима:
-
-1. `USE_SKELETON_GENERATOR=0`
-   `prepareWeeklyAnalysis()` -> `buildWeeklyReviewPromptData()` -> `generateWeeklyReview()` -> `ChatService->addAIMessageToUser()`
-2. `USE_SKELETON_GENERATOR=1`
-   `AdaptationService->runWeeklyAdaptation()` - новый путь, который и анализирует неделю, и при необходимости адаптирует план.
+PR7 / Phase D.3: алгоритмический режим `WeeklyAdaptationEngine` (env `USE_SKELETON_GENERATOR=1`) удалён вместе с `_legacy/skeleton/` и `AdaptationService`. Оставлен только review-only путь через DeepSeek chat-API: `prepareWeeklyAnalysis()` -> `buildWeeklyReviewPromptData()` -> `generateWeeklyReview()` -> `ChatService->addAIMessageToUser()`. Адаптация плана теперь идёт через recalculate pipeline (DeepSeek), вызываемый из чата tools или вручную пользователем.
 
 ### 4.2 Уведомления
 

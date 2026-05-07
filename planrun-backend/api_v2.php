@@ -78,7 +78,7 @@ require_once __DIR__ . '/controllers/WorkoutController.php';
 require_once __DIR__ . '/controllers/StatsController.php';
 require_once __DIR__ . '/controllers/ExerciseController.php';
 require_once __DIR__ . '/controllers/WeekController.php';
-require_once __DIR__ . '/controllers/AdaptationController.php';
+// PR7 / Phase D.3: AdaptationController удалён вместе с _legacy/skeleton/.
 require_once __DIR__ . '/controllers/UserController.php';
 require_once __DIR__ . '/controllers/AuthController.php';
 require_once __DIR__ . '/controllers/AdminController.php';
@@ -477,12 +477,10 @@ try {
             planrunRouteControllerAction($db, WeekController::class, 'copyWeek', $method, 'POST');
             break;
 
-        // AdaptationController
-        case 'run_weekly_adaptation':
-            $controller = new AdaptationController($db);
-            $controller->runWeeklyAdaptation();
-            break;
-            
+        // PR7 / Phase D.3: AdaptationController удалён вместе с _legacy/skeleton/.
+        // WeeklyAdaptationEngine использовал PlanSkeletonGenerator; сейчас weekly review
+        // идёт через scripts/weekly_ai_review.php (review-only через DeepSeek чат-API).
+
         // UserController
         case 'get_profile':
             if ($method !== 'GET') {

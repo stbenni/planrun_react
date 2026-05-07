@@ -15,14 +15,12 @@
 3. `Новый план после завершения предыдущего`
    Собирает полную историю старого цикла и стартует следующий план не с нуля, а от фактической формы.
 
-Для этих сценариев backend может идти по одному из двух путей:
+Для этих сценариев backend идёт через `LLM planner` (DeepSeek V4):
 
-- `Legacy LLM-first`
-  Большой prompt -> PlanRun AI API -> repair/normalize/validate -> save.
-- `Skeleton-first`
-  Rule-based numeric skeleton -> LLM enrichment/review -> auto-fix -> save.
+- `LLM planner` (production)
+  `TrainingStateBuilder -> DeepSeekPlanPlanner -> single_pass prompt -> JSON -> sanitize -> hard safety repairs -> normalize -> PlanQualityGate (auto) -> plan_saver -> chat review`.
 
-Выбор делает [PlanGenerationProcessorService.php](../planrun-backend/services/PlanGenerationProcessorService.php) через env-флаг `USE_SKELETON_GENERATOR`.
+PR7 / Phase D.3: `Legacy LLM-first` и `Skeleton-first` пути полностью удалены. Env `USE_SKELETON_GENERATOR` тоже удалён. См. [PlanGenerationProcessorService.php](../planrun-backend/services/PlanGenerationProcessorService.php) — единственный production-путь `processViaLlmPlanner`.
 
 ## 2. Главная orchestration-цепочка
 
@@ -32,7 +30,7 @@ TrainingPlanController
   -> PlanGenerationQueueService
   -> scripts/plan_generation_worker.php
   -> PlanGenerationProcessorService
-      -> legacy path OR skeleton path
+      -> processViaLlmPlanner (DeepSeek V4)
       -> plan_saver.php
       -> plan_review_generator.php
       -> ChatService::addAIMessageToUser()
@@ -173,106 +171,13 @@ plan_generator.php
 | [goal_consistency_validator.php](../planrun-backend/planrun_ai/validators/goal_consistency_validator.php) | Несоответствие интенсивности цели, уровню и special population flags |
 | [workout_completeness_validator.php](../planrun-backend/planrun_ai/validators/workout_completeness_validator.php) | Пустые tempo/control/interval/fartlek сессии без структуры |
 
-## 7. Skeleton-first path
+## 7. Skeleton-first path (УДАЛЁН)
 
-В новом пути LLM перестаёт быть источником чисел.
-
-```text
-TrainingStateBuilder
-  -> PlanSkeletonBuilder
-  -> PlanSkeletonGenerator
-  -> LLMEnricher
-  -> SkeletonValidator
-  -> LLMReviewer
-  -> PlanAutoFixer
-  -> SkeletonValidator::validateConsistency()
-```
-
-### Источник чисел
-
-| Модуль | За что отвечает |
-|--------|------------------|
-| [TrainingStateBuilder.php](../planrun-backend/services/TrainingStateBuilder.php) | VDOT, pace rules, readiness, load policy, special flags, weeks to goal |
-| [PlanSkeletonBuilder.php](../planrun-backend/services/PlanSkeletonBuilder.php) | Только типы дней по дням недели и фазам |
-| [PlanSkeletonGenerator.php](../planrun-backend/planrun_ai/skeleton/PlanSkeletonGenerator.php) | Собирает полный numeric plan, включая workout details и volume targets |
-| [VolumeDistributor.php](../planrun-backend/planrun_ai/skeleton/VolumeDistributor.php) | Разносит недельный объём по дням и создаёт структурные поля тренировок |
-
-### Workout builders
-
-| Файл | Роль |
-|------|------|
-| [IntervalProgressionBuilder.php](../planrun-backend/planrun_ai/skeleton/IntervalProgressionBuilder.php) | Интервальные блоки по фазе/дистанции |
-| [TempoProgressionBuilder.php](../planrun-backend/planrun_ai/skeleton/TempoProgressionBuilder.php) | Threshold tempo progression |
-| [RacePaceProgressionBuilder.php](../planrun-backend/planrun_ai/skeleton/RacePaceProgressionBuilder.php) | Race-pace блоки для MP/HMP/10k/R-pace вариантов |
-| [FartlekBuilder.php](../planrun-backend/planrun_ai/skeleton/FartlekBuilder.php) | Фартлек по возрастающей сложности |
-| [ControlWorkoutBuilder.php](../planrun-backend/planrun_ai/skeleton/ControlWorkoutBuilder.php) | Контрольные забеги и тестовые тренировки |
-| [OfpProgressionBuilder.php](../planrun-backend/planrun_ai/skeleton/OfpProgressionBuilder.php) | ОФП на неделю с учётом preference/recovery |
-| [StartRunningProgramBuilder.php](../planrun-backend/planrun_ai/skeleton/StartRunningProgramBuilder.php) | Жёсткие beginner-программы |
-| [WarmupCooldownHelper.php](../planrun-backend/planrun_ai/skeleton/WarmupCooldownHelper.php) | Warmup/cooldown defaults |
-
-### Где здесь LLM
-
-В skeleton path LLM используется в двух местах:
-
-1. [LLMEnricher.php](../planrun-backend/planrun_ai/skeleton/LLMEnricher.php)
-   Получает compact prompt и должен вернуть plan с `notes`.
-2. [LLMReviewer.php](../planrun-backend/planrun_ai/skeleton/LLMReviewer.php)
-   Возвращает JSON со статусом и issues для автофикса.
-
-Ключевой момент: LLM **не должна менять**:
-
-- число недель;
-- типы дней;
-- дистанции;
-- темпы.
-
-Это проверяет [SkeletonValidator.php](../planrun-backend/planrun_ai/skeleton/SkeletonValidator.php) через `validateAgainstOriginal()`.
-
-### Auto-fix слой
-
-[PlanAutoFixer.php](../planrun-backend/planrun_ai/skeleton/PlanAutoFixer.php) умеет автоматически чинить:
-
-- `pace_logic`
-- `volume_jump`
-- `consecutive_key`
-- `missing_recovery`
-- `health_concern`
-- `too_aggressive`
-
-Чинит он это уже кодом, а не повторным prompt engineering.
+PR7 / Phase D.3: всё содержимое `planrun_ai/_legacy/skeleton/` (17 файлов: `PlanSkeletonGenerator`, `VolumeDistributor`, `SkeletonValidator`, `LLMEnricher`, `LLMReviewer`, `PlanAutoFixer`, 8 progression builders, `WeeklyAdaptationEngine`, …) удалено вместе с `services/AdaptationService.php`, `controllers/AdaptationController.php`, route `run_weekly_adaptation`, env `USE_SKELETON_GENERATOR` и связанными тестами/diagnostic-скриптами. Все ссылки в коде стерты. Production использует только LLM planner path (`processViaLlmPlanner`, см. п.3 выше).
 
 ## 8. Weekly adaptation
 
-[WeeklyAdaptationEngine.php](../planrun-backend/planrun_ai/skeleton/WeeklyAdaptationEngine.php) - это не генератор с нуля, а weekly feedback loop.
-
-Его цепочка:
-
-```text
-prepareWeeklyAnalysis.php
-  -> computeMetrics()
-  -> detectTriggers()
-  -> decideAdaptation()
-  -> applyAdaptationAdjustments()
-  -> PlanGenerationProcessorService::process(..., 'recalculate', ...)
-```
-
-Что он считает:
-
-- `compliance`
-- `key_completion`
-- `skipped_days`
-- средний фактический easy pace
-- goal progress через текущий VDOT и ожидаемое улучшение
-
-Какие adaptation type может вернуть:
-
-- `volume_down`
-- `volume_down_significant`
-- `volume_up`
-- `vdot_adjust_down`
-- `vdot_adjust_up`
-- `simplify_key`
-- `insert_recovery`
+PR7: `WeeklyAdaptationEngine` удалён. Adaptive recalc теперь через DeepSeek-driven recalculate pipeline (chat tool `recalculate_plan`, ручная кнопка пользователя или ручной вызов админа). Cron `weekly_ai_review.php` оставлен только как review-only (пишет AI-комментарий по неделе в чат, без алгоритмических triggers и без изменения плана).
 
 ## 9. Второстепенные, но важные файлы
 

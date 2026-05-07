@@ -141,12 +141,6 @@ Frontend ApiClient
 - Особенности: кроме user/settings CRUD, здесь находится approval pipeline для coach application; при approve профиль тренера и прайс-лист переносятся в боевые таблицы.
 - Контроллер также умеет сам гарантировать наличие таблицы `site_settings`, то есть содержит немного migration-like логики.
 
-### `AdaptationController.php`
-
-- Методы: `runWeeklyAdaptation`.
-- Роль: ручной или UI-triggered запуск weekly adaptation.
-- Особенности: сам контроллер тонкий, а реальная работа живёт в `AdaptationService` и `WeeklyAdaptationEngine`.
-
 ## 4. Сервисы: кто владеет бизнес-сценарием
 
 ### 4.1 Базовые и identity-сервисы
@@ -169,7 +163,7 @@ Frontend ApiClient
 |--------|----------------|-------------------------|
 | `TrainingPlanService` | Загрузка плана, статус генерации, enqueue regenerate/recalculate/next plan, reactivate/clear | Деактивирует активный план перед пересчётом, пишет generation message в session/plan metadata |
 | `PlanGenerationQueueService` | Очередь `plan_generation_jobs` | Дедуплицирует активные job'ы, резервирует pending job, планирует retry после fail |
-| `PlanGenerationProcessorService` | Центральный worker-side orchestrator генерации | Выбирает skeleton или legacy path, сохраняет план, активирует последнюю версию, добавляет AI review в чат, persist failure в план |
+| `PlanGenerationProcessorService` | Центральный worker-side orchestrator генерации (PR7: только LLM planner / DeepSeek) | Сохраняет план, активирует последнюю версию, добавляет AI review в чат, persist failure в план, пишет события в `ai_plan_generation_events` |
 | `WeekService` | CRUD недель/дней плана | Валидирует payload, копирует дни/недели, инвалидирует кеш плана |
 | `ExerciseService` | CRUD упражнений дня и reorder exercise list | Валидирует и инвалидирует кеш |
 | `WorkoutService` | `getDay`, manual result flow, import, timeline/laps, delete | Мержит plan + imported workouts + manual log, dedupe-ит импорт, может автообновлять VDOT |
@@ -189,15 +183,15 @@ Frontend ApiClient
 | `ChatService` | Главный orchestrator AI-chat, admin/direct dialogs и streaming | Выполняет tool/action pipeline, сохраняет AI messages, шлёт push после ответа, обновляет unread state |
 | `ChatContextBuilder` | Собирает профиль, план, stats, coaching context, memory и history summary для LLM | Формирует prompt-context и для AI-чата, и для review-like сценариев |
 | `DateResolver` | Извлекает даты из естественного русского текста | Используется, когда user prompt привязан к дате тренировки |
-| `TrainingStateBuilder` | Строит training state для AI и прогнозов | Вычисляет VDOT source/confidence, pace rules, readiness, load policy, weeks-to-goal |
+| `TrainingStateBuilder` | Строит training state для AI и прогнозов | Вычисляет VDOT source/confidence, pace rules, readiness, load policy, weeks-to-goal, recent_compliance, recent_workouts_detailed, season, best_races |
 | `PlanSkeletonBuilder` | Алгоритмический каркас будущего плана | Развешивает quality/long/recovery weeks по preferred days и фазам |
-| `AdaptationService` | Вход в weekly adaptation engine | После анализа недели может отправить AI review-message в чат |
+| `AiPlanGenerationEventLogger` | Observability для plan generation (Phase D.1) | Пишет cohort/model/gate_status/issue_codes в `ai_plan_generation_events`; agg для `admin_ai_plan_metrics` |
 
 Практический смысл:
 
 - `ChatService` знает не только про сообщения, но и про план, прямые диалоги, notification fan-out и AI-side actions.
 - `TrainingStateBuilder` используется и в AI, и в stats/race prediction, поэтому это один из ключевых shared calculation слоёв backend'а.
-- `AdaptationService` - bridge между cron/UI и `WeeklyAdaptationEngine`, а не самостоятельный аналитический движок.
+- PR7 / Phase D.3: `AdaptationService` / `WeeklyAdaptationEngine` удалены. Adaptive recalc теперь идёт через recalculate pipeline (DeepSeek), вызываемый из чата tools или вручную.
 
 ### 4.4 Уведомления и каналы доставки
 

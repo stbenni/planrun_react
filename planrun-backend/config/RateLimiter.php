@@ -31,10 +31,6 @@ class RateLimiter {
             return 'plan_generation';
         }
 
-        if ($action === 'run_weekly_adaptation') {
-            return 'adaptation';
-        }
-
         if (strpos($action, 'chat_send') === 0) {
             return 'chat';
         }
@@ -159,7 +155,6 @@ class RateLimiter {
             'default' => ['max' => 1000, 'window' => 60],     // 1000 запросов в минуту
             'plan_generation' => ['max' => 5, 'window' => 3600],  // 5 запросов в час
             'chat' => ['max' => 20, 'window' => 60],          // 20 сообщений AI в минуту
-            'adaptation' => ['max' => 3, 'window' => 3600],      // 3 запроса в час (было 1 в день)
             'upload' => ['max' => 20, 'window' => 60],         // 20 загрузок в минуту
             'login' => ['max' => 5, 'window' => 300],          // 5 попыток входа в 5 минут
         ];

@@ -71,7 +71,6 @@ import {
   getWorkoutShareMap as performGetWorkoutShareMap,
   getWorkoutShareCard as performGetWorkoutShareCard,
   storeWorkoutShareCard as performStoreWorkoutShareCard,
-  runAdaptation as performRunAdaptation,
 } from './statsApi';
 import {
   getAdminUsers as performGetAdminUsers,
@@ -1142,12 +1141,6 @@ class ApiClient {
 
   async storeWorkoutShareCard(workoutId, payload = {}) {
     return performStoreWorkoutShareCard(this, workoutId, payload);
-  }
-
-  // ========== АДАПТАЦИЯ ==========
-
-  async runAdaptation() {
-    return performRunAdaptation(this);
   }
 
   async regeneratePlan() {

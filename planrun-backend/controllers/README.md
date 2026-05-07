@@ -18,7 +18,6 @@
 - `CoachController.php` - каталог тренеров, заявки, pricing, groups.
 - `NoteController.php` - notes и plan notifications.
 - `AdminController.php` - admin users, site settings, notification templates.
-- `AdaptationController.php` - weekly adaptation.
 
 ## Правила для контроллера
 

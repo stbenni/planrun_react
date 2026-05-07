@@ -36,13 +36,18 @@ LLM_CHAT_MODEL=deepseek-v4-flash
 PLAN_LLM_API_KEY=sk-...
 # PLAN_LLM_API_KEYS=sk-key1,sk-key2
 
-# Планогенерация (после Phase A: одна модель для DeepSeek single_pass)
+# Планогенерация (одна модель для DeepSeek single_pass)
 PLAN_GENERATION_MODE=llm_planner
 PLAN_LLM_MODEL=deepseek-chat
-# Следующие env DEPRECATED после PR2 (читаются только как fallback):
-# PLAN_LLM_PLANNER_MODEL, PLAN_LLM_DETAIL_MODEL, PLAN_LLM_REPAIR_MODEL,
-# PLAN_LLM_ENRICHER_MODEL, PLAN_LLM_REVIEWER_MODEL, PLAN_LLM_PLANNER_STRATEGY,
-# USE_SKELETON_GENERATOR.
+# Phase C.1 — auto-эскалация на reasoner для сложных сценариев:
+PLAN_LLM_REASONER_MODEL=deepseek-reasoner
+PLAN_LLM_AUTO_REASONER=1
+# Phase D.1 — observability:
+PLAN_AI_EVENT_LOG_ENABLED=1
+# Удалены в PR7 / Phase D.3: USE_SKELETON_GENERATOR.
+# DEPRECATED (fallback only): PLAN_LLM_PLANNER_MODEL, PLAN_LLM_DETAIL_MODEL,
+# PLAN_LLM_REPAIR_MODEL, PLAN_LLM_ENRICHER_MODEL, PLAN_LLM_REVIEWER_MODEL,
+# PLAN_LLM_PLANNER_STRATEGY.
 
 # Concurrency limiter
 # LLM_GATEWAY_GLOBAL_MAX_CONCURRENT=8

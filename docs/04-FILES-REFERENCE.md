@@ -237,7 +237,6 @@
 
 | Файл | Строк | Символов | Назначение |
 |------|------:|---------:|------------|
-| `planrun-backend/controllers/AdaptationController.php` | 35 | 3 | Контроллер API для домена adaptation. |
 | `planrun-backend/controllers/AdminController.php` | 532 | 16 | Контроллер API для домена admin. |
 | `planrun-backend/controllers/AuthController.php` | 313 | 10 | Контроллер API для домена auth. |
 | `planrun-backend/controllers/BaseController.php` | 262 | 13 | Контроллер API для домена base. |
@@ -257,7 +256,6 @@
 
 | Файл | Строк | Символов | Назначение |
 |------|------:|---------:|------------|
-| `planrun-backend/services/AdaptationService.php` | 54 | 2 | Сервис бизнес-логики для домена adaptation. |
 | `planrun-backend/services/AuthService.php` | 340 | 10 | Сервис авторизации, refresh-токенов и password reset. |
 | `planrun-backend/services/AvatarService.php` | 546 | 29 | Сервис бизнес-логики для домена avatar. |
 | `planrun-backend/services/BaseService.php` | 79 | 10 | Сервис бизнес-логики для домена base. |
@@ -339,21 +337,6 @@
 | `planrun-backend/planrun_ai/planrun_ai_integration.php` | 157 | 3 | HTTP-интеграция с PlanRun AI API: payload, retry/backoff, max_tokens и возврат JSON-плана. |
 | `planrun-backend/planrun_ai/prompt_builder.php` | 3074 | 44 | Построение промптов и оценка реалистичности целей для AI-пайплайна. |
 | `planrun-backend/planrun_ai/skeleton/ControlWorkoutBuilder.php` | 55 | 2 | Шаблон контрольных тренировок и тестовых недель по race distance и pace rules. |
-| `planrun-backend/planrun_ai/skeleton/enrichment_prompt_builder.php` | 212 | 4 | Компактные prompt builders для LLM-enrichment и LLM-review поверх numeric skeleton. |
-| `planrun-backend/planrun_ai/skeleton/FartlekBuilder.php` | 147 | 4 | Прогрессия фартлек-сессий по сложности сегментов и дистанции. |
-| `planrun-backend/planrun_ai/skeleton/IntervalProgressionBuilder.php` | 189 | 3 | Генератор интервальных сессий по фазам, счётчику тренировок и целевой дистанции. |
-| `planrun-backend/planrun_ai/skeleton/LLMEnricher.php` | 199 | 6 | Вызывает LLM только для обогащения скелета текстовыми `notes`, не доверяя ей числовые поля. |
-| `planrun-backend/planrun_ai/skeleton/LLMReviewer.php` | 126 | 5 | Прогоняет готовый skeleton-plan через LLM reviewer и получает machine-readable issues. |
-| `planrun-backend/planrun_ai/skeleton/OfpProgressionBuilder.php` | 74 | 2 | Строит недельную схему ОФП с учётом preference и recovery-state. |
-| `planrun-backend/planrun_ai/skeleton/PlanAutoFixer.php` | 289 | 10 | Автоматически чинит pace logic, volume jumps, consecutive key workouts и recovery/taper issues. |
-| `planrun-backend/planrun_ai/skeleton/PlanSkeletonGenerator.php` | 607 | 15 | Главный rule-based numeric generator: user/state/macrocycle -> полный числовой план без LLM. |
-| `planrun-backend/planrun_ai/skeleton/RacePaceProgressionBuilder.php` | 253 | 4 | Генерирует race-pace tempo блоки и повторные сессии для MP/HMP/10k/R-pace сценариев. |
-| `planrun-backend/planrun_ai/skeleton/SkeletonValidator.php` | 286 | 5 | Сравнивает enriched план с исходным скелетом и валидирует его внутреннюю непротиворечивость. |
-| `planrun-backend/planrun_ai/skeleton/StartRunningProgramBuilder.php` | 162 | 5 | Фиксированные beginner-программы для `start_running`/`couch_to_5k`. |
-| `planrun-backend/planrun_ai/skeleton/TempoProgressionBuilder.php` | 148 | 2 | Прогрессия threshold tempo сессий по фазам и счётчику недель. |
-| `planrun-backend/planrun_ai/skeleton/VolumeDistributor.php` | 398 | 11 | Распределяет недельный объём по дням и создаёт структурные поля pace/duration/key workouts. |
-| `planrun-backend/planrun_ai/skeleton/WarmupCooldownHelper.php` | 46 | 4 | Вспомогательные warmup/cooldown defaults по дистанции. |
-| `planrun-backend/planrun_ai/skeleton/WeeklyAdaptationEngine.php` | 727 | 18 | Еженедельный анализ plan-vs-fact с trigger-based адаптацией и запуском recalculate pipeline. |
 | `planrun-backend/planrun_ai/text_generator.php` | 95 | 2 | Вспомогательная генерация короткого текстового описания тренировки из массива exercises. |
 | `planrun-backend/planrun_ai/validators/goal_consistency_validator.php` | 114 | 1 | Проверка соответствия интенсивности цели, уровню и special population flags. |
 | `planrun-backend/planrun_ai/validators/load_validator.php` | 78 | 1 | Проверка скачков недельного объёма и подряд идущих key workouts. |
@@ -412,7 +395,7 @@
 | `planrun-backend/scripts/strava_daily_health_check.php` | 100 | 0 | Регулярная проверка Strava-интеграции: refresh токенов, athlete id и webhook subscription. |
 | `planrun-backend/scripts/strava_register_webhook.php` | 46 | 0 | Ручная регистрация или перепривязка Strava webhook subscription. |
 | `planrun-backend/scripts/update_vdot_from_training.php` | 81 | 0 | Выбирает лучшую свежую тренировку и обновляет user-level `last_race_*`/VDOT-ориентиры. |
-| `planrun-backend/scripts/weekly_ai_review.php` | 251 | 2 | Еженедельный AI cron: review в чат или full weekly adaptation через `AdaptationService`. |
+| `planrun-backend/scripts/weekly_ai_review.php` | 215 | 1 | Еженедельный AI cron: review-only в чат через DeepSeek (PR7: full weekly adaptation удалено). |
 | `planrun-backend/telegram/set-all-webhooks.php` | 75 | 0 | CLI/cron-скрипт: set all webhooks. |
 | `planrun-backend/telegram/webhook-proxy.php` | 101 | 1 | CLI/cron-скрипт: webhook proxy. |
 

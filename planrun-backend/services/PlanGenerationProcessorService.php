@@ -36,12 +36,13 @@ class PlanGenerationProcessorService extends BaseService {
         $planEventLogged = false;
 
         try {
-            // Phase A.1: единственный production-путь — llm_planner (DeepSeek V4).
-            // Если PLAN_GENERATION_MODE не задан (legacy default), всё ещё пускаем legacy
-            // ветки до Phase A.4 (где они также будут удалены/упрощены).
+            // PR7 / Phase D.3: единственный production-путь — llm_planner (DeepSeek V4).
+            // USE_SKELETON_GENERATOR полностью удалён вместе с _legacy/skeleton/.
+            // Если PLAN_GENERATION_MODE не задан, идём через прямые legacy-функции
+            // (generatePlanViaPlanRunAI / recalculatePlanViaPlanRunAI), которые сами
+            // используют DeepSeek через старый pipeline.
             $generationMode = strtolower(trim((string) env('PLAN_GENERATION_MODE', '')));
             $useLlmPlanner = $generationMode === 'llm_planner';
-            $useSkeletonGenerator = !$useLlmPlanner && (bool) (env('USE_SKELETON_GENERATOR', '0'));
 
             $userReason = isset($payload['reason']) ? trim((string) $payload['reason']) : null;
             $userGoals = isset($payload['goals']) ? trim((string) $payload['goals']) : null;
@@ -52,8 +53,7 @@ class PlanGenerationProcessorService extends BaseService {
             $this->logInfo("Начало {$mode} плана", [
                 'user_id' => $userId,
                 'job_type' => $jobType,
-                'generation_mode' => $useLlmPlanner ? 'llm_planner' : ($useSkeletonGenerator ? 'skeleton' : 'legacy'),
-                'skeleton_generator' => $useSkeletonGenerator,
+                'generation_mode' => $useLlmPlanner ? 'llm_planner' : 'legacy',
             ]);
 
             if ($useLlmPlanner) {
@@ -67,10 +67,6 @@ class PlanGenerationProcessorService extends BaseService {
                 if (is_array($trainingState)) {
                     $planEventTrainingState = $trainingState;
                 }
-            } elseif ($useSkeletonGenerator) {
-                // Phase A.1: skeleton-first отключён. Метод processViaSkeleton бросит explicit-exception.
-                $this->processViaSkeleton($userId, $jobType, $payload);
-                throw new RuntimeException('unreachable', 500);
             } elseif ($isNextPlan) {
                 $planData = generateNextPlanViaPlanRunAI($userId, $userGoals);
                 $generatedStartDate = null;
@@ -164,7 +160,7 @@ class PlanGenerationProcessorService extends BaseService {
             ]);
 
             $obsPayload['weeks_count'] = $resultPayload['weeks_count'];
-            $obsPayload['generator'] = $planData['_generation_metadata']['generator'] ?? ($useSkeletonGenerator ? 'PlanSkeletonGenerator' : 'legacy');
+            $obsPayload['generator'] = $planData['_generation_metadata']['generator'] ?? 'legacy';
             $obsPayload['explanation_summary'] = $planData['_generation_metadata']['explanation']['summary'] ?? null;
 
             // PR6 / Phase D.1: записываем success-событие только для llm_planner production-пути.
@@ -644,26 +640,11 @@ class PlanGenerationProcessorService extends BaseService {
         return ['permissive', 'auto_default_permissive'];
     }
 
-    /**
-     * Phase A.1: skeleton-first путь отключён в production.
-     *
-     * Сохраняем метод как явный «дисабл», чтобы `process()` мог дать понятную
-     * ошибку при `USE_SKELETON_GENERATOR=1`. Сам код `PlanSkeletonGenerator`
-     * перенесён в `planrun_ai/_legacy/skeleton/`. Используется только из
-     * diagnostic-скриптов (`live_planning_e2e.php`, `recalc_feedback_scenarios.php`)
-     * и `WeeklyAdaptationEngine` через `services/AdaptationService.php`.
-     *
-     * Production генерация — `PLAN_GENERATION_MODE=llm_planner` (DeepSeek V4).
-     * См. `docs/PLANS-AI-V2.md` раздел 2a Phase A.1.
-     */
-    private function processViaSkeleton(int $userId, string $jobType, array $payload): array {
-        throw new RuntimeException(
-            'skeleton-first plan generation отключён в production. '
-            . 'Установите PLAN_GENERATION_MODE=llm_planner (DeepSeek V4). '
-            . 'См. docs/PLANS-AI-V2.md раздел 2a Phase A.1.',
-            500
-        );
-    }
+    // PR7 / Phase D.3: метод processViaSkeleton удалён вместе с _legacy/skeleton/ и
+    // env USE_SKELETON_GENERATOR. Production-путь теперь только PLAN_GENERATION_MODE=llm_planner
+    // (DeepSeek V4). Если PLAN_GENERATION_MODE пустой, идём через legacy generatePlanViaPlanRunAI
+    // / recalculatePlanViaPlanRunAI / generateNextPlanViaPlanRunAI (они сами зовут DeepSeek
+    // через старую обёртку, в production это не должно встречаться).
 
     private function buildQualityGateFailureMessage(array $issues): string {
         $blockingIssues = array_values(array_filter(

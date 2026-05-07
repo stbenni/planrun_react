@@ -70,7 +70,3 @@ export function getTrainingLoad(client, viewContext = null, days = 90) {
   if (days) params.days = days;
   return client.request('training_load', params, 'GET');
 }
-
-export function runAdaptation(client) {
-  return client.request('run_weekly_adaptation', {}, 'GET');
-}

@@ -1,5 +1,7 @@
 # План: Race-Pace тренировки для всех дистанций
 
+> **OBSOLETE (PR7 / Phase D.3, 2026-05).** Этот документ — design-proposal старого `_legacy/skeleton/` пути, который полностью удалён вместе с `PlanSkeletonGenerator`, `VolumeDistributor`, `RacePaceProgressionBuilder`, `enrichment_prompt_builder`. Race-pace логика теперь живёт в FACTS_JSON: `training_state.pace_rules` содержит `marathon_pace_sec`, `half_pace_sec`, `ten_k_pace_sec`, `repetition_sec`; `goal_realism` и `best_races_at_target_distance` дают модели контекст соревновательного темпа. DeepSeek V4 сам решает, когда вставлять race-pace сегменты, на основе цели и фазы.
+
 ## Проблема
 
 Сейчас есть только два типа ключевых тренировок: tempo (T-pace, порог) и interval (I-pace, VO2max).

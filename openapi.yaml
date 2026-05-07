@@ -51,7 +51,6 @@ paths:
               - chat_admin_chat_users
               - chat_admin_unread_notifications
               - chat_admin_get_messages
-              - run_weekly_adaptation
           description: Имя действия (см. полный список в описании)
       responses:
         '200':

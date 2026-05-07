@@ -21,8 +21,4 @@ class RateLimiterActionBucketTest extends TestCase {
         $this->assertSame('chat', \RateLimiter::resolveApiActionBucket('chat_send_message'));
         $this->assertSame('chat', \RateLimiter::resolveApiActionBucket('chat_send_message_stream'));
     }
-
-    public function test_adaptation_action_uses_adaptation_bucket(): void {
-        $this->assertSame('adaptation', \RateLimiter::resolveApiActionBucket('run_weekly_adaptation'));
-    }
 }

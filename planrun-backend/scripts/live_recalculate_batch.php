@@ -1124,7 +1124,9 @@ $scenarioMode = in_array((string) ($args['scenario-mode'] ?? 'deterministic'), [
     ? (string) $args['scenario-mode']
     : 'deterministic';
 
-liveRecalcSetEnv('USE_SKELETON_GENERATOR', '1');
+// PR7 / Phase D.3: USE_SKELETON_GENERATOR удалён вместе с _legacy/skeleton/.
+// Diagnostic-скрипт теперь работает только с PLAN_GENERATION_MODE=llm_planner (DeepSeek).
+liveRecalcSetEnv('PLAN_GENERATION_MODE', 'llm_planner');
 if ($fastFallback) {
     liveRecalcSetEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:1/v1');
 }

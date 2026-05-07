@@ -288,8 +288,9 @@ $limit = max(1, min(200, (int) ($args['limit'] ?? 50)));
 $saveDir = (string) ($args['save-dir'] ?? ($baseDir . '/tmp/live_plan_generation'));
 $fastFallback = liveNextBool($args['fast-llm-fallback'] ?? '1');
 
+// PR7 / Phase D.3: USE_SKELETON_GENERATOR удалён. Скрипт работает только в llm_planner-режиме.
+liveNextSetEnv('PLAN_GENERATION_MODE', 'llm_planner');
 if ($fastFallback) {
-    liveNextSetEnv('USE_SKELETON_GENERATOR', '1');
     liveNextSetEnv('LLM_CHAT_BASE_URL', 'http://127.0.0.1:1/v1');
     liveNextSetEnv('LLM_CHAT_API_KEY', 'live-next-fallback');
 }
