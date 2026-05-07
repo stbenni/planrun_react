@@ -25,6 +25,9 @@ class DeepSeekPlanPlanner
     private int $timeoutSeconds;
     private int $connectTimeoutSeconds;
     private bool $enableThinking;
+    private string $reasonerModel;
+    private bool $autoReasoner;
+    private int $reasonerTimeoutSeconds;
     private ?string $observabilityTraceId = null;
     private ?int $observabilityUserId = null;
     private string $observabilitySurface = 'plan_generation';
@@ -53,6 +56,15 @@ class DeepSeekPlanPlanner
         );
         $this->connectTimeoutSeconds = $this->envInt('PLAN_LLM_CONNECT_TIMEOUT_SECONDS', 10, 1, 60);
         $this->enableThinking = $this->envBool('PLAN_LLM_PLANNER_THINKING', false);
+        // Phase C.1 (PR5): deepseek-reasoner для сложных сценариев.
+        $this->reasonerModel = (string) env('PLAN_LLM_REASONER_MODEL', 'deepseek-reasoner');
+        $this->autoReasoner = $this->envBool('PLAN_LLM_AUTO_REASONER', true);
+        $this->reasonerTimeoutSeconds = $this->envInt(
+            'PLAN_LLM_REASONER_TIMEOUT_SECONDS',
+            max(360, $this->timeoutSeconds + 120),
+            60,
+            900
+        );
     }
 
     public function setObservabilityContext(?string $traceId, ?int $userId = null, string $surface = 'plan_generation'): void
@@ -77,7 +89,12 @@ class DeepSeekPlanPlanner
         $weeksCount = $this->resolveWeeksCount($state, $user, $startDate);
         $context = $this->buildPlannerContext($user, $state, $payload, $jobType, $startDate, $weeksCount);
 
-        $generationArtifact = $this->generateFullPlan($context);
+        // Phase C.1 (PR5): для сложных сценариев (return_after_injury + b_race + goal_realism=major
+        // или ≥2 risk-флагов одновременно) переключаемся на deepseek-reasoner с enable_thinking.
+        // Auto-reasoner работает по умолчанию; отключается через PLAN_LLM_AUTO_REASONER=0.
+        $modelSelection = $this->resolveModelSelection($state);
+
+        $generationArtifact = $this->generateFullPlan($context, $modelSelection);
         $weeks = array_values((array) ($generationArtifact['weeks'] ?? []));
         $weeks = $this->alignWeekTargetsToCalendar($weeks);
         $macro = $this->deriveMacroPlanFromWeeks($weeks);
@@ -86,7 +103,10 @@ class DeepSeekPlanPlanner
         $plan['_generation_metadata'] = [
             'generator' => 'DeepSeekPlanPlanner',
             'generation_mode' => 'llm_planner',
-            'model' => $this->model,
+            'model' => $modelSelection['model'],
+            'model_selection_reason' => $modelSelection['reason'],
+            'model_complexity_score' => $modelSelection['score'],
+            'enable_thinking' => $modelSelection['enable_thinking'],
             'planner_strategy' => 'single_pass',
             'schedule_anchor_date' => $startDate,
             'macro_plan' => $macro,
@@ -106,10 +126,262 @@ class DeepSeekPlanPlanner
         ];
     }
 
-    private function generateFullPlan(array $context): array
+    private function generateFullPlan(array $context, ?array $modelSelection = null): array
     {
         $prompt = $this->buildFullPlanPrompt($context);
-        return $this->requestJson($this->model, $prompt, $this->maxTokens, $this->timeoutSeconds, $this->enableThinking);
+        $selection = $modelSelection ?? [
+            'model' => $this->model,
+            'enable_thinking' => $this->enableThinking,
+            'timeout_seconds' => $this->timeoutSeconds,
+            'reason' => 'default',
+            'score' => 0,
+        ];
+        return $this->requestJson(
+            (string) $selection['model'],
+            $prompt,
+            $this->maxTokens,
+            (int) $selection['timeout_seconds'],
+            (bool) $selection['enable_thinking']
+        );
+    }
+
+    /**
+     * Phase C.1 (PR5): выбор модели и thinking-режима на основе сложности сценария.
+     *
+     * Сложный сценарий = одновременно ≥2 факторов риска из:
+     *   - planning_scenario.flags ∈ {return_after_injury, pain_protective, illness_protective,
+     *     b_race_before_a_race, short_runway_taper, short_runway_long_race}
+     *   - special_population_flags ∈ {pregnant_or_postpartum, return_after_injury,
+     *     recent_pain_signal, recent_illness_signal}
+     *   - goal_realism.severity == 'major'
+     *
+     * При complexity_score ≥ 2 — переключаемся на deepseek-reasoner с enable_thinking=true и
+     * расширенным timeout (по умолчанию +120 сек). Это даёт модели больше внутреннего reasoning
+     * budget для сложных кейсов, где простой single-pass может ошибиться.
+     *
+     * Auto-reasoner отключается через `PLAN_LLM_AUTO_REASONER=0` — тогда всегда используется
+     * базовая модель (`PLAN_LLM_MODEL`).
+     */
+    public function resolveModelSelection(array $state): array
+    {
+        $score = $this->computeComplexityScore($state);
+
+        if ($this->autoReasoner && $score >= 2) {
+            return [
+                'model' => $this->reasonerModel,
+                'enable_thinking' => true,
+                'timeout_seconds' => $this->reasonerTimeoutSeconds,
+                'reason' => 'complex_scenario',
+                'score' => $score,
+            ];
+        }
+
+        return [
+            'model' => $this->model,
+            'enable_thinking' => $this->enableThinking,
+            'timeout_seconds' => $this->timeoutSeconds,
+            'reason' => $score > 0 ? 'simple_scenario_with_minor_risks' : 'default',
+            'score' => $score,
+        ];
+    }
+
+    /**
+     * Phase C.2 (PR5): targeted retry для конкретных недель плана.
+     *
+     * Используется после quality gate failure, когда issues локализованы по 1-2 неделям.
+     * Вместо полной регенерации плана (45-120 секунд + дорого) — переотправляем модели
+     * только проблемные недели с конкретным фидбеком и существующим контекстом плана.
+     *
+     * @param array $context Существующий context из buildPlannerContext (FACTS_JSON).
+     * @param array $existingPlan Существующий план (массив недель, week_number → week structure).
+     * @param int[] $weekNumbersToRedo Номера недель, которые нужно перевыдать.
+     * @param string[] $issueHints Конкретные issue messages для модели (по одному на week_number или общие).
+     * @return array Результат: ['weeks' => [...перевыданные недели...], 'plan_summary' => ...]
+     * @throws RuntimeException если ответ не содержит запрошенных недель.
+     */
+    public function regenerateWeeks(array $context, array $existingPlan, array $weekNumbersToRedo, array $issueHints = []): array
+    {
+        $weekNumbersToRedo = array_values(array_unique(array_map('intval', $weekNumbersToRedo)));
+        sort($weekNumbersToRedo, SORT_NUMERIC);
+        if (empty($weekNumbersToRedo)) {
+            throw new RuntimeException('regenerateWeeks: weekNumbersToRedo cannot be empty', 400);
+        }
+        if (count($weekNumbersToRedo) > 4) {
+            throw new RuntimeException('regenerateWeeks: too many weeks (max 4); use full regeneration instead', 400);
+        }
+
+        $prompt = $this->buildTargetedRetryPrompt($context, $existingPlan, $weekNumbersToRedo, $issueHints);
+
+        // Targeted retry — обычно проще, чем full plan; используем базовую модель и стандартный timeout.
+        $response = $this->requestJson($this->model, $prompt, $this->maxTokens, $this->timeoutSeconds, $this->enableThinking);
+
+        $weeks = array_values((array) ($response['weeks'] ?? []));
+        if (empty($weeks)) {
+            throw new RuntimeException('regenerateWeeks: response did not contain weeks array', 500);
+        }
+
+        $returnedNumbers = array_map(fn($w) => (int) ($w['week_number'] ?? 0), $weeks);
+        $missing = array_diff($weekNumbersToRedo, $returnedNumbers);
+        if (!empty($missing)) {
+            throw new RuntimeException(
+                'regenerateWeeks: response missing weeks: ' . implode(',', $missing),
+                500
+            );
+        }
+
+        return [
+            'weeks' => $weeks,
+            'plan_summary' => $response['plan_summary'] ?? null,
+            'risk_review' => $response['risk_review'] ?? null,
+        ];
+    }
+
+    /**
+     * Phase C.2 (PR5): применить регенерированные недели к существующему плану.
+     * Заменяет недели по week_number; остальные остаются нетронутыми.
+     *
+     * @param array $existingPlan План в формате normalizeWeekCollection (`weeks_data.weeks`).
+     * @param array $regeneratedWeeks Массив недель из regenerateWeeks.
+     * @return array Обновлённый план.
+     */
+    public function applyRegeneratedWeeks(array $existingPlan, array $regeneratedWeeks): array
+    {
+        $weeks = (array) ($existingPlan['weeks_data']['weeks'] ?? $existingPlan['weeks'] ?? []);
+        if (empty($weeks)) {
+            return $existingPlan;
+        }
+
+        $regeneratedByNumber = [];
+        foreach ($regeneratedWeeks as $w) {
+            $num = (int) ($w['week_number'] ?? 0);
+            if ($num > 0) {
+                $regeneratedByNumber[$num] = $w;
+            }
+        }
+
+        $merged = [];
+        foreach ($weeks as $w) {
+            $num = (int) ($w['week_number'] ?? 0);
+            if ($num > 0 && isset($regeneratedByNumber[$num])) {
+                $merged[] = $regeneratedByNumber[$num];
+            } else {
+                $merged[] = $w;
+            }
+        }
+
+        $aligned = $this->alignWeekTargetsToCalendar($merged);
+
+        if (isset($existingPlan['weeks_data']['weeks'])) {
+            $existingPlan['weeks_data']['weeks'] = $aligned;
+        }
+        if (isset($existingPlan['weeks'])) {
+            $existingPlan['weeks'] = $aligned;
+        }
+
+        $existingPlan['_generation_metadata']['targeted_retry'] = [
+            'regenerated_week_numbers' => array_keys($regeneratedByNumber),
+            'regenerated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+        ];
+
+        return $existingPlan;
+    }
+
+    /**
+     * Phase C.2 (PR5): prompt для targeted retry. Передаёт DeepSeek существующий план как
+     * контекст (для непрерывности фаз/прогрессии), точные week_numbers и issue hints — и
+     * просит вернуть только заменённые недели.
+     */
+    private function buildTargetedRetryPrompt(array $context, array $existingPlan, array $weekNumbersToRedo, array $issueHints): string
+    {
+        $existingWeeks = (array) ($existingPlan['weeks_data']['weeks'] ?? $existingPlan['weeks'] ?? []);
+        $weeksContext = [];
+        foreach ($existingWeeks as $w) {
+            $num = (int) ($w['week_number'] ?? 0);
+            $weeksContext[] = [
+                'week_number' => $num,
+                'phase' => $w['phase'] ?? null,
+                'is_recovery' => (bool) ($w['is_recovery'] ?? false),
+                'target_volume_km' => $w['target_volume_km'] ?? null,
+                'is_to_redo' => in_array($num, $weekNumbersToRedo, true),
+            ];
+        }
+
+        $promptContext = [
+            'weeks_count' => $context['weeks_count'] ?? null,
+            'calendar_weeks' => array_values(array_filter(
+                (array) ($context['calendar_weeks'] ?? []),
+                fn($w) => in_array((int) ($w['week_number'] ?? 0), $weekNumbersToRedo, true)
+            )),
+            'training_state' => $context['training_state'] ?? null,
+            'planning_scenario' => $context['planning_scenario'] ?? null,
+            'goal_realism' => $context['goal_realism'] ?? null,
+            'hard_rules' => $context['hard_rules'] ?? null,
+            'season' => $context['season'] ?? null,
+            'best_races' => $context['best_races'] ?? null,
+            'recent_compliance' => $context['recent_compliance'] ?? null,
+            'recent_workouts' => $context['recent_workouts'] ?? null,
+        ];
+
+        $hintLines = '';
+        if (!empty($issueHints)) {
+            foreach ($issueHints as $h) {
+                $hintLines .= "- " . trim((string) $h) . "\n";
+            }
+        }
+
+        return "Ты — тренер по бегу. Тебе уже составлен план; quality gate указал на проблемы в конкретных неделях. "
+            . "Перевыдай только эти недели целиком (по 7 дней), сохраняя совместимость с остальным планом и фазами.\n\n"
+            . "Недели для перевыдачи (week_numbers): " . implode(', ', $weekNumbersToRedo) . "\n"
+            . ($hintLines !== '' ? "\nИзвестные проблемы:\n" . $hintLines . "\n" : "")
+            . "Существующая структура недель плана (для контекста, чтобы новые недели согласовывались с фазами):\n"
+            . json_encode($weeksContext, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n\n"
+            . "Используй HARD_RULES_JSON и FACTS_JSON ниже как медицинские/расписательные/языковые границы. "
+            . "Уважай required_run_day_numbers / allowed_run_day_numbers и medical safety. "
+            . "Все человекочитаемые строки на русском (notes, macro_adjustment_reason, plan_summary, risk_review).\n\n"
+            . "Формат ответа — ровно тот же JSON, но в weeks включи только запрошенные недели:\n"
+            . "{\n"
+            . "  \"plan_summary\":\"короткое резюме изменений\",\n"
+            . "  \"risk_review\":[\"короткий риск\"],\n"
+            . "  \"weeks\":[ ровно " . count($weekNumbersToRedo) . " элементов с week_number в "
+            . json_encode($weekNumbersToRedo) . " ]\n"
+            . "}\n\n"
+            . "FACTS_JSON:\n" . json_encode($promptContext, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    }
+
+    /**
+     * Phase C.1 (PR5): подсчёт сложности сценария. См. resolveModelSelection.
+     * Возвращает int 0..N где N — количество одновременных факторов риска.
+     */
+    public function computeComplexityScore(array $state): int
+    {
+        $score = 0;
+
+        $sensitivePopulationFlags = ['pregnant_or_postpartum', 'return_after_injury', 'recent_pain_signal', 'recent_illness_signal'];
+        $populationFlags = (array) ($state['special_population_flags'] ?? []);
+        foreach ($sensitivePopulationFlags as $flag) {
+            if (in_array($flag, $populationFlags, true)) {
+                $score++;
+            }
+        }
+
+        $highRiskScenarioFlags = [
+            'return_after_injury', 'pain_protective', 'illness_protective',
+            'b_race_before_a_race', 'short_runway_taper', 'short_runway_long_race',
+            'low_confidence_start',
+        ];
+        $scenarioFlags = (array) ($state['planning_scenario']['flags'] ?? []);
+        foreach ($highRiskScenarioFlags as $flag) {
+            if (in_array($flag, $scenarioFlags, true)) {
+                $score++;
+            }
+        }
+
+        $severity = (string) ($state['goal_realism']['severity'] ?? '');
+        if ($severity === 'major') {
+            $score++;
+        }
+
+        return $score;
     }
 
     private function buildSystemPrompt(): string

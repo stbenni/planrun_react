@@ -472,17 +472,20 @@
 
 ### Phase C — Reasoning и retry
 
-#### C.1 DeepSeek-reasoner для сложных сценариев
-- Если в FACTS_JSON одновременно: `return_after_injury` + `b_race_before_a_race` + `short_runway` (или другие комбинации флагов риска) — использовать `deepseek-reasoner` (с включённым `enable_thinking`). Дороже, но даёт лучший план для сложных кейсов.
-- Простой single-flag сценарий — обычный `deepseek-chat`.
+#### C.1 ✅ DeepSeek-reasoner для сложных сценариев
+- ✅ `DeepSeekPlanPlanner::computeComplexityScore($state)` — подсчёт факторов риска: `planning_scenario.flags` ({return_after_injury, pain_protective, illness_protective, b_race_before_a_race, short_runway_taper, short_runway_long_race, low_confidence_start}), `special_population_flags` ({pregnant_or_postpartum, return_after_injury, recent_pain_signal, recent_illness_signal}), `goal_realism.severity == 'major'`.
+- ✅ `DeepSeekPlanPlanner::resolveModelSelection($state)` — при score ≥ 2 переключает на `deepseek-reasoner` с `enable_thinking=true` и расширенным timeout (по умолчанию +120 сек к базовому). Метаданные (`model`, `model_selection_reason`, `model_complexity_score`, `enable_thinking`) пишутся в `_generation_metadata`.
+- ✅ Конфигурация: `PLAN_LLM_REASONER_MODEL` (default `deepseek-reasoner`), `PLAN_LLM_AUTO_REASONER` (default `1` — включено), `PLAN_LLM_REASONER_TIMEOUT_SECONDS` (default `360`).
+- Простой single-flag сценарий — остаётся базовая `PLAN_LLM_MODEL` (`deepseek-chat`).
 
-#### C.2 Targeted retry для одной недели
-- Если quality gate возвращает issues только для 1–2 недель — переотправлять только эти недели с конкретным фидбеком, а не весь план. Например: «Неделя 6 имеет long share 55% week — пересмотри long run и распределение в этой неделе».
-- DeepSeek возвращает `{week_number, days[]}`, мы вставляем в существующий план.
-- Это значительно быстрее и стабильнее, чем full repair.
+#### C.2 ✅ Targeted retry для 1-2 недель (утилита)
+- ✅ `DeepSeekPlanPlanner::regenerateWeeks($context, $existingPlan, $weekNumbers, $issueHints)` — отправляет в DeepSeek prompt с минимальным контекстом и просит вернуть только указанные недели. Лимит — 4 недели за запрос (свыше — full regeneration).
+- ✅ `DeepSeekPlanPlanner::applyRegeneratedWeeks($plan, $regeneratedWeeks)` — заменяет недели в существующем плане по `week_number`, прогоняет `alignWeekTargetsToCalendar`, дополняет `_generation_metadata.targeted_retry`.
+- ✅ `buildTargetedRetryPrompt` — даёт модели общую структуру плана (week_number, phase, target_volume_km всех недель) для согласования фаз и просит JSON ровно с N недель.
+- ⚠️ Автоматическая интеграция в pipeline после quality gate failure — отложена в будущий PR (для аккуратной оценки full vs targeted regeneration). Сейчас метод доступен как утилита для ручного вызова / диагностических скриптов.
 
 #### C.3 Multi-pass только для очень длинных планов
-- Планы >24 недель (марафон с 6-месячной подготовкой): можно делать 2 запроса — base/build + peak/taper, с обменом контекстом между ними. Но **только если single_pass не справляется по качеству**, и решение принимается метриками, а не дефолтом.
+- Планы >24 недель (марафон с 6-месячной подготовкой): можно делать 2 запроса — base/build + peak/taper, с обменом контекстом между ними. Но **только если single_pass не справляется по качеству**, и решение принимается метриками, а не дефолтом. Откладываем до Phase D, когда у нас будут метрики для оценки.
 
 ---
 
@@ -532,12 +535,12 @@
 | ✅ PR1 | P0.1 + P0.2 + P0.3 + P0.4 + auto-mode softening | Unit + расширенные snapshot | Готово (этот PR) |
 | ✅ PR2 | Phase A.1–A.8 (skeleton-out, single_pass, single model, repair-loop удалён, slim hard_rules, medical thresholds, no macrocycle precompute, normalizer warnings) | Unit 335/336 | Готово (предыдущий PR) |
 | ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (предыдущий PR) |
-| ✅ PR4 | Phase B.3+B.4+B.5 (season/climate hints, best_races_progression top 5k/10k/half/marathon за 52 нед., goal_realism v2 — best_races_at_target_distance) | Unit 346/346 | Готово (этот PR) |
-| PR5 | Phase C.1+C.2 (deepseek-reasoner для сложных, targeted retry для одной недели) | E2E reasoner | Следующий |
-| PR6 | Phase D.1+D.2 (plan quality dashboard, A/B test) | Observability | |
-| PR7 | Phase D.3 (rollout + cleanup `_legacy/skeleton/`) | Canary | |
+| ✅ PR4 | Phase B.3+B.4+B.5 (season/climate hints, best_races_progression top 5k/10k/half/marathon за 52 нед., goal_realism v2 — best_races_at_target_distance) | Unit 346/346 | Готово (предыдущий PR) |
+| ✅ PR5 | Phase C.1 (auto-эскалация на `deepseek-reasoner` при complexity score ≥2) + C.2 утилита (regenerateWeeks для targeted retry до 4 недель) | Unit 364/364 | Готово (этот PR) |
+| PR6 | Phase D.1 (plan quality dashboard: ai_plan_generation_events table + endpoint) | Observability | Следующий |
+| PR7 | Phase D.3 (cleanup `_legacy/skeleton/` + USE_SKELETON_GENERATOR; D.2/A/B и D.3 canary помечены outdated — simplified arch уже в проде) | — | После PR6 |
 
-**Этот PR (PR4):** Phase B.3+B.4+B.5 — DeepSeek получает климатический контекст (season, hemisphere) и trajectory лучших результатов на ключевых дистанциях. Это закрывает Phase B полностью: контекст вместо контроля.
+**Этот PR (PR5):** Phase C — `deepseek-reasoner` для сложных кейсов (комбинации risk-флагов) и утилитарные методы для targeted retry конкретных недель плана. Автоматическая интеграция targeted retry в pipeline отложена до момента, когда у нас будет дашборд (PR6) и можно будет оценить, какие issues realistically локализуются по неделям.
 
 ---
 

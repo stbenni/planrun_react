@@ -289,4 +289,220 @@ class DeepSeekPlanPlannerPromptTest extends TestCase
         $this->assertSame(1, (int) ($guard['days_before_plan_start'] ?? 0));
         $this->assertSame(19.2, (float) ($guard['week_1_long_run_max_km'] ?? 0.0));
     }
+
+    // ========================================================================
+    // Phase C.1 (PR5): tests for complexity scoring and model selection
+    // ========================================================================
+
+    public function test_compute_complexity_score_returns_zero_for_clean_state(): void
+    {
+        $score = $this->planner->computeComplexityScore([
+            'planning_scenario' => ['flags' => []],
+            'special_population_flags' => [],
+            'goal_realism' => ['severity' => 'none'],
+        ]);
+
+        $this->assertSame(0, $score);
+    }
+
+    public function test_compute_complexity_score_counts_scenario_flags(): void
+    {
+        $score = $this->planner->computeComplexityScore([
+            'planning_scenario' => [
+                'flags' => ['return_after_injury', 'pain_protective', 'b_race_before_a_race'],
+            ],
+            'special_population_flags' => [],
+            'goal_realism' => ['severity' => 'none'],
+        ]);
+
+        $this->assertSame(3, $score);
+    }
+
+    public function test_compute_complexity_score_counts_population_flags_and_goal_realism(): void
+    {
+        $score = $this->planner->computeComplexityScore([
+            'planning_scenario' => ['flags' => ['short_runway_long_race']],
+            'special_population_flags' => ['return_after_injury', 'recent_pain_signal'],
+            'goal_realism' => ['severity' => 'major'],
+        ]);
+
+        $this->assertSame(4, $score);
+    }
+
+    public function test_resolve_model_selection_uses_default_for_low_score(): void
+    {
+        $selection = $this->planner->resolveModelSelection([
+            'planning_scenario' => ['flags' => []],
+            'special_population_flags' => [],
+            'goal_realism' => ['severity' => 'none'],
+        ]);
+
+        $this->assertSame(0, $selection['score']);
+        $this->assertSame('default', $selection['reason']);
+        $this->assertFalse($selection['enable_thinking']);
+    }
+
+    public function test_resolve_model_selection_escalates_to_reasoner_for_complex_scenario(): void
+    {
+        // ≥2 факторов риска одновременно → escalate.
+        $selection = $this->planner->resolveModelSelection([
+            'planning_scenario' => [
+                'flags' => ['return_after_injury', 'b_race_before_a_race'],
+            ],
+            'special_population_flags' => [],
+            'goal_realism' => ['severity' => 'major'],
+        ]);
+
+        $this->assertGreaterThanOrEqual(2, $selection['score']);
+        $this->assertSame('complex_scenario', $selection['reason']);
+        $this->assertTrue($selection['enable_thinking']);
+        $this->assertSame('deepseek-reasoner', $selection['model']);
+        $this->assertGreaterThan(120, (int) $selection['timeout_seconds']);
+    }
+
+    public function test_resolve_model_selection_does_not_escalate_for_single_minor_risk(): void
+    {
+        $selection = $this->planner->resolveModelSelection([
+            'planning_scenario' => ['flags' => ['low_confidence_start']],
+            'special_population_flags' => [],
+            'goal_realism' => ['severity' => 'none'],
+        ]);
+
+        $this->assertSame(1, $selection['score']);
+        $this->assertSame('simple_scenario_with_minor_risks', $selection['reason']);
+        $this->assertFalse($selection['enable_thinking']);
+    }
+
+    // ========================================================================
+    // Phase C.2 (PR5): tests for targeted retry
+    // ========================================================================
+
+    public function test_build_targeted_retry_prompt_focuses_on_requested_weeks(): void
+    {
+        $method = new \ReflectionMethod($this->planner, 'buildTargetedRetryPrompt');
+        $method->setAccessible(true);
+
+        $context = [
+            'weeks_count' => 4,
+            'calendar_weeks' => [
+                ['week_number' => 1, 'days' => []],
+                ['week_number' => 2, 'days' => []],
+                ['week_number' => 3, 'days' => []],
+                ['week_number' => 4, 'days' => []],
+            ],
+            'training_state' => ['load_policy' => null],
+            'hard_rules' => ['allowed_run_day_numbers' => [1, 3, 5, 7]],
+        ];
+        $existingPlan = [
+            'weeks_data' => [
+                'weeks' => [
+                    ['week_number' => 1, 'phase' => 'base', 'target_volume_km' => 30],
+                    ['week_number' => 2, 'phase' => 'build', 'target_volume_km' => 38],
+                    ['week_number' => 3, 'phase' => 'build', 'target_volume_km' => 42],
+                    ['week_number' => 4, 'phase' => 'recovery', 'target_volume_km' => 28],
+                ],
+            ],
+        ];
+
+        $prompt = $method->invoke($this->planner, $context, $existingPlan, [2, 3], [
+            'Week 2: long run share = 55% of weekly volume — too high',
+            'Week 3: tempo placed on day 7 instead of day 5',
+        ]);
+
+        $this->assertStringContainsString('Недели для перевыдачи (week_numbers): 2, 3', $prompt);
+        $this->assertStringContainsString('Week 2: long run share', $prompt);
+        $this->assertStringContainsString('Week 3: tempo placed on day 7', $prompt);
+        $this->assertStringContainsString('"is_to_redo": true', $prompt);
+        // Должна остаться структура других недель (для контекста фаз).
+        $this->assertStringContainsString('"phase": "base"', $prompt);
+        $this->assertStringContainsString('"phase": "recovery"', $prompt);
+        $this->assertStringContainsString('ровно 2 элементов', $prompt);
+    }
+
+    public function test_apply_regenerated_weeks_replaces_only_target_weeks(): void
+    {
+        $existingPlan = [
+            'weeks_data' => [
+                'weeks' => [
+                    ['week_number' => 1, 'phase' => 'base', 'target_volume_km' => 30, 'days' => []],
+                    ['week_number' => 2, 'phase' => 'build', 'target_volume_km' => 38, 'days' => []],
+                    ['week_number' => 3, 'phase' => 'build', 'target_volume_km' => 42, 'days' => []],
+                    ['week_number' => 4, 'phase' => 'recovery', 'target_volume_km' => 28, 'days' => []],
+                ],
+            ],
+        ];
+
+        $regenerated = [
+            ['week_number' => 2, 'phase' => 'build', 'target_volume_km' => 36, 'days' => [
+                ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 8.0],
+                ['day_of_week' => 2, 'type' => 'rest'],
+                ['day_of_week' => 3, 'type' => 'tempo', 'distance_km' => 10.0],
+                ['day_of_week' => 4, 'type' => 'rest'],
+                ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 6.0],
+                ['day_of_week' => 6, 'type' => 'rest'],
+                ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 12.0],
+            ]],
+        ];
+
+        $result = $this->planner->applyRegeneratedWeeks($existingPlan, $regenerated);
+
+        $weeks = $result['weeks_data']['weeks'];
+        $this->assertCount(4, $weeks);
+        $this->assertSame(1, $weeks[0]['week_number']);
+        $this->assertSame(30, (int) $weeks[0]['target_volume_km'], 'Week 1 must remain unchanged');
+
+        $this->assertSame(2, $weeks[1]['week_number']);
+        $this->assertCount(7, $weeks[1]['days'], 'Week 2 days must come from regenerated payload');
+
+        $this->assertSame(3, $weeks[2]['week_number']);
+        $this->assertSame(42, (int) $weeks[2]['target_volume_km'], 'Week 3 must remain unchanged');
+
+        $this->assertSame(4, $weeks[3]['week_number']);
+        $this->assertSame(28, (int) $weeks[3]['target_volume_km'], 'Week 4 must remain unchanged');
+
+        $this->assertArrayHasKey('targeted_retry', $result['_generation_metadata']);
+        $this->assertSame([2], $result['_generation_metadata']['targeted_retry']['regenerated_week_numbers']);
+    }
+
+    public function test_apply_regenerated_weeks_aligns_target_volume_to_day_sum(): void
+    {
+        $existingPlan = [
+            'weeks_data' => [
+                'weeks' => [
+                    ['week_number' => 1, 'phase' => 'base', 'target_volume_km' => 30, 'days' => []],
+                ],
+            ],
+        ];
+
+        $regenerated = [
+            ['week_number' => 1, 'phase' => 'base', 'target_volume_km' => 99.0, 'days' => [
+                ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 8.0],
+                ['day_of_week' => 2, 'type' => 'rest'],
+                ['day_of_week' => 3, 'type' => 'tempo', 'distance_km' => 10.0],
+                ['day_of_week' => 4, 'type' => 'rest'],
+                ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 6.0],
+                ['day_of_week' => 6, 'type' => 'rest'],
+                ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 12.0],
+            ]],
+        ];
+
+        $result = $this->planner->applyRegeneratedWeeks($existingPlan, $regenerated);
+
+        // Sum 8 + 10 + 6 + 12 = 36; target_volume_km должен быть выровнен к этой сумме.
+        $this->assertSame(36.0, (float) $result['weeks_data']['weeks'][0]['target_volume_km']);
+    }
+
+    public function test_regenerate_weeks_rejects_empty_week_list(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('weekNumbersToRedo cannot be empty');
+        $this->planner->regenerateWeeks([], [], []);
+    }
+
+    public function test_regenerate_weeks_rejects_too_many_weeks(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('too many weeks');
+        $this->planner->regenerateWeeks([], [], [1, 2, 3, 4, 5, 6, 7]);
+    }
 }
