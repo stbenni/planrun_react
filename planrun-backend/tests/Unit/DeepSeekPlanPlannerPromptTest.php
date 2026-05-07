@@ -230,6 +230,45 @@ class DeepSeekPlanPlannerPromptTest extends TestCase
         $this->assertStringContainsString('rpe', $prompt);
     }
 
+    public function test_full_plan_prompt_includes_season_and_best_races_guidance(): void
+    {
+        $method = new \ReflectionMethod($this->planner, 'buildFullPlanPrompt');
+        $method->setAccessible(true);
+
+        $prompt = $method->invoke($this->planner, [
+            'weeks_count' => 12,
+            'training_state' => ['load_policy' => null],
+            'season' => [
+                'current_month' => 5,
+                'current_month_name' => 'may',
+                'race_month' => 8,
+                'race_month_name' => 'august',
+                'northern_hemisphere' => true,
+                'season_phase' => 'spring',
+                'race_season_phase' => 'summer',
+            ],
+            'best_races' => [
+                ['distance_label' => 'half', 'distance_km' => 21.1, 'time_sec' => 6600, 'pace_sec' => 313, 'date' => '2026-03-10', 'vdot' => 45.0],
+                ['distance_label' => '10k', 'distance_km' => 10.0, 'time_sec' => 2820, 'pace_sec' => 282, 'date' => '2026-02-15', 'vdot' => 46.0],
+            ],
+            'goal_realism' => [
+                'verdict' => 'realistic',
+                'severity' => 'none',
+                'best_races_at_target_distance' => [
+                    ['distance_label' => 'half', 'distance_km' => 21.1, 'time_sec' => 6600, 'pace_sec' => 313, 'date' => '2026-03-10'],
+                ],
+            ],
+            'hard_rules' => ['allowed_run_day_numbers' => [1, 3, 5, 7]],
+        ]);
+
+        $this->assertStringContainsString('Климат и сезон', $prompt);
+        $this->assertStringContainsString('season.current_month_name', $prompt);
+        $this->assertStringContainsString('season_phase', $prompt);
+        $this->assertStringContainsString('История лучших результатов', $prompt);
+        $this->assertStringContainsString('best_races', $prompt);
+        $this->assertStringContainsString('best_races_at_target_distance', $prompt);
+    }
+
     // Phase A.5 (PR3): compactPlanningScenario / compactGoalRealism удалены — DeepSeek получает
     // полный объект как есть. Соответствующий unit-тест удалён, новые проверки full-data попадают
     // в test_full_plan_prompt_includes_planning_scenario_and_goal_realism_guidance.

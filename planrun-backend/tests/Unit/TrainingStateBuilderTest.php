@@ -533,6 +533,107 @@ class TrainingStateBuilderTest extends TestCase {
         $this->assertSame('manual', $byDate[$threeDaysAgo]['source']);
     }
 
+    public function test_buildForUser_includes_season_climate_context(): void {
+        $userId = $this->createTestUser();
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-08-15',
+            'sessions_per_week' => 5,
+            'weekly_base_km' => 50,
+            'experience_level' => 'intermediate',
+            'training_start_date' => '2026-05-01',
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $this->assertArrayHasKey('season', $state);
+        $season = $state['season'];
+        $this->assertSame(5, $season['current_month']);
+        $this->assertSame('may', $season['current_month_name']);
+        $this->assertSame(8, $season['race_month']);
+        $this->assertSame('august', $season['race_month_name']);
+        $this->assertTrue($season['northern_hemisphere']);
+        $this->assertSame('spring', $season['season_phase']);
+        $this->assertSame('summer', $season['race_season_phase']);
+        $this->assertSame('Europe/Moscow', $season['timezone']);
+    }
+
+    public function test_buildForUser_flips_hemisphere_for_southern_timezone(): void {
+        $userId = $this->createTestUser();
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => '10k',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 30,
+            'experience_level' => 'intermediate',
+            'training_start_date' => '2026-07-01',
+            'timezone' => 'Australia/Sydney',
+        ]);
+
+        $this->assertFalse($state['season']['northern_hemisphere']);
+        // Июль на юге = середина зимы.
+        $this->assertSame('winter', $state['season']['season_phase']);
+    }
+
+    public function test_buildForUser_includes_best_races_progression(): void {
+        $userId = $this->createTestUser();
+
+        // 5k за 4 недели назад (фактически race effort)
+        $fiveKDate = (new \DateTimeImmutable('-4 weeks'))->format('Y-m-d');
+        $this->insertCompletedLogWithResult($userId, $fiveKDate, 1, 'sun', 5.0, 22, '00:22:30');
+        // 10k за 12 недель назад
+        $tenKDate = (new \DateTimeImmutable('-12 weeks'))->format('Y-m-d');
+        $this->insertCompletedLogWithResult($userId, $tenKDate, 1, 'sun', 10.0, 47, '00:47:00');
+        // half за 24 недели назад
+        $halfDate = (new \DateTimeImmutable('-24 weeks'))->format('Y-m-d');
+        $this->insertCompletedLogWithResult($userId, $halfDate, 1, 'sun', 21.1, 110, '01:50:00');
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'half',
+            'race_date' => '2026-09-15',
+            'sessions_per_week' => 5,
+            'weekly_base_km' => 50,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayHasKey('best_races', $state);
+        $this->assertIsArray($state['best_races']);
+        $this->assertCount(3, $state['best_races']);
+
+        $byLabel = [];
+        foreach ($state['best_races'] as $race) {
+            $byLabel[$race['distance_label']] = $race;
+        }
+
+        $this->assertArrayHasKey('5k', $byLabel);
+        $this->assertSame(5.0, $byLabel['5k']['distance_km']);
+        $this->assertSame(1350, $byLabel['5k']['time_sec']);
+        $this->assertSame(270, $byLabel['5k']['pace_sec']);
+
+        $this->assertArrayHasKey('10k', $byLabel);
+        $this->assertSame(10.0, $byLabel['10k']['distance_km']);
+        $this->assertSame(2820, $byLabel['10k']['time_sec']);
+
+        $this->assertArrayHasKey('half', $byLabel);
+        $this->assertSame(21.1, $byLabel['half']['distance_km']);
+        $this->assertSame(6600, $byLabel['half']['time_sec']);
+
+        // Phase B.5: best_races_at_target_distance внутри goal_realism.
+        $this->assertIsArray($state['goal_realism'] ?? null);
+        $this->assertArrayHasKey('best_races_at_target_distance', $state['goal_realism']);
+        $this->assertCount(1, $state['goal_realism']['best_races_at_target_distance']);
+        $this->assertSame('half', $state['goal_realism']['best_races_at_target_distance'][0]['distance_label']);
+    }
+
     public function test_buildForUser_skips_recent_context_when_feature_flag_disabled(): void {
         $previous = getenv('PLANRUN_AI_STATE_RECENT_CONTEXT');
         putenv('PLANRUN_AI_STATE_RECENT_CONTEXT=0');
@@ -590,6 +691,37 @@ class TrainingStateBuilderTest extends TestCase {
              VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
         );
         $stmt->bind_param('isisidi', $userId, $date, $weekNumber, $dayName, $activityTypeId, $distanceKm, $durationMinutes);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    private function insertCompletedLogWithResult(
+        int $userId,
+        string $date,
+        int $weekNumber,
+        string $dayName,
+        float $distanceKm,
+        int $durationMinutes,
+        string $resultTime,
+        int $activityTypeId = 1
+    ): void {
+        $stmt = $this->db->prepare(
+            'INSERT INTO workout_log
+                (user_id, training_date, week_number, day_name, activity_type_id, is_completed,
+                 distance_km, duration_minutes, result_time)
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)'
+        );
+        $stmt->bind_param(
+            'isisidis',
+            $userId,
+            $date,
+            $weekNumber,
+            $dayName,
+            $activityTypeId,
+            $distanceKm,
+            $durationMinutes,
+            $resultTime
+        );
         $stmt->execute();
         $stmt->close();
     }

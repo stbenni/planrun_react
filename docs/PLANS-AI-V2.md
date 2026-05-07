@@ -453,28 +453,20 @@
 - ✅ В FACTS_JSON под ключом `recent_workouts` (заменяет старый 8-недельный raw-лог; raw оставлен только локально для `buildRecentLongEffortGuard`).
 - ✅ Системный prompt: «Сравни pace в recent_workouts с training_paces.easy/marathon/threshold; если фактический темп easy медленнее ожидаемого — не форсируй интенсивность. Учитывай rpe (1=очень легко..5=очень тяжело), hr_avg, notes (жалобы на боль/усталость/болезнь = осторожнее)».
 
-#### B.3 Climate / season hints
-- Простой блок в FACTS_JSON:
-  ```json
-  "season": {
-    "month": "april", "northern_hemisphere": true,
-    "expected_temp_c": 8, "easy_pace_climate_offset_sec": 0
-  }
-  ```
-- В жаркий сезон — DeepSeek знает, что easy paces должны быть медленнее.
+#### B.3 ✅ Climate / season hints
+- ✅ `TrainingStateBuilder::buildClimateContext($user, $startDate, $raceDate)` — формирует `state['season']` с полями `current_month` (1..12), `current_month_name` (en lower), `race_month`, `race_month_name`, `northern_hemisphere`, `season_phase` (winter / early_spring / spring / summer / autumn / late_autumn), `race_season_phase`, `timezone`.
+- ✅ Hemisphere определяется по `users.timezone` (Australia/, Antarctica/, Pacific/Auckland, Pacific/Fiji, America/Argentina, America/Sao_Paulo, America/Santiago, Africa/Johannesburg → southern; всё остальное → northern). Для southern season_phase инвертируется.
+- ✅ В FACTS_JSON под ключом `season`. Prompt обучен: летом (jun-aug northern / dec-feb southern) — не гнать pace и не перегружать тренировки в самые жаркие недели; зимой — указывать treadmill alternatives только когда уместно.
+- В соответствии с философией «trust the model» **не передаём** `expected_temp_c`/`climate_offset_sec` — это hardcode без реальной геолокации, DeepSeek сам понимает климат месяца.
 
-#### B.4 Best races progression
-- Передавать список лучших результатов с датами (сортировка по дате):
-  ```json
-  "best_races": [
-    {"date": "2025-09-15", "distance": "10k", "time_sec": 2730},
-    {"date": "2026-03-10", "distance": "half", "time_sec": 6300}
-  ]
-  ```
-- DeepSeek видит trajectory и реалистично оценивает следующий шаг.
+#### B.4 ✅ Best races progression
+- ✅ `StatsService::getBestRacesProgression($userId, $weeksWindow=52)` — top результат на бакет 5k / 10k / half / marathon за 52 недели. Дедупликация workout_log + workouts по best pace_sec в каждом бакете.
+- ✅ `TrainingStateBuilder::buildBestRacesProgression($userId)` — в `state['best_races']` массив с `distance_label`, `distance_km`, `time_sec`, `pace_sec`, `date`, `vdot`. Отсортирован по дате убыв.
+- ✅ В FACTS_JSON под ключом `best_races`. Prompt обучен: сравнивать `goal_pace` с историческим `pace_sec`; разрыв >15-20 сек/км — повод обсудить в `risk_review`; свежий (≤6 нед) сильный результат — повод доверять goal_pace, старый/единственный — повод быть осторожнее.
 
-#### B.5 Расширенный goal_realism
-- Текущая попытка vs история. Если человек в прошлый раз не достиг цели в Marathon при VDOT 38 — это контекст, а не блокер. DeepSeek в notes / risk_review может объяснить, как этот раз будет иначе.
+#### B.5 ✅ Расширенный goal_realism
+- ✅ `TrainingStateBuilder::matchBestRacesToTargetDistance($bestRaces, $raceDistance)` — добавляет в `state['goal_realism']['best_races_at_target_distance']` подмассив `best_races`, отфильтрованный по target distance label. DeepSeek получает явный сигнал: «вот результат на той же дистанции, что и текущая цель».
+- Алгоритм assessGoalRealism (PHP) **не меняем** — vердикт остаётся прежним. Развитие goal_realism идёт через **расширение FACTS_JSON**, а не через новые правила. DeepSeek сам сравнивает goal_pace с best_races_at_target_distance и пишет реалистичный risk_review без заранее закодированной логики.
 
 ---
 
@@ -539,13 +531,13 @@
 |---|---|---|---|
 | ✅ PR1 | P0.1 + P0.2 + P0.3 + P0.4 + auto-mode softening | Unit + расширенные snapshot | Готово (этот PR) |
 | ✅ PR2 | Phase A.1–A.8 (skeleton-out, single_pass, single model, repair-loop удалён, slim hard_rules, medical thresholds, no macrocycle precompute, normalizer warnings) | Unit 335/336 | Готово (предыдущий PR) |
-| ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (этот PR) |
-| PR4 | Phase B.3+B.4+B.5 (climate, best_races, goal_realism v2) | Unit + integration | Следующий |
-| PR5 | Phase C.1+C.2 (deepseek-reasoner, targeted retry) | E2E reasoner | |
+| ✅ PR3 | Phase B.1+B.2 (recent_compliance за 4 ISO-недели, recent_workouts_detailed за 14 дней с pace_sec/hr_avg/rpe в FACTS_JSON) | Unit 342/342 | Готово (предыдущий PR) |
+| ✅ PR4 | Phase B.3+B.4+B.5 (season/climate hints, best_races_progression top 5k/10k/half/marathon за 52 нед., goal_realism v2 — best_races_at_target_distance) | Unit 346/346 | Готово (этот PR) |
+| PR5 | Phase C.1+C.2 (deepseek-reasoner для сложных, targeted retry для одной недели) | E2E reasoner | Следующий |
 | PR6 | Phase D.1+D.2 (plan quality dashboard, A/B test) | Observability | |
 | PR7 | Phase D.3 (rollout + cleanup `_legacy/skeleton/`) | Canary | |
 
-**Этот PR (PR3):** Phase B.1+B.2 — DeepSeek получает в FACTS_JSON фактическое поведение спортсмена за последний цикл (compliance, RPE, HR, pace), решения принимаются по реальной форме, а не только по статичному профилю.
+**Этот PR (PR4):** Phase B.3+B.4+B.5 — DeepSeek получает климатический контекст (season, hemisphere) и trajectory лучших результатов на ключевых дистанциях. Это закрывает Phase B полностью: контекст вместо контроля.
 
 ---
 

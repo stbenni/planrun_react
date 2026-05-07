@@ -252,7 +252,145 @@ class TrainingStateBuilder {
             }
         }
 
+        // Phase B.3 (PR4): season/climate context — month и hemisphere для климат-aware planning.
+        // Phase B.4 (PR4): best_races_progression — top результаты по дистанциям за 12 мес.
+        $startDateForContext = (string) ($user['training_start_date'] ?? $user['plan_start_date'] ?? '');
+        $raceDateForContext = (string) ($state['race_date'] ?? '');
+        $climate = $this->buildClimateContext($user, $startDateForContext, $raceDateForContext);
+        if (!empty($climate)) {
+            $state['season'] = $climate;
+        }
+
+        if ($userId > 0 && $this->isRecentContextFeatureEnabled()) {
+            $bestRaces = $this->buildBestRacesProgression($userId);
+            if (!empty($bestRaces)) {
+                $state['best_races'] = $bestRaces;
+
+                // Phase B.5 (PR4): расширяем goal_realism полем previous_attempts_at_distance
+                // — DeepSeek увидит, был ли уже опыт на этой дистанции и какой реалистичный шаг.
+                if (is_array($state['goal_realism'] ?? null)) {
+                    $state['goal_realism']['best_races_at_target_distance'] = $this->matchBestRacesToTargetDistance(
+                        $bestRaces,
+                        (string) ($user['race_distance'] ?? '')
+                    );
+                }
+            }
+        }
+
         return $state;
+    }
+
+    /**
+     * Phase B.3 (PR4): простой климатический контекст для FACTS_JSON.
+     * Возвращает:
+     *   - current_month (1..12), current_month_name (en lower)
+     *   - race_month (если race_date есть)
+     *   - northern_hemisphere (бул) — определяется по timezone (Europe/Asia/America = north).
+     *   - season_phase (en): early_spring | spring | summer | autumn | winter — для northern hemisphere.
+     *
+     * Для «trust the model»: не передаём `expected_temp_c` — это hardcode без реальных данных
+     * локации пользователя; DeepSeek сам понимает, что в августе жарко.
+     */
+    private function buildClimateContext(array $user, string $startDate, string $raceDate): array {
+        $tz = (string) ($user['timezone'] ?? '');
+        $northern = $this->isNorthernHemisphere($tz);
+
+        $startStr = $startDate !== '' ? $startDate : (new DateTimeImmutable('now'))->format('Y-m-d');
+        try {
+            $start = new DateTimeImmutable($startStr);
+        } catch (Throwable $e) {
+            $start = new DateTimeImmutable('now');
+        }
+        $startMonth = (int) $start->format('n');
+
+        $raceMonth = null;
+        if ($raceDate !== '') {
+            try {
+                $raceMonth = (int) (new DateTimeImmutable($raceDate))->format('n');
+            } catch (Throwable $e) {
+                $raceMonth = null;
+            }
+        }
+
+        $monthNames = [1=>'january',2=>'february',3=>'march',4=>'april',5=>'may',6=>'june',7=>'july',8=>'august',9=>'september',10=>'october',11=>'november',12=>'december'];
+
+        return [
+            'current_month' => $startMonth,
+            'current_month_name' => $monthNames[$startMonth] ?? null,
+            'race_month' => $raceMonth,
+            'race_month_name' => $raceMonth !== null ? ($monthNames[$raceMonth] ?? null) : null,
+            'northern_hemisphere' => $northern,
+            'season_phase' => $this->resolveSeasonPhase($startMonth, $northern),
+            'race_season_phase' => $raceMonth !== null ? $this->resolveSeasonPhase($raceMonth, $northern) : null,
+            'timezone' => $tz !== '' ? $tz : null,
+        ];
+    }
+
+    private function isNorthernHemisphere(string $timezone): bool {
+        if ($timezone === '') {
+            return true;
+        }
+        $tz = strtolower($timezone);
+        if (str_contains($tz, 'australia/') || str_contains($tz, 'antarctica/')
+            || str_contains($tz, 'pacific/auckland') || str_contains($tz, 'pacific/fiji')
+            || str_contains($tz, 'america/argentina') || str_contains($tz, 'america/sao_paulo')
+            || str_contains($tz, 'america/santiago') || str_contains($tz, 'africa/johannesburg')) {
+            return false;
+        }
+        return true;
+    }
+
+    private function resolveSeasonPhase(int $month, bool $northern): string {
+        // Northern hemisphere mapping; for southern — flip 6 months.
+        if (!$northern) {
+            $month = (($month - 1 + 6) % 12) + 1;
+        }
+        return match ($month) {
+            12, 1, 2 => 'winter',
+            3 => 'early_spring',
+            4, 5 => 'spring',
+            6, 7, 8 => 'summer',
+            9, 10 => 'autumn',
+            11 => 'late_autumn',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * Phase B.4 (PR4): top результаты по бакетам 5k/10k/half/marathon за 52 нед.
+     * Использует StatsService::getBestRacesProgression. При сбое возвращает [].
+     */
+    private function buildBestRacesProgression(int $userId): array {
+        try {
+            $rows = $this->statsService->getBestRacesProgression($userId, 52);
+        } catch (Throwable $e) {
+            return [];
+        }
+        return is_array($rows) ? $rows : [];
+    }
+
+    /**
+     * Phase B.5 (PR4): сужаем best_races до целевой дистанции, чтобы DeepSeek
+     * мог сравнить goal_realism.recommended_target_time с историческим лучшим результатом.
+     * Возвращает массив с одним-двумя элементами либо [].
+     */
+    private function matchBestRacesToTargetDistance(array $bestRaces, string $raceDistance): array {
+        $raceDistance = strtolower(trim($raceDistance));
+        if ($raceDistance === '') {
+            return [];
+        }
+        $aliasMap = [
+            '5k' => '5k', '5km' => '5k',
+            '10k' => '10k', '10km' => '10k',
+            'half' => 'half', '21.1k' => 'half', '21k' => 'half', 'half_marathon' => 'half', 'half-marathon' => 'half',
+            'marathon' => 'marathon', '42.2k' => 'marathon', 'full_marathon' => 'marathon',
+        ];
+        $label = $aliasMap[$raceDistance] ?? null;
+        if ($label === null) {
+            return [];
+        }
+        $matched = array_values(array_filter($bestRaces, fn($r) => ($r['distance_label'] ?? null) === $label));
+        return $matched;
     }
 
     /**

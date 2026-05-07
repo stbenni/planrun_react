@@ -376,6 +376,133 @@ class StatsService extends BaseService {
     }
 
     /**
+     * Phase B.4 (PR4): trajectory лучших результатов на ключевых дистанциях.
+     *
+     * Возвращает массив {distance_label, distance_km, time_sec, pace_sec, date, vdot}
+     * по бакетам 5k / 10k / half / marathon за период `$weeksWindow` (default 52 нед).
+     * Для каждой дистанции — лучший pace (минимальный time_sec). Сортировка по дате убыв.
+     *
+     * Используется DeepSeek чтобы видеть реальный прогресс спортсмена, а не только
+     * последнюю гонку из user.last_race_*. Вычисляется через workout_log + workouts
+     * с дедупликацией по дате+дистанции (берём лучший VDOT из обоих источников).
+     */
+    public function getBestRacesProgression(int $userId, int $weeksWindow = 52): array {
+        require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+
+        $cutoff = date('Y-m-d', strtotime("-{$weeksWindow} weeks"));
+        $candidates = [];
+
+        $logStmt = $this->db->prepare("
+            SELECT wl.distance_km, wl.result_time, wl.training_date, wl.duration_minutes
+            FROM workout_log wl
+            LEFT JOIN activity_types at ON wl.activity_type_id = at.id
+            WHERE wl.user_id = ? AND wl.is_completed = 1
+              AND wl.training_date >= ?
+              AND wl.distance_km IS NOT NULL AND wl.distance_km >= 3 AND wl.distance_km <= 50
+              AND LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
+        ");
+        if ($logStmt) {
+            $logStmt->bind_param("is", $userId, $cutoff);
+            $logStmt->execute();
+            $logResult = $logStmt->get_result();
+            while ($row = $logResult->fetch_assoc()) {
+                $dist = (float) $row['distance_km'];
+                $timeStr = (string) ($row['result_time'] ?? '');
+                $timeSec = 0;
+                if ($timeStr !== '') {
+                    $parts = explode(':', $timeStr);
+                    $timeSec = count($parts) === 3
+                        ? (int) $parts[0] * 3600 + (int) $parts[1] * 60 + (int) $parts[2]
+                        : (count($parts) === 2 ? (int) $parts[0] * 60 + (int) $parts[1] : 0);
+                }
+                if ($timeSec <= 0 && !empty($row['duration_minutes'])) {
+                    $timeSec = (int) $row['duration_minutes'] * 60;
+                }
+                if ($dist <= 0 || $timeSec <= 0) continue;
+                $candidates[] = [
+                    'distance_km' => $dist,
+                    'time_sec' => $timeSec,
+                    'date' => (string) $row['training_date'],
+                    'source' => 'workout_log',
+                ];
+            }
+            $logStmt->close();
+        }
+
+        $autoStmt = $this->db->prepare("
+            SELECT distance_km, duration_seconds, duration_minutes, start_time
+            FROM workouts
+            WHERE user_id = ? AND DATE(start_time) >= ?
+              AND distance_km IS NOT NULL AND distance_km >= 3 AND distance_km <= 50
+              AND LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
+        ");
+        if ($autoStmt) {
+            $autoStmt->bind_param("is", $userId, $cutoff);
+            $autoStmt->execute();
+            $autoResult = $autoStmt->get_result();
+            while ($row = $autoResult->fetch_assoc()) {
+                $dist = (float) $row['distance_km'];
+                $timeSec = 0;
+                if (!empty($row['duration_seconds']) && (int) $row['duration_seconds'] > 0) {
+                    $timeSec = (int) $row['duration_seconds'];
+                } elseif (!empty($row['duration_minutes']) && (int) $row['duration_minutes'] > 0) {
+                    $timeSec = (int) $row['duration_minutes'] * 60;
+                }
+                if ($dist <= 0 || $timeSec <= 0) continue;
+                $candidates[] = [
+                    'distance_km' => $dist,
+                    'time_sec' => $timeSec,
+                    'date' => date('Y-m-d', strtotime((string) $row['start_time'])),
+                    'source' => 'workouts',
+                ];
+            }
+            $autoStmt->close();
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        // Бакеты по дистанциям (km min, km max, label, canonical_km).
+        $buckets = [
+            ['min' => 4.5,  'max' => 5.5,  'label' => '5k',       'canonical' => 5.0],
+            ['min' => 8.5,  'max' => 11.5, 'label' => '10k',      'canonical' => 10.0],
+            ['min' => 19.5, 'max' => 22.5, 'label' => 'half',     'canonical' => 21.0975],
+            ['min' => 40.0, 'max' => 44.0, 'label' => 'marathon', 'canonical' => 42.195],
+        ];
+
+        $best = [];
+        foreach ($candidates as $c) {
+            foreach ($buckets as $b) {
+                if ($c['distance_km'] >= $b['min'] && $c['distance_km'] <= $b['max']) {
+                    $paceSec = (int) round($c['time_sec'] / $c['distance_km']);
+                    $key = $b['label'];
+                    if (!isset($best[$key]) || $paceSec < $best[$key]['pace_sec']) {
+                        $vdot = (float) estimateVDOT($c['distance_km'], $c['time_sec']);
+                        $best[$key] = [
+                            'distance_label' => $b['label'],
+                            'distance_km' => round($c['distance_km'], 2),
+                            'time_sec' => $c['time_sec'],
+                            'pace_sec' => $paceSec,
+                            'date' => $c['date'],
+                            'vdot' => round($vdot, 1),
+                        ];
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (empty($best)) {
+            return [];
+        }
+
+        $result = array_values($best);
+        usort($result, fn($a, $b) => strcmp((string) $b['date'], (string) $a['date']));
+        return $result;
+    }
+
+    /**
      * Подготовить недельный анализ
      * 
      * @param int $userId ID пользователя

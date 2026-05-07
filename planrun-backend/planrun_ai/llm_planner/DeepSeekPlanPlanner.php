@@ -169,6 +169,15 @@ class DeepSeekPlanPlanner
             . "- recent_workouts (за ~14 дней) содержит pace_sec, hr_avg, rpe (1=очень легко .. 5=очень тяжело), notes. Используй: рост HR при том же темпе или RPE>3 на easy — признак усталости, замедли темпы или дай recovery.\n"
             . "- Сравни pace в recent_workouts с training_paces.easy/marathon/threshold: если фактический темп easy медленнее ожидаемого — не форсируй интенсивность, дай адаптацию.\n"
             . "- Учитывай notes: жалобы на боль/усталость/болезнь = осторожнее даже если HR/pace в норме. Игнорируй recent_workouts только если массив пустой.\n\n"
+            . "Климат и сезон (season) — учитывай при планировании темпов:\n"
+            . "- season.current_month_name + season.season_phase описывают условия в начале плана; race_season_phase — на дату гонки.\n"
+            . "- Если start или race-период попадают в summer (или summer/late_autumn для southern_hemisphere=false): жара заметно замедляет easy и tempo, не делай прогрессивных интервалов в самых жарких неделях, упоминай в notes о термонагрузке.\n"
+            . "- Зимой (winter) на улице может быть скользко/холодно — это контекст для разговора с пользователем, не блокер. Указывай в notes альтернативы (treadmill, indoor) только если явно уместно.\n\n"
+            . "История лучших результатов (best_races) — твоя база для оценки реалистичности:\n"
+            . "- best_races содержит по бакетам 5k/10k/half/marathon: distance_km, time_sec, pace_sec, date, vdot. Сортировка по дате убыв.\n"
+            . "- Сравни целевой goal_pace с историческим pace_sec на той же или соседней дистанции. Большой разрыв (>15-20 сек/км) — повод обсудить в risk_review.\n"
+            . "- goal_realism.best_races_at_target_distance, если есть, показывает прежние попытки на той же дистанции — используй их как ориентир. Если человек уже бегал марафон 4:30, цель 3:30 без значимого роста VDOT за 6 месяцев — нереалистично, отрази в risk_review.\n"
+            . "- Свежий (≤6 нед) сильный результат на короткой дистанции — повод доверять goal_pace. Старый (>26 нед) или единственный — повод быть осторожнее.\n\n"
             . "Темпы и структура (для понятной тренировки):\n"
             . "- Для простого бега pace относится ко всей тренировке, duration_minutes согласуй с distance_km.\n"
             . "- Для interval/tempo заполни структурные поля: warmup_km, cooldown_km, tempo_km, reps/interval_m/interval_pace/rest_m/rest_type.\n"
@@ -352,6 +361,10 @@ class DeepSeekPlanPlanner
             'recent_workouts' => is_array($state['recent_workouts_detailed'] ?? null)
                 ? $state['recent_workouts_detailed']
                 : $recentWorkouts,
+            // Phase B.3 (PR4): season/climate — current_month, hemisphere, season_phase.
+            'season' => is_array($state['season'] ?? null) ? $state['season'] : null,
+            // Phase B.4 (PR4): best_races_progression — лучшие результаты на 5k/10k/half/marathon за 52 нед.
+            'best_races' => is_array($state['best_races'] ?? null) ? $state['best_races'] : null,
         ];
     }
 
