@@ -465,20 +465,6 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
             </p>
           </div>
           <div className="dashboard-header-actions">
-            <div className="dashboard-status-row" aria-label="Краткая сводка дашборда">
-              <div className={`dashboard-status-pill dashboard-status-pill--${todayStatusTone}`}>
-                <span className="dashboard-status-pill__label">Сегодня</span>
-                <span className="dashboard-status-pill__value">{todayStatusLabel}</span>
-              </div>
-              <div className={`dashboard-status-pill dashboard-status-pill--${weekStatusTone}`}>
-                <span className="dashboard-status-pill__label">Неделя</span>
-                <span className="dashboard-status-pill__value">{weekStatusLabel}</span>
-              </div>
-              <div className={`dashboard-status-pill dashboard-status-pill--${planStatusTone}`}>
-                <span className="dashboard-status-pill__label">План</span>
-                <span className="dashboard-status-pill__value">{planStatusLabel}</span>
-              </div>
-            </div>
             <button
               type="button"
               className="dashboard-customize-btn"
@@ -490,6 +476,37 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
             </button>
           </div>
         </div>
+
+        {hasAnyPlannedWorkout && (
+          <div className="dashboard-hero-kpi" aria-label="Сводка недели">
+            <div className="dashboard-hero-kpi__primary">
+              <span className="dashboard-hero-kpi__value">{metrics.distance}</span>
+              <span className="dashboard-hero-kpi__unit">км</span>
+            </div>
+            <div className="dashboard-hero-kpi__divider" aria-hidden />
+            <div className="dashboard-hero-kpi__secondary">
+              <div className="dashboard-hero-kpi__progress-text">
+                <span className="dashboard-hero-kpi__progress-current">{weekProgress.completed}</span>
+                <span className="dashboard-hero-kpi__progress-sep"> из </span>
+                <span className="dashboard-hero-kpi__progress-total">{weekProgress.total}</span>
+              </div>
+              <div className="dashboard-hero-kpi__progress-label">тренировок на неделе</div>
+              <div
+                className="dashboard-hero-kpi__bar"
+                role="progressbar"
+                aria-valuenow={progressPercentage}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                title={`${progressPercentage}%`}
+              >
+                <div
+                  className="dashboard-hero-kpi__bar-fill"
+                  style={{ width: `${progressPercentage}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {dashboardRows.map((row, rowIndex) => {
