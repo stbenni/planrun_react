@@ -5,7 +5,8 @@
   "android": {
     "allowMixedContent": true,
     "captureInput": false,
-    "adjustMarginsForEdgeToEdge": "disable"
+    "adjustMarginsForEdgeToEdge": "disable",
+    "webContentsDebuggingEnabled": true
   },
   "plugins": {
     "Keyboard": {

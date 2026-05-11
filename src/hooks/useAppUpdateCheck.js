@@ -12,9 +12,6 @@ export function useAppUpdateCheck(enabled = true) {
     try {
       const response = await fetch(`${UPDATE_MANIFEST_URL}?t=${Date.now()}`, {
         cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
       });
 
       if (!response.ok) return;
