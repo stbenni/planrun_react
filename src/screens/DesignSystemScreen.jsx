@@ -425,7 +425,7 @@ export default function DesignSystemScreen() {
               <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
             </div>
             <div className="ds-wcard-action">
-              <button className="ds-wcard-start">Старт</button>
+              <button className="ds-wcard-mark">Отметить</button>
             </div>
           </div>
           <div className="ds-wcard">

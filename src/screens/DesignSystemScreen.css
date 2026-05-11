@@ -580,7 +580,7 @@
   color: var(--success-600);
 }
 
-.ds-wcard-start {
+.ds-wcard-mark {
   padding: 7px 14px;
   border-radius: 9999px;
   background: var(--primary-500);
@@ -591,9 +591,10 @@
   font-size: 12px;
   box-shadow: 0 8px 18px -6px rgba(252, 76, 2, 0.6);
   cursor: pointer;
+  white-space: nowrap;
   transition: transform var(--transition-base), box-shadow var(--transition-base);
 }
-.ds-wcard-start:hover {
+.ds-wcard-mark:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 22px -6px rgba(252, 76, 2, 0.7);
 }
