@@ -359,6 +359,21 @@
   color: var(--text-primary);
 }
 
+[data-theme="dark"] .app-modal .form-group select {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] .app-modal .form-group select option,
+[data-theme="dark"] .app-modal .form-group select optgroup {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .app-modal .form-group select option:checked {
+  background: color-mix(in srgb, var(--primary-500) 18%, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
 [data-theme="dark"] .app-modal .form-actions {
   border-top-color: var(--card-border);
 }

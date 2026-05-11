@@ -12,7 +12,7 @@ class PlanGenerationQueueService extends BaseService {
     private const STATUS_COMPLETED = 'completed';
     private const STATUS_FAILED = 'failed';
 
-    public function enqueue(int $userId, string $jobType = 'generate', array $payload = [], int $maxAttempts = 3): array {
+    public function enqueue(int $userId, string $jobType = 'generate', array $payload = [], int $maxAttempts = 5): array {
         $this->assertQueueTableAvailable();
 
         $jobType = trim($jobType) !== '' ? trim($jobType) : 'generate';

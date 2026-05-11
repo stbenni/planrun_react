@@ -3,7 +3,7 @@ const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000
 const RELOAD_MARKER_PREFIX = 'planrun-reloaded-build:'
 
 async function fetchLatestBuildId(signal) {
-  const response = await fetch(`/version.json?t=${Date.now()}`, {
+  const response = await fetch(`/build-info.json?t=${Date.now()}`, {
     cache: 'no-store',
     headers: {
       'Cache-Control': 'no-cache',

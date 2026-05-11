@@ -80,6 +80,11 @@ class ChatPromptBuilder {
 
         $systemContent .= "\n\n" . $this->trimToTokenBudget($context, self::CONTEXT_BUDGET);
 
+        // DATES go INTO the latest user message (not system), so system+tools+history can stay
+        // byte-identical between requests. DeepSeek's prefix cache requires bytes-from-token-0
+        // to match — anything dynamic before the user message invalidates the whole prefix.
+        // Source: api-docs.deepseek.com/guides/kv_cache.
+
         $messages = [['role' => 'system', 'content' => $systemContent]];
 
         $historyMessages = [];
@@ -89,7 +94,8 @@ class ChatPromptBuilder {
         }
 
         $enrichedQuestion = $this->enrichQuestionWithDates($currentQuestion, $now);
-        $historyMessages[] = ['role' => 'user', 'content' => $enrichedQuestion];
+        $datesSuffix = $this->buildDatesSuffix($today, $tomorrow, $todayDow, $tomorrowDow);
+        $historyMessages[] = ['role' => 'user', 'content' => $enrichedQuestion . $datesSuffix];
         $historyMessages = $this->trimHistoryToTokenBudget($historyMessages, self::HISTORY_BUDGET);
 
         $messages = array_merge($messages, $historyMessages);
@@ -115,26 +121,30 @@ class ChatPromptBuilder {
         $yesterday = $yesterdayDt->format('Y-m-d');
         $yesterdayDow = $daysRu[(int) $yesterdayDt->format('N')] ?? '';
 
+        // NOTE: Стабильную часть промпта держим в начале, даты — в самом конце,
+        // чтобы DeepSeek context cache работал. Иначе ежедневные даты ломают prefix кэш
+        // и весь промпт становится cache-miss каждый новый день (потеря 90% скидки).
         return <<<PROMPT
 Ты — PlanRun, персональный тренер по бегу.
-Вчера: {$yesterdayDow}, {$yesterday}. Сегодня: {$todayDow}, {$today}. Завтра: {$tomorrowDow}, {$tomorrow}.
 
 СТИЛЬ: Дружелюбный тренер, 15 лет стажа. 2-4 предложения, конкретно, эмпатично. Хвали прогресс. Без укоров при пропуске.
 
 ЯЗЫК: ⚠⚠⚠ 100% РУССКИЙ ЯЗЫК. Ни одного английского слова в ответе. Все термины по-русски: recovery=восстановление, pace=темп, long run=длительный бег, cooldown=заминка, warm up=разминка, easy run=лёгкий бег, interval=интервал, threshold=пороговый, split=отрезок, workout=тренировка, planned=запланированный, today=сегодня, tomorrow=завтра, yesterday=вчера. Даты: «18 февраля».
 Без emoji. Без смайликов. Без 🏃🔹💪⚡🎯 и подобных символов.
 
-ДАТЫ: Вчера={$yesterday}, сегодня={$today}, завтра={$tomorrow}. Используй эти даты напрямую в вызовах инструментов. НИКОГДА не спрашивай пользователя «какая дата вчера?». Если пользователь говорит «вчера» → дата {$yesterday}. «Позавчера» → вычти ещё день. Передавай в tools дату Y-m-d.
+ДАТЫ: «вчера», «сегодня», «завтра», «позавчера» резолви через блок DATES в конце промпта. Используй абсолютные Y-m-d в вызовах инструментов. НИКОГДА не спрашивай пользователя «какая дата вчера?». Передавай в tools дату Y-m-d.
 
 НЕ ПОВТОРЯЙСЯ: Каждый ответ — НОВАЯ информация. Контекст точечно. Не вываливай все данные.
 
 ИНСТРУМЕНТЫ: Тебе доступны tools (function calling). Вызывай их ПРОАКТИВНО — не выдумывай цифры, даты и данные. Все даты в аргументах tools: Y-m-d. Write-операции (update, delete, swap, move, add, recalculate, generate, log) — ОБЯЗАТЕЛЬНО спроси подтверждение перед вызовом.
 
+ТОЧНОСТЬ ЦИФР: ⚠ Используй ТОЛЬКО конкретные числа из контекста или tool results. НЕ генерируй "обычно длинные до 30-40 км", "темп ~4:40 для марафона" из общих знаний — у пользователя свой план с конкретными цифрами. Если хочешь сказать «длинные до X км» — назови ТОЧНОЕ X из плана. Если данных в контексте нет — вызови соответствующий tool (get_plan/get_day_details/race_prediction). Если и там нет — честно скажи «эти данные пока не вычислены» вместо выдуманного диапазона.
+
 ПОДТВЕРЖДЕНИЯ: Перед записью — опиши с КОНКРЕТНЫМИ ДАТАМИ, получи «да»/«ок». Не вызывай tool повторно после подтверждения.
 
 СТРАТЕГИЯ:
 - Вопрос о тренировке → get_day_details(дата). О периоде → get_workouts.
-- «Вчера» → get_day_details({$yesterday}) или get_workouts(date_from={$yesterday}, date_to={$yesterday}).
+- «Вчера» → get_day_details(yesterday из DATES) или get_workouts(date_from=yesterday, date_to=yesterday).
 - Перенос/замена → get_day_details → уточни → подтверждение → tool.
 - «Пробежал X км» → уточни → log_workout. Статистика → get_stats. Прогноз → race_prediction.
 
@@ -144,6 +154,19 @@ class ChatPromptBuilder {
 
 Контекст пользователя (ID: {$userId}):
 PROMPT;
+    }
+
+    /**
+     * Mutable date block. Always appended LAST in the system message so DeepSeek's
+     * prefix cache stays warm — everything before this string is cache-eligible.
+     */
+    private function buildDatesSuffix(string $today, string $tomorrow, string $todayDow, string $tomorrowDow): string {
+        $yesterdayDt = (new DateTime($today))->modify('-1 day');
+        $daysRu = [1 => 'понедельник', 2 => 'вторник', 3 => 'среда', 4 => 'четверг', 5 => 'пятница', 6 => 'суббота', 7 => 'воскресенье'];
+        $yesterday = $yesterdayDt->format('Y-m-d');
+        $yesterdayDow = $daysRu[(int) $yesterdayDt->format('N')] ?? '';
+
+        return "\n\nDATES: вчера={$yesterdayDow} {$yesterday}, сегодня={$todayDow} {$today}, завтра={$tomorrowDow} {$tomorrow}";
     }
 
     private function getRaceReplacementAddon(string $today, string $tomorrow): string {

@@ -238,13 +238,67 @@ class TrainingStateBuilder {
             $state['goal_realism'] = $this->resolveGoalRealism($user, $state);
         }
 
-        // Phase B.1 (PR3): recent_compliance — последние 4 ISO-недели для recalc/next_plan.
+        // PR9: pace_strategy — мост к цели.
+        // Если goal_realism.severity = major → план готовит к VDOT-предикту (predicted),
+        // иначе к самой цели. Темпы tempo/interval тянутся к goal_paces, чтобы AI
+        // не тренировал в темпе текущей формы при амбициозной цели.
+        $paceStrategy = $this->buildPaceStrategy($user, $state);
+        if ($paceStrategy !== null) {
+            $state['pace_strategy'] = $paceStrategy;
+        }
+
+        // Phase B.1 (PR3): recent_compliance — последние ISO-недели для recalc/next_plan.
+        // PR-D итерация 4: окно расширено с 4 до 8 недель, чтобы модель видела
+        // полную базу формы (для marathon prep это критично — historical peak в W-8...W-5 часто
+        // намного выше recent W-3...W-1 после race recovery). Для post-marathon spans 8 недель
+        // покрывают обычно: marathon week + recovery + 2-3 typical training weeks + early build.
         // Phase B.2 (PR3): recent_workouts_detailed — последние 14 дней с RPE/HR/pace.
         // Включаем только если у пользователя есть ID и данные за период.
         if ($userId > 0 && $this->isRecentContextFeatureEnabled()) {
-            $recentCompliance = $this->buildRecentCompliance($userId);
+            $recentCompliance = $this->buildRecentCompliance($userId, 8);
             if (!empty($recentCompliance)) {
                 $state['recent_compliance'] = $recentCompliance;
+                // PR-A (coaching prompt v4): тренерский саммари вместо enum signal.
+                // Тренер прочтёт факты + одну фразу и сам решит как реагировать; никаких
+                // готовых рекомендаций ("снизь peak на 15%") — это работа модели.
+                $state['recent_compliance_summary'] = $this->buildRecentComplianceSummary(
+                    $recentCompliance,
+                    $reportedWeeklyBaseKm
+                );
+                // PR-A: peak_volume_floor_km как hint в load_policy. Тренер видит «реальный потолок
+                // формы ~X км» и сам соотносит с целевым peak. Outlier-неделя (race/тест >130% медианы)
+                // исключается, чтобы одна экстремальная неделя не задирала floor.
+                $peakFloor = $this->computePeakVolumeFloorKm($recentCompliance, $reportedWeeklyBaseKm);
+                if ($peakFloor !== null && isset($state['load_policy']) && is_array($state['load_policy'])) {
+                    $state['load_policy']['peak_volume_floor_km'] = $peakFloor;
+                }
+                // PR-D итерация 4: historical_peak_weekly_km — реальный максимум объёма за окно
+                // (8 нед.). Полезен когда «recent average» низкий (post-race recovery), но
+                // human реально умеет делать 90+ км. Без этого модель занижает peak.
+                $historicalPeak = 0.0;
+                foreach ($recentCompliance as $w) {
+                    $km = (float) ($w['actual_km'] ?? 0.0);
+                    if ($km > $historicalPeak) {
+                        $historicalPeak = $km;
+                    }
+                }
+                if ($historicalPeak > 0.1 && isset($state['load_policy']) && is_array($state['load_policy'])) {
+                    $state['load_policy']['historical_peak_weekly_km'] = round($historicalPeak, 1);
+                }
+                // PR9b: pace_strategy уже построен выше; после расчёта peak_floor дублируем якорь
+                // объёма рядом с темповым режимом — модель не должна резать км из‑за
+                // realistic_target (это ортогональные оси: темп цели vs выносливость по неделям).
+                if (isset($state['pace_strategy']) && is_array($state['pace_strategy'])) {
+                    $lp = $state['load_policy'] ?? [];
+                    if (is_array($lp)) {
+                        if (isset($lp['peak_volume_floor_km']) && $lp['peak_volume_floor_km'] !== null) {
+                            $state['pace_strategy']['peak_volume_anchor_km'] = (float) $lp['peak_volume_floor_km'];
+                        }
+                        if (isset($lp['historical_peak_weekly_km']) && $lp['historical_peak_weekly_km'] !== null) {
+                            $state['pace_strategy']['historical_peak_weekly_km'] = (float) $lp['historical_peak_weekly_km'];
+                        }
+                    }
+                }
             }
             $recentWorkouts = $this->buildRecentWorkoutsDetailed($userId, 14);
             if (!empty($recentWorkouts)) {
@@ -472,6 +526,262 @@ class TrainingStateBuilder {
         }
 
         return $result;
+    }
+
+    /**
+     * PR-A (coaching prompt v4): короткая русская фраза по фактам последних 4 недель.
+     *
+     * Цель — дать тренеру (модели) одну строчку, которую он прочтёт и поймёт ситуацию,
+     * без enum signal/recommendation. «Запланировано X км / Y тренировок, выполнено Z км /
+     * W тренировок, ключевых N из M. Тенденция …». Всё остальное модель дорассуждает сама.
+     *
+     * @param array $weeks Массив недель из buildRecentCompliance (старая → свежая).
+     * @param float $reportedWeeklyBaseKm Заявленный базовый объём.
+     * @return string Русская фраза или пустая строка, если данных недостаточно.
+     */
+    private function buildRecentComplianceSummary(array $weeks, float $reportedWeeklyBaseKm): string {
+        if (empty($weeks)) {
+            return '';
+        }
+
+        $weeksCount = count($weeks);
+        $weeksWithPlan = [];
+        $weeksWithoutPlan = [];
+        $weeklyKm = [];
+        $totalActualKm = 0.0;
+        foreach ($weeks as $w) {
+            $planned = (int) ($w['planned_count'] ?? 0);
+            $actualKm = (float) ($w['actual_km'] ?? 0.0);
+            $weeklyKm[] = $actualKm;
+            $totalActualKm += $actualKm;
+            if ($planned > 0) {
+                $weeksWithPlan[] = $w;
+            } else {
+                $weeksWithoutPlan[] = $w;
+            }
+        }
+        $avgKm = $weeksCount > 0 ? $totalActualKm / $weeksCount : 0.0;
+        $totalActualKm = round($totalActualKm, 1);
+
+        $parts = [];
+
+        // 1. Сегмент «с планом»: compliance + ключевые
+        if (!empty($weeksWithPlan)) {
+            $plannedTotal = 0;
+            $completedTotal = 0;
+            $keyPlanned = 0;
+            $keyCompleted = 0;
+            $kmInPlanned = 0.0;
+            foreach ($weeksWithPlan as $w) {
+                $plannedTotal += (int) ($w['planned_count'] ?? 0);
+                $completedTotal += (int) ($w['completed_count'] ?? 0);
+                $keyPlanned += (int) ($w['key_workout_planned'] ?? 0);
+                $keyCompleted += (int) ($w['key_workout_completed'] ?? 0);
+                $kmInPlanned += (float) ($w['actual_km'] ?? 0.0);
+            }
+            $countPlanned = count($weeksWithPlan);
+            $parts[] = sprintf(
+                'В %s с планом запланировано %s, выполнено %s (%s км).',
+                $this->ruWeeks($countPlanned),
+                $this->ruWorkouts($plannedTotal),
+                $completedTotal,
+                $this->formatKm($kmInPlanned)
+            );
+            if ($keyPlanned > 0) {
+                $parts[] = sprintf(
+                    'Ключевых выполнено %d из %d.',
+                    $keyCompleted,
+                    $keyPlanned
+                );
+            }
+        }
+
+        // 2. Сегмент «без плана»: реальный объём
+        if (!empty($weeksWithoutPlan)) {
+            $kmWithoutPlan = 0.0;
+            $completedWithoutPlan = 0;
+            foreach ($weeksWithoutPlan as $w) {
+                $kmWithoutPlan += (float) ($w['actual_km'] ?? 0.0);
+                $completedWithoutPlan += (int) ($w['completed_count'] ?? 0);
+            }
+            $countWithoutPlan = count($weeksWithoutPlan);
+            if ($kmWithoutPlan <= 0.1 && $completedWithoutPlan === 0) {
+                $parts[] = sprintf('В %s без плана активности не зафиксировано.', $this->ruWeeks($countWithoutPlan));
+            } else {
+                $avgWithoutPlan = $countWithoutPlan > 0 ? $kmWithoutPlan / $countWithoutPlan : 0.0;
+                $parts[] = sprintf(
+                    'В %s без плана выполнено %s, %s км (в среднем %s км/нед).',
+                    $this->ruWeeks($countWithoutPlan),
+                    $this->ruWorkouts($completedWithoutPlan),
+                    $this->formatKm($kmWithoutPlan),
+                    $this->formatKm($avgWithoutPlan)
+                );
+            }
+        }
+
+        // 3. Если все 4 недели одного типа — добавим короткий header
+        if (empty($weeksWithPlan) || empty($weeksWithoutPlan)) {
+            array_unshift($parts, sprintf('За %s:', $this->ruWeeks($weeksCount)));
+        } else {
+            array_unshift($parts, sprintf('За %s (mix):', $this->ruWeeks($weeksCount)));
+        }
+
+        // 4. Тенденция объёма (сравнение второй половины периода с первой)
+        if ($weeksCount >= 3) {
+            $half = (int) floor($weeksCount / 2);
+            $earlier = array_slice($weeklyKm, 0, $half);
+            $later = array_slice($weeklyKm, $weeksCount - $half);
+            $earlierAvg = $earlier ? array_sum($earlier) / count($earlier) : 0.0;
+            $laterAvg = $later ? array_sum($later) / count($later) : 0.0;
+            if ($earlierAvg > 1.0) {
+                $delta = ($laterAvg - $earlierAvg) / $earlierAvg;
+                if ($delta >= 0.20) {
+                    $parts[] = 'Объём растёт.';
+                } elseif ($delta <= -0.20) {
+                    $parts[] = 'Объём снижается последние недели.';
+                }
+            }
+        }
+
+        // 5. Historical peak — самая объёмная неделя в окне. Полезна когда low avg
+        // объясняется post-race recovery, а не реальным упадком формы.
+        $maxKm = !empty($weeklyKm) ? max($weeklyKm) : 0.0;
+        if ($maxKm > 1.0 && $weeksCount >= 4) {
+            $parts[] = sprintf('Максимум недели в окне — %s км.', $this->formatKm($maxKm));
+        }
+
+        // 6. Сравнение с заявленной базой — без алармизма; даём числа, тренер сам интерпретирует.
+        if ($reportedWeeklyBaseKm > 1.0 && $avgKm > 0.1) {
+            $ratio = $avgKm / $reportedWeeklyBaseKm;
+            $maxRatio = $maxKm > 0.1 ? $maxKm / $reportedWeeklyBaseKm : 0.0;
+            if ($ratio >= 1.20) {
+                $parts[] = sprintf(
+                    'Средний фактический объём (%s км) выше заявленной базы (%s км).',
+                    $this->formatKm($avgKm),
+                    $this->formatKm($reportedWeeklyBaseKm)
+                );
+            } elseif ($ratio <= 0.50 && $maxRatio >= 0.80) {
+                // Низкий avg, но historical peak подтверждает заявленную базу — это значит
+                // recovery после race, а не реальный спад формы.
+                $parts[] = sprintf(
+                    'Средний (%s км) ниже базы (%s км), но в окне есть неделя ≈%s км — заявленная база подтверждается, низкий avg = post-race recovery.',
+                    $this->formatKm($avgKm),
+                    $this->formatKm($reportedWeeklyBaseKm),
+                    $this->formatKm($maxKm)
+                );
+            } elseif ($ratio <= 0.50) {
+                $parts[] = sprintf(
+                    'Средний фактический объём (%s км) ниже заявленной базы (%s км) — стоит понять, временный ли это спад (восстановление, болезнь, отпуск) или новая норма.',
+                    $this->formatKm($avgKm),
+                    $this->formatKm($reportedWeeklyBaseKm)
+                );
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * Корректное склонение слова «неделя»: 1 неделю / 2-4 недели / 5+ недель.
+     */
+    private function ruWeeks(int $n): string {
+        $n = abs($n);
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 14) {
+            return $n . ' недель';
+        }
+        $mod10 = $n % 10;
+        if ($mod10 === 1) return $n . ' неделю';
+        if ($mod10 >= 2 && $mod10 <= 4) return $n . ' недели';
+        return $n . ' недель';
+    }
+
+    /**
+     * Корректное склонение слова «тренировка»: 1 тренировка / 2-4 тренировки / 5+ тренировок.
+     */
+    private function ruWorkouts(int $n): string {
+        $n = abs($n);
+        $mod100 = $n % 100;
+        if ($mod100 >= 11 && $mod100 <= 14) {
+            return $n . ' тренировок';
+        }
+        $mod10 = $n % 10;
+        if ($mod10 === 1) return $n . ' тренировка';
+        if ($mod10 >= 2 && $mod10 <= 4) return $n . ' тренировки';
+        return $n . ' тренировок';
+    }
+
+    /**
+     * PR-A (coaching prompt v4): peak_volume_floor_km — реальный потолок формы по фактам.
+     *
+     * Берёт MAX(actual_km), median(actual_km), reported_weekly_base_km × 0.85 и возвращает
+     * максимум. Цель — не позволить плану «зашейпиться» ниже реального уровня бегуна.
+     *
+     * Outlier-неделя (одиночное значение >130% медианы при ≥3 неделях данных) исключается:
+     * это race/контрольная, она искажает потолок повседневной формы.
+     *
+     * @param array $weeks Массив недель из buildRecentCompliance.
+     * @param float $reportedWeeklyBaseKm
+     * @return float|null Округлённый до 1 знака floor или null если данных недостаточно.
+     */
+    private function computePeakVolumeFloorKm(array $weeks, float $reportedWeeklyBaseKm): ?float {
+        if (empty($weeks) && $reportedWeeklyBaseKm <= 0.0) {
+            return null;
+        }
+
+        $values = [];
+        foreach ($weeks as $w) {
+            $km = (float) ($w['actual_km'] ?? 0.0);
+            if ($km > 0.0) {
+                $values[] = $km;
+            }
+        }
+
+        // Если есть ≥3 недель — отбрасываем outlier (race/control week, искажает потолок)
+        if (count($values) >= 3) {
+            $sorted = $values;
+            sort($sorted, SORT_NUMERIC);
+            $medianRaw = $this->medianOfSorted($sorted);
+            if ($medianRaw > 0.0) {
+                $values = array_values(array_filter(
+                    $values,
+                    static fn(float $v): bool => $v <= ($medianRaw * 1.30)
+                ));
+            }
+        }
+
+        $maxVal = $values ? max($values) : 0.0;
+
+        $sortedClean = $values;
+        sort($sortedClean, SORT_NUMERIC);
+        $medianClean = $sortedClean ? $this->medianOfSorted($sortedClean) : 0.0;
+
+        $baseFloor = $reportedWeeklyBaseKm > 0.0 ? $reportedWeeklyBaseKm * 0.85 : 0.0;
+
+        $floor = max($maxVal, $medianClean, $baseFloor);
+        if ($floor <= 0.0) {
+            return null;
+        }
+        return round($floor, 1);
+    }
+
+    private function medianOfSorted(array $sortedValues): float {
+        $n = count($sortedValues);
+        if ($n === 0) {
+            return 0.0;
+        }
+        if ($n % 2 === 1) {
+            return (float) $sortedValues[(int) (($n - 1) / 2)];
+        }
+        $mid = (int) ($n / 2);
+        return ((float) $sortedValues[$mid - 1] + (float) $sortedValues[$mid]) / 2.0;
+    }
+
+    private function formatKm(float $km): string {
+        if (abs($km - round($km)) < 0.05) {
+            return (string) (int) round($km);
+        }
+        return number_format($km, 1, '.', '');
     }
 
     /**
@@ -1435,6 +1745,103 @@ class TrainingStateBuilder {
             return (int) round($targetTimeSec / $targetDistKm);
         }
         return null;
+    }
+
+    /**
+     * PR9: «мост к цели». Если у пользователя есть race-цель, считаем темпы Daniels
+     * как для current VDOT (по реальной форме), так и для target VDOT (по цели).
+     * Решаем под какой таргет план реально готовит:
+     *   - severity=major (verdict=unrealistic, gap>15%) → готовим к predicted (VDOT-realistic).
+     *   - severity=moderate/none → готовим к самой цели; tempo/interval при этом тянутся
+     *     к goal_paces, чтобы был мост, а не работа в темпе текущего уровня.
+     *
+     * Возвращает блок для FACTS_JSON.training_state.pace_strategy + рекомендацию для
+     * plan_review (effective_target_time/predicted_target_time/gap_pct).
+     */
+    private function buildPaceStrategy(array $user, array $state): ?array {
+        $goalType = (string) ($state['goal_type'] ?? $user['goal_type'] ?? '');
+        if (!in_array($goalType, ['race', 'time_improvement'], true)) {
+            return null;
+        }
+
+        $targetDistKm = $this->parseDistanceKm($user['race_distance'] ?? null, null);
+        if ($targetDistKm <= 0) {
+            return null;
+        }
+
+        $goalTimeSec = $this->parseTimeSec(
+            $user['race_target_time'] ?? $user['target_marathon_time'] ?? null
+        );
+        $goalPaceSec = $goalTimeSec > 0 ? (int) round($goalTimeSec / $targetDistKm) : null;
+
+        $currentVdot = isset($state['vdot']) ? (float) $state['vdot'] : 0.0;
+        $currentPaces = is_array($state['training_paces'] ?? null) ? $state['training_paces'] : null;
+
+        $goalRealism = is_array($state['goal_realism'] ?? null) ? $state['goal_realism'] : [];
+        $severity = (string) ($goalRealism['severity'] ?? 'none');
+
+        $predictedTargetSec = null;
+        if ($currentVdot > 0) {
+            $predictedTargetSec = predictRaceTime($currentVdot, $targetDistKm);
+        }
+
+        $gapPct = null;
+        if ($predictedTargetSec !== null && $predictedTargetSec > 0 && $goalTimeSec > 0) {
+            $gapPct = round(($predictedTargetSec - $goalTimeSec) / $predictedTargetSec * 100, 1);
+        }
+
+        $mode = 'goal_target';
+        $effectiveTimeSec = $goalTimeSec > 0 ? $goalTimeSec : $predictedTargetSec;
+        if ($severity === 'major' && $predictedTargetSec !== null && $predictedTargetSec > 0) {
+            $mode = 'realistic_target';
+            $effectiveTimeSec = $predictedTargetSec;
+        }
+
+        if (!$effectiveTimeSec) {
+            return null;
+        }
+
+        $effectivePaceSec = (int) round($effectiveTimeSec / $targetDistKm);
+        $effectiveVdot = estimateVDOT($targetDistKm, $effectiveTimeSec);
+        $goalPaces = getTrainingPaces($effectiveVdot);
+        $goalEasyRange = array_map('intval', $goalPaces['easy']);
+        sort($goalEasyRange, SORT_NUMERIC);
+
+        $formattedGoalPaces = [
+            'easy'       => formatPaceSec($goalEasyRange[0]) . ' – ' . formatPaceSec($goalEasyRange[1]),
+            'marathon'   => formatPaceSec((int) $goalPaces['marathon']),
+            'threshold'  => formatPaceSec((int) $goalPaces['threshold']),
+            'interval'   => formatPaceSec((int) $goalPaces['interval']),
+            'repetition' => formatPaceSec((int) $goalPaces['repetition']),
+        ];
+
+        $formattedCurrentPaces = null;
+        if (is_array($currentPaces)) {
+            $curEasy = array_map('intval', $currentPaces['easy']);
+            sort($curEasy, SORT_NUMERIC);
+            $formattedCurrentPaces = [
+                'easy'       => formatPaceSec($curEasy[0]) . ' – ' . formatPaceSec($curEasy[1]),
+                'marathon'   => formatPaceSec((int) $currentPaces['marathon']),
+                'threshold'  => formatPaceSec((int) $currentPaces['threshold']),
+                'interval'   => formatPaceSec((int) $currentPaces['interval']),
+                'repetition' => formatPaceSec((int) $currentPaces['repetition']),
+            ];
+        }
+
+        return [
+            'mode' => $mode,
+            'effective_target_time' => formatTimeSec((int) $effectiveTimeSec),
+            'effective_target_pace' => formatPaceSec($effectivePaceSec),
+            'effective_target_vdot' => round($effectiveVdot, 1),
+            'goal_target_time' => $goalTimeSec > 0 ? formatTimeSec($goalTimeSec) : null,
+            'goal_target_pace' => $goalPaceSec ? formatPaceSec($goalPaceSec) : null,
+            'predicted_target_time' => $predictedTargetSec !== null ? formatTimeSec($predictedTargetSec) : null,
+            'gap_pct' => $gapPct,
+            'severity' => $severity !== '' ? $severity : 'none',
+            'goal_paces' => $formattedGoalPaces,
+            'current_paces' => $formattedCurrentPaces,
+            'race_distance' => $user['race_distance'] ?? null,
+        ];
     }
 
     private function parseDistanceKm(?string $distance, ?string $distanceKm): float {

@@ -554,6 +554,7 @@ class PlanNormalizerTest extends TestCase {
         ];
 
         $repaired = applyTrainingStateLoadRepairs($normalized, [
+            'goal_type' => 'race',
             'readiness' => 'normal',
             'load_policy' => [
                 'allowed_growth_ratio' => 1.10,
@@ -609,6 +610,7 @@ class PlanNormalizerTest extends TestCase {
         ];
 
         $repaired = applyTrainingStateLoadRepairs($normalized, [
+            'goal_type' => 'race',
             'readiness' => 'normal',
             'load_policy' => [
                 'allowed_growth_ratio' => 1.10,
@@ -725,6 +727,7 @@ class PlanNormalizerTest extends TestCase {
         ];
 
         $repaired = applyTrainingStateLoadRepairs($normalized, [
+            'goal_type' => 'race',
             'readiness' => 'low',
             'load_policy' => [
                 'allowed_growth_ratio' => 1.08,
@@ -1052,7 +1055,11 @@ class PlanNormalizerTest extends TestCase {
         $this->assertSame('interval', $days[2]['type']);
     }
 
-    public function test_applyTrainingStateLoadRepairs_simplifies_race_week_long_and_tempo(): void {
+    public function test_applyTrainingStateLoadRepairs_keeps_race_week_day_types_for_model_to_decide(): void {
+        // PR-C (coaching prompt v4): simplifyRaceWeekDays() удалена. Race-week protocol теперь
+        // — ответственность модели через race_proximity маркеры. Repairs больше не переписывают
+        // tempo→short и long→easy на race-неделе. Если модель ошиблась — это видно в plan review,
+        // а не молча правится post-processing'ом.
         $normalized = [
             'warnings' => [],
             'weeks' => [[
@@ -1077,10 +1084,10 @@ class PlanNormalizerTest extends TestCase {
         ]);
 
         $days = $repaired['weeks'][0]['days'];
+        // Типы дней не меняются автоматически на race-неделе
         $this->assertSame('tempo', $days[1]['type']);
-        $this->assertSame(4.9, $days[1]['distance_km']);
-        $this->assertSame('easy', $days[2]['type']);
-        $this->assertLessThanOrEqual(4.0, (float) $days[2]['distance_km']);
+        $this->assertSame('long', $days[2]['type']);
+        $this->assertSame('race', $days[3]['type']);
     }
 
     public function test_applyTrainingStateLoadRepairs_rebalances_long_share_after_volume_trim(): void {
@@ -1117,6 +1124,7 @@ class PlanNormalizerTest extends TestCase {
         ];
 
         $repaired = applyTrainingStateLoadRepairs($normalized, [
+            'goal_type' => 'race',
             'load_policy' => [
                 'allowed_growth_ratio' => 1.10,
                 'long_share_cap' => 0.43,

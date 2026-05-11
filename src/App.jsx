@@ -3,7 +3,7 @@
  * Использует Zustand для управления состоянием
  */
 
-import React, { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import useAuthStore from './stores/useAuthStore';
 import { isNativeCapacitor } from './services/TokenStorageService';
@@ -14,9 +14,11 @@ import LockScreen from './components/common/LockScreen';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import LogoLoading from './components/common/LogoLoading';
 import AppErrorBoundary from './components/common/AppErrorBoundary';
+import AppUpdateModal from './components/AppUpdateModal';
 import { preloadAuthenticatedModules, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { startAppUpdatePolling } from './utils/appUpdate';
+import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
 import './App.css';
 
 // Lazy для страниц вне основных вкладок
@@ -46,6 +48,9 @@ function App() {
   const { user, api, loading, isAuthenticated, isLocked, initialize, logout, updateUser } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const [siteSettings, setSiteSettings] = useState(null);
+  const { updateAvailable, updateInfo, dismissUpdate } = useAppUpdateCheck(
+    isAuthenticated && !isLocked && !loading && Boolean(api),
+  );
 
   useEffect(() => {
     initialize();
@@ -78,7 +83,7 @@ function App() {
     if (!isAuthenticated || !api || loading) return;
     if (!isNativeCapacitor()) return;
     import('./services/PushService').then(({ registerPushNotifications }) => {
-      registerPushNotifications(api).catch(() => {});
+      registerPushNotifications(api).catch(() => undefined);
     });
   }, [isAuthenticated, api, loading]);
 
@@ -98,18 +103,16 @@ function App() {
             // Навигируем на Settings — существующий useEffect в SettingsScreen обработает
             window.location.href = `/settings?tab=integrations${connected ? '&connected=' + encodeURIComponent(connected) : ''}${error ? '&error=' + encodeURIComponent(error) : ''}`;
           }
-        } catch {}
+        } catch {
+          // Некорректный deep link просто игнорируем.
+        }
       }).then(h => { listenerHandle = h; });
-    }).catch(() => {});
+    }).catch(() => undefined);
     return () => { listenerHandle?.remove?.(); };
   }, []);
 
   const maintenanceMode = siteSettings?.maintenance_mode === '1';
   const registrationEnabled = siteSettings?.registration_enabled !== '0';
-
-  const handleLogin = async (username, password, useJwt = false) => {
-    return await useAuthStore.getState().login(username, password, useJwt);
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -239,6 +242,9 @@ function App() {
       </RoutedErrorBoundary>
       </Suspense>
       </>
+      )}
+      {updateAvailable && (
+        <AppUpdateModal updateInfo={updateInfo} onDismiss={dismissUpdate} />
       )}
     </Router>
   );

@@ -27,8 +27,13 @@ const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other
  * @return void
  * @throws Exception
  */
-function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPreferences = null) {
-    $normalized = normalizeTrainingPlan($planData, $startDate, 0, $userPreferences);
+function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPreferences = null, bool $alreadyNormalized = false) {
+    if ($alreadyNormalized && !empty($planData['weeks']) && isset($planData['weeks'][0]['days'][0]['date'])) {
+        // Plan already went through normalizeTrainingPlan (e.g. via PlanQualityGate) — skip re-normalization
+        $normalized = ['weeks' => $planData['weeks'], 'warnings' => []];
+    } else {
+        $normalized = normalizeTrainingPlan($planData, $startDate, 0, $userPreferences);
+    }
 
     foreach ($normalized['warnings'] as $w) {
         error_log("saveTrainingPlan (user {$userId}): {$w}");
@@ -166,11 +171,26 @@ function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPrefe
  * @return void
  * @throws Exception
  */
-function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate, ?array $userPreferences = null, ?string $mutableFromDate = null) {
+function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDate, ?array $userPreferences = null, ?string $mutableFromDate = null, bool $alreadyNormalized = false) {
     $weekRepo = new WeekRepository($db);
     $lastKeptWeek = $weekRepo->getMaxWeekNumberBefore($userId, $cutoffDate);
 
-    $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek, $userPreferences);
+    if ($alreadyNormalized && !empty($newPlanData['weeks']) && isset($newPlanData['weeks'][0]['days'][0]['date'])) {
+        // Plan already normalized via PlanQualityGate. Re-number weeks for DB schema (keptWeeks + idx)
+        // and recompute start_date per week, but skip the full normalizer pass to avoid double-processing
+        // (simplifyRaceWeekDays, load repairs, etc. would run twice and over-trim the plan).
+        $weeks = $newPlanData['weeks'];
+        $cutoffDt = new DateTimeImmutable($cutoffDate);
+        foreach ($weeks as $idx => &$week) {
+            $week['week_number'] = $idx + 1 + $lastKeptWeek;
+            $week['start_date'] = $cutoffDt->modify('+' . ($idx * 7) . ' days')->format('Y-m-d');
+            $week['total_volume'] = calculateNormalizedWeekVolume($week['days'] ?? []);
+        }
+        unset($week);
+        $normalized = ['weeks' => $weeks, 'warnings' => []];
+    } else {
+        $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek, $userPreferences);
+    }
     $preservedCurrentWeekDays = [];
     if (is_string($mutableFromDate) && $mutableFromDate !== '' && $mutableFromDate > $cutoffDate) {
         $preservedCurrentWeekDays = loadPreservedRecalculationDays($db, $userId, $cutoffDate, $mutableFromDate);

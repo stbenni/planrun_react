@@ -219,6 +219,19 @@ function buildWeeklyReviewPromptData(array $analysis, ?array $enrichment = null)
         }
     }
 
+    // Промежуточные забеги
+    $intermediateRaces = $enrichment['intermediate_races'] ?? [];
+    if (!empty($intermediateRaces)) {
+        $lines[] = "";
+        $lines[] = "ПРОМЕЖУТОЧНЫЕ ЗАБЕГИ:";
+        foreach ($intermediateRaces as $ir) {
+            $desc = trim((string) ($ir['description'] ?? ''));
+            $dist = !empty($ir['distance_km']) ? " ({$ir['distance_km']} км)" : '';
+            $lines[] = "- {$ir['date']}: " . ($desc !== '' ? $desc : 'забег') . $dist;
+        }
+        $lines[] = "Учти это при рекомендациях: подводка и восстановление вокруг промежуточных забегов.";
+    }
+
     return implode("\n", $lines);
 }
 
@@ -261,6 +274,17 @@ function collectReviewEnrichment(int $userId, $db): array {
     // ACWR
     $acwr = $ctx->calculateACWR($userId);
     if ($acwr['acwr'] !== null) $enrichment['acwr'] = $acwr;
+
+    // Промежуточные забеги из training state
+    try {
+        require_once dirname(__DIR__) . '/services/TrainingStateBuilder.php';
+        $stateBuilder = new TrainingStateBuilder($db);
+        $state = $stateBuilder->buildForUserId($userId);
+        $intermediateRaces = $state['intermediate_races'] ?? [];
+        if (!empty($intermediateRaces)) {
+            $enrichment['intermediate_races'] = $intermediateRaces;
+        }
+    } catch (Throwable $e) {}
 
     // VDOT + goal progress from GoalProgressService
     try {

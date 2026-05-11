@@ -50,7 +50,8 @@ function getUserData($userId, $fields = null, $useCache = true) {
                    weight_goal_date, health_program, health_notes, current_running_level, 
                    health_plan_weeks, device_type, avatar_path, privacy_level, public_token,
                    privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts,
-                   push_workouts_enabled, push_chat_enabled, push_workout_hour, push_workout_minute';
+                   push_workouts_enabled, push_chat_enabled, push_workout_hour, push_workout_minute,
+                   last_plan_summary, last_plan_risk_review_json, last_plan_generated_at';
     }
     
     try {

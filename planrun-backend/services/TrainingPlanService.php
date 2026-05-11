@@ -140,6 +140,28 @@ class TrainingPlanService extends BaseService {
                     'error' => $queueError->getMessage(),
                 ]);
             }
+
+            // Активная задача важнее старого error_message: DeepSeek может упасть на первой
+            // попытке, но очередь ещё будет ретраить задачу.
+            if ($activeQueueJob) {
+                $hasWeeksInDb = false;
+                if ($planCheckRow) {
+                    $planData = loadTrainingPlanForUser($userId, false);
+                    $weeksData = isset($planData['weeks_data']) && is_array($planData['weeks_data']) ? $planData['weeks_data'] : [];
+                    $hasWeeksInDb = !empty($weeksData);
+                }
+
+                return [
+                    'has_plan' => false,
+                    'generating' => true,
+                    'has_old_plan' => $hasWeeksInDb,
+                    'job_id' => (int) $activeQueueJob['id'],
+                    'job_type' => $activeQueueJob['job_type'] ?? null,
+                    'queue_status' => $activeQueueJob['status'] ?? null,
+                    'latest_generation' => $latestGeneration,
+                    'user_id' => $userId
+                ];
+            }
             
             // Если есть ошибка генерации, возвращаем её
             if ($planCheckRow && !empty($planCheckRow['error_message'])) {
@@ -173,19 +195,6 @@ class TrainingPlanService extends BaseService {
                     'generating' => true,
                     'has_old_plan' => $hasWeeksInDb,
                     'job_id' => $activeQueueJob['id'] ?? null,
-                    'job_type' => $activeQueueJob['job_type'] ?? null,
-                    'queue_status' => $activeQueueJob['status'] ?? null,
-                    'latest_generation' => $latestGeneration,
-                    'user_id' => $userId
-                ];
-            }
-
-            if ($activeQueueJob) {
-                return [
-                    'has_plan' => false,
-                    'generating' => true,
-                    'has_old_plan' => false,
-                    'job_id' => (int) $activeQueueJob['id'],
                     'job_type' => $activeQueueJob['job_type'] ?? null,
                     'queue_status' => $activeQueueJob['status'] ?? null,
                     'latest_generation' => $latestGeneration,

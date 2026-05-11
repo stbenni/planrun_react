@@ -10,12 +10,35 @@ import BiometricService from '../services/BiometricService';
 import PinAuthService from '../services/PinAuthService';
 import CredentialBackupService from '../services/CredentialBackupService';
 import TokenStorageService, { isNativeCapacitor } from '../services/TokenStorageService';
+import { isActivePlanGenerationStatus } from '../utils/planStatus';
 
 function shouldPrefetchAiPlan(userData) {
   return Boolean(
     userData?.onboarding_completed &&
     (userData?.training_mode === 'ai' || userData?.training_mode === 'both')
   );
+}
+
+function prefetchAiPlanInBackground() {
+  import('./usePlanStore').then(async (mod) => {
+    const planStore = mod.default.getState();
+    const status = await planStore.checkPlanStatus().catch(() => null);
+    if (!status) return;
+
+    if (status.has_plan) {
+      await planStore.loadPlan();
+      return;
+    }
+
+    if (isActivePlanGenerationStatus(status)) {
+      planStore.startStatusPolling();
+      return;
+    }
+
+    if (!status.error) {
+      planStore.setPlanStatusChecked(false);
+    }
+  }).catch(() => {});
 }
 
 const useAuthStore = create(
@@ -64,6 +87,7 @@ const useAuthStore = create(
                 }
               }
             } catch (_) {
+              // Best-effort biometric recovery.
             } finally {
               set({ _credentialRecoveryInProgress: false });
             }
@@ -105,7 +129,9 @@ const useAuthStore = create(
                 localStorage.setItem('auth_token', stored.accessToken);
                 localStorage.setItem('refresh_token', stored.refreshToken);
               }
-            } catch (_) {}
+            } catch (_) {
+              // Best-effort token mirror for native startup.
+            }
 
             if ((pinEnabled || biometricEnabled) && !passwordReauthBypass) {
               set({ isLocked: true, _lockEnabled: true, loading: false });
@@ -136,12 +162,7 @@ const useAuthStore = create(
               }
               // План — в фоне, не блокируя показ UI (Dashboard подхватит из store)
               if (shouldPrefetchAiPlan(userData)) {
-                import('./usePlanStore').then(async (mod) => {
-                  const planStore = mod.default.getState();
-                  const status = await planStore.checkPlanStatus().catch(() => null);
-                  if (status?.has_plan) planStore.loadPlan();
-                  else planStore.setPlanStatusChecked(false);
-                }).catch(() => {});
+                prefetchAiPlanInBackground();
               }
             }
           } catch (error) {
@@ -173,7 +194,7 @@ const useAuthStore = create(
         const onBackground = () => set({ lastActiveAt: Date.now() });
         const onForeground = () => {
           checkAndLockSync();
-          const { isAuthenticated, isLocked, api, _lockEnabled } = get();
+          const { isAuthenticated, api, _lockEnabled } = get();
           if (!api) return;
           // Проактивный refresh токенов — и когда разблокировано, и когда заблокировано.
           // При locked: обновляем токены в storage до разблокировки, чтобы биометрия/PIN
@@ -211,12 +232,7 @@ const useAuthStore = create(
           set({ user: userData, isAuthenticated: true, isLocked: false });
           // План и push — в фоне
           if (shouldPrefetchAiPlan(userData)) {
-            import('./usePlanStore').then(async (mod) => {
-              const planStore = mod.default.getState();
-              const status = await planStore.checkPlanStatus().catch(() => null);
-              if (status?.has_plan) planStore.loadPlan();
-              else planStore.setPlanStatusChecked(false);
-            }).catch(() => {});
+            prefetchAiPlanInBackground();
           }
           if (isNativeCapacitor()) {
             import('../services/PushService').then(({ registerPushNotifications }) => {
@@ -268,12 +284,7 @@ const useAuthStore = create(
           await TokenStorageService.setPasswordReauthBypass(false).catch(() => {});
           set({ user: userData, isAuthenticated: true, isLocked: false });
           if (shouldPrefetchAiPlan(userData)) {
-            import('./usePlanStore').then(async (mod) => {
-              const planStore = mod.default.getState();
-              const status = await planStore.checkPlanStatus().catch(() => null);
-              if (status?.has_plan) planStore.loadPlan();
-              else planStore.setPlanStatusChecked(false);
-            }).catch(() => {});
+            prefetchAiPlanInBackground();
           }
           if (isNativeCapacitor()) {
             import('../services/PushService').then(({ registerPushNotifications }) => {
@@ -307,12 +318,7 @@ const useAuthStore = create(
             // План и push — в фоне, не блокируя навигацию на Dashboard
             const bgUser = fullUser ?? user;
             if (shouldPrefetchAiPlan(bgUser)) {
-              import('./usePlanStore').then(async (mod) => {
-                const planStore = mod.default.getState();
-                const status = await planStore.checkPlanStatus().catch(() => null);
-                if (status?.has_plan) planStore.loadPlan();
-                else planStore.setPlanStatusChecked(false);
-              }).catch(() => {});
+              prefetchAiPlanInBackground();
             }
             if (isNativeCapacitor()) {
               get().setupBackgroundLock?.();
@@ -498,7 +504,7 @@ const useAuthStore = create(
     {
       name: 'auth-storage',
       // Намеренно не персистим user/api: авторизация через сессию (cookies) или JWT при инициализации.
-      partialize: (state) => ({})
+      partialize: () => ({})
     }
   )
 );

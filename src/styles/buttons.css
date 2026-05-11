@@ -91,6 +91,27 @@
   min-width: 0;
 }
 
+.btn-spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spinner-spin 0.7s linear infinite;
+}
+
+.plan-generating-banner .btn-spinner {
+  color: var(--primary-500);
+}
+
+@keyframes btn-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Danger text — красный текст, без заливки */
 .btn--danger-text {
   color: var(--accent-600);
@@ -142,6 +163,7 @@
 [data-theme="dark"] .btn-primary:hover:not(:disabled) {
   background: linear-gradient(180deg, var(--primary-300) 0%, var(--primary-500) 100%);
   border-color: rgba(255, 255, 255, 0.18);
+  color: white;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 16px 30px rgba(252, 76, 2, 0.24);
 }
 

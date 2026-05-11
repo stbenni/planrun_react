@@ -63,9 +63,17 @@ function buildPlanSummaryForReview(array $planData, string $startDate): string {
  * @param array $planData Сырой план
  * @param string $startDate Дата начала
  * @param string $mode 'ГЕНЕРАЦИЯ'|'ПЕРЕСЧЁТ'|'НОВЫЙ ПЛАН'
+ * @param array|null $realismContext Контекст оценки цели для честного объяснения:
+ *   severity (none|moderate|major), goal_target_time, predicted_target_time,
+ *   effective_target_time, race_distance_label, gap_pct.
  * @return string|null Текст рецензии или null при ошибке
  */
-function generatePlanReview(array $planData, string $startDate, string $mode = 'ГЕНЕРАЦИЯ'): ?string {
+function generatePlanReview(
+    array $planData,
+    string $startDate,
+    string $mode = 'ГЕНЕРАЦИЯ',
+    ?array $realismContext = null
+): ?string {
     $baseUrl = rtrim(env('LLM_CHAT_BASE_URL', 'https://api.deepseek.com'), '/');
     $model = env('LLM_CHAT_MODEL', 'deepseek-v4-flash');
 
@@ -80,6 +88,11 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
         $planSummary = mb_substr($planSummary, 0, 8000) . "\n... (обрезка)";
     }
 
+    // PR9: блок про реалистичность цели — честно сообщает пользователю, под какой
+    // таргет план готовит, если goal в профиле не достижим за один цикл.
+    $realismFacts = buildRealismFactsForReview($realismContext);
+    $realismDirective = buildRealismDirectiveForReview($realismContext);
+
     $systemPrompt = "Ты — AI-тренер PlanRun. Сгенерируй короткое человеческое объяснение плана для пользователя. " .
         "Объясни, что и почему расставлено в плане, особенно логику подводки, восстановления и ключевых дней. " .
         "Пиши дружелюбно, спокойно и только по фактам из плана. Максимум 2 коротких абзаца и 4–6 предложений суммарно. Только русский язык. " .
@@ -92,9 +105,15 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
         "3) если план заканчивается гонкой, описывай это как подводку к старту или снижение нагрузки перед стартом, а не как прогрессивное увеличение объёма; " .
         "4) не пиши, что марафон в конце плана «готовит к марафону»; " .
         "5) не используй слово «тейпер» и похожие англицизмы; " .
-        "6) не придумывай мотивы, которых нет в фактах плана.";
+        "6) не придумывай мотивы, которых нет в фактах плана." .
+        $realismDirective;
 
-    $userContent = "Режим: {$mode}.\n\nФакты для рецензии:\n{$reviewFacts}\n\nПлан:\n\n" . $planSummary;
+    $factsBlocks = [$reviewFacts];
+    if ($realismFacts !== '') {
+        $factsBlocks[] = $realismFacts;
+    }
+
+    $userContent = "Режим: {$mode}.\n\nФакты для рецензии:\n" . implode("\n\n", $factsBlocks) . "\n\nПлан:\n\n" . $planSummary;
 
     $timeoutSeconds = max(10, min(300, (int) env('PLAN_REVIEW_LLM_TIMEOUT_SECONDS', 45)));
     $connectTimeoutSeconds = max(1, min(60, (int) env('PLAN_REVIEW_LLM_CONNECT_TIMEOUT_SECONDS', 5)));
@@ -140,6 +159,67 @@ function generatePlanReview(array $planData, string $startDate, string $mode = '
 
     $content = mb_substr($content, 0, 4000);
     return $content;
+}
+
+/**
+ * PR9: формирует facts-блок про реалистичность цели для prompt.
+ * Только сухие данные — никакой интерпретации и никаких готовых формулировок;
+ * вывод и тренерскую фразу пишет сама модель.
+ * Возвращает '' если severity = none или нет данных.
+ */
+function buildRealismFactsForReview(?array $realism): string {
+    if (!is_array($realism)) {
+        return '';
+    }
+    $severity = (string) ($realism['severity'] ?? 'none');
+    if ($severity !== 'major' && $severity !== 'moderate') {
+        return '';
+    }
+
+    $goal = (string) ($realism['goal_target_time'] ?? '');
+    $effective = (string) ($realism['effective_target_time'] ?? '');
+    $predicted = (string) ($realism['predicted_target_time'] ?? '');
+    $distLabel = (string) ($realism['race_distance_label'] ?? '');
+    $gapPct = $realism['gap_pct'] ?? null;
+
+    if ($goal === '' || $effective === '') {
+        return '';
+    }
+
+    $lines = ['Контекст по цели:'];
+    if ($distLabel !== '') {
+        $lines[] = "- дистанция: {$distLabel}";
+    }
+    $lines[] = "- цель в профиле: {$goal}";
+    if ($predicted !== '') {
+        $lines[] = "- реалистичный прогноз по текущей форме: {$predicted}";
+    }
+    $lines[] = "- таргет, под который реально рассчитан план: {$effective}";
+    if ($gapPct !== null) {
+        $gap = is_numeric($gapPct) ? round((float) $gapPct, 1) : $gapPct;
+        $lines[] = "- gap goal vs predicted: {$gap}%";
+    }
+    $lines[] = "- severity: {$severity}";
+
+    return implode("\n", $lines);
+}
+
+/**
+ * PR9: нейтральная директива для системного промпта при moderate/major цели.
+ * Не диктуем модели готовые фразы и не навязываем интерпретацию — просто
+ * указываем, что блок «Контекст по цели» в фактах нужно отразить, и без оправданий.
+ * Тренерскую формулировку модель пишет сама из фактов.
+ */
+function buildRealismDirectiveForReview(?array $realism): string {
+    if (!is_array($realism)) {
+        return '';
+    }
+    $severity = (string) ($realism['severity'] ?? 'none');
+    if ($severity !== 'major' && $severity !== 'moderate') {
+        return '';
+    }
+
+    return ' Дополнительное правило: если в фактах есть блок «Контекст по цели», отрази его в первой фразе ответа — спокойно, по-тренерски, без оправданий и без обещаний. Назови цель из профиля и таргет, под который реально готовит план; не выдумывай причин, опирайся только на эти факты.';
 }
 
 function buildPlanReviewFacts(array $planData, string $startDate): string {

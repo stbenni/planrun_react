@@ -123,6 +123,68 @@ class PlanReviewGeneratorTest extends TestCase {
         $this->assertStringContainsString('подводка к старту', $sanitized);
     }
 
+    /**
+     * PR9: facts-блок — только сухие данные (цель, прогноз, таргет, gap, severity).
+     * Никаких готовых формулировок «не достижима» / «амбициозная» — модель сама
+     * пишет тренерскую фразу из этих фактов.
+     */
+    public function test_buildRealismFacts_lists_target_facts_without_interpretation(): void {
+        $facts = buildRealismFactsForReview([
+            'severity' => 'major',
+            'goal_target_time' => '3:15:00',
+            'predicted_target_time' => '3:25:00',
+            'effective_target_time' => '3:25:00',
+            'race_distance_label' => 'марафон',
+            'gap_pct' => 4.9,
+        ]);
+
+        $this->assertStringContainsString('Контекст по цели:', $facts);
+        $this->assertStringContainsString('цель в профиле: 3:15:00', $facts);
+        $this->assertStringContainsString('реалистичный прогноз по текущей форме: 3:25:00', $facts);
+        $this->assertStringContainsString('таргет, под который реально рассчитан план: 3:25:00', $facts);
+        $this->assertStringContainsString('марафон', $facts);
+        $this->assertStringContainsString('severity: major', $facts);
+        // Запрещённый хардкод: ни «не достижима», ни «амбициозная» — это интерпретация
+        $this->assertStringNotContainsString('не достижима', $facts);
+        $this->assertStringNotContainsString('амбициозная', $facts);
+        $this->assertStringNotContainsString('подтягиваются к цели', $facts);
+    }
+
+    public function test_buildRealismDirective_is_neutral_and_not_a_template_phrase(): void {
+        $directive = buildRealismDirectiveForReview(['severity' => 'major']);
+        $this->assertStringContainsString('Контекст по цели', $directive);
+        $this->assertStringContainsString('первой фразе', $directive);
+        // Не диктуем готовые шаблоны и не навязываем интерпретацию темпов
+        $this->assertStringNotContainsString('не достижима', $directive);
+        $this->assertStringNotContainsString('амбициозная', $directive);
+        $this->assertStringNotContainsString('темпы темповых и интервалов', $directive);
+        $this->assertStringNotContainsString('подтягиваются к цели', $directive);
+    }
+
+    public function test_buildRealismFacts_returns_empty_for_realistic_severity(): void {
+        $this->assertSame('', buildRealismFactsForReview(['severity' => 'none']));
+        $this->assertSame('', buildRealismFactsForReview(null));
+    }
+
+    public function test_buildRealismDirective_returns_empty_for_realistic_severity(): void {
+        $this->assertSame('', buildRealismDirectiveForReview(['severity' => 'none']));
+        $this->assertSame('', buildRealismDirectiveForReview(null));
+    }
+
+    public function test_buildRealismFacts_works_for_moderate_severity_too(): void {
+        $facts = buildRealismFactsForReview([
+            'severity' => 'moderate',
+            'goal_target_time' => '3:30:00',
+            'predicted_target_time' => '3:38:00',
+            'effective_target_time' => '3:30:00',
+            'race_distance_label' => 'марафон',
+            'gap_pct' => 3.7,
+        ]);
+
+        $this->assertStringContainsString('severity: moderate', $facts);
+        $this->assertStringContainsString('цель в профиле: 3:30:00', $facts);
+    }
+
     public function test_polishPlanReviewTone_makes_text_shorter_and_less_bureaucratic(): void {
         $content = 'План построен с учётом ближайших ключевых событий: контрольный старт 26 апреля и главный старт 3 мая. Такой подход помогает сохранить баланс. Контрольный старт выступает как проверка формы. Лёгкие пробежки служат именно для поддержания тонуса. После них идёт восстановление, чтобы не допустить переутомления. Такой подход снижает риск усталости.';
 

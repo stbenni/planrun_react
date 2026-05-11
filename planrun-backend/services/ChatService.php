@@ -427,25 +427,64 @@ class ChatService extends BaseService {
             return $this->callPlanRunAIChat($messages);
         }
         $tools = ((int) env('CHAT_TOOLS_ENABLED', 1) === 1) ? $this->toolRegistry->getChatTools() : null;
-        $maxToolRounds = 5;
+        // Most chats need 0-2 rounds. 5 was too lenient — observed 90s+ latencies in prod.
+        // Tunable via env if needed (CHAT_MAX_TOOL_ROUNDS).
+        $maxToolRounds = max(1, min(5, (int) env('CHAT_MAX_TOOL_ROUNDS', 3)));
         $totalUsage = [];
+        $startedAt = microtime(true);
 
         try {
             $msg = null;
             for ($round = 0; $round <= $maxToolRounds; $round++) {
+                $roundStart = microtime(true);
                 $result = $this->callLlmDirect($messages, $tools, $userId);
+                $roundLlmMs = (int) round((microtime(true) - $roundStart) * 1000);
+
                 $msg = $result['message'] ?? null;
                 if (isset($result['usage']) && !empty($result['usage'])) $totalUsage = $result['usage'];
                 $toolCalls = $msg['tool_calls'] ?? [];
-                if (empty($toolCalls)) return ['content' => $msg['content'] ?? '', 'usage' => $totalUsage];
+                if (empty($toolCalls)) {
+                    Logger::info('Chat tool loop done', [
+                        'rounds' => $round,
+                        'total_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                        'final_round_llm_ms' => $roundLlmMs,
+                        'tools_used' => array_values(array_unique($toolsUsedAccum ?? [])),
+                    ]);
+                    return ['content' => $msg['content'] ?? '', 'usage' => $totalUsage];
+                }
 
                 $messages[] = ['role' => 'assistant', 'content' => $msg['content'] ?? '', 'tool_calls' => $toolCalls];
+                $toolExecStart = microtime(true);
+                $roundToolNames = [];
+                $toolResultMaxBytes = max(1024, (int) env('CHAT_TOOL_RESULT_MAX_BYTES', 5120));
                 foreach ($toolCalls as $tc) {
                     $fn = $tc['function'] ?? [];
-                    $output = $this->toolRegistry->executeTool($fn['name'] ?? '', $fn['arguments'] ?? '{}', $userId);
+                    $name = $fn['name'] ?? '';
+                    $output = $this->toolRegistry->executeTool($name, $fn['arguments'] ?? '{}', $userId);
+                    // Cap oversized tool outputs (e.g. get_workouts returning 30 days of detailed entries).
+                    // The model gets a marker so it can ask narrower follow-ups via the same tool.
+                    if (mb_strlen($output) > $toolResultMaxBytes) {
+                        $output = mb_substr($output, 0, $toolResultMaxBytes)
+                            . '...[обрезано: результат превысил лимит, при необходимости запроси меньший период]';
+                    }
+                    $roundToolNames[] = $name;
                     $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'] ?? '', 'content' => $output];
                 }
+                $toolExecMs = (int) round((microtime(true) - $toolExecStart) * 1000);
+                $toolsUsedAccum = array_merge($toolsUsedAccum ?? [], $roundToolNames);
+
+                Logger::info('Chat tool round', [
+                    'round' => $round + 1,
+                    'llm_ms' => $roundLlmMs,
+                    'tool_exec_ms' => $toolExecMs,
+                    'tools' => $roundToolNames,
+                    'message_count' => count($messages),
+                ]);
             }
+            Logger::warning('Chat tool loop hit max rounds', [
+                'max_rounds' => $maxToolRounds,
+                'total_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
             return ['content' => ($msg['content'] ?? ''), 'usage' => $totalUsage];
         } catch (Throwable $e) {
             if ((int) env('CHAT_FALLBACK_TO_PLANRUN_AI', 0) === 1) {
@@ -680,7 +719,18 @@ class ChatService extends BaseService {
     public function getMessages(int $userId, string $type = 'ai', int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($userId, $type);
         $messages = ($type === 'admin') ? $this->repository->getAdminTabMessages($conversation['id'], $userId, $limit, $offset) : $this->repository->getMessages($conversation['id'], $limit, $offset);
-        return ['conversation_id' => $conversation['id'], 'messages' => $messages];
+        $result = ['conversation_id' => $conversation['id'], 'messages' => $messages];
+
+        if ($type === 'ai') {
+            $ttlSeconds = max(30, (int) env('CHAT_PENDING_RESPONSE_TTL_SECONDS', 360));
+            $result['pending_ai_response'] = $this->repository->getPendingAiResponseState(
+                (int)$conversation['id'],
+                $userId,
+                $ttlSeconds
+            );
+        }
+
+        return $result;
     }
 
     public function clearAiChat(int $userId): void {

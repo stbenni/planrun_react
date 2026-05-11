@@ -85,6 +85,29 @@ class ChatToolRegistry {
             $this->toolDef('get_date', 'Преобразовать текстовую дату (завтра, в среду) в Y-m-d.', [
                 'phrase' => ['type' => 'string', 'description' => 'Текстовая дата (завтра, в пятницу, 15 марта)'],
             ], ['phrase']),
+            $this->toolDef('get_personal_records', 'Личные рекорды 5k/10k/half/marathon (время, темп, VDOT).', []),
+            $this->toolDef('get_compliance_history', 'Выполнение плана по неделям (planned vs done).', [
+                'weeks' => ['type' => 'integer', 'description' => 'Недель назад (по умолчанию 4)'],
+            ]),
+            $this->toolDef('get_macrocycle_phase', 'Фаза макроцикла, неделя N из M, дни до гонки.', []),
+            $this->toolDef('get_load_policy', 'Параметры нагрузки: target volume, growth ratio, recovery weeks.', []),
+            $this->toolDef('log_wellness', 'UPSERT записи самочувствия (1-5, RPE 1-10). ВСЕГДА вызывай когда юзер сообщает свежее состояние ("плохо спал", "сил нет", "стресс"), даже если в context уже есть запись на эту дату — она перезапишется. Подтверди значения перед записью.', [
+                'date' => ['type' => 'string', 'description' => 'Y-m-d (по умолчанию сегодня)'],
+                'sleep_quality' => ['type' => 'integer'],
+                'mood' => ['type' => 'integer'],
+                'soreness' => ['type' => 'integer'],
+                'stress' => ['type' => 'integer'],
+                'energy' => ['type' => 'integer'],
+                'last_workout_rpe' => ['type' => 'integer'],
+                'notes' => ['type' => 'string'],
+            ]),
+            $this->toolDef('get_wellness_trend', 'Тренды самочувствия за период.', [
+                'days' => ['type' => 'integer', 'description' => 'Дней назад (1-30, по умолчанию 7)'],
+            ]),
+            $this->toolDef('get_weather', 'Прогноз погоды на ближайшие дни (max 5).', [
+                'date_from' => ['type' => 'string'],
+                'date_to' => ['type' => 'string'],
+            ]),
         ];
     }
 
@@ -122,6 +145,13 @@ class ChatToolRegistry {
             'get_training_load' => fn() => $this->executeGetTrainingLoad($args, $userId),
             'add_training_day' => fn() => $this->executeAddTrainingDay($args, $userId),
             'copy_day' => fn() => $this->executeCopyDay($args, $userId),
+            'get_personal_records' => fn() => $this->executeGetPersonalRecords($args, $userId),
+            'get_compliance_history' => fn() => $this->executeGetComplianceHistory($args, $userId),
+            'get_macrocycle_phase' => fn() => $this->executeGetMacrocyclePhase($args, $userId),
+            'get_load_policy' => fn() => $this->executeGetLoadPolicy($args, $userId),
+            'log_wellness' => fn() => $this->executeLogWellness($args, $userId),
+            'get_wellness_trend' => fn() => $this->executeGetWellnessTrend($args, $userId),
+            'get_weather' => fn() => $this->executeGetWeather($args, $userId),
         ];
 
         if (isset($dispatch[$name])) {
@@ -411,11 +441,33 @@ class ChatToolRegistry {
         try {
             require_once __DIR__ . '/WeekService.php';
             $ws = new WeekService($this->db);
+            // Заменить target на содержимое source (delete-then-copy сохраняет план дня),
+            // а source превратить в rest (НЕ удалять — иначе образуется дыра в календаре).
             $tgtId = $this->findDayIdByDate($userId, $tgt);
             if ($tgtId) $ws->deleteTrainingDayById($tgtId, $userId);
             $ws->copyDay($src, $tgt, $userId);
-            $ws->deleteTrainingDayById($srcId, $userId);
-            return json_encode(['success' => true, 'message' => "Тренировка перенесена с {$this->formatDateRu($src)} на {$this->formatDateRu($tgt)}"]);
+
+            // Сделать src чистым rest-днём:
+            //   - type = 'rest'
+            //   - стереть description и exercises (иначе остаются старые "6.5 км" / упражнения от бега)
+            // updateTrainingDayById не очищает description при пустой строке (COALESCE), поэтому
+            // делаем direct UPDATE + DELETE exercises.
+            $stmt = $this->db->prepare("UPDATE training_plan_days SET type='rest', description='', is_key_workout=0 WHERE id = ? AND user_id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $srcId, $userId);
+                $stmt->execute();
+                $stmt->close();
+            }
+            $stmt = $this->db->prepare("DELETE FROM training_day_exercises WHERE plan_day_id = ? AND user_id = ?");
+            if ($stmt) {
+                $stmt->bind_param('ii', $srcId, $userId);
+                $stmt->execute();
+                $stmt->close();
+            }
+            require_once __DIR__ . '/../cache_config.php';
+            Cache::delete("training_plan_{$userId}");
+
+            return json_encode(['success' => true, 'message' => "Тренировка перенесена с {$this->formatDateRu($src)} на {$this->formatDateRu($tgt)}; на {$this->formatDateRu($src)} установлен отдых"]);
         } catch (Exception $e) {
             return json_encode(['error' => 'move_failed', 'message' => 'Не удалось перенести: ' . $e->getMessage()]);
         }
@@ -759,5 +811,269 @@ class ChatToolRegistry {
     public function formatSeconds(int $totalSec): string {
         $h = intdiv($totalSec, 3600); $m = intdiv($totalSec % 3600, 60); $s = $totalSec % 60;
         return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%d:%02d', $m, $s);
+    }
+
+    // ── New read-only tools (Stage 1: Quick wins from existing data) ──
+
+    /**
+     * Lazy-loads training_state once per chat turn. Heavy build (queries multiple tables),
+     * so cache by userId for the lifetime of the request.
+     */
+    private array $stateCache = [];
+    private function loadTrainingState(int $userId): array {
+        if (isset($this->stateCache[$userId])) return $this->stateCache[$userId];
+        try {
+            require_once __DIR__ . '/TrainingStateBuilder.php';
+            $state = (new TrainingStateBuilder($this->db))->buildForUserId($userId, 'generate', []);
+            return $this->stateCache[$userId] = is_array($state) ? $state : [];
+        } catch (Throwable $e) {
+            Logger::warning('loadTrainingState failed', ['userId' => $userId, 'error' => $e->getMessage()]);
+            return $this->stateCache[$userId] = [];
+        }
+    }
+
+    private function executeGetPersonalRecords(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $state = $this->loadTrainingState($userId);
+        $bestRaces = $state['best_races'] ?? [];
+        if (empty($bestRaces)) {
+            return json_encode(['records' => [], 'message' => 'Личных рекордов в истории нет — добавь забеги через log_workout или укажи last_race_* в профиле.']);
+        }
+        $records = [];
+        foreach (['5k', '10k', 'half', 'marathon'] as $bucket) {
+            $entries = (array) ($bestRaces[$bucket] ?? []);
+            if (empty($entries)) continue;
+            $best = $entries[0]; // отсортировано по дате убыв., но первый — самый недавний; берём всё для модели
+            $records[$bucket] = [
+                'distance_km' => $best['distance_km'] ?? null,
+                'time' => isset($best['time_sec']) ? $this->formatSeconds((int) $best['time_sec']) : null,
+                'pace_per_km' => isset($best['pace_sec']) ? $this->formatSeconds((int) $best['pace_sec']) : null,
+                'date' => $best['date'] ?? null,
+                'vdot' => $best['vdot'] ?? null,
+                'history_count' => count($entries),
+            ];
+        }
+        return json_encode(['records' => $records], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeGetComplianceHistory(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $weeks = max(1, min(12, (int) ($args['weeks'] ?? 4)));
+        $state = $this->loadTrainingState($userId);
+        $compliance = $state['recent_compliance'] ?? [];
+        if (empty($compliance)) {
+            return json_encode(['weeks' => [], 'message' => 'Нет данных о выполнении плана.']);
+        }
+        $sliced = array_slice($compliance, 0, $weeks);
+        return json_encode(['weeks' => $sliced, 'period_weeks' => $weeks], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeGetMacrocyclePhase(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $state = $this->loadTrainingState($userId);
+        $macro = $state['macrocycle'] ?? [];
+        $weeksToGoal = $state['weeks_to_goal'] ?? null;
+        $raceDate = $state['race_date'] ?? null;
+        $startDate = $state['training_start_date'] ?? null;
+
+        $currentWeek = null;
+        if ($startDate) {
+            try {
+                $start = new DateTimeImmutable($startDate);
+                $today = new DateTimeImmutable('now');
+                $diffDays = (int) $start->diff($today)->format('%r%a');
+                if ($diffDays >= 0) $currentWeek = intdiv($diffDays, 7) + 1;
+            } catch (Throwable $e) {}
+        }
+
+        $phase = null;
+        if ($currentWeek !== null && !empty($macro['phases'])) {
+            foreach ($macro['phases'] as $ph) {
+                $from = (int) ($ph['week_from'] ?? 0);
+                $to = (int) ($ph['week_to'] ?? 0);
+                if ($from <= $currentWeek && $currentWeek <= $to) {
+                    $phase = $ph['name'] ?? null;
+                    break;
+                }
+            }
+        }
+
+        return json_encode([
+            'current_week' => $currentWeek,
+            'total_weeks' => $macro['total_weeks'] ?? $weeksToGoal,
+            'current_phase' => $phase,
+            'race_date' => $raceDate,
+            'days_to_race' => $raceDate ? max(0, (int) (new DateTimeImmutable('now'))->diff(new DateTimeImmutable($raceDate))->format('%r%a')) : null,
+            'recovery_weeks' => array_values((array) ($macro['recovery_weeks'] ?? [])),
+            'phases' => $macro['phases'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeGetLoadPolicy(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $state = $this->loadTrainingState($userId);
+        $policy = $state['load_policy'] ?? [];
+        if (empty($policy)) {
+            return json_encode(['error' => 'no_policy', 'message' => 'Параметры нагрузки не вычислены — план ещё не сгенерирован.']);
+        }
+        return json_encode([
+            'allowed_growth_ratio' => $policy['allowed_growth_ratio'] ?? null,
+            'recovery_cutback_ratio' => $policy['recovery_cutback_ratio'] ?? null,
+            'race_week_ratio' => $policy['race_week_ratio'] ?? null,
+            'pre_race_taper_ratio' => $policy['pre_race_taper_ratio'] ?? null,
+            'long_share_cap' => $policy['long_share_cap'] ?? null,
+            'easy_min_km' => $policy['easy_min_km'] ?? null,
+            'long_min_km' => $policy['long_min_km'] ?? null,
+            'tempo_min_km' => $policy['tempo_min_km'] ?? null,
+            'recovery_weeks' => array_values((array) ($policy['recovery_weeks'] ?? [])),
+            'start_volume_km' => $policy['start_volume_km'] ?? null,
+            'peak_volume_km' => $policy['peak_volume_km'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeLogWellness(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $date = !empty($args['date']) && $this->validateDate((string) $args['date'])
+            ? (string) $args['date']
+            : (new DateTimeImmutable('now'))->format('Y-m-d');
+
+        $clamp = static function ($v, int $min, int $max): ?int {
+            if ($v === null || $v === '') return null;
+            if (!is_numeric($v)) return null;
+            return max($min, min($max, (int) $v));
+        };
+        $sleep = $clamp($args['sleep_quality'] ?? null, 1, 5);
+        $mood = $clamp($args['mood'] ?? null, 1, 5);
+        $soreness = $clamp($args['soreness'] ?? null, 1, 5);
+        $stress = $clamp($args['stress'] ?? null, 1, 5);
+        $energy = $clamp($args['energy'] ?? null, 1, 5);
+        $rpe = $clamp($args['last_workout_rpe'] ?? null, 1, 10);
+        $notes = isset($args['notes']) ? mb_substr((string) $args['notes'], 0, 500) : null;
+
+        // Если пусто — нечего сохранять
+        if ($sleep === null && $mood === null && $soreness === null && $stress === null && $energy === null && $rpe === null && empty($notes)) {
+            return json_encode(['error' => 'empty', 'message' => 'Не передано ни одного значения для записи.']);
+        }
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO daily_wellness (user_id, log_date, sleep_quality, mood, soreness, stress, energy, last_workout_rpe, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                sleep_quality = COALESCE(VALUES(sleep_quality), sleep_quality),
+                mood = COALESCE(VALUES(mood), mood),
+                soreness = COALESCE(VALUES(soreness), soreness),
+                stress = COALESCE(VALUES(stress), stress),
+                energy = COALESCE(VALUES(energy), energy),
+                last_workout_rpe = COALESCE(VALUES(last_workout_rpe), last_workout_rpe),
+                notes = COALESCE(VALUES(notes), notes)"
+        );
+        if (!$stmt) {
+            return json_encode(['error' => 'db_error', 'message' => 'Не удалось подготовить запрос']);
+        }
+        $stmt->bind_param('ississsis', $userId, $date, $sleep, $mood, $soreness, $stress, $energy, $rpe, $notes);
+        if (!$stmt->execute()) {
+            $err = $stmt->error;
+            $stmt->close();
+            return json_encode(['error' => 'db_error', 'message' => 'Не удалось сохранить: ' . $err]);
+        }
+        $stmt->close();
+
+        return json_encode([
+            'success' => true,
+            'date' => $date,
+            'logged' => array_filter([
+                'sleep_quality' => $sleep,
+                'mood' => $mood,
+                'soreness' => $soreness,
+                'stress' => $stress,
+                'energy' => $energy,
+                'last_workout_rpe' => $rpe,
+                'notes' => $notes,
+            ], static fn($v) => $v !== null && $v !== ''),
+        ], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeGetWeather(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        require_once __DIR__ . '/WeatherService.php';
+        $svc = new WeatherService($this->db);
+        if (!$svc->isEnabled()) {
+            return json_encode(['error' => 'weather_disabled', 'message' => 'Прогноз погоды не настроен (нет WEATHER_API_KEY).']);
+        }
+        $today = (new DateTimeImmutable('now'))->format('Y-m-d');
+        $from = !empty($args['date_from']) && $this->validateDate((string) $args['date_from']) ? (string) $args['date_from'] : $today;
+        $to = !empty($args['date_to']) && $this->validateDate((string) $args['date_to']) ? (string) $args['date_to'] : (new DateTimeImmutable($from))->modify('+3 days')->format('Y-m-d');
+
+        try {
+            $fromDt = new DateTimeImmutable($from);
+            $toDt = new DateTimeImmutable($to);
+        } catch (Throwable $e) {
+            return json_encode(['error' => 'invalid_dates']);
+        }
+        if ($toDt < $fromDt) [$fromDt, $toDt] = [$toDt, $fromDt];
+
+        $dates = [];
+        for ($d = $fromDt; $d <= $toDt; $d = $d->modify('+1 day')) {
+            $dates[] = $d->format('Y-m-d');
+            if (count($dates) >= 6) break;
+        }
+
+        $result = $svc->getForecastForUser($userId, $dates);
+        if ($result === null) {
+            return json_encode(['error' => 'no_location', 'message' => 'Локация пользователя не задана. Попроси указать город или координаты.']);
+        }
+        // Добавляем теги условий, чтобы модель сразу видела warning'и
+        foreach ($result['forecasts'] as &$dayForecast) {
+            $dayForecast['advice_tags'] = $svc->classifyConditions($dayForecast);
+        }
+        unset($dayForecast);
+        return json_encode($result, JSON_UNESCAPED_UNICODE);
+    }
+
+    private function executeGetWellnessTrend(array $args, ?int $userId): string {
+        if ($err = $this->requireUser($userId)) return $err;
+        $days = max(1, min(30, (int) ($args['days'] ?? 7)));
+
+        $stmt = $this->db->prepare(
+            "SELECT log_date, sleep_quality, mood, soreness, stress, energy, last_workout_rpe, notes
+             FROM daily_wellness
+             WHERE user_id = ? AND log_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+             ORDER BY log_date DESC"
+        );
+        if (!$stmt) return json_encode(['error' => 'db_error']);
+        $stmt->bind_param('ii', $userId, $days);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = [];
+        while ($row = $res->fetch_assoc()) {
+            foreach (['sleep_quality', 'mood', 'soreness', 'stress', 'energy', 'last_workout_rpe'] as $k) {
+                if ($row[$k] !== null) $row[$k] = (int) $row[$k];
+            }
+            $rows[] = $row;
+        }
+        $stmt->close();
+
+        if (empty($rows)) {
+            return json_encode(['days' => $days, 'entries' => [], 'message' => 'Нет данных самочувствия за этот период.']);
+        }
+
+        // Считаем средние по неделе
+        $sum = ['sleep_quality' => [], 'mood' => [], 'soreness' => [], 'stress' => [], 'energy' => [], 'last_workout_rpe' => []];
+        foreach ($rows as $r) {
+            foreach ($sum as $k => &$arr) {
+                if ($r[$k] !== null) $arr[] = $r[$k];
+            }
+            unset($arr);
+        }
+        $averages = [];
+        foreach ($sum as $k => $vals) {
+            if (!empty($vals)) $averages[$k] = round(array_sum($vals) / count($vals), 1);
+        }
+
+        return json_encode([
+            'days' => $days,
+            'entries' => $rows,
+            'averages' => $averages,
+        ], JSON_UNESCAPED_UNICODE);
     }
 }

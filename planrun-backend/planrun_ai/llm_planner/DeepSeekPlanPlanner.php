@@ -31,6 +31,8 @@ class DeepSeekPlanPlanner
     private ?string $observabilityTraceId = null;
     private ?int $observabilityUserId = null;
     private string $observabilitySurface = 'plan_generation';
+    /** @var array<string,int|null> last LLM call usage metrics (prompt/completion/total/cache_hit/cache_miss) */
+    private array $lastUsage = [];
 
     public function __construct(mysqli $db)
     {
@@ -113,7 +115,7 @@ class DeepSeekPlanPlanner
             'raw_model_macro_plan_ignored' => is_array($generationArtifact['macro_plan'] ?? null),
             'plan_summary' => $generationArtifact['plan_summary'] ?? null,
             'risk_review' => $generationArtifact['risk_review'] ?? null,
-            'prompt_version' => 'deepseek_llm_planner_v3_simplified',
+            'prompt_version' => 'deepseek_llm_planner_v4_coaching_pace_strategy',
         ];
 
         return [
@@ -123,6 +125,7 @@ class DeepSeekPlanPlanner
             'start_date' => $startDate,
             'macro_plan' => $macro,
             'planner_context' => $context,
+            'usage' => $this->lastUsage,
         ];
     }
 
@@ -146,27 +149,38 @@ class DeepSeekPlanPlanner
     }
 
     /**
-     * Phase C.1 (PR5): выбор модели и thinking-режима на основе сложности сценария.
+     * PR-C (coaching prompt v4): выбор модели.
      *
-     * Сложный сценарий = одновременно ≥2 факторов риска из:
-     *   - planning_scenario.flags ∈ {return_after_injury, pain_protective, illness_protective,
-     *     b_race_before_a_race, short_runway_taper, short_runway_long_race}
-     *   - special_population_flags ∈ {pregnant_or_postpartum, return_after_injury,
-     *     recent_pain_signal, recent_illness_signal}
-     *   - goal_realism.severity == 'major'
+     * Тренерский подход: модель всегда «думает» над планом, как реальный тренер. По умолчанию
+     * используется `deepseek-reasoner` с `enable_thinking=true` для всех генераций
+     * (env `PLAN_LLM_THINKING_ALWAYS=1`, default). Стоимость reasoner-токенов компенсируется
+     * заметным ростом качества рассуждения по сложным сценариям (recovery, race-week,
+     * intermediate races, return_after_injury).
      *
-     * При complexity_score ≥ 2 — переключаемся на deepseek-reasoner с enable_thinking=true и
-     * расширенным timeout (по умолчанию +120 сек). Это даёт модели больше внутреннего reasoning
-     * budget для сложных кейсов, где простой single-pass может ошибиться.
+     * Откат:
+     *   - `PLAN_LLM_THINKING_ALWAYS=0` → возврат к старой эвристике auto-эскалации (Phase C.1):
+     *     reasoner+thinking только при complexity_score ≥ PLAN_LLM_REASONER_THRESHOLD.
+     *   - `PLAN_LLM_AUTO_REASONER=0` И `PLAN_LLM_THINKING_ALWAYS=0` → всегда базовая модель.
      *
-     * Auto-reasoner отключается через `PLAN_LLM_AUTO_REASONER=0` — тогда всегда используется
-     * базовая модель (`PLAN_LLM_MODEL`).
+     * complexity_score продолжает писаться в metadata для observability.
      */
     public function resolveModelSelection(array $state): array
     {
         $score = $this->computeComplexityScore($state);
+        $thinkingAlways = $this->envBool('PLAN_LLM_THINKING_ALWAYS', true);
 
-        if ($this->autoReasoner && $score >= 2) {
+        if ($thinkingAlways) {
+            return [
+                'model' => $this->reasonerModel,
+                'enable_thinking' => true,
+                'timeout_seconds' => $this->reasonerTimeoutSeconds,
+                'reason' => 'thinking_always',
+                'score' => $score,
+            ];
+        }
+
+        $threshold = $this->envInt('PLAN_LLM_REASONER_THRESHOLD', 1, 0, 10);
+        if ($this->autoReasoner && $score >= $threshold) {
             return [
                 'model' => $this->reasonerModel,
                 'enable_thinking' => true,
@@ -384,83 +398,73 @@ class DeepSeekPlanPlanner
         return $score;
     }
 
+    /**
+     * PR-C (coaching prompt v4): system prompt про метод тренерского мышления.
+     * Не «список правил», а «сначала диагноз → стратегия → календарь».
+     */
     private function buildSystemPrompt(): string
     {
-        return 'Ты — тренер по бегу и возвращаешь только валидный JSON без markdown, комментариев и <think>. '
-            . 'Перед ответом внутри себя спокойно проанализируй профиль, цель, свежие тренировки, риски и ограничения; не выводи ход рассуждений. '
-            . 'JSON keys, enum values и технические поля оставляй ровно как в схеме. '
-            . 'Все человекочитаемые строки внутри JSON пиши только на русском языке: notes, quality_focus, risk_note, macro_adjustment_reason. '
-            . 'Не используй английские тренировочные слова в этих строках.';
+        return 'Ты — опытный тренер по бегу. Получив FACTS_JSON о бегуне, '
+            . 'сначала внутри себя поставь диагноз (форма, цель, риски, узкое место), '
+            . 'затем выбери стратегию (peak volume, периодизация, key workouts, taper), '
+            . 'затем разложи план по календарю с учётом фиксированных событий. '
+            . 'Применяй базовую физиологию: после соревнования и длительной нужно восстановление, '
+            . 'прогресс через адаптацию, recovery weeks обязательны. '
+            . 'Возвращай только валидный JSON без markdown, комментариев и <think>. '
+            . 'Все человекочитаемые строки внутри JSON — только на русском (notes, plan_summary, risk_review, macro_adjustment_reason, quality_focus, risk_note).';
     }
 
     /**
-     * Single-pass plan prompt для DeepSeek V4.
+     * PR-C (coaching prompt v4): user-prompt максимально короткий — формат ответа,
+     * семантические маркеры в calendar_weeks, медицинские границы, и FACTS_JSON.
      *
-     * Phase A.5 (PR3) — упрощён под trust-the-model: hard_rules выдают только medical/schedule
-     * инварианты, остальное — тренерское решение модели на основе FACTS_JSON.
+     * Никаких prose-инструкций «реагируй на signal X так-то», «при compliance 60-89% делай Y»,
+     * «sanity-floor вычисляй из MAX/median». Тренер видит факты в FACTS_JSON и решает сам.
      */
     private function buildFullPlanPrompt(array $context): string
     {
-        return "Ты — сильный тренер по бегу. Получи весь профиль пользователя и весь горизонт подготовки в FACTS_JSON, спокойно проанализируй ситуацию и составь полный календарный план single-pass.\n\n"
-            . "Внутри себя оцени цель, свежие тренировки (recent_workouts), сроки, готовность (training_state), доступные дни, риски и сценарий (planning_scenario, goal_realism). Затем верни только JSON.\n\n"
-            . "Главная задача — лучший реалистичный план для этого пользователя, а не максимальный километраж и не жёсткий шаблон. Используй HARD_RULES_JSON как медицинские/расписательные/языковые границы. Остальные факты — входные данные для тренерского анализа, а не клетка для ответа.\n\n"
+        return "Составь календарный план тренировок: якорь пикового недельного км — load_policy.peak_volume_floor_km (±10%, см. ниже); это не жёсткий шаблон, но резать объём «от себя» без медицинских флагов нельзя.\n\n"
             . "Формат ответа:\n"
             . "{\n"
-            . "  \"plan_summary\":\"короткое русское резюме логики плана\",\n"
+            . "  \"plan_summary\":\"короткое русское резюме логики плана (диагноз+стратегия одной фразой)\",\n"
             . "  \"risk_review\":[\"короткий риск или компромисс по-русски\"],\n"
-            . "  \"weeks\":[...]\n"
-            . "}\n\n"
-            . "Формат недели: {\"week_number\":1,\"phase\":\"base|build|peak|recovery|taper|race\","
-            . "\"is_recovery\":false,\"target_volume_km\":0,\"macro_adjustment_reason\":null,\"days\":[7 days]}. "
-            . "target_volume_km — итоговый недельный target после твоего анализа, должен примерно совпадать с суммой distance_km дней.\n\n"
-            . "Формат дня: {\"day_of_week\":1,\"type\":\"easy|rest|long|tempo|interval|fartlek|control|race|other\","
-            . "\"distance_km\":8.0,\"pace\":\"5:20\",\"duration_minutes\":43,\"warmup_km\":null,\"cooldown_km\":null,"
-            . "\"tempo_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,"
-            . "\"segments\":null,\"subtype\":null,\"notes\":\"\"}.\n\n"
-            . "Hard boundaries (medical/schedule):\n"
-            . "- Верни ровно weeks_count недель и ровно 7 дней в каждой; day_of_week всегда 1..7.\n"
-            . "- Используй calendar_weeks из FACTS_JSON для дат недели; days_to_race и is_race_date уже посчитаны.\n"
-            . "- Если race_date попадает в горизонт — поставь race именно на эту дату.\n"
-            . "- Уважай required_run_day_numbers / allowed_run_day_numbers; если ради восстановления отступаешь — объясни в macro_adjustment_reason.\n"
-            . "- Если задан long_run_safety.marathon_last_21_days_training_long_run_max_km — любая тренировочная длительная за 1..21 день до марафона ≤ этому лимиту.\n"
-            . "- Если задан long_run_safety.no_training_run_at_or_above_race_distance_except_race_day — не ставь полный марафон до старта.\n"
-            . "- Если задан fresh_long_effort_guard — после свежего очень длинного забега первая неделя может быть восстановительной, даже если readiness высокая.\n\n"
-            . "Тренерская свобода:\n"
-            . "- Сам выбирай фазы, объёмы, длительные, интенсивность и разгрузки на основе training_state.load_policy и истории.\n"
-            . "- target_volume_km каждой недели должен быть твоим итоговым решением и должен примерно совпадать с суммой distance_km в календаре этой недели.\n"
-            . "- Можно сделать план осторожнее или амбициознее входных ориентиров, если факты это поддерживают.\n"
-            . "- Если цель/срок рискованные — не срывай генерацию: составь лучший безопасный вариант и отрази в risk_review.\n\n"
-            . "Сценарии и goal_realism (контекст; реагируй там, где он применим):\n"
-            . "- planning_scenario.primary='return_after_injury' → объём не более 60% от reported_weekly_base_km, без интервалов первые 3 недели, длительная +1 км/нед; в notes отрази возврат после травмы.\n"
-            . "- planning_scenario.flags содержит 'pain_protective' / 'illness_protective' / 'high_caution' → quality сессии исключаются минимум на 1 неделю; объём стабильно или вниз.\n"
-            . "- planning_scenario.flags содержит 'b_race_before_a_race' → tune-up идёт как control, без полной подводки.\n"
-            . "- goal_realism.severity='major' → используй goal_realism.recommended_target_time как опорный темп; в plan_summary/risk_review отметь пересмотр цели.\n\n"
-            . "Контекст последних недель (recent_compliance, recent_workouts) — не блокирующий, но твой первый источник правды о форме:\n"
-            . "- recent_compliance показывает по неделям planned/completed_count, actual_km, key_workout_completion_pct, skipped_count. Если человек регулярно срывает >30% запланированного или ключевые тренировки выполнены <60% — план был слишком амбициозным, понизь объём и плотность качества.\n"
-            . "- Если compliance стабильно высокий (>0.85) и actual_km ≥ planned_km — есть запас, можно держать темп прогресса.\n"
-            . "- recent_workouts (за ~14 дней) содержит pace_sec, hr_avg, rpe (1=очень легко .. 5=очень тяжело), notes. Используй: рост HR при том же темпе или RPE>3 на easy — признак усталости, замедли темпы или дай recovery.\n"
-            . "- Сравни pace в recent_workouts с training_paces.easy/marathon/threshold: если фактический темп easy медленнее ожидаемого — не форсируй интенсивность, дай адаптацию.\n"
-            . "- Учитывай notes: жалобы на боль/усталость/болезнь = осторожнее даже если HR/pace в норме. Игнорируй recent_workouts только если массив пустой.\n\n"
-            . "Климат и сезон (season) — учитывай при планировании темпов:\n"
-            . "- season.current_month_name + season.season_phase описывают условия в начале плана; race_season_phase — на дату гонки.\n"
-            . "- Если start или race-период попадают в summer (или summer/late_autumn для southern_hemisphere=false): жара заметно замедляет easy и tempo, не делай прогрессивных интервалов в самых жарких неделях, упоминай в notes о термонагрузке.\n"
-            . "- Зимой (winter) на улице может быть скользко/холодно — это контекст для разговора с пользователем, не блокер. Указывай в notes альтернативы (treadmill, indoor) только если явно уместно.\n\n"
-            . "История лучших результатов (best_races) — твоя база для оценки реалистичности:\n"
-            . "- best_races содержит по бакетам 5k/10k/half/marathon: distance_km, time_sec, pace_sec, date, vdot. Сортировка по дате убыв.\n"
-            . "- Сравни целевой goal_pace с историческим pace_sec на той же или соседней дистанции. Большой разрыв (>15-20 сек/км) — повод обсудить в risk_review.\n"
-            . "- goal_realism.best_races_at_target_distance, если есть, показывает прежние попытки на той же дистанции — используй их как ориентир. Если человек уже бегал марафон 4:30, цель 3:30 без значимого роста VDOT за 6 месяцев — нереалистично, отрази в risk_review.\n"
-            . "- Свежий (≤6 нед) сильный результат на короткой дистанции — повод доверять goal_pace. Старый (>26 нед) или единственный — повод быть осторожнее.\n\n"
-            . "Темпы и структура (для понятной тренировки):\n"
-            . "- Для простого бега pace относится ко всей тренировке, duration_minutes согласуй с distance_km.\n"
-            . "- Для interval/tempo заполни структурные поля: warmup_km, cooldown_km, tempo_km, reps/interval_m/interval_pace/rest_m/rest_type.\n"
-            . "- Для fartlek обязательно заполни segments: [{\"reps\":8,\"distance_m\":400,\"pace\":\"4:10\",\"recovery_m\":200,\"recovery_type\":\"jog\"}]. Не возвращай fartlek только с разминкой и заминкой.\n"
-            . "- Если работа около целевого темпа гонки — subtype=race_pace и pace около goal_pace.\n"
-            . "- Не ставь медленный steady/easy pace в type=tempo (tempo подразумевает темповую интенсивность).\n\n"
-            . "Язык:\n"
-            . "- Все человекочитаемые строки только на русском: plan_summary, risk_review, macro_adjustment_reason, notes.\n"
-            . "- Не используй в них английские тренировочные термины: threshold, marathon-pace, race-pace, long run, easy run, warmup, cooldown, taper, recovery, MP, HMP.\n"
-            . "- JSON keys и enum values оставляй как в схеме.\n\n"
-            . "FACTS_JSON:\n" . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            . "  \"weeks\":[ ровно weeks_count элементов ]\n"
+            . "}\n"
+            . "Неделя: {\"week_number\":1,\"phase\":\"base|build|peak|recovery|taper|race\",\"is_recovery\":false,\"target_volume_km\":0,\"macro_adjustment_reason\":null,\"days\":[7 элементов]}. "
+            . "target_volume_km должен ≈ сумме distance_km дней.\n"
+            . "День: {\"day_of_week\":1,\"type\":\"easy|rest|long|tempo|interval|fartlek|control|race|other|sbu\",\"distance_km\":8.0,\"pace\":\"5:20\",\"duration_minutes\":43,\"warmup_km\":null,\"cooldown_km\":null,\"tempo_km\":null,\"reps\":null,\"interval_m\":null,\"interval_pace\":null,\"rest_m\":null,\"rest_type\":null,\"segments\":null,\"subtype\":null,\"notes\":\"\"}.\n"
+            . "Длительный бег всегда type=long (не easy). Каждая тренировочная неделя (кроме recovery/taper) — ровно 1 long.\n\n"
+            . "Структура ответа задана calendar_weeks: возвращай РОВНО weeks_count недель и РОВНО 7 дней в каждой (те же даты, day_of_week 1..7). Маркеры на каждом дне:\n"
+            . "- suggested_default: 'race' → type=race; 'rest' → type=rest; 'training' → свободный беговой день; 'keep_or_rest' → прошедший день, ставь rest, не выдумывай.\n"
+            . "- race_proximity (семантический ярлык, применяй базовую физиологию):\n"
+            . "  • 'race_day' — день старта (главный или промежуточный);\n"
+            . "  • 'pre_race_day_minus_1' — день перед стартом (короткий лёгкий бег ≤8 км или отдых);\n"
+            . "  • 'pre_race_taper' — за 2-5 дней до старта (без интервалов и длительной);\n"
+            . "  • 'post_race_recovery_day_1' — сразу после старта (отдых или короткий восстановительный бег);\n"
+            . "  • 'post_race_recovery_day_2' — +2 дня после старта (без длительной и интервалов).\n"
+            . "- is_race_date / is_intermediate_race / days_to_race — фиксированные точки.\n\n"
+            . "Медицина и coaching-инварианты (hard_rules — нарушать нельзя):\n"
+            . "- Уважай required_run_day_numbers / allowed_run_day_numbers; отступаешь — объясни в macro_adjustment_reason.\n"
+            . "- Hard/easy alternation: между двумя key workouts (long, tempo, interval, fartlek, control, race, race_pace) — минимум 1 день easy или rest. Подряд два таких дня — травма.\n"
+            . "- Taper по дистанции главного старта:\n"
+            . "  • marathon — 3 нед. taper: предпоследняя ~70% peak, перед-предпоследняя ~55% peak, race-week 30-40% peak без quality;\n"
+            . "  • half — 2 нед. taper: предпоследняя ~70% peak, race-week 40-50% peak без quality;\n"
+            . "  • 5k/10k — 1 нед. taper: race-week ~50% peak, можно 1 короткое разминочное.\n"
+            . "- Special populations: при planning_scenario.flags ⊃ {return_after_injury, pain_protective, illness_protective, recent_pain_signal, recent_illness_signal} — первые 3 недели НИ интервалов, НИ tempo (только easy + лёгкая длительная); возвращение к quality постепенно с 4-й недели.\n"
+            . "- Pregnancy/postpartum: never high-intensity quality; объёмы низкие, фокус на easy.\n"
+            . "- Peak weekly volume: целься в load_policy.peak_volume_floor_km ± 10%. Этот floor уже учитывает реальную историю и compliance — он реалистичен. Если в recent_compliance есть недели с очень высоким объёмом или поле load_policy.historical_peak_weekly_km показывает прежний пик ≥ 80% от reported_base — это доказательство, что бегун может держать peak на уровне base, и нечего опираться только на средний свежий объём после race-recovery. Идти заметно ниже floor допустимо только при медицинском флаге (return_after_injury, illness, pregnancy) или явном risk_review-объяснении. Brutal cutting объёма «на всякий случай» при здоровом бегуне — главная причина недогруза перед marathon/half.\n"
+            . "- Peak long (пиковая длительная за 2-3 недели до главной race): 5k → 12-15км; 10k → 14-18км; half → 19-24км; marathon → 28-32км (для первой марафонской цели — 26-30км). Идти ниже допустимо только для очень низкой базы или травмы.\n"
+            . "- Long share: длительная не должна превышать 35% от недельного объёма. Если получается выше — добавь easy/recovery бег в другие дни (но не quality).\n"
+            . "- Long progression и cutback: длительная растёт постепенно (≤ +2 км/нед в base/build), и каждые 3-4 недели идёт явная разгрузка длительной (-25..-40%) вместе с recovery week.\n"
+            . "- Соблюдай long_run_safety (предельные длительные перед марафоном) и fresh_long_effort_guard (восстановительная неделя после свежего очень длинного забега).\n"
+            . "- Темпы pace в днях ставятся по training_state.pace_strategy: tempo ≈ goal_paces.threshold, interval ≈ goal_paces.interval, easy/long ≈ goal_paces.easy, marathon-pace runs ≈ goal_paces.marathon. Race_pace в день забега = pace_strategy.effective_target_pace. Если pace_strategy.mode = realistic_target — цель из профиля недостижима за один цикл, план ведёт к pace_strategy.effective_target_time, но tempo/interval всё равно по goal_paces (это мост к цели). Если pace_strategy отсутствует — используй training_state.training_paces.\n"
+            . "- Marathon-specific: при marathon goal в build/peak обязательны marathon-pace runs (8–15 км в темпе pace_strategy.effective_target_pace) — отдельной тренировкой или MP-сегментом в финале long run.\n"
+            . "- forbidden_english_terms_in_user_text — не используй в notes/plan_summary.\n\n"
+            . "Recovery weeks: при горизонте ≥6 недель каждые 3-4 недели прогрессии — разгрузка 75-85% от предыдущего объёма (is_recovery=true, длительная тоже короче). Без них растёт риск травмы.\n\n"
+            . "Темпы и структура: для простого бега pace применяется ко всей тренировке, duration_minutes согласуй с distance_km. Для interval/tempo заполни warmup_km, cooldown_km, tempo_km, reps/interval_m/interval_pace/rest_m/rest_type. Для fartlek заполни segments. Если работа около целевого темпа гонки — subtype=race_pace.\n\n"
+            . "Язык: plan_summary, risk_review, macro_adjustment_reason, notes — только на русском, без английских тренировочных терминов.\n\n"
+            . "FACTS_JSON:\n" . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            . "\n\nСегодня: " . gmdate('Y-m-d') . " (UTC)";
     }
 
     private function requestJson(string $model, string $prompt, int $maxTokens, int $timeoutSeconds, bool $enableThinking): array
@@ -494,6 +498,13 @@ class DeepSeekPlanPlanner
             'connect_timeout' => $this->connectTimeoutSeconds,
             'max_attempts' => $this->envInt('PLAN_LLM_REQUEST_MAX_ATTEMPTS', 2, 1, 5),
         ]);
+
+        // Capture usage metrics so caller can persist them to ai_plan_generation_events.
+        $usage = is_array($json['usage'] ?? null) ? (array) $json['usage'] : [];
+        foreach (['prompt_tokens', 'completion_tokens', 'total_tokens', 'prompt_cache_hit_tokens', 'prompt_cache_miss_tokens'] as $key) {
+            $this->lastUsage[$key] = isset($usage[$key]) && is_numeric($usage[$key]) ? (int) $usage[$key] : null;
+        }
+
         $choice = (array) ($json['choices'][0] ?? []);
         $finishReason = (string) ($choice['finish_reason'] ?? '');
         if ($finishReason === 'length') {
@@ -507,6 +518,16 @@ class DeepSeekPlanPlanner
         }
 
         return $parsed;
+    }
+
+    /**
+     * Returns last LLM call usage metrics for observability logging.
+     *
+     * @return array<string,int|null>
+     */
+    public function getLastUsage(): array
+    {
+        return $this->lastUsage;
     }
 
     private function loadUser(int $userId): array
@@ -551,8 +572,12 @@ class DeepSeekPlanPlanner
 
     private function resolveWeeksCount(array $state, array $user, string $startDate): int
     {
+        // Cap raised to 30 to fit full marathon blocks where race_date is 25-28 weeks out;
+        // previously 24 caused the race day to fall outside the plan horizon.
+        $maxWeeks = $this->envInt('PLAN_LLM_MAX_WEEKS', 30, 8, 52);
+
         if (!empty($state['weeks_to_goal'])) {
-            return max(1, min(24, (int) $state['weeks_to_goal']));
+            return max(1, min($maxWeeks, (int) $state['weeks_to_goal']));
         }
 
         $raceDate = (string) ($state['race_date'] ?? ($user['race_date'] ?? ''));
@@ -561,7 +586,7 @@ class DeepSeekPlanPlanner
                 $start = new DateTimeImmutable($startDate);
                 $race = new DateTimeImmutable($raceDate);
                 $days = max(1, (int) $start->diff($race)->format('%r%a') + 1);
-                return max(1, min(24, (int) ceil($days / 7)));
+                return max(1, min($maxWeeks, (int) ceil($days / 7)));
             } catch (Throwable $e) {
             }
         }
@@ -578,15 +603,20 @@ class DeepSeekPlanPlanner
     {
         $recentWorkouts = $this->loadRecentWorkouts((int) ($user['id'] ?? 0), $startDate);
 
+        // NOTE: today_utc is intentionally NOT included here — it would break DeepSeek's
+        // prefix cache by changing daily. It is appended as a stable suffix in buildFullPlanPrompt
+        // (after FACTS_JSON), so the JSON body itself stays cache-stable across the day.
         return [
-            'today_utc' => gmdate('Y-m-d'),
             'job_type' => $jobType,
             'plan_start_monday' => $startDate,
             'weeks_count' => $weeksCount,
             'calendar_weeks' => $this->buildCalendarWeeks(
                 $startDate,
                 $weeksCount,
-                (string) ($state['race_date'] ?? ($user['race_date'] ?? ''))
+                (string) ($state['race_date'] ?? ($user['race_date'] ?? '')),
+                array_column($state['intermediate_races'] ?? [], 'date'),
+                $this->weekdayNumbers((array) ($user['preferred_days'] ?? [])),
+                $jobType
             ),
             'payload' => $payload,
             'user' => [
@@ -615,18 +645,33 @@ class DeepSeekPlanPlanner
                 'goal_pace' => $state['goal_pace'] ?? null,
                 'training_paces' => $state['formatted_training_paces'] ?? null,
                 'pace_rules' => $state['pace_rules'] ?? null,
+                // PR9: pace_strategy — «мост к цели».
+                // Содержит mode (realistic_target | goal_target), effective_target_time,
+                // gap_pct, goal_paces (Daniels от целевого VDOT), current_paces.
+                // Hard-rules ниже отсылают модель к pace_strategy.goal_paces вместо
+                // training_paces (current), чтобы tempo/interval тянулись к цели,
+                // а не закреплялся уровень текущей формы.
+                'pace_strategy' => is_array($state['pace_strategy'] ?? null)
+                    ? $state['pace_strategy']
+                    : null,
                 // Phase A.7 (PR3): убраны precomputed macrocycle hints (weekly_volume_targets_km,
                 // long_run_targets_km, recovery_weeks, start_volume_km, peak_volume_km).
                 // DeepSeek строит фазы и кривую объёма сам по weeks_count, weekly_base_km, vdot.
                 'load_policy' => $this->stripMacrocyclePrecompute($state['load_policy'] ?? null),
                 'feedback_analytics' => $state['feedback_analytics'] ?? null,
                 'special_population_flags' => $state['special_population_flags'] ?? null,
+                'intermediate_races' => !empty($state['intermediate_races']) ? $state['intermediate_races'] : null,
             ],
             'planning_scenario' => is_array($state['planning_scenario'] ?? null) ? $state['planning_scenario'] : null,
             'goal_realism' => is_array($state['goal_realism'] ?? null) ? $state['goal_realism'] : null,
             'hard_rules' => $this->buildHardRules($user, $state, $startDate, $recentWorkouts),
             // Phase B.1 (PR3): recent_compliance — последние 4 ISO-недели для оценки нагрузки.
             'recent_compliance' => is_array($state['recent_compliance'] ?? null) ? $state['recent_compliance'] : null,
+            // PR-A (coaching prompt v4): тренерский саммари по фактам compliance — одна
+            // короткая русская фраза. Тренер прочтёт и решит как реагировать; никаких enum/recommendation.
+            'recent_compliance_summary' => isset($state['recent_compliance_summary']) && $state['recent_compliance_summary'] !== ''
+                ? (string) $state['recent_compliance_summary']
+                : null,
             // Phase B.2 (PR3): recent_workouts — компактные тренировки за 14 дней с RPE/HR/pace.
             // Если recent_workouts_detailed заполнен (TrainingStateBuilder), используем его;
             // иначе fallback на raw 8-недельный лог (для backwards compat).
@@ -640,8 +685,25 @@ class DeepSeekPlanPlanner
         ];
     }
 
-    private function buildCalendarWeeks(string $startDate, int $weeksCount, string $raceDate): array
-    {
+    /**
+     * Skeleton всех weeks_count×7 дней для DeepSeek. Каждый день размечен:
+     *  - date, day_of_week, days_to_race
+     *  - is_race_date / is_intermediate_race — фиксированные точки
+     *  - is_run_day — попадает ли в preferred_days пользователя (на off-day обычно ставим rest)
+     *  - is_past — для recalculate: день уже прошёл (today позже даты), модель не должна
+     *    «улучшать» прошлые дни, только заполнить как rest или (если был race) сохранить
+     *
+     * Цель — DeepSeek получает готовую структуру и НЕ ПРОПУСКАЕТ дни, как было в баге
+     * с partial weeks (4-5 дней вместо 7).
+     */
+    private function buildCalendarWeeks(
+        string $startDate,
+        int $weeksCount,
+        string $raceDate,
+        array $intermediateRaceDates = [],
+        array $preferredRunDayNumbers = [],
+        string $jobType = 'generate'
+    ): array {
         try {
             $start = new DateTimeImmutable($startDate);
         } catch (Throwable $e) {
@@ -657,17 +719,46 @@ class DeepSeekPlanPlanner
             }
         }
 
+        $today = (new DateTimeImmutable('now'))->format('Y-m-d');
+        $isRecalc = in_array($jobType, ['recalculate', 'next_plan'], true);
+        $hasPreferredDays = !empty($preferredRunDayNumbers);
+
+        // PR-B (coaching prompt v4): собираем все race-даты (главная + intermediate) для
+        // вычисления race_proximity ярлыка на каждом дне.
+        $allRaceDates = [];
+        if ($race !== null) {
+            $allRaceDates[] = $race->format('Y-m-d');
+        }
+        foreach ($intermediateRaceDates as $d) {
+            $d = (string) $d;
+            if ($d !== '' && !in_array($d, $allRaceDates, true)) {
+                $allRaceDates[] = $d;
+            }
+        }
+
         $weeks = [];
         for ($weekNumber = 1; $weekNumber <= $weeksCount; $weekNumber++) {
             $weekStart = $start->modify('+' . (($weekNumber - 1) * 7) . ' days');
             $days = [];
             for ($dayOfWeek = 1; $dayOfWeek <= 7; $dayOfWeek++) {
                 $date = $weekStart->modify('+' . ($dayOfWeek - 1) . ' days');
+                $dateStr = $date->format('Y-m-d');
+                $isPast = $isRecalc && $dateStr < $today;
+                $isRunDay = $hasPreferredDays ? in_array($dayOfWeek, $preferredRunDayNumbers, true) : true;
+                $isRace = $race !== null && $dateStr === $race->format('Y-m-d');
+                $isIntermediate = in_array($dateStr, $intermediateRaceDates, true);
+
                 $days[] = [
                     'day_of_week' => $dayOfWeek,
-                    'date' => $date->format('Y-m-d'),
+                    'date' => $dateStr,
                     'days_to_race' => $race !== null ? (int) $date->diff($race)->format('%r%a') : null,
-                    'is_race_date' => $race !== null && $date->format('Y-m-d') === $race->format('Y-m-d'),
+                    'is_race_date' => $isRace,
+                    'is_intermediate_race' => $isIntermediate,
+                    'is_run_day' => $isRunDay,
+                    'is_past' => $isPast,
+                    'suggested_default' => $this->suggestDayDefault($isRace, $isIntermediate, $isRunDay, $isPast),
+                    // PR-B: семантический ярлык для модели — она применяет физиологию сама.
+                    'race_proximity' => $this->resolveRaceProximity($dateStr, $allRaceDates),
                 ];
             }
 
@@ -680,6 +771,97 @@ class DeepSeekPlanPlanner
         }
 
         return $weeks;
+    }
+
+    /**
+     * PR-B (coaching prompt v4): семантический ярлык близости к ближайшему race-дню.
+     *
+     * Возвращает один из ярлыков (без constraints — модель сама применяет физиологию):
+     *   - "race_day" — день старта (главный или intermediate);
+     *   - "pre_race_day_minus_1" — день перед race;
+     *   - "pre_race_taper" — за 2-5 дней до race;
+     *   - "post_race_recovery_day_1" — день сразу после race;
+     *   - "post_race_recovery_day_2" — +2 дня после race;
+     *   - null — никакой race-близости.
+     *
+     * Если день одновременно «после одного race» и «перед другим» (тур intermediate races
+     * подряд), приоритет даём race_day → pre_race_day_minus_1 → post_race_recovery_day_1
+     * → pre_race_taper → post_race_recovery_day_2 → null.
+     *
+     * @param string $dateStr Дата дня в формате Y-m-d.
+     * @param string[] $allRaceDates Все race-даты в горизонте (главная + intermediate).
+     */
+    private function resolveRaceProximity(string $dateStr, array $allRaceDates): ?string
+    {
+        if (empty($allRaceDates)) {
+            return null;
+        }
+
+        try {
+            $day = new DateTimeImmutable($dateStr);
+        } catch (Throwable $e) {
+            return null;
+        }
+
+        $candidates = [];
+        foreach ($allRaceDates as $raceDateStr) {
+            try {
+                $raceDate = new DateTimeImmutable((string) $raceDateStr);
+            } catch (Throwable $e) {
+                continue;
+            }
+            $diff = (int) $day->diff($raceDate)->format('%r%a');
+            // diff > 0 → race в будущем, diff < 0 → race уже прошёл, diff === 0 → race-day
+            if ($diff === 0) {
+                return 'race_day';
+            }
+            $candidates[] = $diff;
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        // Сначала проверяем «день перед race» — высший приоритет после race_day
+        foreach ($candidates as $diff) {
+            if ($diff === 1) {
+                return 'pre_race_day_minus_1';
+            }
+        }
+
+        // День после race — следующий приоритет
+        foreach ($candidates as $diff) {
+            if ($diff === -1) {
+                return 'post_race_recovery_day_1';
+            }
+        }
+
+        // Pre-race taper (2..5 дней до race)
+        foreach ($candidates as $diff) {
+            if ($diff >= 2 && $diff <= 5) {
+                return 'pre_race_taper';
+            }
+        }
+
+        // Post-race recovery day 2 (+2 дня после race)
+        foreach ($candidates as $diff) {
+            if ($diff === -2) {
+                return 'post_race_recovery_day_2';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Подсказка по умолчанию: если день не race и не run_day — модель должна ставить rest.
+     */
+    private function suggestDayDefault(bool $isRace, bool $isIntermediate, bool $isRunDay, bool $isPast): string
+    {
+        if ($isRace || $isIntermediate) return 'race';
+        if (!$isRunDay) return 'rest';
+        if ($isPast) return 'keep_or_rest'; // Прошедший день: не выдумывай тренировку, можно rest
+        return 'training'; // Свободно для тренерского решения (easy/long/tempo/interval)
     }
 
     /**
@@ -738,6 +920,7 @@ class DeepSeekPlanPlanner
         if ($recentLongEffortGuard !== null) {
             $rules['fresh_long_effort_guard'] = $recentLongEffortGuard;
         }
+
 
         return $rules;
     }

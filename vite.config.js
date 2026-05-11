@@ -7,12 +7,12 @@ const buildVersion = process.env.npm_package_version || '0.0.0'
 const buildTimestamp = new Date().toISOString()
 const buildId = `${buildVersion}-${buildTimestamp}`
 
-function planrunVersionPlugin() {
+function planrunBuildInfoPlugin() {
   return {
-    name: 'planrun-version-manifest',
+    name: 'planrun-build-info-manifest',
     closeBundle() {
       writeFileSync(
-        resolve(process.cwd(), 'dist/version.json'),
+        resolve(process.cwd(), 'dist/build-info.json'),
         JSON.stringify(
           {
             version: buildVersion,
@@ -29,7 +29,7 @@ function planrunVersionPlugin() {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), planrunVersionPlugin()],
+  plugins: [react(), planrunBuildInfoPlugin()],
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion),
     'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId),

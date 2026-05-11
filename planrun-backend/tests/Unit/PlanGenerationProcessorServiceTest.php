@@ -877,4 +877,165 @@ class PlanGenerationProcessorServiceTest extends TestCase {
 
         return $row;
     }
+
+    // ── Intermediate races tests ──
+
+    public function test_enforceRaceDayConsistency_preserves_intermediate_race_days(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'enforceRaceDayConsistency');
+        $method->setAccessible(true);
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'days' => [
+                    ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 8.0],
+                    ['day_of_week' => 2, 'type' => 'rest'],
+                    ['day_of_week' => 3, 'type' => 'race', 'distance_km' => 10.0, 'notes' => 'Промежуточный 10к'],
+                    ['day_of_week' => 4, 'type' => 'rest'],
+                    ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 6.0],
+                    ['day_of_week' => 6, 'type' => 'rest'],
+                    ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 15.0],
+                ],
+            ]],
+        ];
+
+        $trainingState = [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-06-28',
+            'intermediate_races' => [
+                ['date' => '2026-05-13', 'description' => '10к парковый забег', 'distance_km' => 10.0],
+            ],
+        ];
+
+        $result = $method->invoke($service, $plan, $trainingState, [
+            'race_distance' => 'marathon',
+        ], '2026-05-11');
+
+        $wednesday = $result['weeks'][0]['days'][2];
+        $this->assertSame('race', $wednesday['type'], 'Intermediate race day should remain type=race');
+        $this->assertSame(10.0, (float) $wednesday['distance_km'], 'Intermediate race distance should not be overwritten by main race distance');
+    }
+
+    public function test_enforceRaceDayConsistency_clears_non_intermediate_non_main_race_days(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'enforceRaceDayConsistency');
+        $method->setAccessible(true);
+
+        $plan = [
+            'weeks' => [[
+                'week_number' => 1,
+                'days' => [
+                    ['day_of_week' => 1, 'type' => 'easy', 'distance_km' => 8.0],
+                    ['day_of_week' => 2, 'type' => 'race', 'distance_km' => 5.0, 'notes' => 'LLM hallucination race'],
+                    ['day_of_week' => 3, 'type' => 'rest'],
+                    ['day_of_week' => 4, 'type' => 'rest'],
+                    ['day_of_week' => 5, 'type' => 'easy', 'distance_km' => 6.0],
+                    ['day_of_week' => 6, 'type' => 'rest'],
+                    ['day_of_week' => 7, 'type' => 'long', 'distance_km' => 15.0],
+                ],
+            ]],
+        ];
+
+        $trainingState = [
+            'race_distance' => 'marathon',
+            'race_date' => '2026-06-28',
+            'intermediate_races' => [],
+        ];
+
+        $result = $method->invoke($service, $plan, $trainingState, [
+            'race_distance' => 'marathon',
+        ], '2026-05-11');
+
+        $tuesday = $result['weeks'][0]['days'][1];
+        $this->assertSame('rest', $tuesday['type'], 'Hallucinated race day should be cleared to rest');
+        $this->assertSame(0.0, (float) ($tuesday['distance_km'] ?? 0.0));
+    }
+
+    // ── PR9: realism context для plan_review ──
+
+    public function test_buildRealismContextForReview_returns_null_for_health_state(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'buildRealismContextForReview');
+        $method->setAccessible(true);
+
+        $this->assertNull($method->invoke($service, null));
+        $this->assertNull($method->invoke($service, ['goal_type' => 'health']));
+    }
+
+    public function test_buildRealismContextForReview_extracts_pace_strategy_fields(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'buildRealismContextForReview');
+        $method->setAccessible(true);
+
+        $context = $method->invoke($service, [
+            'vdot' => 45.6,
+            'pace_strategy' => [
+                'mode' => 'realistic_target',
+                'severity' => 'major',
+                'gap_pct' => 4.9,
+                'goal_target_time' => '03:15:00',
+                'goal_target_pace' => '4:37',
+                'predicted_target_time' => '03:25:00',
+                'effective_target_time' => '03:25:00',
+                'effective_target_pace' => '4:51',
+                'race_distance' => 'marathon',
+            ],
+        ]);
+
+        $this->assertSame('major', $context['severity']);
+        $this->assertSame('realistic_target', $context['mode']);
+        $this->assertSame('03:15:00', $context['goal_target_time']);
+        $this->assertSame('03:25:00', $context['effective_target_time']);
+        $this->assertSame('марафон', $context['race_distance_label']);
+        $this->assertSame(45.6, $context['current_vdot']);
+    }
+
+    public function test_renderRealismFactLineForFallback_returns_empty_for_realistic_severity(): void {
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'renderRealismFactLineForFallback');
+        $method->setAccessible(true);
+
+        $this->assertSame('', $method->invoke($service, null));
+        $this->assertSame('', $method->invoke($service, ['severity' => 'none']));
+    }
+
+    public function test_renderRealismFactLineForFallback_lists_dry_facts_only(): void {
+        // Fallback срабатывает, когда LLM-review не отвечает; здесь — только сухой факт
+        // (цель / таргет), без интерпретации и без тренерских формулировок.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'renderRealismFactLineForFallback');
+        $method->setAccessible(true);
+
+        $line = $method->invoke($service, [
+            'severity' => 'major',
+            'goal_target_time' => '3:15:00',
+            'effective_target_time' => '3:25:00',
+            'race_distance_label' => 'марафон',
+        ]);
+
+        $this->assertStringContainsString('3:15:00', $line);
+        $this->assertStringContainsString('3:25:00', $line);
+        $this->assertStringContainsString('марафон', $line);
+        // Запрещённый хардкод: интерпретация и тренерская риторика
+        $this->assertStringNotContainsString('недостижима', $line);
+        $this->assertStringNotContainsString('амбициозная', $line);
+        $this->assertStringNotContainsString('мост', $line);
+        $this->assertStringNotContainsString('подтягиваются', $line);
+    }
+
+    public function test_renderRealismFactLineForFallback_returns_empty_when_goal_equals_effective(): void {
+        // Если effective_target_time == goal_target_time — сухой факт ничего нового не
+        // несёт; пропускаем, чтобы не засорять fallback-сообщение.
+        $service = new \PlanGenerationProcessorService($this->db);
+        $method = new \ReflectionMethod($service, 'renderRealismFactLineForFallback');
+        $method->setAccessible(true);
+
+        $this->assertSame('', $method->invoke($service, [
+            'severity' => 'moderate',
+            'goal_target_time' => '3:30:00',
+            'effective_target_time' => '3:30:00',
+            'race_distance_label' => 'марафон',
+        ]));
+    }
 }

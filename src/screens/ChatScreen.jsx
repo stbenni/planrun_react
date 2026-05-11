@@ -42,6 +42,37 @@ const TOOL_LABELS = {
 };
 const getToolLabel = (name) => TOOL_LABELS[name] || 'Работаю…';
 
+const ChatAiStatus = ({ phase }) => {
+  const currentPhase = phase;
+
+  return (
+    <span className="chat-message-status">
+      {currentPhase === 'connecting' && (
+        <span className="chat-typing-dots" aria-hidden="true">
+          <span /><span /><span />
+        </span>
+      )}
+      {(currentPhase === 'streaming' || currentPhase === 'pending') && (
+        <>
+          <span className="chat-typing-dots" aria-hidden="true">
+            <span /><span /><span />
+          </span>
+          Печатает…
+        </>
+      )}
+      {currentPhase?.startsWith?.('tool:') && (
+        <span className="chat-tool-indicator">
+          <span className="chat-tool-spinner" aria-hidden="true" />
+          {getToolLabel(currentPhase.slice(5))}
+        </span>
+      )}
+      {!currentPhase && (
+        <span className="chat-message-error-text">Ошибка</span>
+      )}
+    </span>
+  );
+};
+
 const ChatScreen = () => {
   const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
   const isTabActive = useIsTabActive('/chat');
@@ -80,6 +111,7 @@ const ChatScreen = () => {
   const scrollRafRef = useRef(0);
   const prevMessagesLenRef = useRef(0);
   const prevSelectedChatRef = useRef(null);
+  const prevAiPendingResponseRef = useRef(false);
   const prevTabActiveRef = useRef(isTabActive);
   const shouldStickToBottomRef = useRef(true);
   const forceScrollOnNextChangeRef = useRef(false);
@@ -116,6 +148,8 @@ const ChatScreen = () => {
     messages,
     setMessages,
     conversationId,
+    aiPendingResponse,
+    setAiPendingResponse,
     error,
     setError,
     loading,
@@ -164,6 +198,7 @@ const ChatScreen = () => {
     setMessages,
     setUserDialogMessages,
     setStreamPhase,
+    setAiPendingResponse,
     streamAbortRef,
     isMountedRef,
     notificationTimersRef,
@@ -284,6 +319,21 @@ const ChatScreen = () => {
     loadMessages();
   }, [isTabActive, api, loadMessages]);
 
+  useEffect(() => {
+    if (!isTabActive || !api || selectedChat !== TAB_AI || !aiPendingResponse || streamPhase) {
+      return undefined;
+    }
+
+    const refresh = () => loadMessages({ silent: true });
+    const firstRefreshId = window.setTimeout(refresh, 1200);
+    const intervalId = window.setInterval(refresh, 3000);
+
+    return () => {
+      window.clearTimeout(firstRefreshId);
+      window.clearInterval(intervalId);
+    };
+  }, [aiPendingResponse, api, isTabActive, loadMessages, selectedChat, streamPhase]);
+
   // При открытии чата (AI или «От администрации») помечаем сообщения прочитанными
   useEffect(() => {
     if (!isTabActive) return;
@@ -332,14 +382,17 @@ const ChatScreen = () => {
       } else {
         msgEl?.scrollIntoView({ behavior: 'auto', block: 'center' });
       }
-    } else if (selectedChat !== prevSelectedChatRef.current || messages.length !== prevMessagesLenRef.current) {
-      const shouldForceScroll = selectedChat !== prevSelectedChatRef.current || forceScrollOnNextChangeRef.current;
+    } else if (selectedChat !== prevSelectedChatRef.current || messages.length !== prevMessagesLenRef.current || aiPendingResponse !== prevAiPendingResponseRef.current) {
+      const shouldForceScroll = selectedChat !== prevSelectedChatRef.current
+        || forceScrollOnNextChangeRef.current
+        || (aiPendingResponse && aiPendingResponse !== prevAiPendingResponseRef.current);
       scrollToBottom('auto', { force: shouldForceScroll });
       forceScrollOnNextChangeRef.current = false;
     }
     prevSelectedChatRef.current = selectedChat;
     prevMessagesLenRef.current = messages.length;
-  }, [messages.length, scrollToBottom, selectedChat, scrollToMessageId]);
+    prevAiPendingResponseRef.current = aiPendingResponse;
+  }, [aiPendingResponse, messages.length, scrollToBottom, selectedChat, scrollToMessageId]);
 
   useLayoutEffect(() => {
     const wasTabActive = prevTabActiveRef.current;
@@ -879,30 +932,7 @@ const ChatScreen = () => {
                     {msg.content ? (
                       msg.content
                     ) : streamPhase && msg.id?.startsWith('temp-ai-') ? (
-                      <span className="chat-message-status">
-                        {streamPhase === 'connecting' && (
-                          <span className="chat-typing-dots" aria-hidden="true">
-                            <span /><span /><span />
-                          </span>
-                        )}
-                        {streamPhase === 'streaming' && (
-                          <>
-                            <span className="chat-typing-dots" aria-hidden="true">
-                              <span /><span /><span />
-                            </span>
-                            Печатает…
-                          </>
-                        )}
-                        {streamPhase?.startsWith('tool:') && (
-                          <span className="chat-tool-indicator">
-                            <span className="chat-tool-spinner" aria-hidden="true" />
-                            {getToolLabel(streamPhase.slice(5))}
-                          </span>
-                        )}
-                        {!streamPhase && (
-                          <span className="chat-message-error-text">Ошибка</span>
-                        )}
-                      </span>
+                      <ChatAiStatus phase={streamPhase} />
                     ) : (
                       '…'
                     )}
@@ -921,7 +951,19 @@ const ChatScreen = () => {
               </div>
             );
             })}
-            {isAiChat && !streamPhase && !sending && messages.length > 0 && (() => {
+            {isAiChat && aiPendingResponse && !streamPhase && (
+              <div data-message-id="pending-ai-response" className="chat-message chat-message--ai chat-message--pending">
+                <div className="chat-message-avatar chat-message-avatar--other">
+                  <span className="chat-avatar-icon" aria-hidden><BotIcon size={20} /></span>
+                </div>
+                <div className="chat-message-bubble">
+                  <div className="chat-message-content">
+                    <ChatAiStatus phase="pending" />
+                  </div>
+                </div>
+              </div>
+            )}
+            {isAiChat && !streamPhase && !aiPendingResponse && !sending && messages.length > 0 && (() => {
               const lastMsg = messages[messages.length - 1];
               if (lastMsg?.sender_type !== 'ai' || !lastMsg?.content) return null;
               const replies = getQuickReplies(lastMsg.content);
@@ -969,13 +1011,13 @@ const ChatScreen = () => {
           className="chat-input"
           placeholder="Напишите сообщение..."
           onInput={handleInputSync}
-          disabled={sending || loading || !!streamPhase}
+          disabled={sending || loading || !!streamPhase || aiPendingResponse}
           maxLength={4000}
           autoComplete="off"
           spellCheck={false}
         />
-        <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || !input.trim()} title={sending || streamPhase ? 'Отправка…' : 'Отправить'}>
-          {sending || streamPhase ? '…' : '➤'}
+        <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || aiPendingResponse || !input.trim()} title={sending || streamPhase || aiPendingResponse ? 'Отправка…' : 'Отправить'}>
+          {sending || streamPhase || aiPendingResponse ? '…' : '➤'}
         </button>
       </form>
     </>

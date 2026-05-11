@@ -64,6 +64,7 @@ class PlanGenerationProcessorService extends BaseService {
                 $mutableFromDate = $result['mutable_from_date'] ?? null;
                 $generatedStartDate = $result['start_date'] ?? null;
                 $trainingState = is_array($result['training_state'] ?? null) ? $result['training_state'] : null;
+                $llmUsage = is_array($result['usage'] ?? null) ? $result['usage'] : [];
                 if (is_array($trainingState)) {
                     $planEventTrainingState = $trainingState;
                 }
@@ -101,11 +102,15 @@ class PlanGenerationProcessorService extends BaseService {
             if (!empty($planData['_generation_metadata']['schedule_anchor_date'])) {
                 $alignedStartDate = (string) $planData['_generation_metadata']['schedule_anchor_date'];
             }
+            // LLM planner plans already went through PlanQualityGate → normalizeTrainingPlan;
+            // skip re-normalization to avoid double processing (long→easy in race weeks, etc.)
+            $skipNormalization = $useLlmPlanner;
+
             if ($isNextPlan) {
                 $startDate = is_string($generatedStartDate) && $generatedStartDate !== ''
                     ? $generatedStartDate
                     : (new DateTime())->modify('monday this week')->format('Y-m-d');
-                saveTrainingPlan($this->db, $userId, $planData, $startDate, $userPreferences);
+                saveTrainingPlan($this->db, $userId, $planData, $startDate, $userPreferences, $skipNormalization);
                 $this->getUserRepository()->update($userId, ['training_start_date' => $startDate]);
             } elseif ($isRecalculate) {
                 saveRecalculatedPlan(
@@ -114,13 +119,14 @@ class PlanGenerationProcessorService extends BaseService {
                     $planData,
                     $cutoffDate,
                     $userPreferences,
-                    isset($mutableFromDate) ? (string) $mutableFromDate : null
+                    isset($mutableFromDate) ? (string) $mutableFromDate : null,
+                    $skipNormalization
                 );
             } else {
                 $userRepo = $this->getUserRepository();
                 $currentTrainingStartDate = $userRepo->getField($userId, 'training_start_date') ?? null;
                 $startDate = $alignedStartDate ?: ($currentTrainingStartDate ?? date('Y-m-d'));
-                saveTrainingPlan($this->db, $userId, $planData, $startDate, $userPreferences);
+                saveTrainingPlan($this->db, $userId, $planData, $startDate, $userPreferences, $skipNormalization);
                 if ($alignedStartDate !== null && $alignedStartDate !== $currentTrainingStartDate) {
                     $userRepo->update($userId, ['training_start_date' => $alignedStartDate]);
                 }
@@ -128,7 +134,14 @@ class PlanGenerationProcessorService extends BaseService {
 
             $this->syncLatestTrainingPlanSnapshot($userId, $startDate, $planData);
             $reviewStartDate = $startDate ?? ($cutoffDate ?? date('Y-m-d'));
-            $this->appendPlanReview($userId, $planData, $reviewStartDate, $mode);
+            // PR9: пробрасываем realismContext (severity, predicted vs goal time, pace_strategy)
+            // в plan_review — чтобы AI-сообщение в чате честно объяснило, под какой таргет
+            // план реально готовит, если цель не реалистична.
+            $realismContext = $this->buildRealismContextForReview(
+                is_array($trainingState ?? null) ? $trainingState : null
+            );
+            $this->appendPlanReview($userId, $planData, $reviewStartDate, $mode, $realismContext);
+            $this->persistPlanSummary($userId, $planData);
 
             $resultPayload = [
                 'user_id' => $userId,
@@ -174,7 +187,8 @@ class PlanGenerationProcessorService extends BaseService {
                     $generationMetadata,
                     $planEventTrainingState,
                     (int) round((microtime(true) - $startedAt) * 1000),
-                    $traceId
+                    $traceId,
+                    $llmUsage ?? []
                 );
                 $planEventLogged = true;
             }
@@ -330,6 +344,7 @@ class PlanGenerationProcessorService extends BaseService {
         $result = [
             'plan' => $finalPlan,
             'training_state' => $state,
+            'usage' => is_array($plannerResult['usage'] ?? null) ? $plannerResult['usage'] : [],
         ];
 
         if ($jobType === 'recalculate') {
@@ -677,9 +692,10 @@ class PlanGenerationProcessorService extends BaseService {
         }
         $goalPace = $goalPaceSec !== null && $goalPaceSec > 0 ? formatPaceFromSec($goalPaceSec) : null;
         $raceDate = (string) ($trainingState['race_date'] ?? ($user['race_date'] ?? ($user['target_marathon_date'] ?? '')));
+        $intermediateRaceDates = array_column($trainingState['intermediate_races'] ?? [], 'date');
 
         if ($startDate !== null && $raceDate !== '') {
-            $plan = $this->placeRaceOnCalendarDate($plan, $startDate, $raceDate, $raceDistanceKm, $goalPace);
+            $plan = $this->placeRaceOnCalendarDate($plan, $startDate, $raceDate, $raceDistanceKm, $goalPace, $intermediateRaceDates);
             if ($capRaceWeekSupplementary) {
                 $plan = $this->capRaceWeekSupplementaryVolume($plan, $trainingState);
             }
@@ -690,6 +706,15 @@ class PlanGenerationProcessorService extends BaseService {
             $days = $week['days'] ?? [];
             foreach ($days as &$day) {
                 if (normalizeTrainingType($day['type'] ?? null) !== 'race') {
+                    continue;
+                }
+
+                $dayDate = $day['date'] ?? null;
+                if ($dayDate !== null && in_array($dayDate, $intermediateRaceDates, true)) {
+                    $day['is_key_workout'] = true;
+                    if (function_exists('rebuildNormalizedDayArtifacts')) {
+                        $day = rebuildNormalizedDayArtifacts($day);
+                    }
                     continue;
                 }
 
@@ -714,6 +739,91 @@ class PlanGenerationProcessorService extends BaseService {
         unset($week);
 
         $plan['weeks'] = $weeks;
+
+        // Safety-net: убедиться, что КАЖДЫЙ intermediate race из state присутствует в плане.
+        // Если DeepSeek забыл вернуть промежуточный забег — мы его принудительно ставим, иначе
+        // он пропадёт из БД при save и следующий пересчёт уже не будет о нём знать
+        // (state читает race-дни из training_plan_days).
+        if (!empty($trainingState['intermediate_races'])) {
+            $plan = $this->ensureIntermediateRacesInPlan($plan, (array) $trainingState['intermediate_races']);
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Гарантирует наличие intermediate-races в плане. Для каждой даты из state.intermediate_races
+     * проверяет, есть ли день с type='race'. Если нет — находит соответствующий день в нужной
+     * неделе и ставит туда race с дистанцией/описанием из state. Идемпотентен.
+     */
+    private function ensureIntermediateRacesInPlan(array $plan, array $intermediateRaces): array {
+        if (empty($intermediateRaces) || empty($plan['weeks'])) {
+            return $plan;
+        }
+
+        $weeks = $plan['weeks'];
+        foreach ($intermediateRaces as $race) {
+            $raceDate = (string) ($race['date'] ?? '');
+            if ($raceDate === '') continue;
+
+            // Уже есть race на эту дату в плане?
+            $alreadyPresent = false;
+            foreach ($weeks as $week) {
+                foreach (($week['days'] ?? []) as $day) {
+                    if (($day['date'] ?? '') === $raceDate && ($day['type'] ?? '') === 'race') {
+                        $alreadyPresent = true;
+                        break 2;
+                    }
+                }
+            }
+            if ($alreadyPresent) continue;
+
+            $distanceKm = isset($race['distance_km']) && $race['distance_km'] !== null ? (float) $race['distance_km'] : 0.0;
+            $description = isset($race['description']) ? (string) $race['description'] : '';
+
+            // Force-place: найти день с этой датой и переписать в race.
+            // ВАЖНО: foreach должен бежать по reference на $week['days'], иначе
+            // изменения уйдут в копию (PHP array semantics).
+            $forced = false;
+            foreach ($weeks as $weekIdx => &$week) {
+                if (!isset($week['days']) || !is_array($week['days'])) continue;
+                $days = &$week['days'];
+                foreach ($days as $dayIdx => &$day) {
+                    if (($day['date'] ?? '') !== $raceDate) continue;
+                    $day['type'] = 'race';
+                    if ($distanceKm > 0) {
+                        $day['distance_km'] = round($distanceKm, 1);
+                    }
+                    if ($description !== '') {
+                        $day['notes'] = $description;
+                    }
+                    $day['is_key_workout'] = true;
+                    $day['subtype'] = null;
+                    if (function_exists('rebuildNormalizedDayArtifacts')) {
+                        $day = rebuildNormalizedDayArtifacts($day);
+                    }
+                    $forced = true;
+                    error_log(sprintf(
+                        'ensureIntermediateRacesInPlan: forced race %s (%.1f km) — DeepSeek не вернул промежуточный забег',
+                        $raceDate,
+                        $distanceKm
+                    ));
+                    break;
+                }
+                unset($day);
+                unset($days);
+                if ($forced) break;
+            }
+            unset($week);
+        }
+
+        $plan['weeks'] = $weeks;
+
+        // PR-C (coaching prompt v4): protectAroundRaceDays() удалён.
+        // Race-week protocol теперь передаётся модели как семантические маркеры race_proximity
+        // в calendar_weeks (DeepSeekPlanPlanner::buildCalendarWeeks). Тренер-модель применяет
+        // базовую физиологию сама, без post-processing safety-net'ов.
+
         return $plan;
     }
 
@@ -776,7 +886,7 @@ class PlanGenerationProcessorService extends BaseService {
         return $plan;
     }
 
-    private function placeRaceOnCalendarDate(array $plan, string $startDate, string $raceDate, float $raceDistanceKm, ?string $goalPace): array {
+    private function placeRaceOnCalendarDate(array $plan, string $startDate, string $raceDate, float $raceDistanceKm, ?string $goalPace, array $intermediateRaceDates = []): array {
         try {
             $start = new DateTimeImmutable($startDate);
             $race = new DateTimeImmutable($raceDate);
@@ -792,6 +902,7 @@ class PlanGenerationProcessorService extends BaseService {
         $targetWeekNumber = intdiv($diffDays, 7) + 1;
         $targetDayOfWeek = (int) $race->format('N');
         $weeks = $plan['weeks'] ?? [];
+        $racePlaced = false;
         foreach ($weeks as $weekIndex => &$week) {
             $weekNumber = (int) ($week['week_number'] ?? ($weekIndex + 1));
             $days = (array) ($week['days'] ?? []);
@@ -816,10 +927,14 @@ class PlanGenerationProcessorService extends BaseService {
                     if (function_exists('rebuildNormalizedDayArtifacts')) {
                         $day = rebuildNormalizedDayArtifacts($day);
                     }
+                    $racePlaced = true;
                     continue;
                 }
 
                 if (normalizeTrainingType($day['type'] ?? null) === 'race') {
+                    if (in_array($date, $intermediateRaceDates, true)) {
+                        continue;
+                    }
                     $day['type'] = 'rest';
                     $day['distance_km'] = 0.0;
                     $day['duration_minutes'] = null;
@@ -840,6 +955,55 @@ class PlanGenerationProcessorService extends BaseService {
             $week['total_volume'] = $week['actual_volume_km'];
         }
         unset($week);
+
+        // Safety net: if DeepSeek returned a plan that doesn't cover the race date
+        // (horizon too short or race day silently dropped), force the race onto the
+        // last week so the user always gets a race day in their plan.
+        if (!$racePlaced && !empty($weeks)) {
+            $lastWeekIndex = count($weeks) - 1;
+            $lastWeek = &$weeks[$lastWeekIndex];
+            $lastWeekNumber = (int) ($lastWeek['week_number'] ?? ($lastWeekIndex + 1));
+            $forcedDayOfWeek = $targetDayOfWeek;
+            $lastDays = (array) ($lastWeek['days'] ?? []);
+            $forcedDate = $start->modify('+' . (($lastWeekNumber - 1) * 7 + ($forcedDayOfWeek - 1)) . ' days')->format('Y-m-d');
+            foreach ($lastDays as &$day) {
+                $dayOfWeek = (int) ($day['day_of_week'] ?? 0);
+                if ($dayOfWeek !== $forcedDayOfWeek) {
+                    continue;
+                }
+                $day['date'] = $forcedDate;
+                $day['type'] = 'race';
+                $day['distance_km'] = round($raceDistanceKm, 1);
+                $day['pace'] = $goalPace;
+                $day['duration_minutes'] = $goalPace !== null
+                    ? calculateDurationMinutes((float) $day['distance_km'], $goalPace)
+                    : null;
+                $day['is_key_workout'] = true;
+                $day['subtype'] = null;
+                $day['warmup_km'] = null;
+                $day['cooldown_km'] = null;
+                $day['tempo_km'] = null;
+                $day['notes'] = $day['notes'] ?? 'Главный старт (safety-net placement)';
+                if (function_exists('rebuildNormalizedDayArtifacts')) {
+                    $day = rebuildNormalizedDayArtifacts($day);
+                }
+                $racePlaced = true;
+                error_log(sprintf(
+                    'placeRaceOnCalendarDate: race day fell outside plan horizon (target_week=%d, plan_weeks=%d) — force-placed on last week (week=%d, dow=%d, date=%s)',
+                    $targetWeekNumber,
+                    count($weeks),
+                    $lastWeekNumber,
+                    $forcedDayOfWeek,
+                    $forcedDate
+                ));
+                break;
+            }
+            unset($day);
+            $lastWeek['days'] = $lastDays;
+            $lastWeek['actual_volume_km'] = calculateNormalizedWeekVolume($lastDays);
+            $lastWeek['total_volume'] = $lastWeek['actual_volume_km'];
+            unset($lastWeek);
+        }
 
         $plan['weeks'] = $weeks;
         return $plan;
@@ -1403,6 +1567,32 @@ class PlanGenerationProcessorService extends BaseService {
         $stmt->close();
     }
 
+    /**
+     * Сохраняет plan_summary и risk_review (включая «цель нереалистичная»/рекомендации) в users,
+     * чтобы их видел чат при любом запросе о плане — а не только в результате job сразу
+     * после recalculate.
+     */
+    private function persistPlanSummary(int $userId, array $planData): void {
+        $meta = is_array($planData['_generation_metadata'] ?? null) ? $planData['_generation_metadata'] : [];
+        $summary = isset($meta['plan_summary']) ? trim((string) $meta['plan_summary']) : '';
+        $riskReview = is_array($meta['risk_review'] ?? null) ? $meta['risk_review'] : null;
+
+        if ($summary === '' && empty($riskReview)) {
+            return;
+        }
+
+        $riskJson = $riskReview !== null ? json_encode($riskReview, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+        $stmt = $this->db->prepare(
+            "UPDATE users SET last_plan_summary = ?, last_plan_risk_review_json = ?, last_plan_generated_at = NOW() WHERE id = ?"
+        );
+        if (!$stmt) {
+            return;
+        }
+        $stmt->bind_param('ssi', $summary, $riskJson, $userId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
     private function syncLatestTrainingPlanSnapshot(int $userId, ?string $startDate, array $planData): void {
         $user = $this->getUserRepository()->getById($userId, false);
         if (!$user) {
@@ -1565,13 +1755,19 @@ class PlanGenerationProcessorService extends BaseService {
         $stmt->close();
     }
 
-    private function appendPlanReview(int $userId, array $planData, string $reviewStartDate, string $mode): void {
+    private function appendPlanReview(
+        int $userId,
+        array $planData,
+        string $reviewStartDate,
+        string $mode,
+        ?array $realismContext = null
+    ): void {
         try {
             require_once __DIR__ . '/../planrun_ai/plan_review_generator.php';
             require_once __DIR__ . '/ChatService.php';
-            $review = generatePlanReview($planData, $reviewStartDate, $mode);
+            $review = generatePlanReview($planData, $reviewStartDate, $mode, $realismContext);
             if ($review === null || $review === '') {
-                $review = $this->buildFallbackPlanReview($planData, $reviewStartDate, $mode);
+                $review = $this->buildFallbackPlanReview($planData, $reviewStartDate, $mode, $realismContext);
             }
 
             $explanationSummary = trim((string) ($planData['_generation_metadata']['explanation']['summary'] ?? ''));
@@ -1607,7 +1803,12 @@ class PlanGenerationProcessorService extends BaseService {
         }
     }
 
-    private function buildFallbackPlanReview(array $planData, string $reviewStartDate, string $mode): string {
+    private function buildFallbackPlanReview(
+        array $planData,
+        string $reviewStartDate,
+        string $mode,
+        ?array $realismContext = null
+    ): string {
         $summaryPrefix = match ($mode) {
             'ПЕРЕСЧЁТ' => 'План успешно пересчитан.',
             'НОВЫЙ ПЛАН' => 'Новый план успешно сформирован.',
@@ -1651,9 +1852,85 @@ class PlanGenerationProcessorService extends BaseService {
             $parts[] = 'Дни отдыха на первой обновлённой неделе: ' . implode(', ', $restLabels) . '.';
         }
 
+        // PR9: при moderate/major severity — добавляем сухой факт, что план готовит к
+        // другому таргету, чем в профиле. Без интерпретации и тренерского обоснования —
+        // это работа LLM-review (см. generatePlanReview + buildRealismFactsForReview).
+        // Здесь только данные: цель в профиле / прогноз / таргет плана.
+        $realismFact = $this->renderRealismFactLineForFallback($realismContext);
+        if ($realismFact !== '') {
+            $parts[] = $realismFact;
+        }
+
         $parts[] = 'Проверь календарь. Если нужно ещё скорректировать структуру, напиши это в пересчёте или в чате.';
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * PR9: вытаскивает из training_state компактный контекст для plan_review:
+     *   severity, gap_pct, goal_target_time, predicted_target_time, effective_target_time,
+     *   race_distance_label.
+     * Возвращает null, если у пользователя goal не race-типа или нет таргета.
+     */
+    private function buildRealismContextForReview(?array $trainingState): ?array {
+        if (!is_array($trainingState)) {
+            return null;
+        }
+        $strategy = is_array($trainingState['pace_strategy'] ?? null) ? $trainingState['pace_strategy'] : null;
+        if (!$strategy) {
+            return null;
+        }
+
+        $distanceLabels = [
+            '5k' => '5 км',
+            '10k' => '10 км',
+            'half' => 'полумарафон',
+            '21.1k' => 'полумарафон',
+            'marathon' => 'марафон',
+            '42.2k' => 'марафон',
+        ];
+        $distance = (string) ($strategy['race_distance'] ?? '');
+        $distanceLabel = $distanceLabels[$distance] ?? ($distance !== '' ? $distance : null);
+
+        return [
+            'severity' => (string) ($strategy['severity'] ?? 'none'),
+            'mode' => (string) ($strategy['mode'] ?? 'goal_target'),
+            'gap_pct' => $strategy['gap_pct'] ?? null,
+            'goal_target_time' => $strategy['goal_target_time'] ?? null,
+            'goal_target_pace' => $strategy['goal_target_pace'] ?? null,
+            'predicted_target_time' => $strategy['predicted_target_time'] ?? null,
+            'effective_target_time' => $strategy['effective_target_time'] ?? null,
+            'effective_target_pace' => $strategy['effective_target_pace'] ?? null,
+            'race_distance' => $distance !== '' ? $distance : null,
+            'race_distance_label' => $distanceLabel,
+            'current_vdot' => $trainingState['vdot'] ?? null,
+        ];
+    }
+
+    /**
+     * PR9: fallback используется только если LLM-review не сработал (network/timeout).
+     * Сюда кладём *только сухой факт* про таргет — без тренерского обоснования и без
+     * фраз типа «темпы подтягиваются к цели» (это интерпретация, её даёт LLM-review).
+     * Возвращает '' если severity=none или контекст пуст.
+     */
+    private function renderRealismFactLineForFallback(?array $realism): string {
+        if (!is_array($realism)) {
+            return '';
+        }
+        $severity = (string) ($realism['severity'] ?? 'none');
+        if ($severity !== 'major' && $severity !== 'moderate') {
+            return '';
+        }
+
+        $goal = (string) ($realism['goal_target_time'] ?? '');
+        $effective = (string) ($realism['effective_target_time'] ?? '');
+        $distLabel = (string) ($realism['race_distance_label'] ?? '');
+        if ($goal === '' || $effective === '' || $goal === $effective) {
+            return '';
+        }
+
+        $distPart = $distLabel !== '' ? " {$distLabel}" : '';
+        return "Цель в профиле:{$distPart} {$goal}; план рассчитан на реалистичный таргет {$effective}.";
     }
 
     private function formatWeeksLabel(int $weeksCount): string {

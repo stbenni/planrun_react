@@ -1378,32 +1378,10 @@ function rebalanceLongShareWithinWeek(array &$days, array $loadPolicy, int $week
     }
 }
 
-function simplifyRaceWeekDays(array &$days, array $trainingState): void {
-    $easyFloorSec = isset($trainingState['pace_rules']['easy_min_sec'])
-        ? (int) $trainingState['pace_rules']['easy_min_sec']
-        : null;
-
-    foreach ($days as &$day) {
-        $type = normalizeTrainingType($day['type'] ?? null);
-        if ($type === 'tempo' && (!isset($day['distance_km']) || (float) $day['distance_km'] > 6.0)) {
-            $day['distance_km'] = 6.0;
-            $day['warmup_km'] = $day['warmup_km'] ?? 2.0;
-            $day['cooldown_km'] = $day['cooldown_km'] ?? 1.5;
-            $day['notes'] = 'Разминка 2 км, затем короткий темповый отрезок, заминка 1.5 км';
-            $day = updateSimpleRunDayAfterDistanceChange($day);
-        } elseif ($type === 'long') {
-            $day['type'] = 'easy';
-            $day['distance_km'] = min(4.0, (float) ($day['distance_km'] ?? 4.0));
-            $day['is_key_workout'] = false;
-            if ($easyFloorSec !== null) {
-                $day['pace'] = formatPaceFromSec($easyFloorSec);
-            }
-            $day['notes'] = 'Очень лёгкий бег перед стартом';
-            $day = updateSimpleRunDayAfterDistanceChange($day);
-        }
-    }
-    unset($day);
-}
+// PR-C (coaching prompt v4): функция simplifyRaceWeekDays() удалена.
+// Race-week protocol теперь передаётся модели как семантические маркеры race_proximity
+// в calendar_weeks. Тренер-модель сама применяет физиологию (короткий лёгкий перед стартом,
+// нет длительной/тяжёлого темпа в taper-неделю). Без post-processing safety-net'а.
 
 function resolveEasyRepairFloorKm(array $loadPolicy, int $weekNumber, bool $containsRace): float {
     $recoveryWeeks = array_map('intval', $loadPolicy['recovery_weeks'] ?? []);
@@ -1481,8 +1459,8 @@ function applyTrainingStateLoadRepairs(array $normalized, array $trainingState):
 
         $limit = $currentTotal;
         if ($containsRace) {
-            simplifyRaceWeekDays($days, $trainingState);
-            $currentTotal = calculateNormalizedWeekVolume($days);
+            // PR-C (coaching prompt v4): simplifyRaceWeekDays() больше не вызывается —
+            // тренер-модель сама упрощает race-неделю через race_proximity маркеры.
             $nonRaceDistance = max(0.0, $currentTotal - $raceDistance);
             $raceRatio = (float) ($loadPolicy['race_week_ratio'] ?? 0.85);
             $limit = roundToHalf($raceDistance + ($nonRaceDistance * $raceRatio));
@@ -1496,13 +1474,23 @@ function applyTrainingStateLoadRepairs(array $normalized, array $trainingState):
             $ratio = (float) ($loadPolicy['pre_race_taper_ratio'] ?? 1.0);
             $limit = min($currentTotal, ceilToTenth(($prevTotal * $ratio) + 0.5));
         } elseif ($weekIndex > 0) {
-            $prevTotal = (float) ($weeks[$weekIndex - 1]['total_volume'] ?? calculateNormalizedWeekVolume($weeks[$weekIndex - 1]['days'] ?? []));
-            $ratio = (float) ($loadPolicy['allowed_growth_ratio'] ?? 1.10);
-            $limit = min($currentTotal, ceilToTenth(($prevTotal * $ratio) + 0.5));
-        }
+            // For non-race goals (weight_loss, health), trust DeepSeek's volume more —
+            // weekly_volume_targets_km from buildLoadPolicy is conservative for these cohorts.
+            // Use only a sanity-cap (1.20x prev week) to prevent runaway spikes.
+            $goalType = (string) ($trainingState['goal_type'] ?? '');
+            $isRaceFocused = in_array($goalType, ['race', 'time_improvement'], true);
 
-        if (!empty($loadPolicy['weekly_volume_targets_km'][$weekNumber])) {
-            $limit = min($limit, (float) $loadPolicy['weekly_volume_targets_km'][$weekNumber]);
+            if ($isRaceFocused && !empty($loadPolicy['weekly_volume_targets_km'][$weekNumber])) {
+                // Race-focused: macrocycle target is authoritative.
+                $limit = min($currentTotal, (float) $loadPolicy['weekly_volume_targets_km'][$weekNumber]);
+            } else {
+                // Non-race (weight_loss/health) or no target — sanity-cap by growth ratio only.
+                $prevTotal = (float) ($weeks[$weekIndex - 1]['total_volume'] ?? calculateNormalizedWeekVolume($weeks[$weekIndex - 1]['days'] ?? []));
+                $ratio = $isRaceFocused
+                    ? (float) ($loadPolicy['allowed_growth_ratio'] ?? 1.10)
+                    : 1.20; // looser cap for weight_loss/health to preserve DeepSeek's variety
+                $limit = min($currentTotal, ceilToTenth(($prevTotal * $ratio) + 0.5));
+            }
         }
 
         $excess = round(max(0.0, $currentTotal - $limit), 1);

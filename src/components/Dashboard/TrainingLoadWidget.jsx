@@ -272,6 +272,9 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
       atl: Math.round(p.atl ?? 0),
       ctl: Math.round(p.ctl ?? 0),
       tsb: Math.round(p.tsb ?? 0),
+      yAtl: chart.yScale(p.atl ?? 0),
+      yCtl: chart.yScale(p.ctl ?? 0),
+      yTsb: chart.yScale(p.tsb ?? 0),
     };
   }, [chart, chartDaily, hoverIdx]);
 
@@ -463,15 +466,20 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
               onTouchEnd={handleMouseLeave}
             />
 
-            {/* Tooltip vertical line */}
+            {/* Tooltip vertical line and highlight points */}
             {tooltipData && (
-              <line
-                className="training-load__tooltip-line"
-                x1={tooltipData.x}
-                x2={tooltipData.x}
-                y1={chart.m.top}
-                y2={chart.m.top + chart.ch}
-              />
+              <g className="training-load__hover-elements">
+                <line
+                  className="training-load__tooltip-line"
+                  x1={tooltipData.x}
+                  x2={tooltipData.x}
+                  y1={chart.m.top}
+                  y2={chart.m.top + chart.ch}
+                />
+                <circle cx={tooltipData.x} cy={tooltipData.yCtl} r="4.5" fill="#3b82f6" className="training-load__point-highlight" />
+                <circle cx={tooltipData.x} cy={tooltipData.yAtl} r="4.5" fill="#ef4444" className="training-load__point-highlight" />
+                <circle cx={tooltipData.x} cy={tooltipData.yTsb} r="4.5" fill="#22c55e" className="training-load__point-highlight" />
+              </g>
             )}
           </svg>
 
@@ -480,7 +488,7 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
             <div
               ref={tooltipRef}
               className={`training-load__html-tooltip training-load__html-tooltip--${tooltipLayout.placement} ${tooltipLayout.ready ? '' : 'training-load__html-tooltip--hidden'}`.trim()}
-              style={{ left: `${tooltipLayout.left}px` }}
+              style={{ left: 0, transform: `translate3d(${tooltipLayout.left}px, 0, 0)` }}
             >
               <div className="training-load__html-tooltip-date">{tooltipData.date}</div>
               <div className="training-load__html-tooltip-row training-load__html-tooltip-row--atl">Усталость: {tooltipData.atl}</div>

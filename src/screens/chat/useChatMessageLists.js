@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
-import { TAB_ADMIN_MODE, TAB_USER_DIALOG } from './chatConstants';
+import { TAB_ADMIN_MODE, TAB_AI, TAB_USER_DIALOG } from './chatConstants';
 
 export function useChatMessageLists(api, selectedChat, loadDirectDialogs) {
   const [messages, setMessages] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [aiPendingResponse, setAiPendingResponse] = useState(false);
   const [userDialogMessages, setUserDialogMessages] = useState([]);
   const [userDialogLoading, setUserDialogLoading] = useState(false);
   const [chatAdminMessages, setChatAdminMessages] = useState([]);
@@ -14,9 +15,12 @@ export function useChatMessageLists(api, selectedChat, loadDirectDialogs) {
   const selectedChatRef = useRef(selectedChat);
   selectedChatRef.current = selectedChat;
 
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (options = {}) => {
+    const silent = options?.silent === true;
+
     if (!api || selectedChat === TAB_ADMIN_MODE || selectedChat === TAB_USER_DIALOG || selectedChat?.startsWith?.('dialog_')) {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      setAiPendingResponse(false);
       return;
     }
 
@@ -25,8 +29,10 @@ export function useChatMessageLists(api, selectedChat, loadDirectDialogs) {
     let timeoutId = null;
 
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       const dataPromise = api.chatGetMessages(loadingFor, 50, 0);
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = window.setTimeout(() => reject(new Error('timeout')), loadTimeoutMs);
@@ -37,15 +43,22 @@ export function useChatMessageLists(api, selectedChat, loadDirectDialogs) {
       const list = Array.isArray(data?.messages) ? data.messages : [];
       setMessages([...list].reverse());
       if (data?.conversation_id) setConversationId(data.conversation_id);
+      const pendingState = data?.pending_ai_response;
+      const pendingActive = typeof pendingState === 'object'
+        ? pendingState?.active === true
+        : pendingState === true;
+      setAiPendingResponse(loadingFor === TAB_AI && pendingActive);
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);
       if (loadingFor !== selectedChatRef.current) return;
-      setError(error?.message === 'timeout'
-        ? 'Загрузка сообщений заняла слишком много времени. Проверьте интернет.'
-        : (error?.message || 'Ошибка загрузки сообщений'));
-      setMessages([]);
+      if (!silent) {
+        setError(error?.message === 'timeout'
+          ? 'Загрузка сообщений заняла слишком много времени. Проверьте интернет.'
+          : (error?.message || 'Ошибка загрузки сообщений'));
+        setMessages([]);
+      }
     } finally {
-      if (loadingFor === selectedChatRef.current) setLoading(false);
+      if (loadingFor === selectedChatRef.current && !silent) setLoading(false);
     }
   }, [api, selectedChat]);
 
@@ -83,6 +96,8 @@ export function useChatMessageLists(api, selectedChat, loadDirectDialogs) {
     setMessages,
     conversationId,
     setConversationId,
+    aiPendingResponse,
+    setAiPendingResponse,
     loading,
     setLoading,
     error,

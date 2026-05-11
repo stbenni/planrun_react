@@ -6,6 +6,7 @@ import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
 import { getDayCompletionStatus, getPlanDayForDate, planTypeToCategory, workoutTypeToCategory } from '../../utils/calendarHelpers';
 import { addDaysToDateStr, dayItemsToWorkoutAndPlanDays, getDayItems, getTodayInTimezone } from './dashboardDateUtils';
 import { isNativeCapacitor } from '../../services/TokenStorageService';
+import { isActivePlanGenerationStatus } from '../../utils/planStatus';
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -489,7 +490,7 @@ export function useDashboardData({
     loading,
     metrics,
     nextWorkout,
-    noPlanChecked: isAiTrainingMode && planStatusFromStore != null && planStatusFromStore.has_plan === false && !planStatusFromStore.generating,
+    noPlanChecked: isAiTrainingMode && planStatusFromStore != null && planStatusFromStore.has_plan === false && !isActivePlanGenerationStatus(planStatusFromStore),
     plan,
     planError,
     planExists,

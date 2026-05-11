@@ -14,6 +14,7 @@ declare(strict_types=1);
  *   php scripts/live_plan_generation_batch.php --limit=50
  *   php scripts/live_plan_generation_batch.php --limit=5 --prefix=live50_smoke
  *   php scripts/live_plan_generation_batch.php --skip-generation=1 --prefix=live50_smoke
+ *   php scripts/live_plan_generation_batch.php --case-codes=race_5k_first_6w,race_marathon_first_20w
  */
 
 set_time_limit(0);
@@ -35,6 +36,9 @@ function liveBatchParseArgs(array $argv): array
         'skip-generation' => '0',
         'reuse-existing' => '1',
         'fast-llm-fallback' => '0',
+        'case-codes' => '',
+        'parallel' => '1',     // >1 spawns worker processes via proc_open (each handles a shard)
+        'shard' => '',         // internal: format "idx/total" — set automatically by parent for workers
     ];
 
     foreach ($argv as $arg) {
@@ -954,7 +958,120 @@ if (!is_dir($saveDir) && !mkdir($saveDir, 0775, true) && !is_dir($saveDir)) {
     exit(1);
 }
 
-$profiles = array_slice(liveBatchBuildProfiles($prefix, $startDate), 0, $limit);
+$profiles = liveBatchBuildProfiles($prefix, $startDate);
+$caseCodesRaw = trim((string) ($args['case-codes'] ?? ''));
+if ($caseCodesRaw !== '') {
+    $wanted = array_values(array_filter(array_map('trim', explode(',', $caseCodesRaw)), static fn(string $v): bool => $v !== ''));
+    $wantedMap = array_fill_keys($wanted, true);
+    $filtered = array_values(array_filter(
+        $profiles,
+        static fn(array $profile): bool => isset($wantedMap[(string) ($profile['_case_code'] ?? '')])
+    ));
+    if (count($filtered) === 0) {
+        fwrite(STDERR, "No profiles match --case-codes={$caseCodesRaw}\n");
+        exit(1);
+    }
+    $profiles = $filtered;
+}
+$profiles = array_slice($profiles, 0, $limit);
+
+// === PARALLEL MODE: parent splits work and spawns workers ===
+$parallel = max(1, (int) ($args['parallel'] ?? 1));
+$shard = trim((string) ($args['shard'] ?? ''));
+if ($parallel > 1 && $shard === '') {
+    // Parent: split profiles into shards and spawn workers
+    $shardCases = [];
+    foreach ($profiles as $idx => $profile) {
+        $shardId = $idx % $parallel;
+        $shardCases[$shardId][] = (string) ($profile['_case_code'] ?? '');
+    }
+    $shardCount = count($shardCases);
+    fwrite(STDOUT, "[parallel] spawning {$shardCount} workers for " . count($profiles) . " cases\n");
+
+    $procs = [];
+    $artifactBaseShared = $saveDir . '/' . $prefix . '_' . gmdate('Ymd_His');
+    foreach ($shardCases as $shardId => $codes) {
+        $codesArg = implode(',', $codes);
+        $logPath = $artifactBaseShared . "_w{$shardId}.log";
+        $cmd = sprintf(
+            'php %s --case-codes=%s --prefix=%s_w%d --shard=%d/%d --start-date=%s --reuse-existing=%s --fast-llm-fallback=%s --skip-generation=%s --save-dir=%s > %s 2>&1',
+            escapeshellarg(__FILE__),
+            escapeshellarg($codesArg),
+            escapeshellarg($prefix),
+            $shardId,
+            $shardId,
+            $parallel,
+            escapeshellarg($startDate),
+            escapeshellarg($args['reuse-existing'] ?? '1'),
+            escapeshellarg($args['fast-llm-fallback'] ?? '0'),
+            escapeshellarg($args['skip-generation'] ?? '0'),
+            escapeshellarg($saveDir),
+            escapeshellarg($logPath)
+        );
+        $procs[$shardId] = [
+            'cmd' => $cmd,
+            'log' => $logPath,
+            'process' => proc_open($cmd, [], $pipes),
+            'started_at' => microtime(true),
+        ];
+        fwrite(STDOUT, "[parallel] worker {$shardId} started (" . count($codes) . " cases)\n");
+    }
+
+    // Wait for all workers
+    foreach ($procs as $shardId => &$info) {
+        $exitCode = proc_close($info['process']);
+        $duration = round(microtime(true) - $info['started_at'], 1);
+        fwrite(STDOUT, "[parallel] worker {$shardId} finished in {$duration}s (exit {$exitCode})\n");
+        $info['exit_code'] = $exitCode;
+        $info['duration_s'] = $duration;
+    }
+    unset($info);
+
+    // Merge worker reports
+    $merged = [
+        'context' => ['prefix' => $prefix, 'parallel' => $parallel, 'start_date' => $startDate, 'generated_at_utc' => gmdate('Y-m-d H:i:s')],
+        'summary' => [
+            'created_users' => 0, 'reused_users' => 0, 'generation_ok' => 0, 'generation_failed' => 0,
+            'issue_counts' => ['error' => 0, 'warning' => 0, 'info' => 0], 'top_issue_codes' => [],
+        ],
+        'users' => [],
+    ];
+    foreach ($shardCases as $shardId => $codes) {
+        $shardArtifactBase = $saveDir . '/' . $prefix . '_w' . $shardId;
+        $glob = glob($shardArtifactBase . '_*.json');
+        if (empty($glob)) {
+            fwrite(STDERR, "[parallel] worker {$shardId} produced no JSON artifact (check log)\n");
+            $merged['summary']['generation_failed'] += count($codes);
+            continue;
+        }
+        usort($glob, static fn($a, $b) => filemtime($b) - filemtime($a));
+        $shardReport = json_decode((string) file_get_contents($glob[0]), true);
+        if (!is_array($shardReport)) continue;
+        foreach (['created_users', 'reused_users', 'generation_ok', 'generation_failed'] as $k) {
+            $merged['summary'][$k] += (int) ($shardReport['summary'][$k] ?? 0);
+        }
+        foreach (($shardReport['summary']['issue_counts'] ?? []) as $sev => $cnt) {
+            $merged['summary']['issue_counts'][$sev] = ($merged['summary']['issue_counts'][$sev] ?? 0) + (int) $cnt;
+        }
+        foreach (($shardReport['summary']['top_issue_codes'] ?? []) as $code => $cnt) {
+            $merged['summary']['top_issue_codes'][$code] = ($merged['summary']['top_issue_codes'][$code] ?? 0) + (int) $cnt;
+        }
+        foreach (($shardReport['users'] ?? []) as $u) $merged['users'][] = $u;
+    }
+    arsort($merged['summary']['top_issue_codes']);
+    $merged['summary']['top_issue_codes'] = array_slice($merged['summary']['top_issue_codes'], 0, 20, true);
+
+    $finalJson = $artifactBaseShared . '.json';
+    $finalMd = $artifactBaseShared . '.md';
+    file_put_contents($finalJson, json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    file_put_contents($finalMd, liveBatchBuildMarkdown($merged));
+    fwrite(STDOUT, "[parallel] merged JSON: {$finalJson}\n");
+    fwrite(STDOUT, "[parallel] merged Markdown: {$finalMd}\n");
+    fwrite(STDOUT, "Summary: " . json_encode($merged['summary'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
+    exit($merged['summary']['generation_failed'] > 0 ? 1 : 0);
+}
+// === END PARALLEL MODE ===
+
 $registration = new RegistrationService($db);
 $queue = new PlanGenerationQueueService($db);
 $processor = new PlanGenerationProcessorService($db);

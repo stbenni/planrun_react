@@ -71,12 +71,55 @@ class ChatController extends BaseController {
             return;
         }
 
+        if (!$this->enforceChatRateLimit()) {
+            return;
+        }
+
         try {
+            $this->releaseSessionLock();
             $result = $this->chatService->sendMessageAndGetResponse($this->currentUserId, $content);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
         }
+    }
+
+    /**
+     * Per-user chat rate limit (anti-abuse). Default: max 30 user messages per 60s,
+     * with a min 2s gap between messages. Returns true if request can proceed.
+     * Tunable via env: CHAT_RATE_LIMIT_PER_MINUTE (default 30), CHAT_RATE_MIN_GAP_SECONDS (default 2).
+     */
+    private function enforceChatRateLimit(): bool {
+        $perMinute = max(1, (int) env('CHAT_RATE_LIMIT_PER_MINUTE', 30));
+        $minGap = max(0, (int) env('CHAT_RATE_MIN_GAP_SECONDS', 2));
+        $userId = (int) $this->currentUserId;
+
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) AS cnt, COALESCE(MAX(UNIX_TIMESTAMP(m.created_at)), 0) AS last_ts
+             FROM chat_messages m
+             JOIN chat_conversations c ON c.id = m.conversation_id
+             WHERE c.user_id = ? AND m.sender_type = 'user' AND m.created_at > NOW() - INTERVAL 60 SECOND"
+        );
+        if (!$stmt) return true; // fail-open if query fails — don't block users on infra hiccup
+
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $count = (int) ($row['cnt'] ?? 0);
+        $lastTs = (int) ($row['last_ts'] ?? 0);
+        $now = time();
+
+        if ($minGap > 0 && $lastTs > 0 && ($now - $lastTs) < $minGap) {
+            $this->returnError("Подождите {$minGap}с между сообщениями.", 429);
+            return false;
+        }
+        if ($count >= $perMinute) {
+            $this->returnError("Слишком много сообщений. Лимит {$perMinute} в минуту, попробуйте через минуту.", 429);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -101,7 +144,12 @@ class ChatController extends BaseController {
             return;
         }
 
+        if (!$this->enforceChatRateLimit()) {
+            return;
+        }
+
         try {
+            $this->releaseSessionLock();
             header('Content-Type: application/x-ndjson; charset=utf-8');
             header('Cache-Control: no-cache');
             header('X-Accel-Buffering: no');

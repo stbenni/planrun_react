@@ -64,14 +64,19 @@ const DashboardStatsWidget = ({ api, onNavigate, viewContext = null }) => {
 
   if (loading && !stats) {
     return (
-      <div
-        className="dashboard-stats-widget"
-        role={onNavigate ? 'button' : undefined}
-        tabIndex={onNavigate ? 0 : undefined}
-        onClick={onNavigate ? () => onNavigate('stats') : undefined}
-        onKeyDown={onNavigate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate('stats'); } } : undefined}
-      >
-        <div className="dashboard-stats-widget-loading"><LogoLoading size="sm" /></div>
+      <div className="dashboard-stats-widget">
+        <div className="dashboard-stats-time-range" style={{ opacity: 0 }}>
+          {/* Невидимая кнопка, чтобы занять нужную высоту */}
+          <button type="button" className="dashboard-time-range-btn active">Месяц</button>
+        </div>
+        <div className="dashboard-stats-metrics-grid">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="metric-card">
+              <div className="skeleton-pulse" style={{ width: '45%', height: '14px', borderRadius: '4px', background: 'var(--surface-glass-border)', alignSelf: 'flex-start' }} />
+              <div className="skeleton-pulse" style={{ width: '65%', height: '32px', borderRadius: '6px', background: 'var(--surface-glass-border)', alignSelf: 'flex-end', marginTop: '16px' }} />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

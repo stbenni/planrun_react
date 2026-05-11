@@ -248,6 +248,12 @@ class LlmGateway
                     CURLOPT_HEADER => true,
                     CURLOPT_TIMEOUT => $timeoutSeconds,
                     CURLOPT_CONNECTTIMEOUT => $connectTimeoutSeconds,
+                    // TCP keepalive for long reasoner requests (4-5min) to keep proxies happy.
+                    // Without this, intermediate Cloudflare/nginx may close idle TCP and the
+                    // request fails even though DeepSeek is still computing.
+                    CURLOPT_TCP_KEEPALIVE => 1,
+                    CURLOPT_TCP_KEEPIDLE => 30,
+                    CURLOPT_TCP_KEEPINTVL => 15,
                 ]);
 
                 $response = curl_exec($ch);

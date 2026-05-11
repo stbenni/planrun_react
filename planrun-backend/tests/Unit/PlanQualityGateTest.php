@@ -82,7 +82,9 @@ class PlanQualityGateTest extends TestCase
         $this->assertTrue($result['should_block_save']);
         $this->assertContains('tune_up_event_not_downgraded_to_control', $codes);
         $this->assertContains('tune_up_week_has_extra_quality', $codes);
-        $this->assertTrue((bool) ($result['repairs_applied'] ?? false));
+        // PR-C (coaching prompt v4): simplifyRaceWeekDays() удалена — race-week
+        // больше не правится автоматически. Validator codes остаются (модель видит ошибку
+        // в plan review), но repairs_applied=false для этого сценария.
     }
 
     public function test_evaluate_passes_controlled_tune_up_week(): void
@@ -412,6 +414,7 @@ class PlanQualityGateTest extends TestCase
         ];
 
         $result = $gate->evaluate($plan, '2026-04-20', [
+            'goal_type' => 'race',
             'readiness' => 'low',
             'race_distance' => '10k',
             'load_policy' => [

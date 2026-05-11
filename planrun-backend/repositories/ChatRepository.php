@@ -119,6 +119,65 @@ class ChatRepository extends BaseRepository {
     }
 
     /**
+     * A chat answer is considered pending when the latest user message has no
+     * newer AI message yet and is still within the active generation window.
+     */
+    public function getPendingAiResponseState(int $conversationId, int $userId, int $ttlSeconds = 360): array {
+        $ttlSeconds = max(30, $ttlSeconds);
+
+        $latestUser = $this->fetchOne(
+            "SELECT id, created_at, TIMESTAMPDIFF(SECOND, created_at, NOW()) AS age_seconds
+             FROM chat_messages
+             WHERE conversation_id = ? AND sender_type = 'user' AND sender_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+            [$conversationId, $userId],
+            'ii'
+        );
+
+        if (!$latestUser) {
+            return ['active' => false];
+        }
+
+        $ageSeconds = max(0, (int)($latestUser['age_seconds'] ?? 0));
+        if ($ageSeconds > $ttlSeconds) {
+            return [
+                'active' => false,
+                'last_user_message_id' => (int)$latestUser['id'],
+                'age_seconds' => $ageSeconds,
+            ];
+        }
+
+        $newerAi = $this->fetchOne(
+            "SELECT id
+             FROM chat_messages
+             WHERE conversation_id = ?
+               AND sender_type = 'ai'
+               AND (
+                 created_at > ?
+                 OR (created_at = ? AND id > ?)
+               )
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+            [
+                $conversationId,
+                (string)$latestUser['created_at'],
+                (string)$latestUser['created_at'],
+                (int)$latestUser['id'],
+            ],
+            'issi'
+        );
+
+        return [
+            'active' => !$newerAi,
+            'last_user_message_id' => (int)$latestUser['id'],
+            'since' => (string)$latestUser['created_at'],
+            'age_seconds' => $ageSeconds,
+            'ttl_seconds' => $ttlSeconds,
+        ];
+    }
+
+    /**
      * Добавить сообщение
      */
     public function addMessage(int $conversationId, string $senderType, ?int $senderId, string $content, ?array $metadata = null): int {

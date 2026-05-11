@@ -30,7 +30,7 @@ import { expandLayoutForMobile, getDefaultLayout, getStoredLayout, layoutExpandS
 import { useDashboardPullToRefresh } from './useDashboardPullToRefresh';
 import { useDashboardData } from './useDashboardData';
 import SkeletonScreen from '../common/SkeletonScreen';
-import { RunningIcon, BotIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon } from '../common/Icons';
+import { RunningIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon, SettingsIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import TrainingLoadWidget from './TrainingLoadWidget';
 import './Dashboard.css';
@@ -308,6 +308,27 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
   );
 
   const moduleOrder = useMemo(() => layoutToOrder(layout), [layout]);
+  const todayCompleted = Boolean(todayWorkout?.date && progressDataMap?.[todayWorkout.date]);
+  const todayStatusLabel = !hasAnyPlannedWorkout
+    ? 'нет плана'
+    : todayWorkout
+      ? (todayCompleted ? 'выполнено' : 'по плану')
+      : 'отдых';
+  const todayStatusTone = !hasAnyPlannedWorkout
+    ? 'neutral'
+    : todayWorkout
+      ? (todayCompleted ? 'success' : 'primary')
+      : 'rest';
+  const weekStatusLabel = hasAnyPlannedWorkout ? `${weekProgress.completed}/${weekProgress.total}` : 'нет плана';
+  const weekStatusTone = progressPercentage >= 100 ? 'success' : progressPercentage > 0 ? 'primary' : 'neutral';
+  const planStatusLabel = planGenerating
+    ? 'генерация'
+    : planError
+      ? 'ошибка'
+      : planExists
+        ? 'активен'
+        : 'нет плана';
+  const planStatusTone = planGenerating ? 'primary' : planError ? 'danger' : planExists ? 'success' : 'neutral';
 
   if (needsOnboarding) {
     return (
@@ -431,7 +452,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
 
       <div className="dashboard-header">
         <div className="dashboard-header-row">
-          <div>
+          <div className="dashboard-header-main">
             <h1 className="dashboard-greeting">
               Привет{user?.name ? `, ${user.name}` : ''}!
             </h1>
@@ -443,14 +464,31 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
               })}
             </p>
           </div>
-          <button
-            type="button"
-            className="dashboard-customize-btn"
-            onClick={() => setCustomizerOpen(true)}
-            aria-label="Настроить виджеты дашборда"
-          >
-            Виджеты
-          </button>
+          <div className="dashboard-header-actions">
+            <div className="dashboard-status-row" aria-label="Краткая сводка дашборда">
+              <div className={`dashboard-status-pill dashboard-status-pill--${todayStatusTone}`}>
+                <span className="dashboard-status-pill__label">Сегодня</span>
+                <span className="dashboard-status-pill__value">{todayStatusLabel}</span>
+              </div>
+              <div className={`dashboard-status-pill dashboard-status-pill--${weekStatusTone}`}>
+                <span className="dashboard-status-pill__label">Неделя</span>
+                <span className="dashboard-status-pill__value">{weekStatusLabel}</span>
+              </div>
+              <div className={`dashboard-status-pill dashboard-status-pill--${planStatusTone}`}>
+                <span className="dashboard-status-pill__label">План</span>
+                <span className="dashboard-status-pill__value">{planStatusLabel}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="dashboard-customize-btn"
+              onClick={() => setCustomizerOpen(true)}
+              aria-label="Настроить виджеты дашборда"
+            >
+              <SettingsIcon className="dashboard-customize-btn__icon" />
+              <span>Виджеты</span>
+            </button>
+          </div>
         </div>
       </div>
 

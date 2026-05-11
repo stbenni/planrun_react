@@ -21,6 +21,7 @@ export function useChatSubmitHandlers({
   setMessages,
   setUserDialogMessages,
   setStreamPhase,
+  setAiPendingResponse,
   streamAbortRef,
   isMountedRef,
   notificationTimersRef,
@@ -118,6 +119,7 @@ export function useChatSubmitHandlers({
     };
     setMessages((prev) => [...prev, aiPlaceholder]);
     setStreamPhase('connecting');
+    setAiPendingResponse?.(true);
     setSending(false);
     sendingRef.current = false;
 
@@ -185,6 +187,7 @@ export function useChatSubmitHandlers({
       })
       .then((fullContent) => {
         if (!isMountedRef.current || abortController.signal.aborted) return;
+        setAiPendingResponse?.(false);
         setMessages((prev) => prev.map((message) => (
           message.id === aiPlaceholder.id ? { ...message, sender_type: 'ai', content: fullContent } : message
         )));
@@ -193,6 +196,7 @@ export function useChatSubmitHandlers({
       .catch((error) => {
         if (error?.name === 'AbortError') return;
         if (isMountedRef.current) {
+          setAiPendingResponse?.(false);
           setError(error?.message || 'Ошибка отправки');
           setMessages((prev) => prev.filter((message) => message.id !== aiPlaceholder.id));
         }
@@ -221,6 +225,7 @@ export function useChatSubmitHandlers({
     setRecalcMessage,
     setSending,
     setStreamPhase,
+    setAiPendingResponse,
     setUserDialogMessages,
     streamAbortRef,
     user,
@@ -272,11 +277,12 @@ export function useChatSubmitHandlers({
     try {
       await api.chatClearAi();
       setMessages([]);
+      setAiPendingResponse?.(false);
       setError(null);
     } catch (error) {
       setError(error.message || 'Не удалось очистить чат');
     }
-  }, [api, setError, setMessages]);
+  }, [api, setAiPendingResponse, setError, setMessages]);
 
   const handleClearDirectDialog = useCallback(async () => {
     if (!api || !contactUserForDialog?.id) return;

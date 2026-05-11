@@ -66,6 +66,16 @@ class BaseController {
         }
         return true;
     }
+
+    /**
+     * Release the PHP session file lock for long-running requests after all
+     * session reads/writes needed by the controller are done.
+     */
+    protected function releaseSessionLock(): void {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+    }
     
     /**
      * Проверка прав на редактирование

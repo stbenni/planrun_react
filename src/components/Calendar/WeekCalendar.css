@@ -1437,7 +1437,7 @@
   -webkit-appearance: none;
 }
 .week-note-btn:hover {
-  color: var(--primary-600);
+  color: var(--primary-500);
   background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
   border-color: color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-border));
   transform: translateY(-1px);

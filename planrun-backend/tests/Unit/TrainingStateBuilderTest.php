@@ -366,6 +366,85 @@ class TrainingStateBuilderTest extends TestCase {
         $this->assertNull($state['goal_realism']);
     }
 
+    /**
+     * PR9: pace_strategy для major-severity цели должна готовить к predicted_target_time
+     * (не к недостижимой цели), но goal_paces всё равно вычисляются от effective target,
+     * чтобы темпы tempo/interval подтягивали к реалистичной цели.
+     */
+    public function test_buildForUser_pace_strategy_falls_back_to_realistic_target_for_major_severity(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-07-04',
+            'race_target_time' => '02:30:00',
+            'sessions_per_week' => 3,
+            'weekly_base_km' => 18,
+            'experience_level' => 'novice',
+            'easy_pace_sec' => 360,
+            'training_start_date' => '2026-05-04',
+        ]);
+
+        $this->assertIsArray($state['pace_strategy'] ?? null);
+        $this->assertSame('realistic_target', $state['pace_strategy']['mode']);
+        $this->assertSame('major', $state['pace_strategy']['severity']);
+        $this->assertNotNull($state['pace_strategy']['predicted_target_time']);
+        $this->assertNotNull($state['pace_strategy']['effective_target_time']);
+        $this->assertSame(
+            $state['pace_strategy']['predicted_target_time'],
+            $state['pace_strategy']['effective_target_time'],
+            'major severity → effective = predicted'
+        );
+        $this->assertSame('2:30:00', $state['pace_strategy']['goal_target_time']);
+        $this->assertIsArray($state['pace_strategy']['goal_paces'] ?? null);
+        $this->assertArrayHasKey('threshold', $state['pace_strategy']['goal_paces']);
+        $this->assertArrayHasKey('marathon', $state['pace_strategy']['goal_paces']);
+        $this->assertGreaterThan(0, (float) ($state['pace_strategy']['gap_pct'] ?? 0));
+    }
+
+    /**
+     * PR9: pace_strategy для realistic-цели → mode=goal_target, готовим к самой цели,
+     * gap_pct близок к нулю или отрицательный.
+     */
+    public function test_buildForUser_pace_strategy_uses_goal_target_for_realistic_severity(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'race',
+            'race_distance' => 'marathon',
+            'race_date' => '2026-09-01',
+            'race_target_time' => '04:00:00',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 40,
+            'experience_level' => 'intermediate',
+            'easy_pace_sec' => 360,
+            'training_start_date' => '2026-05-04',
+        ]);
+
+        $this->assertIsArray($state['pace_strategy'] ?? null);
+        $this->assertSame('goal_target', $state['pace_strategy']['mode']);
+        $this->assertSame('4:00:00', $state['pace_strategy']['goal_target_time']);
+        $this->assertSame(
+            $state['pace_strategy']['goal_target_time'],
+            $state['pace_strategy']['effective_target_time'],
+            'non-major severity → effective = goal'
+        );
+    }
+
+    /**
+     * PR9: для health/regular_running pace_strategy не выставляется (goal_type не race).
+     */
+    public function test_buildForUser_pace_strategy_omitted_for_health_goal(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'goal_type' => 'health',
+            'sessions_per_week' => 3,
+            'weekly_base_km' => 15,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayNotHasKey('pace_strategy', $state);
+    }
+
     public function test_buildForUser_skips_scenario_fields_when_feature_flag_disabled(): void {
         $previous = getenv('PLANRUN_AI_STATE_SCENARIO');
         putenv('PLANRUN_AI_STATE_SCENARIO=0');
@@ -835,5 +914,218 @@ class TrainingStateBuilderTest extends TestCase {
         $stmt->bind_param('isssdi', $userId, $activityType, $startTime, $endTime, $distanceKm, $durationMinutes);
         $stmt->execute();
         $stmt->close();
+    }
+
+    // ---------------------------------------------------------------
+    // PR-A (coaching prompt v4): summary_for_coach + peak_volume_floor_km
+    // ---------------------------------------------------------------
+
+    /**
+     * Утилита: вызывает private-метод через рефлексию (tests-only).
+     */
+    private function invokePrivate(object $obj, string $method, array $args) {
+        $r = new \ReflectionClass($obj);
+        $m = $r->getMethod($method);
+        $m->setAccessible(true);
+        return $m->invokeArgs($obj, $args);
+    }
+
+    public function test_compliance_summary_returns_empty_string_for_no_data(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [[], 0.0]);
+        $this->assertSame('', $result);
+    }
+
+    public function test_compliance_summary_describes_period_without_plan(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['week_start' => '2026-04-13', 'planned_count' => 0, 'completed_count' => 4,
+             'actual_km' => 25.0, 'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['week_start' => '2026-04-20', 'planned_count' => 0, 'completed_count' => 5,
+             'actual_km' => 30.0, 'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['week_start' => '2026-04-27', 'planned_count' => 0, 'completed_count' => 5,
+             'actual_km' => 35.0, 'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['week_start' => '2026-05-04', 'planned_count' => 0, 'completed_count' => 5,
+             'actual_km' => 32.0, 'key_workout_planned' => 0, 'key_workout_completed' => 0],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 30.0]);
+        $this->assertStringContainsString('без плана', $result);
+        $this->assertStringContainsString('122', $result);
+        $this->assertStringContainsString('30.5', $result);
+        $this->assertStringContainsString('в среднем', $result);
+        // PR-A: разделение «с планом» / «без плана» — здесь все недели без плана,
+        // поэтому summary должен быть односегментным.
+        $this->assertStringNotContainsString('с планом', $result);
+    }
+
+    public function test_compliance_summary_includes_planned_completed_and_keys(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['planned_count' => 5, 'completed_count' => 4, 'actual_km' => 35.0,
+             'key_workout_planned' => 2, 'key_workout_completed' => 2],
+            ['planned_count' => 5, 'completed_count' => 3, 'actual_km' => 28.0,
+             'key_workout_planned' => 2, 'key_workout_completed' => 1],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 30.0]);
+        $this->assertStringContainsString('с планом запланировано 10', $result);
+        $this->assertStringContainsString('выполнено 7', $result);
+        $this->assertStringContainsString('63', $result);
+        $this->assertStringContainsString('Ключевых выполнено 3 из 4', $result);
+    }
+
+    public function test_compliance_summary_splits_planned_and_unplanned_segments(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        // PR-A: 2 недели без плана + 2 недели с планом — summary должен явно разделить
+        // эти сегменты, чтобы модель не сложила «без плана выполнено» с «по плану выполнено».
+        $weeks = [
+            ['planned_count' => 0, 'completed_count' => 4, 'actual_km' => 50.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['planned_count' => 0, 'completed_count' => 5, 'actual_km' => 55.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['planned_count' => 5, 'completed_count' => 4, 'actual_km' => 40.0,
+             'key_workout_planned' => 2, 'key_workout_completed' => 1],
+            ['planned_count' => 5, 'completed_count' => 5, 'actual_km' => 45.0,
+             'key_workout_planned' => 2, 'key_workout_completed' => 2],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 50.0]);
+        $this->assertStringContainsString('mix', $result);
+        $this->assertStringContainsString('с планом', $result);
+        $this->assertStringContainsString('без плана', $result);
+        // Сегменты считаются раздельно
+        $this->assertStringContainsString('с планом запланировано 10', $result);
+        $this->assertStringContainsString('Ключевых выполнено 3 из 4', $result);
+    }
+
+    public function test_compliance_summary_detects_overperforming_above_base(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['planned_count' => 0, 'completed_count' => 0, 'actual_km' => 50.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['planned_count' => 0, 'completed_count' => 0, 'actual_km' => 55.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['planned_count' => 0, 'completed_count' => 0, 'actual_km' => 52.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+            ['planned_count' => 0, 'completed_count' => 0, 'actual_km' => 60.0,
+             'key_workout_planned' => 0, 'key_workout_completed' => 0],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 30.0]);
+        // avg ≈ 54.25, base = 30 → ratio ≈ 1.81 — overperforming
+        $this->assertStringContainsString('выше заявленной базы', $result);
+    }
+
+    public function test_compliance_summary_detects_underperforming_below_base(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['planned_count' => 4, 'completed_count' => 1, 'actual_km' => 8.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 0],
+            ['planned_count' => 4, 'completed_count' => 1, 'actual_km' => 6.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 0],
+            ['planned_count' => 4, 'completed_count' => 2, 'actual_km' => 12.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 1],
+            ['planned_count' => 4, 'completed_count' => 1, 'actual_km' => 9.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 0],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 40.0]);
+        // avg ≈ 8.75, base = 40 → ratio ≈ 0.22 — well under 0.50.
+        // Без алармизма: даём числа и предлагаем подумать причину (recovery / болезнь / отпуск).
+        $this->assertStringContainsString('ниже заявленной базы', $result);
+        $this->assertStringContainsString('временный ли это спад', $result);
+    }
+
+    public function test_compliance_summary_detects_volume_trend_decrease(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['planned_count' => 4, 'completed_count' => 4, 'actual_km' => 60.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 1],
+            ['planned_count' => 4, 'completed_count' => 4, 'actual_km' => 55.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 1],
+            ['planned_count' => 4, 'completed_count' => 3, 'actual_km' => 35.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 0],
+            ['planned_count' => 4, 'completed_count' => 3, 'actual_km' => 30.0,
+             'key_workout_planned' => 1, 'key_workout_completed' => 0],
+        ];
+        $result = $this->invokePrivate($builder, 'buildRecentComplianceSummary', [$weeks, 50.0]);
+        $this->assertStringContainsString('снижается', $result);
+    }
+
+    public function test_peak_volume_floor_km_returns_max_actual(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $weeks = [
+            ['actual_km' => 60.0],
+            ['actual_km' => 65.0],
+            ['actual_km' => 70.0],
+            ['actual_km' => 68.0],
+        ];
+        $result = $this->invokePrivate($builder, 'computePeakVolumeFloorKm', [$weeks, 50.0]);
+        $this->assertSame(70.0, $result);
+    }
+
+    public function test_peak_volume_floor_km_excludes_outlier_race_week(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        // 4 недели: 3 «обычных» 50-60 и одна race-week 130 (марафон) — должна отсеяться
+        $weeks = [
+            ['actual_km' => 50.0],
+            ['actual_km' => 55.0],
+            ['actual_km' => 130.0], // outlier (>1.30 × median)
+            ['actual_km' => 60.0],
+        ];
+        $result = $this->invokePrivate($builder, 'computePeakVolumeFloorKm', [$weeks, 50.0]);
+        // После отсева outlier остаётся max=60 — должен совпасть
+        $this->assertSame(60.0, $result);
+    }
+
+    public function test_peak_volume_floor_km_uses_base_when_actuals_low(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        // Низкие actuals — fallback на reported_weekly_base × 0.85 = 60 × 0.85 = 51
+        $weeks = [
+            ['actual_km' => 20.0],
+            ['actual_km' => 25.0],
+            ['actual_km' => 22.0],
+        ];
+        $result = $this->invokePrivate($builder, 'computePeakVolumeFloorKm', [$weeks, 60.0]);
+        $this->assertSame(51.0, $result);
+    }
+
+    public function test_peak_volume_floor_km_returns_null_for_no_data(): void {
+        $builder = new TrainingStateBuilder($this->db);
+        $result = $this->invokePrivate($builder, 'computePeakVolumeFloorKm', [[], 0.0]);
+        $this->assertNull($result);
+    }
+
+    public function test_buildForUser_attaches_recent_compliance_summary_and_peak_floor(): void {
+        $userId = $this->createTestUser();
+
+        $thisMonday = new \DateTimeImmutable('monday this week');
+        $prevMonday = $thisMonday->modify('-1 week');
+        $prevMondayStr = $prevMonday->format('Y-m-d');
+
+        // План на прошлую неделю
+        $weekId = $this->insertPlanWeek($userId, $prevMondayStr);
+        $this->insertPlanDay($userId, $weekId, $prevMondayStr, 1, 'easy', 0);
+        $this->insertPlanDay($userId, $weekId, $prevMonday->modify('+2 days')->format('Y-m-d'), 3, 'tempo', 1);
+        $this->insertPlanDay($userId, $weekId, $prevMonday->modify('+5 days')->format('Y-m-d'), 6, 'long', 1);
+
+        // Выполненные тренировки
+        $this->insertCompletedLog($userId, $prevMondayStr, 1, 'mon', 8.0, 50);
+        $this->insertCompletedLog($userId, $prevMonday->modify('+2 days')->format('Y-m-d'), 1, 'wed', 10.0, 55);
+        $this->insertCompletedLog($userId, $prevMonday->modify('+5 days')->format('Y-m-d'), 1, 'sat', 18.0, 110);
+
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUser([
+            'id' => $userId,
+            'goal_type' => 'race',
+            'race_distance' => 'half',
+            'sessions_per_week' => 4,
+            'weekly_base_km' => 30,
+            'experience_level' => 'intermediate',
+        ]);
+
+        $this->assertArrayHasKey('recent_compliance_summary', $state);
+        $this->assertIsString($state['recent_compliance_summary']);
+        $this->assertNotSame('', $state['recent_compliance_summary']);
+
+        $this->assertIsArray($state['load_policy']);
+        $this->assertArrayHasKey('peak_volume_floor_km', $state['load_policy']);
+        $this->assertGreaterThan(0.0, (float) $state['load_policy']['peak_volume_floor_km']);
     }
 }

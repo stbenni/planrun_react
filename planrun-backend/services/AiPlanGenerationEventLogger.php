@@ -285,6 +285,19 @@ class AiPlanGenerationEventLogger extends BaseService {
         return (int) env('PLAN_AI_EVENT_LOG_ENABLED', '1') === 1;
     }
 
+    /**
+     * DeepSeek off-peak window: 16:30–00:30 UTC daily.
+     * Reasoner: −75%, V3-chat: −50% during this window.
+     * Tag this in metadata so we can compute spend distribution and shift batch jobs to off-peak.
+     */
+    private static function isDeepSeekOffPeakNow(): bool
+    {
+        $minutesUtc = (int) gmdate('H') * 60 + (int) gmdate('i');
+        // Window is 16:30 (990) to 00:30 next day (30 + 1440 = 1470, but wraps), i.e.
+        // [16:30..23:59] OR [00:00..00:30].
+        return $minutesUtc >= 990 || $minutesUtc <= 30;
+    }
+
     private function buildRow(
         int $userId,
         string $jobType,
@@ -295,6 +308,7 @@ class AiPlanGenerationEventLogger extends BaseService {
         array $extra
     ): array {
         $cohort = $this->deriveCohort($trainingState);
+        $metadata['pricing_tier'] = self::isDeepSeekOffPeakNow() ? 'off_peak' : 'standard';
 
         $qualityGate = (array) ($metadata['quality_gate'] ?? []);
         $issueCodes = array_values((array) ($qualityGate['issue_codes'] ?? []));
@@ -331,6 +345,8 @@ class AiPlanGenerationEventLogger extends BaseService {
             'prompt_tokens' => isset($extra['prompt_tokens']) ? (int) $extra['prompt_tokens'] : null,
             'completion_tokens' => isset($extra['completion_tokens']) ? (int) $extra['completion_tokens'] : null,
             'total_tokens' => isset($extra['total_tokens']) ? (int) $extra['total_tokens'] : null,
+            'prompt_cache_hit_tokens' => isset($extra['prompt_cache_hit_tokens']) ? (int) $extra['prompt_cache_hit_tokens'] : null,
+            'prompt_cache_miss_tokens' => isset($extra['prompt_cache_miss_tokens']) ? (int) $extra['prompt_cache_miss_tokens'] : null,
             'gate_mode' => isset($qualityGate['mode_config']) ? mb_substr((string) $qualityGate['mode_config'], 0, 16) : null,
             'gate_resolved_mode' => isset($qualityGate['mode']) ? mb_substr((string) $qualityGate['mode'], 0, 16) : null,
             'gate_status' => isset($qualityGate['status']) ? mb_substr((string) $qualityGate['status'], 0, 16) : null,
@@ -348,11 +364,12 @@ class AiPlanGenerationEventLogger extends BaseService {
         $sql = "INSERT INTO ai_plan_generation_events
                 (user_id, job_type, surface, cohort, model, model_selection_reason, complexity_score,
                  enable_thinking, planner_strategy, duration_ms, prompt_tokens, completion_tokens,
-                 total_tokens, gate_mode, gate_resolved_mode, gate_status, retries,
+                 total_tokens, prompt_cache_hit_tokens, prompt_cache_miss_tokens,
+                 gate_mode, gate_resolved_mode, gate_status, retries,
                  issue_codes, applied_repair_codes, normalizer_warning_codes,
                  status, error_code, error_message, prompt_version, trace_id, metadata)
                 VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         $stmt = $this->db->prepare($sql);
         if (!$stmt) {
@@ -381,6 +398,8 @@ class AiPlanGenerationEventLogger extends BaseService {
         $promptTokens = $row['prompt_tokens'];
         $completionTokens = $row['completion_tokens'];
         $totalTokens = $row['total_tokens'];
+        $cacheHitTokens = $row['prompt_cache_hit_tokens'] ?? null;
+        $cacheMissTokens = $row['prompt_cache_miss_tokens'] ?? null;
         $gateMode = $row['gate_mode'];
         $gateResolved = $row['gate_resolved_mode'];
         $gateStatus = $row['gate_status'];
@@ -392,7 +411,7 @@ class AiPlanGenerationEventLogger extends BaseService {
         $traceId = $row['trace_id'];
 
         $stmt->bind_param(
-            'isssssiisiiiisssisssssssss',
+            'isssssiisiiiiiisssisssssssss',
             $userId,
             $jobType,
             $surface,
@@ -406,6 +425,8 @@ class AiPlanGenerationEventLogger extends BaseService {
             $promptTokens,
             $completionTokens,
             $totalTokens,
+            $cacheHitTokens,
+            $cacheMissTokens,
             $gateMode,
             $gateResolved,
             $gateStatus,

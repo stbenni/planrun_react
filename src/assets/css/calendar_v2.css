@@ -259,7 +259,7 @@ h1 {
 .progress-indicator strong {
     font-size: var(--text-lg);
     font-weight: var(--font-bold);
-    color: var(--primary-600);
+    color: var(--primary-500);
 }
 
 [data-theme="dark"] .progress-indicator strong {
@@ -592,7 +592,7 @@ h1 {
 }
 
 .key-session {
-    border-left-color: var(--primary-600);
+    border-left-color: var(--primary-500);
     background: linear-gradient(to right, var(--primary-50) 0%, white 10%);
     border-left-width: 6px;
 }
@@ -731,7 +731,7 @@ h1 {
 
 .btn-add-training:hover,
 .btn-edit-training:hover {
-    background: var(--primary-600);
+    background: var(--primary-500);
     transform: scale(1.1);
     box-shadow: var(--shadow-md);
 }
@@ -742,7 +742,7 @@ h1 {
 }
 
 .btn-edit-training:hover {
-    background: var(--primary-600);
+    background: var(--primary-500);
 }
 
 /* ========================================
@@ -1469,9 +1469,9 @@ h1 {
 }
 
 .btn-today-action.btn-primary:hover {
-    background: var(--primary-600);
-    border-color: var(--primary-600);
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    background: var(--primary-500);
+    border-color: var(--primary-500);
+    box-shadow: 0 4px 12px rgba(252, 76, 2, 0.3);
 }
 
 .btn-today-action.btn-secondary {
@@ -1765,7 +1765,7 @@ h1 {
     
     /* Выделение текущего дня */
     .training-cell.current-day {
-        box-shadow: 0 0 0 3px var(--primary-500), 0 4px 12px rgba(99, 102, 241, 0.3);
+        box-shadow: 0 0 0 3px var(--primary-500), 0 4px 12px rgba(252, 76, 2, 0.3);
         transform: scale(1.03);
         z-index: 5;
         position: relative;

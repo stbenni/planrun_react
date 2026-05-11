@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import useAuthStore from './useAuthStore';
 import useWorkoutRefreshStore from './useWorkoutRefreshStore';
+import { isActivePlanGenerationStatus } from '../utils/planStatus';
 
 const usePlanStore = create((set, get) => ({
   // === Состояние ===
@@ -36,7 +37,7 @@ const usePlanStore = create((set, get) => ({
   _updateGeneratingState: () => {
     const { recalculating, generatingNext, planStatus } = get();
     const fromAction = recalculating || generatingNext;
-    const fromStatus = planStatus?.generating === true;
+    const fromStatus = isActivePlanGenerationStatus(planStatus);
     const isGenerating = fromAction || fromStatus;
 
     let generationLabel = '';
@@ -65,10 +66,25 @@ const usePlanStore = create((set, get) => ({
 
     const poll = async () => {
       const { api } = useAuthStore.getState();
-      if (!api) return;
+      if (!api) {
+        set({ _pollTimerId: null });
+        return;
+      }
+
+      const scheduleNextPoll = (delay = 5000) => {
+        const timerId = setTimeout(poll, delay);
+        set({ _pollTimerId: timerId });
+      };
 
       const status = await api.checkPlanStatus().catch(() => null);
-      if (!status) return;
+      if (!status) {
+        if (get().isGenerating || isActivePlanGenerationStatus(get().planStatus)) {
+          scheduleNextPoll();
+        } else {
+          set({ _pollTimerId: null });
+        }
+        return;
+      }
 
       set({
         planStatus: status,
@@ -85,14 +101,18 @@ const usePlanStore = create((set, get) => ({
       }
 
       if (status.error) {
-        set({ _pollTimerId: null, error: status.error });
+        set({
+          _pollTimerId: null,
+          error: status.error,
+          planStatus: { ...status, generating: false, queued: false }
+        });
+        get()._updateGeneratingState();
         return;
       }
 
       // Ещё генерируется — продолжить поллинг
-      if (status.generating) {
-        const timerId = setTimeout(poll, 5000);
-        set({ _pollTimerId: timerId });
+      if (isActivePlanGenerationStatus(status)) {
+        scheduleNextPoll();
       } else {
         set({ _pollTimerId: null });
       }
@@ -114,7 +134,7 @@ const usePlanStore = create((set, get) => ({
   _initPromise: null,
 
   initPlanStatus: async () => {
-    // Дедупликация: не вызывать повторно если уже запущен или завершён
+    // Дедупликация: не вызывать повторно, пока проверка уже запущена.
     if (get()._initPromise) return get()._initPromise;
 
     const { api } = useAuthStore.getState();
@@ -130,7 +150,7 @@ const usePlanStore = create((set, get) => ({
         get()._updateGeneratingState();
 
         // Если генерация идёт и нет action-поллинга — запустить статус-поллинг
-        if (status?.generating && !get().recalculating && !get().generatingNext) {
+        if (isActivePlanGenerationStatus(status) && !get().recalculating && !get().generatingNext) {
           get().startStatusPolling();
         }
         return status;
@@ -141,6 +161,11 @@ const usePlanStore = create((set, get) => ({
     })();
 
     set({ _initPromise: promise });
+    promise.finally(() => {
+      if (get()._initPromise === promise) {
+        set({ _initPromise: null });
+      }
+    });
     return promise;
   },
 
@@ -160,6 +185,7 @@ const usePlanStore = create((set, get) => ({
       }
     });
     get()._updateGeneratingState();
+    get().startStatusPolling();
   },
 
   _requireReadinessCheck: (result, pendingAction) => {
@@ -189,12 +215,25 @@ const usePlanStore = create((set, get) => ({
       const raw = await api.getPlan(userId);
       const planData = raw?.data ?? raw;
       const hasPlan = !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0;
-
-      set({
+      const nextState = {
         plan: planData,
         hasPlan,
         loading: false
-      });
+      };
+
+      if (hasPlan) {
+        nextState.planStatus = {
+          ...(get().planStatus || {}),
+          has_plan: true,
+          has_old_plan: false,
+          generating: false,
+          queued: false,
+          error: null,
+        };
+      }
+
+      set(nextState);
+      get()._updateGeneratingState();
 
       return planData;
     } catch (error) {
@@ -222,8 +261,17 @@ const usePlanStore = create((set, get) => ({
       set({
         plan: planData,
         hasPlan: true,
-        loading: false
+        loading: false,
+        planStatus: {
+          ...(get().planStatus || {}),
+          has_plan: true,
+          has_old_plan: false,
+          generating: false,
+          queued: false,
+          error: null,
+        }
       });
+      get()._updateGeneratingState();
 
       return true;
     } catch (error) {
@@ -252,11 +300,16 @@ const usePlanStore = create((set, get) => ({
       });
       get()._updateGeneratingState();
 
+      if (isActivePlanGenerationStatus(status) && !get().recalculating && !get().generatingNext) {
+        get().startStatusPolling();
+      }
+
       return status;
     } catch (error) {
+      const currentStatus = get().planStatus;
       set({
         error: error.message || 'Ошибка проверки статуса плана',
-        planStatus: null
+        planStatus: isActivePlanGenerationStatus(currentStatus) ? currentStatus : null
       });
       get()._updateGeneratingState();
       return null;
@@ -319,7 +372,9 @@ const usePlanStore = create((set, get) => ({
 
       const poll = async (attempts = 0) => {
         if (attempts >= 40) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {
+            // Восстановление старого плана best-effort.
+          }
           await get().loadPlan();
           set({ recalculating: false, planStatus: { has_plan: true }, error: 'Время ожидания пересчёта истекло. План восстановлен.' });
           get()._updateGeneratingState();
@@ -335,7 +390,9 @@ const usePlanStore = create((set, get) => ({
           return true;
         }
         if (status?.error) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {
+            // Восстановление старого плана best-effort.
+          }
           await get().loadPlan();
           set({ recalculating: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           get()._updateGeneratingState();
@@ -376,7 +433,9 @@ const usePlanStore = create((set, get) => ({
 
       const poll = async (attempts = 0) => {
         if (attempts >= 50) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {
+            // Восстановление старого плана best-effort.
+          }
           await get().loadPlan();
           set({ generatingNext: false, planStatus: { has_plan: true }, error: 'Время ожидания генерации нового плана истекло. План восстановлен.' });
           get()._updateGeneratingState();
@@ -392,7 +451,9 @@ const usePlanStore = create((set, get) => ({
           return true;
         }
         if (status?.error) {
-          try { await api.request('reactivate_plan', {}, 'POST'); } catch {}
+          try { await api.request('reactivate_plan', {}, 'POST'); } catch {
+            // Восстановление старого плана best-effort.
+          }
           await get().loadPlan();
           set({ generatingNext: false, planStatus: { has_plan: true, error: status.error }, error: status.error });
           get()._updateGeneratingState();
@@ -462,6 +523,7 @@ const usePlanStore = create((set, get) => ({
 
   // === Очистка плана ===
   clearPlan: () => {
+    get().stopStatusPolling();
     set({
       plan: null,
       hasPlan: false,
@@ -489,10 +551,25 @@ const usePlanStore = create((set, get) => ({
 
   // Установка плана (для оптимистичных обновлений)
   setPlan: (planData) => {
-    set({
+    const hasPlan = !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0;
+    const nextState = {
       plan: planData,
-      hasPlan: !!planData && Array.isArray(planData.weeks_data) && planData.weeks_data.length > 0
-    });
+      hasPlan
+    };
+
+    if (hasPlan) {
+      nextState.planStatus = {
+        ...(get().planStatus || {}),
+        has_plan: true,
+        has_old_plan: false,
+        generating: false,
+        queued: false,
+        error: null,
+      };
+    }
+
+    set(nextState);
+    get()._updateGeneratingState();
   }
 }));
 

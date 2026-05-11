@@ -28,16 +28,21 @@ class ChatContextBuilder {
 
         $parts = [];
         $parts[] = $this->formatProfile($user);
+        $parts[] = $this->formatLatestPlanGeneratorSummary($user);
         $parts[] = $this->formatPlanSummary($plan, $userId);
         $parts[] = $this->formatStats($stats);
         $parts[] = $this->formatCoachingInsights($userId);
+        $parts[] = $this->formatRecentActivity($userId);
+        $parts[] = $this->formatRecentWellness($userId);
         if ($memory !== '') {
-            $parts[] = "═══ ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (из прошлых диалогов) ═══\n" . $memory;
+            $parts[] = "═══ ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (из прошлых диалогов; МОЖЕТ БЫТЬ УСТАРЕВШЕЙ — план мог быть пересчитан с тех пор) ═══\n"
+                . "ВАЖНО: для текущих параметров плана (объёмы, темпы, длительные) ВСЕГДА используй блок «ТЕКУЩИЙ ПЛАН» выше или вызывай get_plan/get_day_details. Память сохраняет привычки и предпочтения, но цифры конкретного плана могут устареть.\n"
+                . $memory;
         }
 
         $historySummary = $this->getHistorySummary($userId);
         if ($historySummary !== '') {
-            $parts[] = "═══ СУММАРИЗАЦИЯ СТАРОЙ ИСТОРИИ ЧАТА ═══\n" . $historySummary;
+            $parts[] = "═══ СУММАРИЗАЦИЯ СТАРОЙ ИСТОРИИ ЧАТА (может содержать данные о ПРОШЛЫХ забегах/планах) ═══\n" . $historySummary;
         }
 
         return implode("\n\n", array_filter($parts));
@@ -329,6 +334,149 @@ class ChatContextBuilder {
      * Источники: workout_log (результаты заполненные через «Выполнено»)
      * и training_plan_days (запланированный тип/описание для контекста).
      */
+    /**
+     * Inline-блок последних 3 тренировок и количество дней с последнего отдыха.
+     * Цель — дать модели быстрый снимок недавней активности без вызова get_workouts,
+     * чтобы первый ответ был содержательным (HR, темп, RPE, дата).
+     */
+    /**
+     * Inline-блок с финальным резюме генератора плана (plan_summary + risk_review).
+     * Содержит честную оценку реалистичности цели и рекомендации DeepSeek после генерации.
+     * Чат должен ВИДЕТЬ и ЦИТИРОВАТЬ эту оценку, иначе пользователь не получит важную
+     * информацию о том, что цель может быть нереалистичной.
+     */
+    private function formatLatestPlanGeneratorSummary(?array $user): string {
+        if (!is_array($user)) return '';
+        $summary = isset($user['last_plan_summary']) ? trim((string) $user['last_plan_summary']) : '';
+        $riskJson = $user['last_plan_risk_review_json'] ?? null;
+        $generatedAt = $user['last_plan_generated_at'] ?? null;
+
+        if ($summary === '' && empty($riskJson)) {
+            return '';
+        }
+
+        $lines = ["═══ ОЦЕНКА ПЛАНА ОТ ТРЕНЕРА (важно — может содержать предупреждения о реалистичности цели; ЦИТИРУЙ при вопросах о плане) ═══"];
+        if (!empty($generatedAt)) {
+            $lines[] = "Сгенерировано: {$generatedAt}";
+        }
+        if ($summary !== '') {
+            $lines[] = "РЕЗЮМЕ: {$summary}";
+        }
+        if (!empty($riskJson)) {
+            $risks = json_decode((string) $riskJson, true);
+            if (is_array($risks) && !empty($risks)) {
+                $lines[] = "РИСКИ И ОГОВОРКИ:";
+                foreach ($risks as $i => $r) {
+                    $rText = is_string($r) ? trim($r) : '';
+                    if ($rText !== '') $lines[] = "  - {$rText}";
+                }
+            }
+        }
+        return implode("\n", $lines);
+    }
+
+    private function formatRecentActivity(int $userId): string {
+        $recent = $this->getRecentWorkouts($userId, 3);
+        if (empty($recent)) {
+            return '';
+        }
+
+        $lines = ["═══ ПОСЛЕДНИЕ ТРЕНИРОВКИ ═══"];
+        foreach ($recent as $w) {
+            $date = $w['date'] ?? '?';
+            $dist = isset($w['distance_km']) ? round((float) $w['distance_km'], 1) . ' км' : '—';
+            $pace = !empty($w['pace']) ? (string) $w['pace'] . '/км' : null;
+            $hr = !empty($w['avg_heart_rate']) ? 'HR ' . (int) $w['avg_heart_rate'] : null;
+            $rpe = isset($w['rating']) && $w['rating'] !== null ? 'RPE ' . (int) $w['rating'] . '/5' : null;
+            $type = !empty($w['plan_type']) ? (string) $w['plan_type'] : ((string) ($w['activity_type'] ?? 'бег'));
+            $bits = array_filter([$dist, $pace, $hr, $rpe]);
+            $line = "  {$date} [{$type}]: " . implode(', ', $bits);
+            if (!empty($w['notes'])) {
+                $note = mb_substr(trim((string) $w['notes']), 0, 80);
+                $line .= " — \"{$note}\"";
+            }
+            $lines[] = $line;
+        }
+
+        // Дни с последнего настоящего отдыха (rest day в плане ИЛИ день без тренировки)
+        $daysSinceRest = $this->daysSinceLastRest($userId);
+        if ($daysSinceRest !== null) {
+            $lines[] = "Дней без отдыха подряд: {$daysSinceRest}" . ($daysSinceRest >= 7 ? " (стоит включить rest)" : "");
+        }
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Inline-блок последних 3 wellness check-in'ов: sleep, mood, stress, soreness, energy.
+     * Цель — DeepSeek сразу видит самочувствие без вызова get_wellness_trend.
+     * Если данных нет, блок не показывается — модель может проактивно спросить.
+     */
+    private function formatRecentWellness(int $userId): string {
+        // Показываем записи ТОЛЬКО старше 1 дня + сегодняшнюю показываем как "уже зафиксировано
+        // в Xч ЧЧ:ММ" чтобы модель видела свежесть и могла сделать обновление если юзер
+        // сообщает другое. Без этой подсказки модель цитирует старые числа как актуальные.
+        $stmt = $this->db->prepare(
+            "SELECT log_date, sleep_quality, mood, soreness, stress, energy, last_workout_rpe, updated_at
+             FROM daily_wellness
+             WHERE user_id = ? AND log_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+             ORDER BY log_date DESC LIMIT 3"
+        );
+        if (!$stmt) return '';
+        $stmt->bind_param('i', $userId);
+        if (!$stmt->execute()) return '';
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        if (empty($rows)) return '';
+
+        $lines = ["═══ САМОЧУВСТВИЕ (последние записи, шкалы 1-5; если юзер сейчас сообщает другие ощущения — сделай log_wellness, запись перезапишется) ═══"];
+        $today = (new DateTimeImmutable('now'))->format('Y-m-d');
+        foreach ($rows as $r) {
+            $bits = [];
+            if ($r['sleep_quality'] !== null) $bits[] = 'сон ' . (int) $r['sleep_quality'];
+            if ($r['mood'] !== null) $bits[] = 'настр ' . (int) $r['mood'];
+            if ($r['energy'] !== null) $bits[] = 'энергия ' . (int) $r['energy'];
+            if ($r['stress'] !== null) $bits[] = 'стресс ' . (int) $r['stress'];
+            if ($r['soreness'] !== null) $bits[] = 'soreness ' . (int) $r['soreness'];
+            if ($r['last_workout_rpe'] !== null) $bits[] = 'RPE ' . (int) $r['last_workout_rpe'] . '/10';
+            if (empty($bits)) continue;
+            $tag = $r['log_date'] === $today
+                ? $r['log_date'] . ' (зафиксировано ранее в ' . substr($r['updated_at'] ?? '', 11, 5) . ')'
+                : (string) $r['log_date'];
+            $lines[] = "  {$tag}: " . implode(', ', $bits);
+        }
+        return count($lines) > 1 ? implode("\n", $lines) : '';
+    }
+
+    private function daysSinceLastRest(int $userId): ?int {
+        // Считаем последовательные дни от вчерашнего, где либо была тренировка (workout_log),
+        // либо в плане был не-rest. Останавливаемся на первом rest или дне без активности.
+        $today = (new DateTimeImmutable('now'))->format('Y-m-d');
+        $stmt = $this->db->prepare(
+            "SELECT MAX(d) AS last_rest FROM (
+                SELECT date AS d FROM training_plan_days WHERE user_id=? AND type='rest' AND date <= ?
+                UNION ALL
+                SELECT DATE_SUB(?, INTERVAL n.n DAY) AS d
+                FROM (SELECT 0 n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10 UNION SELECT 11 UNION SELECT 12 UNION SELECT 13 UNION SELECT 14) n
+                WHERE NOT EXISTS (SELECT 1 FROM workout_log wl WHERE wl.user_id=? AND wl.training_date = DATE_SUB(?, INTERVAL n.n DAY) AND wl.is_completed=1)
+                  AND NOT EXISTS (SELECT 1 FROM workouts w WHERE w.user_id=? AND DATE(w.start_time) = DATE_SUB(?, INTERVAL n.n DAY))
+            ) AS rests"
+        );
+        if (!$stmt) return null;
+        $stmt->bind_param('ississs', $userId, $today, $today, $userId, $today, $userId, $today);
+        if (!$stmt->execute()) return null;
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (empty($row['last_rest'])) return null;
+        try {
+            $lastRest = new DateTimeImmutable((string) $row['last_rest']);
+            $todayDt = new DateTimeImmutable($today);
+            $diff = (int) $lastRest->diff($todayDt)->format('%r%a');
+            return max(0, $diff);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     public function getRecentWorkouts(int $userId, int $limit = 10): array {
         $sql = "(SELECT 
                     wl.training_date AS date,
@@ -520,16 +668,9 @@ class ChatContextBuilder {
             }
         }
 
-        // Детализация: план vs факт по каждому дню текущей недели
-        $dayDetails = $this->getWeekDayByDayComparison($userId);
-        if (!empty($dayDetails)) {
-            $lines[] = "";
-            $lines[] = "ПЛАН vs ФАКТ (эта неделя):";
-            foreach ($dayDetails as $dd) {
-                $lines[] = "  {$dd}";
-            }
-        }
-
+        // Per-day plan-vs-actual comparison was previously inlined here via
+        // getWeekDayByDayComparison() but that helper was removed; the model
+        // can fetch the same data on demand via get_day_details(date) tool.
         $lines[] = "Для детальных данных о конкретном дне — используй get_day_details(date).";
 
         return implode("\n", $lines);

@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { MoreHorizontal, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import useAuthStore from '../stores/useAuthStore';
 import usePlanStore from '../stores/usePlanStore';
 import usePreloadStore from '../stores/usePreloadStore';
@@ -32,7 +33,7 @@ const normalizeWorkoutDetailsDayData = (raw) => {
   };
 };
 
-const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext = null, canEdit: externalCanEdit = true, isOwner: externalIsOwner = true, canView: externalCanView = true, hideHeader = false, viewMode: externalViewMode = null }) => {
+const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext = null, canEdit: externalCanEdit = true, isOwner: externalIsOwner = true, canView: externalCanView = true, viewMode: externalViewMode = null }) => {
   const isTabActive = useIsTabActive('/calendar');
   const preloadTriggered = usePreloadStore((s) => s.preloadTriggered);
   const location = useLocation();
@@ -97,7 +98,6 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [workoutsListByDate, setWorkoutsListByDate] = useState({}); // Отдельные тренировки по датам (для проверки типов)
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [resultModal, setResultModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [addTrainingModal, setAddTrainingModal] = useState({ isOpen: false, date: null, planDay: null, editResultData: null });
@@ -126,6 +126,8 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const [readinessWorsened, setReadinessWorsened] = useState(null);
   const [readinessTechniqueChanged, setReadinessTechniqueChanged] = useState(null);
   const [readinessText, setReadinessText] = useState('');
+  const [planActionsMenuOpen, setPlanActionsMenuOpen] = useState(false);
+  const planActionsMenuRef = useRef(null);
 
   useEffect(() => {
     if (!planReadinessCheck) return;
@@ -134,6 +136,31 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
     setReadinessTechniqueChanged(null);
     setReadinessText('');
   }, [planReadinessCheck?.id]);
+
+  useEffect(() => {
+    if (!planActionsMenuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (planActionsMenuRef.current && !planActionsMenuRef.current.contains(event.target)) {
+        setPlanActionsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setPlanActionsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [planActionsMenuOpen]);
+
   const getWeeksData = (p) => {
     if (!p) return null;
     if (Array.isArray(p.weeks_data) && p.weeks_data.length > 0) return p.weeks_data;
@@ -157,6 +184,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
     lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
     return lastWeekEnd < new Date(new Date().toDateString());
   })();
+  const canManagePlan = hasPlan && canEdit && isOwner;
 
   const handleOpenRecalc = useCallback(() => {
     setRecalcReason('');
@@ -203,6 +231,20 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       setClearingPlan(false);
     }
   }, [api]);
+
+  const handleMobilePrimaryPlanAction = useCallback(() => {
+    setPlanActionsMenuOpen(false);
+    if (isPlanCompleted) {
+      handleOpenNextPlan();
+      return;
+    }
+    handleOpenRecalc();
+  }, [handleOpenNextPlan, handleOpenRecalc, isPlanCompleted]);
+
+  const handleMobileClearPlan = useCallback(() => {
+    setPlanActionsMenuOpen(false);
+    setShowClearPlanConfirm(true);
+  }, []);
 
   const handleSubmitReadinessCheck = useCallback(async () => {
     if (readinessWorsened === null || readinessTechniqueChanged === null) return;
@@ -367,13 +409,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       if (!silent) setPlan(null);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadPlan();
   };
 
   const buildImmediateWorkoutDetailsDayData = useCallback((date, immediateDayData = null) => {
@@ -546,27 +582,77 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
             <span>{generationLabel} Это займёт 3-5 минут.</span>
           </div>
         )}
-        {(externalViewMode !== 'week' || (hasPlan && canEdit && isOwner)) && (
+        {(externalViewMode !== 'week' || canManagePlan) && (
         <div className="calendar-header-row">
-          {externalViewMode !== 'week' && (
-            <div className="calendar-view-toggle">
-              <button 
-                className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
-                onClick={() => setViewMode('week')}
-                disabled={externalViewMode !== null && externalViewMode !== undefined}
-              >
-                Неделя
-              </button>
-              <button 
-                className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
-                onClick={() => setViewMode('full')}
-                disabled={externalViewMode !== null && externalViewMode !== undefined}
-              >
-                Месяц
-              </button>
+          {(externalViewMode !== 'week' || canManagePlan) && (
+            <div className="calendar-view-controls">
+              {externalViewMode !== 'week' && (
+                <div className="calendar-view-toggle">
+                  <button
+                    className={`view-toggle-btn ${viewMode === 'week' ? 'active' : ''}`}
+                    onClick={() => setViewMode('week')}
+                    disabled={externalViewMode !== null && externalViewMode !== undefined}
+                  >
+                    Неделя
+                  </button>
+                  <button
+                    className={`view-toggle-btn ${viewMode === 'full' ? 'active' : ''}`}
+                    onClick={() => setViewMode('full')}
+                    disabled={externalViewMode !== null && externalViewMode !== undefined}
+                  >
+                    Месяц
+                  </button>
+                </div>
+              )}
+              {canManagePlan && (
+                <div className="calendar-mobile-plan-menu" ref={planActionsMenuRef}>
+                  <button
+                    className={`calendar-mobile-menu-btn${planActionsMenuOpen ? ' is-open' : ''}`}
+                    type="button"
+                    aria-label="Действия с планом"
+                    aria-haspopup="menu"
+                    aria-expanded={planActionsMenuOpen}
+                    onClick={() => setPlanActionsMenuOpen((open) => !open)}
+                  >
+                    <MoreHorizontal size={22} strokeWidth={2.2} />
+                  </button>
+                  {planActionsMenuOpen && (
+                    <div className="calendar-mobile-menu-panel" role="menu">
+                      <button
+                        className="calendar-mobile-menu-item"
+                        type="button"
+                        role="menuitem"
+                        onClick={handleMobilePrimaryPlanAction}
+                        disabled={isPlanCompleted ? generatingNext : recalculating}
+                      >
+                        {isPlanCompleted ? (
+                          <Sparkles size={18} strokeWidth={2} />
+                        ) : (
+                          <RefreshCw size={18} strokeWidth={2} />
+                        )}
+                        <span>{isPlanCompleted ? (generatingNext ? 'Генерация...' : 'Новый план') : (recalculating ? 'Пересчёт...' : 'Пересчитать план')}</span>
+                      </button>
+                      <button
+                        className="calendar-mobile-menu-item calendar-mobile-menu-item--danger"
+                        type="button"
+                        role="menuitem"
+                        onClick={handleMobileClearPlan}
+                        disabled={recalculating || generatingNext || clearingPlan}
+                      >
+                        {clearingPlan ? (
+                          <span className="btn-spinner" />
+                        ) : (
+                          <Trash2 size={18} strokeWidth={2} />
+                        )}
+                        <span>{clearingPlan ? 'Очищаем...' : 'Очистить план'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
-          {canEdit && isOwner && (
+          {canManagePlan && (
             <div className="calendar-plan-actions">
               {hasPlan && isPlanCompleted ? (
                 <button
@@ -581,9 +667,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
                     </>
                   ) : (
                     <>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 11H7V7h2v4zm0-6H7V3h2v2z" fill="currentColor"/>
-                      </svg>
+                      <Sparkles size={16} strokeWidth={2} />
                       Новый план
                     </>
                   )}
@@ -601,9 +685,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
                     </>
                   ) : (
                     <>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M13.65 2.35A7.96 7.96 0 008 0a8 8 0 100 16 7.97 7.97 0 005.65-2.35l-1.41-1.41A5.98 5.98 0 018 14 6 6 0 118 2c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z" fill="currentColor"/>
-                      </svg>
+                      <RefreshCw size={16} strokeWidth={2} />
                       <span className="btn-recalculate-text">Пересчитать</span>
                     </>
                   )}
@@ -619,12 +701,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
                   <span className="btn-spinner" />
                 ) : (
                   <>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
+                    <Trash2 size={16} strokeWidth={2} />
                     <span className="calendar-clear-plan-text">Очистить план</span>
                   </>
                 )}
