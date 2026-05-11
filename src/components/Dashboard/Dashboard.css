@@ -366,6 +366,7 @@
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .dashboard-status-pill--primary {
@@ -1035,9 +1036,10 @@ body.dashboard-customizer-dragging {
   transition: box-shadow 0.25s ease;
 }
 
-/* Вдвоём в строке — одинаковая высота (увеличена под одну тренировку + кнопка разворота / «Отметить выполнение») */
+/* Вдвоём в строке — одинаковая высота (увеличена под одну тренировку + кнопка разворота / «Отметить выполнение»).
+   align-items: stretch на родителе .dashboard-row-two растягивает обе колонки до высоты бóльшей,
+   поэтому height фиксировать не нужно — лишний контент не будет обрезаться. */
 .dashboard-row-two .dashboard-module-card {
-  height: 280px;
   min-height: 280px;
   overflow: hidden;
 }
@@ -1061,12 +1063,9 @@ body.dashboard-customizer-dragging {
   overflow: visible;
 }
 
-/* Hover только у «обычных» карточек без оформления — не трогаем виджеты с контейнером */
-.dashboard-module-card:not(.dashboard-module-card--workout):not(.dashboard-module-card--week-progress):not(:has(.dashboard-week-strip)):not(:has(.dashboard-stats-widget)):not(:has(.dashboard-metrics-grid)):not(:has(.race-prediction)):not(:has(.training-load)):hover {
-  box-shadow: none;
-}
-
-/* Единый transition и hover для всех виджетов с контейнером (движение + усиление подсветки) */
+/* Единый transition и hover для всех виджетов с контейнером (движение + усиление подсветки).
+   Base .dashboard-module-card имеет box-shadow: none — отдельное правило «отменить hover у bare»
+   не нужно, в hover ниже перечислены ТОЛЬКО оформленные варианты. */
 .dashboard-module-card--workout,
 .dashboard-module-card--week-progress,
 .dashboard-module-card:has(.dashboard-week-strip),
@@ -2292,6 +2291,7 @@ body.dashboard-customizer-dragging {
   letter-spacing: 0;
   min-width: 4ch;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 [data-theme="dark"] .progress-percentage {
@@ -2796,7 +2796,7 @@ body.dashboard-customizer-dragging {
   min-width: 0;
   background: var(--card-surface-compact-bg);
   border-radius: var(--card-surface-radius-compact);
-  padding: 26px;
+  padding: var(--space-6);
   box-shadow: var(--card-surface-compact-shadow);
   border: 1px solid var(--card-surface-compact-border);
   display: flex;

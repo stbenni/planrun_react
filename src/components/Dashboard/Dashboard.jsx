@@ -30,7 +30,7 @@ import { expandLayoutForMobile, getDefaultLayout, getStoredLayout, layoutExpandS
 import { useDashboardPullToRefresh } from './useDashboardPullToRefresh';
 import { useDashboardData } from './useDashboardData';
 import SkeletonScreen from '../common/SkeletonScreen';
-import { RunningIcon, AlertTriangleIcon, CalendarIcon, SkipForwardIcon, CloseIcon, SettingsIcon } from '../common/Icons';
+import { RunningIcon, AlertTriangleIcon, CalendarIcon, RestIcon, SkipForwardIcon, CloseIcon, SettingsIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import TrainingLoadWidget from './TrainingLoadWidget';
 import './Dashboard.css';
@@ -573,7 +573,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                     </div>
                   ) : (
                     <div className="dashboard-top-card dashboard-empty">
-                      <div className="empty-icon" aria-hidden><CalendarIcon size={48} /></div>
+                      <div className="empty-icon" aria-hidden><RestIcon size={48} /></div>
                       <div className="empty-text">Сегодня день отдыха</div>
                       <div className="empty-subtext">Отдых — важная часть тренировочного процесса</div>
                     </div>
