@@ -113,6 +113,7 @@ function TokenCode({ children }) {
   return <code className="ds-token">{children}</code>;
 }
 
+
 // Демо-вариант WorkoutSheet из mobile UI kit — детальная карточка с интервалами и AI-советом
 function WorkoutSheetDemo({ onClose }) {
   const segments = [
@@ -258,23 +259,25 @@ export default function DesignSystemScreen() {
             Все компоненты и токены проекта собраны на этой странице.
           </p>
         </div>
-        <div className="ds-theme-toggle" role="group" aria-label="Тема">
-          <button
-            type="button"
-            className={`ds-theme-toggle__btn ${theme === 'light' ? 'ds-theme-toggle__btn--active' : ''}`}
-            onClick={() => setTheme('light')}
-          >
-            Светлая
-          </button>
-          <button
-            type="button"
-            className={`ds-theme-toggle__btn ${theme === 'dark' ? 'ds-theme-toggle__btn--active' : ''}`}
-            onClick={() => setTheme('dark')}
-          >
-            Тёмная
-          </button>
-        </div>
       </header>
+
+      {/* Плавающий переключатель темы — sticky, всегда под рукой при скролле */}
+      <div className="ds-theme-toggle ds-theme-toggle--floating" role="group" aria-label="Тема">
+        <button
+          type="button"
+          className={`ds-theme-toggle__btn ${theme === 'light' ? 'ds-theme-toggle__btn--active' : ''}`}
+          onClick={() => setTheme('light')}
+        >
+          ☀ Светлая
+        </button>
+        <button
+          type="button"
+          className={`ds-theme-toggle__btn ${theme === 'dark' ? 'ds-theme-toggle__btn--active' : ''}`}
+          onClick={() => setTheme('dark')}
+        >
+          ☾ Тёмная
+        </button>
+      </div>
 
       <nav className="ds-toc">
         {[
@@ -284,6 +287,7 @@ export default function DesignSystemScreen() {
           ['spacing', 'Отступы'],
           ['radii', 'Скругления'],
           ['shadows', 'Тени'],
+          ['glow', 'Свечения'],
           ['buttons', 'Кнопки'],
           ['cards', 'Карточки'],
           ['pills', 'Пилюли'],
@@ -370,57 +374,13 @@ export default function DesignSystemScreen() {
           ))}
         </div>
 
-        <h3 className="ds-h3">Компоненты в обеих темах</h3>
-        <div className="ds-theme-grid">
-          <div className="ds-theme-panel" data-theme="light">
-            <div className="ds-theme-panel__label">Светлая</div>
-            <div className="ds-theme-panel__body">
-              <div className="card">
-                <h4 className="ds-h4-demo">Карточка</h4>
-                <p className="ds-body-demo">Warm-orange shadow, 24px radius.</p>
-              </div>
-              <div className="ds-button-row">
-                <button className="btn btn-primary btn--sm">Primary</button>
-                <button className="btn btn-secondary btn--sm">Secondary</button>
-              </div>
-              <div className="ds-wcard">
-                <div className="ds-wcard-strip" style={{ background: 'var(--workout-tempo)' }} />
-                <div className="ds-wcard-body">
-                  <div className="ds-wcard-eyebrow">Вт · сегодня</div>
-                  <div className="ds-wcard-title">Темповая · 8 км</div>
-                  <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="ds-theme-panel" data-theme="dark">
-            <div className="ds-theme-panel__label">Тёмная</div>
-            <div className="ds-theme-panel__body">
-              <div className="card">
-                <h4 className="ds-h4-demo">Карточка</h4>
-                <p className="ds-body-demo">Тот же компонент, токены подменены.</p>
-              </div>
-              <div className="ds-button-row">
-                <button className="btn btn-primary btn--sm">Primary</button>
-                <button className="btn btn-secondary btn--sm">Secondary</button>
-              </div>
-              <div className="ds-wcard">
-                <div className="ds-wcard-strip" style={{ background: 'var(--workout-tempo)' }} />
-                <div className="ds-wcard-body">
-                  <div className="ds-wcard-eyebrow">Вт · сегодня</div>
-                  <div className="ds-wcard-title">Темповая · 8 км</div>
-                  <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <p className="ds-body-demo">
           <strong>Принцип:</strong> один компонент описан один раз, тема задаётся атрибутом
           <TokenCode>data-theme</TokenCode> на ancestor элементе. Все токены в
           <TokenCode>src/styles/sports-colors.css</TokenCode> подменяются автоматически.
-          Тёмная — основной режим (Nike Run Club look), светлая — opt-in.
+          Тёмная — основной режим (Nike Run Club look), светлая — opt-in. Для сравнения
+          используй переключатель сверху страницы — он залипает при скролле и переключает
+          тему всей страницы мгновенно.
         </p>
       </Section>
 
@@ -518,6 +478,51 @@ export default function DesignSystemScreen() {
               <TokenCode>--shadow-{s}</TokenCode>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* ─── Свечения ──────────────────────────────────────────────── */}
+      <Section
+        id="glow"
+        title="Свечения (glow)"
+        subtitle="Тёплое orange свечение вокруг блока. Применяется к primary CTA на hero, активным карточкам, достижениям. Один-два глоу на экран — иначе теряется акцент."
+      >
+        <div className="ds-grid ds-grid--3">
+          <div className="ds-glow-cell">
+            <div className="ds-glow-demo" style={{ boxShadow: 'var(--shadow-glow)' }}>
+              <span>glow</span>
+            </div>
+            <TokenCode>--shadow-glow</TokenCode>
+          </div>
+          <div className="ds-glow-cell">
+            <div className="ds-glow-demo" style={{ boxShadow: 'var(--shadow-glow-strong)' }}>
+              <span>glow-strong</span>
+            </div>
+            <TokenCode>--shadow-glow-strong</TokenCode>
+          </div>
+          <div className="ds-glow-cell">
+            <div className="ds-glow-demo ds-glow-demo--success" style={{ boxShadow: 'var(--shadow-glow-success)' }}>
+              <span>glow-success</span>
+            </div>
+            <TokenCode>--shadow-glow-success</TokenCode>
+          </div>
+        </div>
+
+        <h3 className="ds-h3">Примеры</h3>
+        <div className="ds-glow-examples">
+          <button type="button" className="ds-glow-cta">Создать план</button>
+          <div className="ds-glow-achievement">
+            <span className="ds-glow-achievement__num">🔥</span>
+            <span className="ds-glow-achievement__text">5 дней подряд</span>
+          </div>
+          <div className="ds-glow-active-card">
+            <div className="ds-wcard-strip" style={{ background: 'var(--workout-tempo)' }} />
+            <div className="ds-wcard-body">
+              <div className="ds-wcard-eyebrow">Сегодня · активная</div>
+              <div className="ds-wcard-title">Темповая · 8 км</div>
+              <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
+            </div>
+          </div>
         </div>
       </Section>
 
