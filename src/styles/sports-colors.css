@@ -498,6 +498,15 @@ html.native-app {
   --bottom-nav-height: 78px;
   --bottom-nav-floating-gap: 8px;
   --mobile-shell-bottom-clearance: calc(var(--bottom-nav-floating-gap) + 72px + env(safe-area-inset-bottom, 0px));
+  /* Сниженный blur для native: glassmorphism сохраняется (визуально неотличимо),
+     но WebView рендерит дешевле — заметно на мид-range Android. */
+  --glass-blur: 14px;
+  --surface-glass-blur: 12px;
+}
+
+html.native-app[data-theme="dark"] {
+  --glass-blur: 16px;
+  --surface-glass-blur: 14px;
 }
 
 /* ========================================

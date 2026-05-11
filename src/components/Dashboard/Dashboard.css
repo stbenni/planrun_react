@@ -2760,9 +2760,16 @@ body.dashboard-customizer-dragging {
   font-weight: 700;
   font-style: italic;
   font-size: var(--text-2xl);
-  color: var(--primary-500);
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+}
+
+/* Главная KPI (метка .metric-card--primary, например дистанция) выделяется бренд-оранжевым,
+   остальные карточки остаются нейтральными — визуальный фокус и иерархия. */
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card--primary .metric-card__number,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card--primary .metric-card__number {
+  color: var(--primary-500);
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__unit,

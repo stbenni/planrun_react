@@ -608,7 +608,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                     </div>
                   </div>
                 ) : null}
-                  <div className="metric-card">
+                  <div className="metric-card metric-card--primary">
                     <div className="metric-card__label">
                       <MetricDistanceIcon className="metric-card__icon" />
                       <span>{metrics.hasWalking ? 'Дистанция (бег + ходьба)' : 'Дистанция'}</span>
