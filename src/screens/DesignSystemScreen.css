@@ -4,21 +4,12 @@
   min-height: 100vh;
   padding: var(--space-8) clamp(var(--space-4), 4vw, var(--space-12));
   padding-bottom: var(--space-16);
+  /* Тот же фон, что у всего приложения — реальная среда, не выдуманная.
+     Светлая и тёмная подменяются через --app-background-base / --app-background-image
+     в sports-colors.css на основании [data-theme]. */
   background: var(--app-background-base);
   background-image: var(--app-background-image);
   color: var(--text-primary);
-}
-
-/* Светлая тема: более warm/насыщенный фон чем дефолтный — стандартный --app-background-image
-   слишком плоский, светло-серые карточки сливаются. Усиливаем оранжевые radial pulses
-   и добавляем тёплую базу. */
-.ds-screen[data-theme="light"] {
-  background-color: #FAF5F0;
-  background-image:
-    radial-gradient(circle at 8% 14%, rgba(252, 76, 2, 0.20) 0%, rgba(252, 76, 2, 0) 32%),
-    radial-gradient(circle at 92% 8%, rgba(255, 107, 61, 0.14) 0%, rgba(255, 107, 61, 0) 26%),
-    radial-gradient(circle at 78% 92%, rgba(59, 130, 246, 0.10) 0%, rgba(59, 130, 246, 0) 30%),
-    linear-gradient(180deg, #FFF8F2 0%, #FAF3EC 54%, #F2E9DF 100%);
 }
 
 .ds-screen--locked {
@@ -1191,6 +1182,146 @@
 .ds-sheet-btn--primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 36px -8px rgba(252, 76, 2, 0.6);
+}
+
+/* ─── Цвета текста ──────────────────────────────────────────── */
+
+.ds-text-colors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-text-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.ds-text-row:last-child {
+  border-bottom: none;
+}
+
+.ds-text-sample {
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.4;
+}
+
+/* ─── Принципы — секция в начале страницы ──────────────────── */
+
+.ds-principles-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: var(--space-3);
+  counter-reset: principle;
+}
+
+.ds-principles-list li {
+  position: relative;
+  padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 36px);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  counter-increment: principle;
+}
+
+.ds-principles-list li::before {
+  content: counter(principle, decimal-leading-zero);
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-4);
+  font-family: var(--font-stats, 'Jost'), sans-serif;
+  font-weight: var(--font-extrabold);
+  font-size: var(--text-base);
+  color: var(--primary-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-principles-list li strong {
+  color: var(--text-primary);
+}
+
+/* ─── Rule block — директивный блок в каждой секции ────────── */
+
+.ds-rule {
+  position: relative;
+  margin-top: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  padding-left: calc(var(--space-5) + 6px);
+  background: color-mix(in srgb, var(--primary-500) 5%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 18%, var(--card-border));
+  border-radius: var(--radius-md);
+  border-left: none;
+}
+
+.ds-rule::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--primary-400), var(--primary-600));
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.ds-rule__header {
+  margin-bottom: var(--space-2);
+}
+
+.ds-rule__badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: white;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  box-shadow: 0 2px 8px -2px rgba(252, 76, 2, 0.4);
+}
+
+.ds-rule__body {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.ds-rule__body strong {
+  color: var(--text-primary);
+}
+
+.ds-rule__snippet {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--card-border);
+  overflow-x: auto;
+}
+
+.ds-rule__snippet code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre;
 }
 
 /* Footer */

@@ -113,6 +113,23 @@ function TokenCode({ children }) {
   return <code className="ds-token">{children}</code>;
 }
 
+// Rule: блок с правилом — основной директивный элемент UI kit'а.
+// Каждая секция содержит как минимум один Rule с конкретными рекомендациями
+// «когда применять» и (опционально) code snippet'ом для копирования.
+function Rule({ title = 'Правило', children, snippet }) {
+  return (
+    <aside className="ds-rule" role="note">
+      <div className="ds-rule__header">
+        <span className="ds-rule__badge">{title}</span>
+      </div>
+      <div className="ds-rule__body">{children}</div>
+      {snippet && (
+        <pre className="ds-rule__snippet"><code>{snippet}</code></pre>
+      )}
+    </aside>
+  );
+}
+
 
 // Демо-вариант WorkoutSheet из mobile UI kit — детальная карточка с интервалами и AI-советом
 function WorkoutSheetDemo({ onClose }) {
@@ -281,8 +298,10 @@ export default function DesignSystemScreen() {
 
       <nav className="ds-toc">
         {[
+          ['principles', 'Принципы'],
           ['colors', 'Цвета'],
           ['themes', 'Темы'],
+          ['text-colors', 'Цвета текста'],
           ['type', 'Типографика'],
           ['spacing', 'Отступы'],
           ['radii', 'Скругления'],
@@ -299,6 +318,35 @@ export default function DesignSystemScreen() {
           <a key={href} className="ds-toc-link" href={`#${href}`}>{label}</a>
         ))}
       </nav>
+
+      {/* ─── Принципы ──────────────────────────────────────────────── */}
+      <Section
+        id="principles"
+        title="Принципы"
+        subtitle="Свод правил для всех новых компонентов. Сначала проверь kit, потом пиши код."
+      >
+        <ol className="ds-principles-list">
+          <li><strong>Используй существующие токены.</strong> Hex и сырые <TokenCode>rgba(0,0,0,...)</TokenCode> запрещены. Цвет → <TokenCode>var(--primary-500)</TokenCode>, <TokenCode>var(--text-secondary)</TokenCode>. Лёгкий бренд-touch на нейтральном → <TokenCode>color-mix(in srgb, var(--primary-500) 8%, var(--card-border))</TokenCode>.</li>
+          <li><strong>Не выдумывай keyframes.</strong> Перед <TokenCode>@keyframes</TokenCode> проверь <TokenCode>src/styles/animations.css</TokenCode> (fadeIn, slideUp, scaleIn, slideInRight/Left, pulse) и <TokenCode>app-update-spin</TokenCode> в AppUpdateModal.css. <TokenCode>spin</TokenCode> уже определён в 3 местах — не создавай четвёртый.</li>
+          <li><strong>Hover-лифт стандартный.</strong> Карточки <TokenCode>translateY(-2px)</TokenCode>, кнопки <TokenCode>translateY(-1px)</TokenCode>, active <TokenCode>translateY(0) scale(0.98)</TokenCode>. Без bounce — бренд читается атлетично, не playful.</li>
+          <li><strong>Glassmorphism только на mobile chrome.</strong> BottomNav, TopHeader, модалки, week-pills, workout-cards на мобиле. На marketing/web страницах — solid.</li>
+          <li><strong>Warm shadows везде.</strong> Тени с подмесом оранжевого: <TokenCode>0 10px 22px rgba(252,76,2,0.10)</TokenCode>. Нейтральные чёрные тени запрещены вне специальных случаев (dark theme override).</li>
+          <li><strong>Тёмная — основная.</strong> Светлая тема — opt-in. Проверяй оба режима через переключатель в правом верхнем углу.</li>
+          <li><strong>Карточки 24px radius.</strong> <TokenCode>--radius-2xl</TokenCode> — signature. Pill-кнопки <TokenCode>--radius-full</TokenCode>. Поля ввода <TokenCode>--radius-md</TokenCode>.</li>
+          <li><strong>Один glow на экран.</strong> <TokenCode>--shadow-glow-strong</TokenCode> только для hero CTA. <TokenCode>--shadow-glow-success</TokenCode> для achievements. Везде — теряется акцент.</li>
+          <li><strong>Только lucide-react.</strong> Иконки через <TokenCode>currentColor</TokenCode>, stroke 1.5–1.8. Никаких других icon-библиотек или inline SVG если есть lucide-эквивалент.</li>
+          <li><strong>Числа — Jost tabular-nums.</strong> Метрики (км, темп, время) → <TokenCode>font-family: var(--font-stats)</TokenCode> + <TokenCode>font-variant-numeric: tabular-nums</TokenCode>. Цифры не должны прыгать при обновлении.</li>
+          <li><strong>Не делай live-tracking UI.</strong> PlanRun не отслеживает тренировку — тренировки импортируются из Strava/Garmin/Polar/COROS. Action для today-карточки → «Отметить», не «Старт».</li>
+        </ol>
+        <Rule title="Workflow для нового компонента">
+          <ol style={{ margin: 0, paddingLeft: 'var(--space-5)' }}>
+            <li>Проверь kit — ищешь ли ты компонент который уже есть?</li>
+            <li>Если есть — переиспользуй и копируй паттерн из примеров ниже.</li>
+            <li>Если нет — копируй ближайший подобный, меняй точечно.</li>
+            <li>Когда новый компонент готов — добавь его в этот kit и обнови <TokenCode>memory/project_design_system.md</TokenCode>.</li>
+          </ol>
+        </Rule>
+      </Section>
 
       {/* ─── Цвета ──────────────────────────────────────────────────── */}
       <Section id="colors" title="Цвета" subtitle="Бренд-палитра + семантика + типы тренировок">
@@ -346,6 +394,12 @@ export default function DesignSystemScreen() {
             <Swatch key={w.token} tokenName={w.token} label={w.label} sub={w.token} />
           ))}
         </div>
+
+        <Rule>
+          Все цвета — через CSS-переменные. Для лёгких бренд-touch на нейтральном фоне (карточки, бордеры,
+          пилюли статуса) — <TokenCode>color-mix(in srgb, var(--primary-500) X%, var(--card-border))</TokenCode>{' '}
+          с X=2–12%. Workout-strip цвет — из <TokenCode>--workout-*</TokenCode> токенов, не дублируй hex прямо в коде.
+        </Rule>
       </Section>
 
       {/* ─── Темы ──────────────────────────────────────────────────── */}
@@ -382,6 +436,57 @@ export default function DesignSystemScreen() {
           используй переключатель сверху страницы — он залипает при скролле и переключает
           тему всей страницы мгновенно.
         </p>
+
+        <Rule>
+          Никогда не пиши <TokenCode>[data-theme="dark"] .my-element {'{ color: ... }'}</TokenCode> прямо.
+          Используй <TokenCode>var(--text-primary)</TokenCode> и т.д. — токены подменяются автоматически.
+          Override через <TokenCode>[data-theme="dark"]</TokenCode> нужен только если компонент использует
+          <em> прямые </em>значения (фон-картинка, gradient, специальный shadow).
+        </Rule>
+      </Section>
+
+      {/* ─── Текст ─────────────────────────────────────────────────── */}
+      <Section
+        id="text-colors"
+        title="Цвета текста"
+        subtitle="Какой цвет какой смысл несёт. Не смешивай."
+      >
+        <div className="ds-text-colors">
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--text-primary)', fontSize: 'var(--text-lg)', fontWeight: 600 }}>Основной текст — заголовки, важные строки</span>
+            <TokenCode>--text-primary</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--text-secondary)' }}>Вторичный — описания, body-параграфы</span>
+            <TokenCode>--text-secondary</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>Третичный — eyebrow, метки, captions</span>
+            <TokenCode>--text-tertiary</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--primary-500)', fontWeight: 700 }}>Бренд-акцент — KPI, активные ссылки</span>
+            <TokenCode>--primary-500</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--success-600)', fontWeight: 600 }}>Выполнено — статусы, положительные числа</span>
+            <TokenCode>--success-600</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--danger-500, #EF4444)', fontWeight: 600 }}>Ошибка / пропуск</span>
+            <TokenCode>--danger-500</TokenCode>
+          </div>
+          <div className="ds-text-row">
+            <span className="ds-text-sample" style={{ color: 'var(--warning-600)', fontWeight: 600 }}>Внимание — compliance, темповая</span>
+            <TokenCode>--warning-600</TokenCode>
+          </div>
+        </div>
+        <Rule>
+          Иерархия: <strong>primary</strong> (заголовки) → <strong>secondary</strong> (body) →{' '}
+          <strong>tertiary</strong> (метки). Семантические цвета — только для смысла, не для
+          эстетики. <TokenCode>--primary-500</TokenCode> на тексте — для KPI и интерактивных
+          ссылок, не для всех чисел подряд.
+        </Rule>
       </Section>
 
       {/* ─── Типографика ────────────────────────────────────────────── */}
@@ -442,6 +547,24 @@ export default function DesignSystemScreen() {
           </p>
           <p className="ds-caption-demo">Опубликовано 11 мая 2026</p>
         </div>
+
+        <Rule
+          snippet={`/* Метрики и цифры */
+font-family: var(--font-stats);
+font-variant-numeric: tabular-nums;
+font-weight: var(--font-bold);
+
+/* Hero h1 — italic 800 */
+font-family: var(--font-display);
+font-style: italic;
+font-weight: 800;
+letter-spacing: -0.025em;`}
+        >
+          Body — Montserrat (наследуется от body). Метрики (км, темп, время) — обязательно{' '}
+          <TokenCode>--font-stats</TokenCode> (Jost) + <TokenCode>tabular-nums</TokenCode>.
+          Italic 800 — только для hero h1 на landing/marketing. В обычном UI не использовать
+          italic-bold везде, только для эмфазы.
+        </Rule>
       </Section>
 
       {/* ─── Spacing ────────────────────────────────────────────────── */}
@@ -455,6 +578,13 @@ export default function DesignSystemScreen() {
             </div>
           ))}
         </div>
+        <Rule>
+          Только <TokenCode>--space-1</TokenCode> … <TokenCode>--space-16</TokenCode>. Магических чисел
+          типа <TokenCode>padding: 26px</TokenCode> или <TokenCode>gap: 14px</TokenCode> быть не должно —
+          они разрушают консистентность. Если что-то «не помещается на scale», сначала проверь
+          можно ли использовать ближайший size (24/32px), и только в крайнем случае объясни почему
+          off-scale.
+        </Rule>
       </Section>
 
       {/* ─── Радиусы ────────────────────────────────────────────────── */}
@@ -467,6 +597,12 @@ export default function DesignSystemScreen() {
             </div>
           ))}
         </div>
+        <Rule>
+          Карточки → <TokenCode>--radius-2xl</TokenCode> (24px, signature).
+          Pill-кнопки и status-pills → <TokenCode>--radius-full</TokenCode>.
+          Поля ввода и компактные элементы → <TokenCode>--radius-md</TokenCode> (8px).
+          Не вводи новые радиусы (типа 18px, 14px) без явной причины.
+        </Rule>
       </Section>
 
       {/* ─── Тени ───────────────────────────────────────────────────── */}
@@ -479,6 +615,13 @@ export default function DesignSystemScreen() {
             </div>
           ))}
         </div>
+        <Rule>
+          Используй <TokenCode>--shadow-sm/md/lg/xl/2xl</TokenCode>. Все они уже с warm-orange tint.
+          Чёрные нейтральные shadows (<TokenCode>rgba(0,0,0,...)</TokenCode>) — запрещены, кроме
+          dark-theme override-блока в <TokenCode>sports-colors.css</TokenCode>. Для интерактивных
+          элементов комбинируй с <TokenCode>inset 0 1px 0 rgba(255,255,255,0.18)</TokenCode> сверху —
+          это создаёт «glass highlight» по верхнему краю.
+        </Rule>
       </Section>
 
       {/* ─── Свечения ──────────────────────────────────────────────── */}
@@ -524,6 +667,12 @@ export default function DesignSystemScreen() {
             </div>
           </div>
         </div>
+        <Rule>
+          Один-два glow на экран максимум. Hero CTA → <TokenCode>--shadow-glow-strong</TokenCode>.
+          Активная карточка (today/selected) → <TokenCode>--shadow-glow</TokenCode>. Achievement /
+          streak → <TokenCode>--shadow-glow-success</TokenCode>. Если применить везде — теряется
+          акцент, всё начинает светиться одинаково.
+        </Rule>
       </Section>
 
       {/* ─── Кнопки ─────────────────────────────────────────────────── */}
@@ -558,6 +707,18 @@ export default function DesignSystemScreen() {
         <div className="ds-button-block-wrap">
           <button className="btn btn-primary btn--block">Block button</button>
         </div>
+        <Rule
+          snippet={`<button className="btn btn-primary">Primary</button>
+<button className="btn btn-secondary btn--sm">Small secondary</button>
+<button className="btn btn-primary btn--block">Block CTA</button>`}
+        >
+          <strong>Не создавай <TokenCode>{'<button>'}</TokenCode> со своими стилями.</strong>{' '}
+          Используй классы <TokenCode>.btn</TokenCode> + <TokenCode>.btn-primary</TokenCode> /{' '}
+          <TokenCode>.btn-secondary</TokenCode> + опц. <TokenCode>.btn--sm</TokenCode> /{' '}
+          <TokenCode>.btn--lg</TokenCode> / <TokenCode>.btn--block</TokenCode>. Все states
+          (hover, active, disabled, focus, loading через <TokenCode>.btn-spinner</TokenCode>)
+          уже встроены.
+        </Rule>
       </Section>
 
       {/* ─── Карточки ───────────────────────────────────────────────── */}
@@ -576,6 +737,17 @@ export default function DesignSystemScreen() {
             <p className="ds-body-demo">Hover → translateY(-2px) + warm border. Кликабельная.</p>
           </div>
         </div>
+        <Rule
+          snippet={`<div className="card">…</div>
+<div className="card card--compact">…</div>
+<div className="card card--interactive" tabIndex={0} role="button">…</div>`}
+        >
+          Используй <TokenCode>.card</TokenCode> + модификаторы. Внутри —{' '}
+          <TokenCode>{'<h4>'}</TokenCode> и <TokenCode>{'<p>'}</TokenCode> без своих border-radius
+          и shadow (наследуют от родителя). Если нужна интерактивность — <TokenCode>card--interactive</TokenCode>
+          + <TokenCode>role="button"</TokenCode> + <TokenCode>tabIndex={'{0}'}</TokenCode> +{' '}
+          <TokenCode>onClick</TokenCode>.
+        </Rule>
       </Section>
 
       {/* ─── Пилюли ────────────────────────────────────────────────── */}
@@ -587,10 +759,31 @@ export default function DesignSystemScreen() {
           <span className="ds-demo-pill ds-demo-pill--danger">Пропущено</span>
           <span className="ds-demo-pill ds-demo-pill--neutral">Отдых</span>
         </div>
+        <Rule
+          snippet={`/* Pill через color-mix — единственно правильный паттерн */
+padding: 6px 12px;
+border-radius: var(--radius-full);
+font-size: var(--text-xs);
+font-weight: var(--font-semibold);
+color: var(--success-600);
+background: color-mix(in srgb, var(--success-500) 12%, var(--card-bg));
+border: 1px solid color-mix(in srgb, var(--success-500) 28%, var(--card-border));`}
+        >
+          Status pills: <TokenCode>radius-full</TokenCode>, маленький font (text-xs), 6/12 padding.
+          Подмес semantic-цвета 12% в background, 28% в border, основной color 600-вариант. Для
+          attention/reason pill на AthletesOverview см. <TokenCode>.ao-card-attention-reason</TokenCode>.
+        </Rule>
       </Section>
 
       {/* ─── Workout-card preview ───────────────────────────────────── */}
       <Section id="workout" title="Workout card (из дизайн-kit)" subtitle="4–5px цветной strip + eyebrow + meta + action">
+        <Rule>
+          Структура: <strong>5px цветной strip</strong> слева (цвет из <TokenCode>--workout-*</TokenCode>),{' '}
+          <strong>eyebrow uppercase 10.5px</strong> (день · дата · опц «сегодня»),{' '}
+          <strong>title 16px 700</strong> (тип · дистанция), <strong>Jost meta tabular-nums</strong>{' '}
+          (зона · темп). Right-side action: <strong>✓ done</strong> / <strong>«Отметить» primary</strong> для today
+          / <strong>chevron</strong> для будущих. Today — outline 2px primary.
+        </Rule>
         <div className="ds-workout-list">
           <div className="ds-wcard">
             <div className="ds-wcard-strip" style={{ background: 'var(--workout-easy)' }} />
@@ -644,6 +837,13 @@ export default function DesignSystemScreen() {
             Открыть пример
           </button>
         </div>
+        <Rule>
+          Для деталей тренировки — <strong>bottom-sheet</strong>, не модалка. Backdrop{' '}
+          <TokenCode>rgba(15,23,42,0.32)</TokenCode> + <TokenCode>blur(4px)</TokenCode>. Содержимое:{' '}
+          radius <TokenCode>28px 28px 0 0</TokenCode> верх, drag-handle 44×5 сверху по центру. Анимация
+          выезда — <TokenCode>cubic-bezier(0.22, 1, 0.36, 1)</TokenCode> 320ms. Action button внизу
+          full-width primary «Отметить выполнение» — не «Старт» (нет live-tracking).
+        </Rule>
       </Section>
 
       {sheetOpen && <WorkoutSheetDemo onClose={() => setSheetOpen(false)} />}
@@ -658,6 +858,18 @@ export default function DesignSystemScreen() {
             </div>
           ))}
         </div>
+        <Rule
+          snippet={`import { CheckIcon, RestIcon, CalendarIcon } from '../components/common/Icons';
+
+<CheckIcon size={20} />  /* color: currentColor (наследует) */`}
+        >
+          <strong>Только lucide-react через единый pool в{' '}
+          <TokenCode>src/components/common/Icons.jsx</TokenCode>.</strong> Никаких прямых импортов
+          из <TokenCode>lucide-react</TokenCode> или inline SVG. Если нужной иконки нет в pool —
+          добавь её туда (новый export), потом импортируй. Цвет — через{' '}
+          <TokenCode>currentColor</TokenCode>: <TokenCode>{'<svg color={...}>'}</TokenCode> или
+          через CSS на parent.
+        </Rule>
       </Section>
 
       {/* ─── Анимация ──────────────────────────────────────────────── */}
@@ -683,6 +895,15 @@ export default function DesignSystemScreen() {
           {' '}<TokenCode>--transition-base</TokenCode> 200ms,
           {' '}<TokenCode>--transition-slow</TokenCode> 300ms.
         </p>
+        <Rule>
+          <strong>Перед созданием нового <TokenCode>@keyframes</TokenCode> — проверь что уже есть:</strong>{' '}
+          <TokenCode>animations.css</TokenCode> содержит fadeIn / slideUp / scaleIn / slideInRight / slideInLeft / pulse.
+          Spinner — <TokenCode>app-update-spin</TokenCode> в <TokenCode>AppUpdateModal.css</TokenCode>{' '}
+          (0.8s linear infinite). Shimmer для skeletons — в <TokenCode>SkeletonScreen.css</TokenCode>.
+          Hover: карточки <TokenCode>translateY(-2px)</TokenCode>, кнопки <TokenCode>-1px</TokenCode>.
+          Press: <TokenCode>translateY(0) scale(0.98)</TokenCode>, без bounce. Новые кастомные animations
+          обязательно учитывают <TokenCode>@media (prefers-reduced-motion: reduce)</TokenCode>.
+        </Rule>
       </Section>
 
       <footer className="ds-footer">
