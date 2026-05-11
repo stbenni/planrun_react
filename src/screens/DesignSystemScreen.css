@@ -9,6 +9,18 @@
   color: var(--text-primary);
 }
 
+/* Светлая тема: более warm/насыщенный фон чем дефолтный — стандартный --app-background-image
+   слишком плоский, светло-серые карточки сливаются. Усиливаем оранжевые radial pulses
+   и добавляем тёплую базу. */
+.ds-screen[data-theme="light"] {
+  background-color: #FAF5F0;
+  background-image:
+    radial-gradient(circle at 8% 14%, rgba(252, 76, 2, 0.20) 0%, rgba(252, 76, 2, 0) 32%),
+    radial-gradient(circle at 92% 8%, rgba(255, 107, 61, 0.14) 0%, rgba(255, 107, 61, 0) 26%),
+    radial-gradient(circle at 78% 92%, rgba(59, 130, 246, 0.10) 0%, rgba(59, 130, 246, 0) 30%),
+    linear-gradient(180deg, #FFF8F2 0%, #FAF3EC 54%, #F2E9DF 100%);
+}
+
 .ds-screen--locked {
   display: flex;
   align-items: center;
@@ -169,10 +181,14 @@
   gap: var(--space-2);
   padding: var(--space-3) 0;
   margin-bottom: var(--space-8);
-  border-bottom: 1px solid var(--card-border);
-  background: color-mix(in srgb, var(--app-background-base) 88%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-border));
+  background: color-mix(in srgb, var(--app-background-base) 84%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.ds-screen[data-theme="light"] .ds-toc {
+  background: color-mix(in srgb, #FAF5F0 86%, transparent);
 }
 
 .ds-toc-link {
@@ -204,12 +220,27 @@
 }
 
 .ds-section-title {
+  position: relative;
   margin: 0;
+  padding-bottom: 10px;
   font-size: var(--text-2xl);
   font-weight: var(--font-extrabold);
   font-style: italic;
   letter-spacing: -0.02em;
   color: var(--text-primary);
+}
+
+/* Brand accent под каждым заголовком секции — короткая оранжевая полоска */
+.ds-section-title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 48px;
+  height: 3px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-600));
+  box-shadow: 0 4px 12px -2px rgba(252, 76, 2, 0.4);
 }
 
 .ds-section-subtitle {
@@ -253,13 +284,14 @@
   border-radius: var(--radius-lg);
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--transition-base), box-shadow var(--transition-base);
+  box-shadow: 0 4px 12px -3px rgba(252, 76, 2, 0.10), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
 }
 
 .ds-swatch:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--card-border));
+  box-shadow: 0 10px 24px -6px rgba(252, 76, 2, 0.18), 0 4px 8px -2px rgba(15, 23, 42, 0.08);
 }
 
 .ds-swatch__chip {
