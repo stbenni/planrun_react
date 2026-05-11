@@ -26,6 +26,7 @@ const UserProfileScreen = lazyWithRetry(() => import('./screens/UserProfileScree
 const ForgotPasswordScreen = lazyWithRetry(() => import('./screens/ForgotPasswordScreen'), 'ForgotPasswordScreen');
 const ResetPasswordScreen = lazyWithRetry(() => import('./screens/ResetPasswordScreen'), 'ResetPasswordScreen');
 const PrivacyPolicyScreen = lazyWithRetry(() => import('./screens/PrivacyPolicyScreen'), 'PrivacyPolicyScreen');
+const DesignSystemScreen = lazyWithRetry(() => import('./screens/DesignSystemScreen'), 'DesignSystemScreen');
 
 function ScrollToTop() {
   const { pathname, search } = useLocation();
@@ -203,6 +204,16 @@ function App() {
         <Route
           path="/privacy"
           element={<PrivacyPolicyScreen />}
+        />
+        <Route
+          path="/design-system"
+          element={
+            isAuthenticated ? (
+              isAdmin ? <DesignSystemScreen /> : <Navigate to="/" replace />
+            ) : (
+              <Navigate to="/landing" replace />
+            )
+          }
         />
         <Route
           path="/dashboard"
