@@ -36,7 +36,8 @@ export function useChatNavigation({
     return TAB_AI;
   });
   const [mobileListVisible, setMobileListVisible] = useState(
-    !openAdminModeFromState && !openAdminTabFromState && !contactUserFromState && !contactSlugFromUrl
+    (!openAdminModeFromState || !selectedUserIdFromState)
+    && !openAdminTabFromState && !contactUserFromState && !contactSlugFromUrl
   );
   const [selectedChatUser, setSelectedChatUser] = useState(null);
 
@@ -84,7 +85,9 @@ export function useChatNavigation({
       setAdminSection('admin_mode');
       setSelectedChat(TAB_ADMIN_MODE);
       setSelectedChatUser(null);
-      setMobileListVisible(false);
+      // На мобиле без явно выбранного пользователя показываем список диалогов,
+      // иначе пользователь видит только placeholder «Выберите пользователя»
+      setMobileListVisible(!selectedUserIdFromState);
       clearContactSearchParam();
       return;
     }

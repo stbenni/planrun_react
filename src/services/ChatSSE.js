@@ -3,10 +3,10 @@
  * Поддерживает admin, ai, coach, direct (для будущих типов)
  * Singleton — одно соединение на приложение
  *
- * В Capacitor (native APK) SSE отключён: WebView origin = https://localhost,
- * кросс-доменный EventSource не пробрасывает JWT и сессию, и приводит к
- * непрерывным 404. Polling в useWorkoutRefreshStore/useChatUnread закрывает
- * real-time UX в native до отдельной интеграции SSE с JWT в query string.
+ * В native (Capacitor) WebView origin = https://localhost, поэтому SSE
+ * пробивает на прод-домен явно. CORS на planrun.ru настроен в cors.php
+ * (Access-Control-Allow-Credentials: true для https://localhost),
+ * cookies/session идут через withCredentials.
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -18,6 +18,9 @@ let reconnectTimer = null;
 let reconnectDelay = 3000; // 3 сек при первой ошибке, не 1 — чтобы не спамить при падении соединения
 const MAX_RECONNECT_DELAY = 30000;
 
+const NATIVE_API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL)
+  || 'https://planrun.ru/api';
+
 function isNativeApp() {
   try {
     return Capacitor.isNativePlatform();
@@ -27,6 +30,10 @@ function isNativeApp() {
 }
 
 function getSSEUrl() {
+  if (isNativeApp()) {
+    const base = NATIVE_API_BASE.endsWith('/api') ? NATIVE_API_BASE : `${NATIVE_API_BASE.replace(/\/$/, '')}/api`;
+    return `${base}/chat_sse.php`;
+  }
   const base = typeof window !== 'undefined' && window.location.origin ? `${window.location.origin}/api` : '/api';
   return `${base}/chat_sse.php`;
 }
@@ -59,7 +66,6 @@ function scheduleReconnect() {
 
 function connect() {
   if (typeof window === 'undefined') return;
-  if (isNativeApp()) return;
   if (eventSource && (eventSource.readyState === EventSource.OPEN || eventSource.readyState === EventSource.CONNECTING)) {
     return;
   }
