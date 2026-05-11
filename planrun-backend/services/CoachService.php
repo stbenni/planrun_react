@@ -347,6 +347,7 @@ class CoachService extends BaseService {
         // как дату последней отмеченной тренировки из workout_log.
         $weekStart = date('Y-m-d', strtotime('monday this week'));
         $weekEnd   = date('Y-m-d', strtotime('sunday this week'));
+        $today     = date('Y-m-d');
 
         // last_activity и week_completed считаются по обеим таблицам:
         //   workout_log — ручные отметки выполнения
@@ -374,6 +375,16 @@ class CoachService extends BaseService {
                        AND d.type IS NOT NULL
                        AND d.type NOT IN ('rest', 'free')
                    ) AS week_total,
+                   (SELECT COUNT(*)
+                      FROM training_plan_days d
+                      JOIN training_plan_weeks w ON d.week_id = w.id
+                     WHERE w.user_id = u.id
+                       AND w.start_date <= ?
+                       AND DATE_ADD(w.start_date, INTERVAL 6 DAY) >= ?
+                       AND d.type IS NOT NULL
+                       AND d.type NOT IN ('rest', 'free')
+                       AND d.date <= ?
+                   ) AS week_total_so_far,
                    (SELECT COUNT(*) FROM (
                        SELECT training_date AS d
                          FROM workout_log
@@ -397,10 +408,11 @@ class CoachService extends BaseService {
             ORDER BY last_activity DESC
         ");
         $stmt->bind_param(
-            "ssssssii",
-            $weekEnd, $weekStart,
-            $weekStart, $weekEnd,
-            $weekStart, $weekEnd,
+            "sssssssssii",
+            $weekEnd, $weekStart,           // week_total
+            $weekEnd, $weekStart, $today,    // week_total_so_far
+            $weekStart, $weekEnd,            // week_completed: workout_log range
+            $weekStart, $weekEnd,            // week_completed: workouts range
             $coachId, $coachId
         );
         $stmt->execute();
@@ -415,6 +427,7 @@ class CoachService extends BaseService {
                 'avatar_path' => $row['avatar_path'],
                 'last_activity' => $row['last_activity'],
                 'week_total' => (int)$row['week_total'],
+                'week_total_so_far' => (int)$row['week_total_so_far'],
                 'week_completed' => (int)$row['week_completed'],
                 'has_new_activity' => (int)$row['unread_results'] > 0,
             ];

@@ -85,6 +85,10 @@ function pluralizeDays(n) {
 /**
  * Возвращает причину почему ученик в секции «Требуют внимания»,
  * либо null если внимание не требуется. Срабатывает первое попавшееся правило.
+ *
+ * Compliance считается относительно тренировок, запланированных до сегодня
+ * включительно (week_total_so_far) — иначе в начале недели ученики ложно
+ * попадают в attention («1 из 5» в понедельник = 100% к сегодня, не 20%).
  */
 function getAttentionReason(athlete) {
   if (!athlete.last_activity) {
@@ -94,12 +98,13 @@ function getAttentionReason(athlete) {
   if (Number.isFinite(days) && days >= 7) {
     return { kind: 'inactive', label: `${days} ${pluralizeDays(days)} без активности` };
   }
-  if (athlete.week_completed !== undefined && athlete.week_total > 0) {
-    const compliance = athlete.week_completed / athlete.week_total;
+  const expected = athlete.week_total_so_far;
+  if (athlete.week_completed !== undefined && expected !== undefined && expected > 0) {
+    const compliance = athlete.week_completed / expected;
     if (compliance < 0.5) {
       return {
         kind: 'compliance',
-        label: `Выполнил ${athlete.week_completed} из ${athlete.week_total} на неделе`,
+        label: `Выполнил ${athlete.week_completed} из ${expected} к сегодня`,
       };
     }
   }
