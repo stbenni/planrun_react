@@ -40,5 +40,8 @@ jobs:
       - name: Install backend dependencies
         run: composer install --no-interaction --prefer-dist
 
+      - name: Ensure runtime directories
+        run: mkdir -p logs
+
       - name: Run backend targeted unit tests
         run: php ./vendor/bin/phpunit --do-not-cache-result tests/Unit/RegistrationServiceTest.php tests/Unit/PlanGenerationQueueServiceTest.php
