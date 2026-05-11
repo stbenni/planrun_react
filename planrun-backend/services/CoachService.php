@@ -348,13 +348,23 @@ class CoachService extends BaseService {
         $weekStart = date('Y-m-d', strtotime('monday this week'));
         $weekEnd   = date('Y-m-d', strtotime('sunday this week'));
 
+        // last_activity и week_completed считаются по обеим таблицам:
+        //   workout_log — ручные отметки выполнения
+        //   workouts    — импортированные (Strava/Garmin/Polar/COROS/Huawei)
+        // UNION делает дедупликацию по дате внутри week_completed, поэтому
+        // если в один день есть и ручная отметка, и Strava-импорт — это 1 тренировка.
         $stmt = $this->db->prepare("
             SELECT u.id, u.username, u.username_slug, u.avatar_path,
                    u.goal_type, u.race_date, u.race_distance, u.race_target_time,
-                   (SELECT MAX(wl.training_date)
-                      FROM workout_log wl
-                     WHERE wl.user_id = u.id AND wl.is_completed = 1
-                   ) AS last_activity,
+                   (SELECT MAX(d) FROM (
+                       SELECT MAX(training_date) AS d
+                         FROM workout_log
+                        WHERE user_id = u.id AND is_completed = 1
+                       UNION ALL
+                       SELECT MAX(DATE(start_time)) AS d
+                         FROM workouts
+                        WHERE user_id = u.id
+                   ) x) AS last_activity,
                    (SELECT COUNT(*)
                       FROM training_plan_days d
                       JOIN training_plan_weeks w ON d.week_id = w.id
@@ -364,12 +374,18 @@ class CoachService extends BaseService {
                        AND d.type IS NOT NULL
                        AND d.type NOT IN ('rest', 'free')
                    ) AS week_total,
-                   (SELECT COUNT(*)
-                      FROM workout_log wl
-                     WHERE wl.user_id = u.id
-                       AND wl.is_completed = 1
-                       AND wl.training_date BETWEEN ? AND ?
-                   ) AS week_completed,
+                   (SELECT COUNT(*) FROM (
+                       SELECT training_date AS d
+                         FROM workout_log
+                        WHERE user_id = u.id
+                          AND is_completed = 1
+                          AND training_date BETWEEN ? AND ?
+                       UNION
+                       SELECT DATE(start_time) AS d
+                         FROM workouts
+                        WHERE user_id = u.id
+                          AND DATE(start_time) BETWEEN ? AND ?
+                   ) x) AS week_completed,
                    (SELECT COUNT(*) FROM plan_notifications pn
                     WHERE pn.user_id = ? AND pn.type = 'athlete_result_logged'
                       AND pn.read_at IS NULL
@@ -380,7 +396,13 @@ class CoachService extends BaseService {
             WHERE uc.coach_id = ?
             ORDER BY last_activity DESC
         ");
-        $stmt->bind_param("ssssii", $weekEnd, $weekStart, $weekStart, $weekEnd, $coachId, $coachId);
+        $stmt->bind_param(
+            "ssssssii",
+            $weekEnd, $weekStart,
+            $weekStart, $weekEnd,
+            $weekStart, $weekEnd,
+            $coachId, $coachId
+        );
         $stmt->execute();
         $result = $stmt->get_result();
 
