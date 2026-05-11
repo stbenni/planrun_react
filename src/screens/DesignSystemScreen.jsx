@@ -113,6 +113,85 @@ function TokenCode({ children }) {
   return <code className="ds-token">{children}</code>;
 }
 
+// Демо-вариант WorkoutSheet из mobile UI kit — детальная карточка с интервалами и AI-советом
+function WorkoutSheetDemo({ onClose }) {
+  const segments = [
+    { label: 'Разминка',       dist: '1.5', pace: '5:30/км', color: 'var(--workout-easy)' },
+    { label: '1 км в темпе',   dist: '1.0', pace: '4:30/км', color: 'var(--workout-tempo)' },
+    { label: 'Восст. трусцой', dist: '0.4', pace: '6:00/км', color: 'var(--workout-easy)' },
+    { label: '1 км в темпе',   dist: '1.0', pace: '4:30/км', color: 'var(--workout-tempo)' },
+    { label: 'Восст. трусцой', dist: '0.4', pace: '6:00/км', color: 'var(--workout-easy)' },
+    { label: '1 км в темпе',   dist: '1.0', pace: '4:30/км', color: 'var(--workout-tempo)' },
+    { label: 'Восст. трусцой', dist: '0.4', pace: '6:00/км', color: 'var(--workout-easy)' },
+    { label: '1 км в темпе',   dist: '1.0', pace: '4:30/км', color: 'var(--workout-tempo)' },
+    { label: 'Заминка',        dist: '1.3', pace: '5:40/км', color: 'var(--workout-easy)' },
+  ];
+
+  return (
+    <div className="ds-sheet-backdrop" onClick={onClose} role="presentation">
+      <div className="ds-sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ds-sheet-title">
+        <div className="ds-sheet-grip" aria-hidden />
+
+        <div className="ds-sheet-eyebrow">Вт · 12 мая · темповая</div>
+        <h2 id="ds-sheet-title" className="ds-sheet-title">
+          4×1 км <span className="ds-sheet-title-accent">в темпе</span>
+        </h2>
+
+        <div className="ds-sheet-stats">
+          <div className="ds-sheet-stat">
+            <div className="ds-sheet-stat__num">8,0</div>
+            <div className="ds-sheet-stat__label">км</div>
+          </div>
+          <div className="ds-sheet-stat ds-sheet-stat--accent">
+            <div className="ds-sheet-stat__num">4:30</div>
+            <div className="ds-sheet-stat__label">темп /км</div>
+          </div>
+          <div className="ds-sheet-stat">
+            <div className="ds-sheet-stat__num">42</div>
+            <div className="ds-sheet-stat__label">мин ~</div>
+          </div>
+        </div>
+
+        <div className="ds-sheet-section-label">План</div>
+        <div className="ds-sheet-bar">
+          {segments.map((s, i) => (
+            <div key={i} className="ds-sheet-bar__seg" style={{ flex: parseFloat(s.dist), background: s.color }} />
+          ))}
+        </div>
+
+        <div className="ds-sheet-segments">
+          {segments.map((s, i) => (
+            <div key={i} className="ds-sheet-seg">
+              <span className="ds-sheet-seg__dot" style={{ background: s.color }} />
+              <span className="ds-sheet-seg__label">{s.label}</span>
+              <span className="ds-sheet-seg__dist">{s.dist} км</span>
+              <span className="ds-sheet-seg__pace">{s.pace}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="ds-sheet-tip">
+          <div className="ds-sheet-tip__avatar">AI</div>
+          <div className="ds-sheet-tip__text">
+            <strong>Совет тренера.</strong> Темповая — про&nbsp;контроль. Старт спокойно,
+            держи 4:30 ровно, восстановление в&nbsp;медленном беге, не&nbsp;в&nbsp;шаге.
+          </div>
+        </div>
+
+        <div className="ds-sheet-actions">
+          <button type="button" className="ds-sheet-btn ds-sheet-btn--secondary" onClick={onClose}>
+            Перенести
+          </button>
+          <button type="button" className="ds-sheet-btn ds-sheet-btn--primary">
+            <CheckIcon size={16} strokeWidth={2.4} />
+            <span>Отметить выполнение</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Main
 // ───────────────────────────────────────────────────────────────────────
@@ -122,6 +201,7 @@ export default function DesignSystemScreen() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const lucideShowcase = useMemo(() => ([
     { Icon: CheckIcon, name: 'CheckIcon' },
@@ -188,6 +268,7 @@ export default function DesignSystemScreen() {
           ['cards', 'Карточки'],
           ['pills', 'Пилюли'],
           ['workout', 'Workout'],
+          ['sheet', 'Детали тренировки'],
           ['icons', 'Иконки'],
           ['anim', 'Анимация'],
         ].map(([href, label]) => (
@@ -441,6 +522,26 @@ export default function DesignSystemScreen() {
           </div>
         </div>
       </Section>
+
+      {/* ─── Sheet с деталями тренировки ───────────────────────────── */}
+      <Section
+        id="sheet"
+        title="Карточка деталей тренировки"
+        subtitle="Bottom-sheet с интервалами + AI-совет тренера. Открывается тапом по карточке тренировки."
+      >
+        <p className="ds-body-demo">
+          Заголовок-цель в italic-bold с акцентным фрагментом в оранжевом, 3 stat-карточки
+          (км / темп / время), сегментированный progress bar разноцветный по типам, список
+          интервалов в Jost tabular-nums, AI-tip как отдельная карточка, action-кнопки внизу.
+        </p>
+        <div>
+          <button className="btn btn-primary" onClick={() => setSheetOpen(true)}>
+            Открыть пример
+          </button>
+        </div>
+      </Section>
+
+      {sheetOpen && <WorkoutSheetDemo onClose={() => setSheetOpen(false)} />}
 
       {/* ─── Иконки ────────────────────────────────────────────────── */}
       <Section id="icons" title="Иконки" subtitle="Lucide-react: stroke 1.5–1.8, currentColor">
