@@ -202,6 +202,9 @@ export default function DesignSystemScreen() {
   const isAdmin = user?.role === 'admin';
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Scoped theme только для этой страницы — не трогаем глобальный document.
+  // CSS-селекторы [data-theme="dark"] на ancestor работают для всех потомков.
+  const [theme, setTheme] = useState('light');
 
   const lucideShowcase = useMemo(() => ([
     { Icon: CheckIcon, name: 'CheckIcon' },
@@ -238,12 +241,12 @@ export default function DesignSystemScreen() {
   }
 
   return (
-    <div className="ds-screen">
+    <div className="ds-screen" data-theme={theme}>
       <header className="ds-header">
         <button className="ds-back" onClick={() => navigate('/')} aria-label="Назад">
           ←
         </button>
-        <div>
+        <div className="ds-header-main">
           <p className="ds-kicker">UI KIT · ВНУТРЕННЕЕ</p>
           <h1 className="ds-title">
             <span className="ds-logo-plan">plan</span><span className="ds-logo-run">RUN</span>
@@ -255,11 +258,28 @@ export default function DesignSystemScreen() {
             Все компоненты и токены проекта собраны на этой странице.
           </p>
         </div>
+        <div className="ds-theme-toggle" role="group" aria-label="Тема">
+          <button
+            type="button"
+            className={`ds-theme-toggle__btn ${theme === 'light' ? 'ds-theme-toggle__btn--active' : ''}`}
+            onClick={() => setTheme('light')}
+          >
+            Светлая
+          </button>
+          <button
+            type="button"
+            className={`ds-theme-toggle__btn ${theme === 'dark' ? 'ds-theme-toggle__btn--active' : ''}`}
+            onClick={() => setTheme('dark')}
+          >
+            Тёмная
+          </button>
+        </div>
       </header>
 
       <nav className="ds-toc">
         {[
           ['colors', 'Цвета'],
+          ['themes', 'Темы'],
           ['type', 'Типографика'],
           ['spacing', 'Отступы'],
           ['radii', 'Скругления'],
@@ -322,6 +342,86 @@ export default function DesignSystemScreen() {
             <Swatch key={w.token} tokenName={w.token} label={w.label} sub={w.token} />
           ))}
         </div>
+      </Section>
+
+      {/* ─── Темы ──────────────────────────────────────────────────── */}
+      <Section
+        id="themes"
+        title="Темы: Светлая · Тёмная"
+        subtitle="Все токены адаптируются автоматически. Side-by-side показывает критические токены и как ключевые компоненты выглядят в обеих темах."
+      >
+        <h3 className="ds-h3">Ключевые токены</h3>
+        <div className="ds-theme-compare">
+          {[
+            { token: '--bg-primary', light: '#FFFFFF', dark: '#0D1014' },
+            { token: '--bg-secondary', light: '#F8FAFC', dark: '#14181F' },
+            { token: '--bg-tertiary', light: '#F1F5F9', dark: '#1C222B' },
+            { token: '--card-bg', light: '#FFFFFF', dark: '#151A20' },
+            { token: '--card-border', light: '#E2E8F0', dark: '#29313B' },
+            { token: '--text-primary', light: '#0F172A', dark: '#F3F4F6' },
+            { token: '--text-secondary', light: '#475569', dark: '#CBD5E1' },
+            { token: '--text-tertiary', light: '#64748B', dark: '#94A3B8' },
+          ].map(({ token, light, dark }) => (
+            <div key={token} className="ds-theme-compare__row">
+              <code className="ds-token">{token}</code>
+              <div className="ds-theme-compare__swatch" style={{ background: light, color: '#0F172A' }}>{light}</div>
+              <div className="ds-theme-compare__swatch ds-theme-compare__swatch--dark" style={{ background: dark, color: '#F3F4F6' }}>{dark}</div>
+            </div>
+          ))}
+        </div>
+
+        <h3 className="ds-h3">Компоненты в обеих темах</h3>
+        <div className="ds-theme-grid">
+          <div className="ds-theme-panel" data-theme="light">
+            <div className="ds-theme-panel__label">Светлая</div>
+            <div className="ds-theme-panel__body">
+              <div className="card">
+                <h4 className="ds-h4-demo">Карточка</h4>
+                <p className="ds-body-demo">Warm-orange shadow, 24px radius.</p>
+              </div>
+              <div className="ds-button-row">
+                <button className="btn btn-primary btn--sm">Primary</button>
+                <button className="btn btn-secondary btn--sm">Secondary</button>
+              </div>
+              <div className="ds-wcard">
+                <div className="ds-wcard-strip" style={{ background: 'var(--workout-tempo)' }} />
+                <div className="ds-wcard-body">
+                  <div className="ds-wcard-eyebrow">Вт · сегодня</div>
+                  <div className="ds-wcard-title">Темповая · 8 км</div>
+                  <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="ds-theme-panel" data-theme="dark">
+            <div className="ds-theme-panel__label">Тёмная</div>
+            <div className="ds-theme-panel__body">
+              <div className="card">
+                <h4 className="ds-h4-demo">Карточка</h4>
+                <p className="ds-body-demo">Тот же компонент, токены подменены.</p>
+              </div>
+              <div className="ds-button-row">
+                <button className="btn btn-primary btn--sm">Primary</button>
+                <button className="btn btn-secondary btn--sm">Secondary</button>
+              </div>
+              <div className="ds-wcard">
+                <div className="ds-wcard-strip" style={{ background: 'var(--workout-tempo)' }} />
+                <div className="ds-wcard-body">
+                  <div className="ds-wcard-eyebrow">Вт · сегодня</div>
+                  <div className="ds-wcard-title">Темповая · 8 км</div>
+                  <div className="ds-wcard-meta">4×1 км · 4:30/км</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p className="ds-body-demo">
+          <strong>Принцип:</strong> один компонент описан один раз, тема задаётся атрибутом
+          <TokenCode>data-theme</TokenCode> на ancestor элементе. Все токены в
+          <TokenCode>src/styles/sports-colors.css</TokenCode> подменяются автоматически.
+          Тёмная — основной режим (Nike Run Club look), светлая — opt-in.
+        </p>
       </Section>
 
       {/* ─── Типографика ────────────────────────────────────────────── */}
