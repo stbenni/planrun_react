@@ -308,10 +308,15 @@ export default function DesignSystemScreen() {
           ['shadows', 'Тени'],
           ['glow', 'Свечения'],
           ['buttons', 'Кнопки'],
+          ['forms', 'Формы'],
           ['cards', 'Карточки'],
           ['pills', 'Пилюли'],
           ['workout', 'Workout'],
           ['sheet', 'Детали тренировки'],
+          ['modals', 'Модалки'],
+          ['glass', 'Glass'],
+          ['empty', 'Empty state'],
+          ['loading', 'Loading'],
           ['icons', 'Иконки'],
           ['anim', 'Анимация'],
         ].map(([href, label]) => (
@@ -721,6 +726,60 @@ letter-spacing: -0.025em;`}
         </Rule>
       </Section>
 
+      {/* ─── Формы ─────────────────────────────────────────────────── */}
+      <Section id="forms" title="Формы" subtitle="Поля ввода: text / search / select / textarea. Стандарт kit'а — копируй для новых форм.">
+        <div className="ds-form-grid">
+          <label className="ds-field">
+            <span className="ds-field__label">Имя</span>
+            <input className="ds-field__input" type="text" placeholder="Иван" defaultValue="Иван" />
+          </label>
+          <label className="ds-field">
+            <span className="ds-field__label">Email</span>
+            <input className="ds-field__input" type="email" placeholder="you@example.com" />
+          </label>
+          <label className="ds-field">
+            <span className="ds-field__label">Дистанция</span>
+            <select className="ds-field__input" defaultValue="10k">
+              <option value="5k">5 км</option>
+              <option value="10k">10 км</option>
+              <option value="half">Полумарафон</option>
+              <option value="full">Марафон</option>
+            </select>
+          </label>
+          <label className="ds-field ds-field--invalid">
+            <span className="ds-field__label">Целевое время (с ошибкой)</span>
+            <input className="ds-field__input" type="text" defaultValue="abc" />
+            <span className="ds-field__error">Введите время в формате 4:30</span>
+          </label>
+          <label className="ds-field ds-field--full">
+            <span className="ds-field__label">Заметка к тренировке</span>
+            <textarea
+              className="ds-field__input ds-field__input--textarea"
+              rows={3}
+              placeholder="Тяжело, но добил..."
+              defaultValue=""
+            />
+          </label>
+        </div>
+        <Rule
+          snippet={`<label className="ds-field">
+  <span className="ds-field__label">Имя</span>
+  <input className="ds-field__input" type="text" />
+</label>
+
+/* invalid state */
+<label className="ds-field ds-field--invalid">
+  <input className="ds-field__input" />
+  <span className="ds-field__error">Сообщение</span>
+</label>`}
+        >
+          Поля ввода — <strong>1px slate border, radius-md (8px), padding 10/14px</strong>. Focus: warm-orange
+          border + 3px outer ring <TokenCode>0 0 0 3px rgba(252,76,2,0.15)</TokenCode>. Invalid:{' '}
+          <TokenCode>--danger-500</TokenCode> border + красное сообщение ошибки под полем. Label
+          сверху, не placeholder вместо label — placeholder исчезает при фокусе и теряется контекст.
+        </Rule>
+      </Section>
+
       {/* ─── Карточки ───────────────────────────────────────────────── */}
       <Section id="cards" title="Карточки" subtitle=".card / .card--compact / .card--interactive">
         <div className="ds-grid ds-grid--3">
@@ -751,13 +810,24 @@ letter-spacing: -0.025em;`}
       </Section>
 
       {/* ─── Пилюли ────────────────────────────────────────────────── */}
-      <Section id="pills" title="Пилюли (Pills)" subtitle="Бейджи статуса, причины, теги">
+      <Section id="pills" title="Пилюли (Pills)" subtitle="Реальные классы .dashboard-status-pill из проекта">
         <div className="ds-pill-row">
-          <span className="ds-demo-pill ds-demo-pill--primary">Сегодня</span>
-          <span className="ds-demo-pill ds-demo-pill--success">Выполнено</span>
-          <span className="ds-demo-pill ds-demo-pill--warning">Темповая</span>
-          <span className="ds-demo-pill ds-demo-pill--danger">Пропущено</span>
-          <span className="ds-demo-pill ds-demo-pill--neutral">Отдых</span>
+          <div className="dashboard-status-pill dashboard-status-pill--primary">
+            <span className="dashboard-status-pill__label">Сегодня</span>
+            <span className="dashboard-status-pill__value">по плану</span>
+          </div>
+          <div className="dashboard-status-pill dashboard-status-pill--success">
+            <span className="dashboard-status-pill__label">Неделя</span>
+            <span className="dashboard-status-pill__value">5/5</span>
+          </div>
+          <div className="dashboard-status-pill dashboard-status-pill--rest">
+            <span className="dashboard-status-pill__label">Сегодня</span>
+            <span className="dashboard-status-pill__value">отдых</span>
+          </div>
+          <div className="dashboard-status-pill dashboard-status-pill--danger">
+            <span className="dashboard-status-pill__label">План</span>
+            <span className="dashboard-status-pill__value">ошибка</span>
+          </div>
         </div>
         <Rule
           snippet={`/* Pill через color-mix — единственно правильный паттерн */
@@ -847,6 +917,162 @@ border: 1px solid color-mix(in srgb, var(--success-500) 28%, var(--card-border))
       </Section>
 
       {sheetOpen && <WorkoutSheetDemo onClose={() => setSheetOpen(false)} />}
+
+      {/* ─── Модалки ───────────────────────────────────────────────── */}
+      <Section
+        id="modals"
+        title="Модалки"
+        subtitle="Три типа overlay'ев. Выбор зависит от размера контента и срочности."
+      >
+        <div className="ds-modal-types">
+          <div className="ds-modal-type">
+            <strong>.app-modal — центрированная</strong>
+            <p>Для подтверждений, форм средней сложности, выбора опций. Backdrop blur(4px) + rgba(0,0,0,0.6).</p>
+            <p>Анимация: <TokenCode>appModalFadeIn</TokenCode> + <TokenCode>appModalSlideIn</TokenCode> с bouncy overshoot <TokenCode>cubic-bezier(0.34, 1.56, 0.64, 1)</TokenCode>.</p>
+          </div>
+          <div className="ds-modal-type">
+            <strong>Bottom-sheet — снизу</strong>
+            <p>Для деталей с длинным контентом (план тренировки, профиль), action sheets на мобиле. radius 28px 28px 0 0. Drag-handle сверху.</p>
+            <p>Пример выше в секции «Детали тренировки».</p>
+          </div>
+          <div className="ds-modal-type">
+            <strong>Dropdown / popover</strong>
+            <p>Для menu, мини-подсказок, выбора пары опций. <TokenCode>header-dropdown-in</TokenCode> 200ms — opacity + <TokenCode>translateY(-4px) → 0</TokenCode>.</p>
+            <p>Использовать когда контента &lt; 200px высоты.</p>
+          </div>
+        </div>
+        <Rule>
+          <strong>Никогда не делай свою модалку с нуля.</strong> Используй <TokenCode>.app-modal</TokenCode> +{' '}
+          <TokenCode>.app-modal-content</TokenCode> для центрированных, паттерн{' '}
+          <TokenCode>WorkoutSheetDemo</TokenCode> (или <TokenCode>WorkoutSheet.jsx</TokenCode> когда вытащим
+          как переиспользуемый) для bottom-sheet. backdrop всегда с blur, чтобы контент сзади не отвлекал.
+        </Rule>
+      </Section>
+
+      {/* ─── Glass surfaces ───────────────────────────────────────── */}
+      <Section
+        id="glass"
+        title="Glass surfaces"
+        subtitle="Liquid Glass — фирменный приём на мобильных контролах. Только на mobile chrome, не на marketing."
+      >
+        <div className="ds-glass-mockups">
+          <div className="ds-glass-mockup">
+            <div className="ds-glass-mockup__label">Top header</div>
+            <div className="ds-glass-header">
+              <span className="ds-glass-header__logo">
+                <span className="ds-logo-plan">plan</span><span className="ds-logo-run">RUN</span>
+              </span>
+              <span className="ds-glass-header__action">⌕</span>
+            </div>
+          </div>
+          <div className="ds-glass-mockup">
+            <div className="ds-glass-mockup__label">Bottom nav (4 таба)</div>
+            <div className="ds-glass-nav">
+              <span className="ds-glass-nav__item ds-glass-nav__item--active">Главная</span>
+              <span className="ds-glass-nav__item">Календарь</span>
+              <span className="ds-glass-nav__item">Чат</span>
+              <span className="ds-glass-nav__item">Профиль</span>
+            </div>
+          </div>
+          <div className="ds-glass-mockup">
+            <div className="ds-glass-mockup__label">Week-day pill (active vs idle)</div>
+            <div className="ds-glass-days">
+              <div className="ds-glass-day">
+                <span className="ds-glass-day__d">ПН</span>
+                <span className="ds-glass-day__n">11</span>
+              </div>
+              <div className="ds-glass-day ds-glass-day--active">
+                <span className="ds-glass-day__d">ВТ</span>
+                <span className="ds-glass-day__n">12</span>
+              </div>
+              <div className="ds-glass-day">
+                <span className="ds-glass-day__d">СР</span>
+                <span className="ds-glass-day__n">13</span>
+              </div>
+              <div className="ds-glass-day">
+                <span className="ds-glass-day__d">ЧТ</span>
+                <span className="ds-glass-day__n">14</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <Rule
+          snippet={`/* Базовый glass-рецепт */
+background: color-mix(in srgb, var(--primary-500) 2%, var(--surface-glass-bg-strong));
+backdrop-filter: blur(var(--surface-glass-blur)) saturate(1.16);
+-webkit-backdrop-filter: blur(var(--surface-glass-blur)) saturate(1.16);
+border: 1px solid color-mix(in srgb, var(--primary-500) 7%, var(--surface-glass-border));
+box-shadow: var(--surface-glass-shadow), var(--surface-glass-inset);`}
+        >
+          Применять <strong>только</strong> на mobile chrome: BottomNav, TopHeader, week-pills, workout-cards
+          в календаре, статус-bar overlay. На landing/marketing — solid, blur выглядит фейково на крупном
+          контенте. На native (Capacitor) blur снижен до 12–14px для perf (см. <TokenCode>html.native-app</TokenCode>
+          override). Active state — заливка <TokenCode>--primary-500</TokenCode> + warm shadow drop.
+        </Rule>
+      </Section>
+
+      {/* ─── Empty state ───────────────────────────────────────────── */}
+      <Section
+        id="empty"
+        title="Empty state"
+        subtitle="Иконка плавно плавает 3.5s (floatEmptyIcon), под ней — короткое объяснение и primary CTA."
+      >
+        <div className="ds-empty-demo">
+          <div className="ds-empty-demo__icon" aria-hidden>
+            <CalendarIcon size={56} />
+          </div>
+          <h3 className="ds-empty-demo__title">Здесь пока пусто</h3>
+          <p className="ds-empty-demo__text">
+            Создай первый план тренировок — AI-тренер составит его за пару минут.
+          </p>
+          <button className="btn btn-primary">Создать план</button>
+        </div>
+        <Rule>
+          Никогда не оставляй пустой блок просто пустым. Empty state нужен везде где может не быть данных:
+          нет тренировок на сегодня, нет учеников у тренера, нет результатов поиска, нет уведомлений.
+          Структура: <strong>лёгкая иконка с floatEmptyIcon анимацией</strong> (3.5s, translateY -8px, drop-shadow),
+          <strong> заголовок 1 строкой</strong>, <strong>1–2 строки объяснения</strong>, <strong>1 primary action</strong>.
+          Если действий нет — оставляй только заголовок и текст.
+        </Rule>
+      </Section>
+
+      {/* ─── Loading ───────────────────────────────────────────────── */}
+      <Section
+        id="loading"
+        title="Loading"
+        subtitle="Skeletons (shimmer), spinners, banner с прогрессом. По убыванию: shimmer для известной структуры, spinner для коротких задач, banner для длинных."
+      >
+        <div className="ds-loading-demo">
+          <div className="ds-loading-block">
+            <div className="ds-loading-block__label">Skeleton с shimmer (1.5s infinite)</div>
+            <div className="ds-skeleton-line" style={{ width: '70%' }} />
+            <div className="ds-skeleton-line" style={{ width: '50%' }} />
+            <div className="ds-skeleton-line" style={{ width: '85%' }} />
+          </div>
+          <div className="ds-loading-block">
+            <div className="ds-loading-block__label">Spinner</div>
+            <div className="ds-loading-spinners">
+              <div className="ds-spinner-demo" />
+              <div className="ds-spinner-demo ds-spinner-demo--lg" />
+            </div>
+          </div>
+          <div className="ds-loading-block">
+            <div className="ds-loading-block__label">Plan-generating banner (для долгих задач, 1+ минута)</div>
+            <div className="ds-banner-demo">
+              <span className="ds-spinner-demo" />
+              <span>Генерация плана... Это займёт 3–5 минут.</span>
+            </div>
+          </div>
+        </div>
+        <Rule>
+          Skeleton — для блоков с известной структурой (карточки, листы). Использует общий{' '}
+          <TokenCode>shimmer 1.5s infinite</TokenCode> keyframe из <TokenCode>SkeletonScreen.css</TokenCode>.
+          Spinner (<TokenCode>app-update-spin 0.8s linear infinite</TokenCode>) — для коротких action'ов внутри
+          кнопки/блока. Banner с спиннером — для долгих фоновых задач где пользователь должен подождать
+          (генерация плана, импорт тренировок). <strong>Не используй несколько spinner'ов на одном экране</strong>
+          — один источник «идёт работа».
+        </Rule>
+      </Section>
 
       {/* ─── Иконки ────────────────────────────────────────────────── */}
       <Section id="icons" title="Иконки" subtitle="Lucide-react: stroke 1.5–1.8, currentColor">
