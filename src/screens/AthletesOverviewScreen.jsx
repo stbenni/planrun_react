@@ -87,8 +87,11 @@ function pluralizeDays(n) {
  * либо null если внимание не требуется. Срабатывает первое попавшееся правило.
  */
 function getAttentionReason(athlete) {
+  if (!athlete.last_activity) {
+    return { kind: 'inactive', label: 'Нет ни одной отмеченной тренировки' };
+  }
   const days = daysAgo(athlete.last_activity);
-  if (days >= 7) {
+  if (Number.isFinite(days) && days >= 7) {
     return { kind: 'inactive', label: `${days} ${pluralizeDays(days)} без активности` };
   }
   if (athlete.week_completed !== undefined && athlete.week_total > 0) {

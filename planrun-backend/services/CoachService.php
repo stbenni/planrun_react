@@ -342,9 +342,34 @@ class CoachService extends BaseService {
     // ==================== АТЛЕТЫ ТРЕНЕРА ====================
 
     public function getCoachAthletes(int $coachId): array {
+        // Текущая ISO-неделя (понедельник–воскресенье) — единый диапазон для week_total/week_completed.
+        // users.last_activity нигде не обновляется автоматически, поэтому считаем реальную активность
+        // как дату последней отмеченной тренировки из workout_log.
+        $weekStart = date('Y-m-d', strtotime('monday this week'));
+        $weekEnd   = date('Y-m-d', strtotime('sunday this week'));
+
         $stmt = $this->db->prepare("
-            SELECT u.id, u.username, u.username_slug, u.avatar_path, u.last_activity,
+            SELECT u.id, u.username, u.username_slug, u.avatar_path,
                    u.goal_type, u.race_date, u.race_distance, u.race_target_time,
+                   (SELECT MAX(wl.training_date)
+                      FROM workout_log wl
+                     WHERE wl.user_id = u.id AND wl.is_completed = 1
+                   ) AS last_activity,
+                   (SELECT COUNT(*)
+                      FROM training_plan_days d
+                      JOIN training_plan_weeks w ON d.week_id = w.id
+                     WHERE w.user_id = u.id
+                       AND w.start_date <= ?
+                       AND DATE_ADD(w.start_date, INTERVAL 6 DAY) >= ?
+                       AND d.type IS NOT NULL
+                       AND d.type NOT IN ('rest', 'free')
+                   ) AS week_total,
+                   (SELECT COUNT(*)
+                      FROM workout_log wl
+                     WHERE wl.user_id = u.id
+                       AND wl.is_completed = 1
+                       AND wl.training_date BETWEEN ? AND ?
+                   ) AS week_completed,
                    (SELECT COUNT(*) FROM plan_notifications pn
                     WHERE pn.user_id = ? AND pn.type = 'athlete_result_logged'
                       AND pn.read_at IS NULL
@@ -353,9 +378,9 @@ class CoachService extends BaseService {
             FROM user_coaches uc
             JOIN users u ON uc.user_id = u.id
             WHERE uc.coach_id = ?
-            ORDER BY u.last_activity DESC
+            ORDER BY last_activity DESC
         ");
-        $stmt->bind_param("ii", $coachId, $coachId);
+        $stmt->bind_param("ssssii", $weekEnd, $weekStart, $weekStart, $weekEnd, $coachId, $coachId);
         $stmt->execute();
         $result = $stmt->get_result();
 
@@ -367,6 +392,8 @@ class CoachService extends BaseService {
                 'username_slug' => $row['username_slug'],
                 'avatar_path' => $row['avatar_path'],
                 'last_activity' => $row['last_activity'],
+                'week_total' => (int)$row['week_total'],
+                'week_completed' => (int)$row['week_completed'],
                 'has_new_activity' => (int)$row['unread_results'] > 0,
             ];
             if ($row['goal_type']) $athlete['goal_type'] = $row['goal_type'];
