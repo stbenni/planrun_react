@@ -44,7 +44,11 @@ register_shutdown_function(static function (): void {
         return;
     }
 
-    $db = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+    try {
+        $db = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+    } catch (Throwable) {
+        return;
+    }
     if ($db->connect_error) {
         return;
     }
