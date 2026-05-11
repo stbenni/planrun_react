@@ -61,19 +61,11 @@ class TokenStorageService {
   }
 
   async _getSecureStorage() {
-    if (this._storage) return this._storage;
-    if (!isNativeCapacitor()) return null;
-    try {
-      const { SecureStorage } = await import('@aparajita/capacitor-secure-storage');
-      await withTimeout(SecureStorage.setKeyPrefix('planrun_'), 3000);
-      this._storage = SecureStorage;
-      return this._storage;
-    } catch (e) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[TokenStorage] SecureStorage init failed:', e?.message);
-      }
-      return null;
-    }
+    // SecureStorage отключён: на Android KeyStore нестабилен (зависания, сброс
+    // после обновления ОС), плагин в Capacitor 8 ещё и шлёт неподдерживаемые
+    // вызовы вроде SecureStorage.then(), которые попадают в unhandled rejection.
+    // Preferences — единственный источник для native, localStorage — для web.
+    return null;
   }
 
   async getTokens() {

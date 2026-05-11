@@ -2,7 +2,14 @@
  * Server-Sent Events (SSE) — универсальный real-time для чатов и уведомлений
  * Поддерживает admin, ai, coach, direct (для будущих типов)
  * Singleton — одно соединение на приложение
+ *
+ * В Capacitor (native APK) SSE отключён: WebView origin = https://localhost,
+ * кросс-доменный EventSource не пробрасывает JWT и сессию, и приводит к
+ * непрерывным 404. Polling в useWorkoutRefreshStore/useChatUnread закрывает
+ * real-time UX в native до отдельной интеграции SSE с JWT в query string.
  */
+
+import { Capacitor } from '@capacitor/core';
 
 const listeners = new Set();
 let eventSource = null;
@@ -10,6 +17,14 @@ let unreadData = { total: 0, by_type: {} };
 let reconnectTimer = null;
 let reconnectDelay = 3000; // 3 сек при первой ошибке, не 1 — чтобы не спамить при падении соединения
 const MAX_RECONNECT_DELAY = 30000;
+
+function isNativeApp() {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+}
 
 function getSSEUrl() {
   const base = typeof window !== 'undefined' && window.location.origin ? `${window.location.origin}/api` : '/api';
@@ -44,6 +59,7 @@ function scheduleReconnect() {
 
 function connect() {
   if (typeof window === 'undefined') return;
+  if (isNativeApp()) return;
   if (eventSource && (eventSource.readyState === EventSource.OPEN || eventSource.readyState === EventSource.CONNECTING)) {
     return;
   }
