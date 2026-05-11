@@ -197,6 +197,72 @@
   border-left: 3px solid var(--error-500, #ef4444);
 }
 
+/* Вся карточка ученика — primary action «открыть план». Hover / focus подсвечивают что
+   карточка интерактивная; вложенные ссылки/кнопки ведут по своим адресам и не должны
+   срабатывать дважды (см. e.stopPropagation в AthleteCard). */
+.ao-card--clickable {
+  cursor: pointer;
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.ao-card--clickable:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary-500) 18%, var(--card-border));
+}
+
+.ao-card--clickable:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+/* Пилюля-объяснение причины «требует внимания»: ученик пропал / завалил compliance.
+   Тёплый orange tint, чтобы читалось как сигнал не алярм. */
+.ao-card-attention-reason {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.01em;
+  color: var(--primary-700, #C03000);
+  background: color-mix(in srgb, var(--primary-500) 10%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 22%, var(--card-border));
+}
+
+[data-theme="dark"] .ao-card-attention-reason {
+  color: var(--primary-300, #FF9D7A);
+  background: color-mix(in srgb, var(--primary-500) 18%, transparent);
+  border-color: color-mix(in srgb, var(--primary-500) 28%, transparent);
+}
+
+.ao-card-attention-reason__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--primary-500);
+  flex-shrink: 0;
+}
+
+/* Низкая compliance — жёлтый акцент (отличается от «не было активности»). */
+.ao-card-attention-reason--compliance {
+  color: var(--warning-600, #CA8A04);
+  background: color-mix(in srgb, var(--warning-500, #EAB308) 12%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--warning-500, #EAB308) 26%, var(--card-border));
+}
+
+.ao-card-attention-reason--compliance .ao-card-attention-reason__dot {
+  background: var(--warning-500, #EAB308);
+}
+
+[data-theme="dark"] .ao-card-attention-reason--compliance {
+  color: #FACC15;
+  background: rgba(234, 179, 8, 0.16);
+  border-color: rgba(234, 179, 8, 0.32);
+}
+
 .ao-card-avatar {
   flex-shrink: 0;
   width: 56px;

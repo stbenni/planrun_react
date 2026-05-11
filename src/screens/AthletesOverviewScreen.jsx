@@ -74,14 +74,37 @@ function formatLastActivity(dateStr) {
   return new Date(dateStr).toLocaleDateString('ru');
 }
 
-function needsAttention(athlete) {
+function pluralizeDays(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'день';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня';
+  return 'дней';
+}
+
+/**
+ * Возвращает причину почему ученик в секции «Требуют внимания»,
+ * либо null если внимание не требуется. Срабатывает первое попавшееся правило.
+ */
+function getAttentionReason(athlete) {
   const days = daysAgo(athlete.last_activity);
-  if (days >= 7) return true;
+  if (days >= 7) {
+    return { kind: 'inactive', label: `${days} ${pluralizeDays(days)} без активности` };
+  }
   if (athlete.week_completed !== undefined && athlete.week_total > 0) {
     const compliance = athlete.week_completed / athlete.week_total;
-    if (compliance < 0.5) return true;
+    if (compliance < 0.5) {
+      return {
+        kind: 'compliance',
+        label: `Выполнил ${athlete.week_completed} из ${athlete.week_total} на неделе`,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+function needsAttention(athlete) {
+  return getAttentionReason(athlete) !== null;
 }
 
 function getComplianceColor(completed, total) {
@@ -256,7 +279,14 @@ export default function AthletesOverviewScreen() {
           </h2>
           <div className="athletes-list">
             {sortedAttention.map(a => (
-              <AthleteCard key={a.id} athlete={a} navigate={navigate} api={api} attention />
+              <AthleteCard
+                key={a.id}
+                athlete={a}
+                navigate={navigate}
+                api={api}
+                attention
+                attentionReason={getAttentionReason(a)}
+              />
             ))}
           </div>
         </section>
@@ -292,7 +322,7 @@ export default function AthletesOverviewScreen() {
   );
 }
 
-function AthleteCard({ athlete, navigate, api, attention }) {
+function AthleteCard({ athlete, navigate, api, attention, attentionReason = null }) {
   const a = athlete;
   const hasCompliance = a.week_total !== undefined && a.week_total > 0;
   const compliancePct = hasCompliance ? Math.round((a.week_completed / a.week_total) * 100) : null;
@@ -301,9 +331,31 @@ function AthleteCard({ athlete, navigate, api, attention }) {
   const goalInfo = formatGoalInfo(a);
   const raceDate = formatRaceDate(a.race_date);
 
+  const openCalendar = () => navigate(`/calendar?athlete=${a.username_slug}`);
+  // primary action всей карточки — открыть план ученика в календаре.
+  // Нажатия на вложенные ссылки/кнопки не должны срабатывать дважды.
+  const handleCardClick = (e) => {
+    if (e.target.closest('a, button')) return;
+    openCalendar();
+  };
+  const handleCardKeyDown = (e) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openCalendar();
+    }
+  };
+
   return (
-    <div className={`ao-card card card--interactive ${attention ? 'ao-card--attention' : ''}`}>
-      <Link to={`/${a.username_slug}`} className="ao-card-avatar">
+    <div
+      className={`ao-card card card--interactive ao-card--clickable ${attention ? 'ao-card--attention' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      aria-label={`Открыть план ученика ${a.username}`}
+    >
+      <Link to={`/${a.username_slug}`} className="ao-card-avatar" onClick={(e) => e.stopPropagation()}>
         {a.avatar_path ? (
           <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" />
         ) : (
@@ -312,7 +364,7 @@ function AthleteCard({ athlete, navigate, api, attention }) {
       </Link>
       <div className="ao-card-body">
         <div className="ao-card-top">
-          <Link to={`/${a.username_slug}`} className="ao-card-name">
+          <Link to={`/${a.username_slug}`} className="ao-card-name" onClick={(e) => e.stopPropagation()}>
             {a.username}
             {a.has_new_activity && <span className="ao-card-new-badge">Новое</span>}
           </Link>
@@ -320,6 +372,15 @@ function AthleteCard({ athlete, navigate, api, attention }) {
             {formatLastActivity(a.last_activity)}
           </span>
         </div>
+        {attentionReason && (
+          <div
+            className={`ao-card-attention-reason ao-card-attention-reason--${attentionReason.kind}`}
+            role="note"
+          >
+            <span className="ao-card-attention-reason__dot" aria-hidden />
+            <span className="ao-card-attention-reason__label">{attentionReason.label}</span>
+          </div>
+        )}
         {(goalInfo || raceDate) && (
           <div className="ao-card-goal">
             {goalInfo && <span className="ao-card-goal-type">{goalInfo}</span>}
@@ -352,13 +413,13 @@ function AthleteCard({ athlete, navigate, api, attention }) {
           </div>
         )}
         <div className="ao-card-actions">
-          <button className="btn btn-primary btn--sm" onClick={() => navigate(`/calendar?athlete=${a.username_slug}`)}>
+          <button className="btn btn-primary btn--sm" onClick={(e) => { e.stopPropagation(); openCalendar(); }}>
             Календарь
           </button>
-          <button className="btn btn-secondary btn--sm" onClick={() => navigate(`/${a.username_slug}`)}>
+          <button className="btn btn-secondary btn--sm" onClick={(e) => { e.stopPropagation(); navigate(`/${a.username_slug}`); }}>
             Профиль
           </button>
-          <button className="btn btn-ghost btn--sm" onClick={() => navigate(`/chat?contact=${a.username_slug}`)}>
+          <button className="btn btn-ghost btn--sm" onClick={(e) => { e.stopPropagation(); navigate(`/chat?contact=${a.username_slug}`); }}>
             Написать
           </button>
         </div>
