@@ -170,16 +170,22 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
-  margin-bottom: var(--space-8);
-  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-border));
-  background: color-mix(in srgb, var(--app-background-base) 84%, transparent);
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 calc(-1 * var(--space-4)) var(--space-8);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 14%, var(--card-border));
+  /* Plain card bg + warm shadow вместо полупрозрачного blur — на светлой теме
+     прозрачный TOC был визуально невидим на app-background. */
+  background: var(--card-bg);
+  box-shadow:
+    0 8px 22px -8px rgba(252, 76, 2, 0.14),
+    0 2px 6px -2px rgba(15, 23, 42, 0.06);
 }
 
-.ds-screen[data-theme="light"] .ds-toc {
-  background: color-mix(in srgb, #FAF5F0 86%, transparent);
+[data-theme="dark"] .ds-toc {
+  box-shadow:
+    0 8px 24px -6px rgba(0, 0, 0, 0.45),
+    0 2px 6px -2px rgba(0, 0, 0, 0.25);
 }
 
 .ds-toc-link {
@@ -200,14 +206,30 @@
   border-color: color-mix(in srgb, var(--primary-500) 22%, var(--card-border));
 }
 
-/* Section */
+/* Section — каждая секция явно elevated как карточка.
+   Это решает «flat» проблему светлой темы где card-bg vs app-bg различаются 4%. */
 .ds-section {
-  margin-bottom: var(--space-12);
+  margin-bottom: var(--space-6);
   max-width: 1080px;
+  padding: var(--space-6) var(--space-6) var(--space-7);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 6px 16px -4px rgba(252, 76, 2, 0.10),
+    0 2px 6px -2px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="dark"] .ds-section {
+  box-shadow:
+    0 8px 24px -6px rgba(0, 0, 0, 0.40),
+    0 2px 6px -2px rgba(0, 0, 0, 0.20);
 }
 
 .ds-section-header {
   margin-bottom: var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-border));
 }
 
 .ds-section-title {
@@ -273,16 +295,18 @@
   gap: var(--space-2);
   padding: var(--space-3);
   border-radius: var(--radius-lg);
-  background: var(--card-bg);
+  /* На белой section-card swatches уходят в bg-secondary — субтильное снижение
+     яркости создаёт второй уровень иерархии. */
+  background: var(--bg-secondary);
   border: 1px solid var(--card-border);
-  box-shadow: 0 4px 12px -3px rgba(252, 76, 2, 0.10), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 2px 8px -2px rgba(252, 76, 2, 0.08);
   transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
 }
 
 .ds-swatch:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--card-border));
-  box-shadow: 0 10px 24px -6px rgba(252, 76, 2, 0.18), 0 4px 8px -2px rgba(15, 23, 42, 0.08);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--card-border));
+  box-shadow: 0 12px 24px -8px rgba(252, 76, 2, 0.22), 0 4px 10px -2px rgba(15, 23, 42, 0.06);
 }
 
 .ds-swatch__chip {
@@ -1230,14 +1254,21 @@
 .ds-principles-list li {
   position: relative;
   padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 36px);
-  background: var(--card-bg);
+  background: var(--bg-secondary);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 12px -4px rgba(252, 76, 2, 0.10);
   font-size: var(--text-sm);
   line-height: 1.55;
   color: var(--text-secondary);
   counter-increment: principle;
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.ds-principles-list li:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--card-border));
+  box-shadow: 0 10px 22px -6px rgba(252, 76, 2, 0.16);
 }
 
 .ds-principles-list li::before {
@@ -1260,13 +1291,21 @@
 
 .ds-rule {
   position: relative;
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
   padding: var(--space-4) var(--space-5);
   padding-left: calc(var(--space-5) + 6px);
-  background: color-mix(in srgb, var(--primary-500) 5%, var(--card-bg));
-  border: 1px solid color-mix(in srgb, var(--primary-500) 18%, var(--card-border));
+  /* Background сильнее (12% mix) и с warm-shadow — Rule должен явно выделяться
+     внутри секции, иначе агент его пропустит. */
+  background: color-mix(in srgb, var(--primary-500) 9%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 28%, var(--card-border));
   border-radius: var(--radius-md);
   border-left: none;
+  box-shadow: 0 4px 12px -4px rgba(252, 76, 2, 0.12);
+}
+
+[data-theme="dark"] .ds-rule {
+  background: color-mix(in srgb, var(--primary-500) 14%, var(--bg-secondary));
+  box-shadow: 0 6px 18px -4px rgba(0, 0, 0, 0.30);
 }
 
 .ds-rule::before {
@@ -1697,6 +1736,25 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ds-skeleton-line { animation: none; }
+}
+
+/* ─── Иерархия слоёв внутри section ─────────────────────────
+   .ds-section теперь явная карточка card-bg (с тенью).
+   Все вложенные demo-блоки должны быть на bg-secondary,
+   чтобы создавалась 3-уровневая иерархия:
+     app-background-base → section card-bg → inner bg-secondary.
+   Иначе всё сливается в один белый плоский слой на светлой теме. */
+.ds-section .ds-radius-cell,
+.ds-section .ds-icon-cell,
+.ds-section .ds-anim-cell,
+.ds-section .ds-modal-type,
+.ds-section .ds-loading-block,
+.ds-section .ds-text-colors,
+.ds-section .ds-theme-compare,
+.ds-section .ds-type-font-card,
+.ds-section .ds-type-headings,
+.ds-section .ds-empty-demo {
+  background: var(--bg-secondary);
 }
 
 /* Footer */
