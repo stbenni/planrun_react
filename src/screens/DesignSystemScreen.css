@@ -1435,7 +1435,7 @@
   color: var(--danger-500, #EF4444);
 }
 
-/* ─── Модалки (текстовые карточки-описания) ─────────────────── */
+/* ─── Модалки ──────────────────────────────────────────────── */
 
 .ds-modal-types {
   display: grid;
@@ -1444,11 +1444,104 @@
 }
 
 .ds-modal-type {
+  display: flex;
+  flex-direction: column;
   padding: var(--space-4) var(--space-5);
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
+}
+
+.ds-modal-type__actions {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Actions row внутри модалок (Confirm / Cancel / Save и т.п.) */
+.ds-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--card-border);
+}
+
+/* ─── Popover / dropdown demo ───────────────────────────────── */
+
+.ds-popover-host {
+  position: relative;
+  display: inline-block;
+}
+
+/* Невидимая зона захвата клика вне popover'a */
+.ds-popover-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
+.ds-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  min-width: 220px;
+  padding: 6px;
+  background: var(--card-bg);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--card-border));
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 18px 38px -10px rgba(15, 23, 42, 0.20),
+    0 6px 16px -4px rgba(252, 76, 2, 0.12);
+  animation: ds-popover-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes ds-popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ds-popover__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+
+.ds-popover__item:hover {
+  background: color-mix(in srgb, var(--primary-500) 10%, var(--card-bg));
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .ds-popover__item:hover {
+  background: color-mix(in srgb, var(--primary-500) 18%, var(--bg-secondary));
+  color: var(--primary-300);
+}
+
+.ds-popover__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--card-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-popover { animation: none; }
 }
 
 .ds-modal-type strong {

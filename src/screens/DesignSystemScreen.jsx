@@ -220,6 +220,9 @@ export default function DesignSystemScreen() {
   const isAdmin = user?.role === 'admin';
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   // Scoped theme только для этой страницы — не трогаем глобальный document.
   // CSS-селекторы [data-theme="dark"] на ancestor работают для всех потомков.
   const [theme, setTheme] = useState('light');
@@ -929,25 +932,157 @@ border: 1px solid color-mix(in srgb, var(--success-500) 28%, var(--card-border))
             <strong>.app-modal — центрированная</strong>
             <p>Для подтверждений, форм средней сложности, выбора опций. Backdrop blur(4px) + rgba(0,0,0,0.6).</p>
             <p>Анимация: <TokenCode>appModalFadeIn</TokenCode> + <TokenCode>appModalSlideIn</TokenCode> с bouncy overshoot <TokenCode>cubic-bezier(0.34, 1.56, 0.64, 1)</TokenCode>.</p>
+            <div className="ds-modal-type__actions">
+              <button className="btn btn-secondary btn--sm" onClick={() => setConfirmOpen(true)}>
+                Confirm (.modal-small)
+              </button>
+              <button className="btn btn-secondary btn--sm" onClick={() => setFormModalOpen(true)}>
+                Form (default)
+              </button>
+            </div>
           </div>
           <div className="ds-modal-type">
             <strong>Bottom-sheet — снизу</strong>
             <p>Для деталей с длинным контентом (план тренировки, профиль), action sheets на мобиле. radius 28px 28px 0 0. Drag-handle сверху.</p>
             <p>Пример выше в секции «Детали тренировки».</p>
+            <div className="ds-modal-type__actions">
+              <button className="btn btn-secondary btn--sm" onClick={() => setSheetOpen(true)}>
+                Открыть пример
+              </button>
+            </div>
           </div>
           <div className="ds-modal-type">
             <strong>Dropdown / popover</strong>
             <p>Для menu, мини-подсказок, выбора пары опций. <TokenCode>header-dropdown-in</TokenCode> 200ms — opacity + <TokenCode>translateY(-4px) → 0</TokenCode>.</p>
             <p>Использовать когда контента &lt; 200px высоты.</p>
+            <div className="ds-modal-type__actions">
+              <div className="ds-popover-host">
+                <button
+                  className="btn btn-secondary btn--sm"
+                  onClick={() => setPopoverOpen(v => !v)}
+                  aria-expanded={popoverOpen}
+                >
+                  Открыть popover ▾
+                </button>
+                {popoverOpen && (
+                  <>
+                    <div className="ds-popover-scrim" onClick={() => setPopoverOpen(false)} />
+                    <div className="ds-popover" role="menu">
+                      <button className="ds-popover__item" role="menuitem" onClick={() => setPopoverOpen(false)}>
+                        <PenLineIcon size={16} /> Редактировать
+                      </button>
+                      <button className="ds-popover__item" role="menuitem" onClick={() => setPopoverOpen(false)}>
+                        <TrashIcon size={16} /> Удалить
+                      </button>
+                      <div className="ds-popover__divider" />
+                      <button className="ds-popover__item" role="menuitem" onClick={() => setPopoverOpen(false)}>
+                        <SettingsIcon size={16} /> Настройки
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-        <Rule>
-          <strong>Никогда не делай свою модалку с нуля.</strong> Используй <TokenCode>.app-modal</TokenCode> +{' '}
-          <TokenCode>.app-modal-content</TokenCode> для центрированных, паттерн{' '}
-          <TokenCode>WorkoutSheetDemo</TokenCode> (или <TokenCode>WorkoutSheet.jsx</TokenCode> когда вытащим
-          как переиспользуемый) для bottom-sheet. backdrop всегда с blur, чтобы контент сзади не отвлекал.
+        <Rule
+          snippet={`{open && (
+  <div className="app-modal" onClick={onClose}>
+    <div className="app-modal-content modal-small" onClick={(e) => e.stopPropagation()}>
+      <div className="app-modal-header">
+        <div className="app-modal-header-left">
+          <h2>Заголовок</h2>
+          <p className="app-modal-header-subtitle">Подпись (опц.)</p>
+        </div>
+        <div className="app-modal-header-right">
+          <button className="app-modal-close" onClick={onClose} aria-label="Закрыть">×</button>
+        </div>
+      </div>
+      <div className="app-modal-body">
+        <p>Содержимое...</p>
+        <div className="ds-modal-actions">
+          <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
+          <button className="btn btn-primary" onClick={onConfirm}>Подтвердить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}`}
+        >
+          <strong>Никогда не пиши свою модалку с нуля.</strong> Используй{' '}
+          <TokenCode>.app-modal</TokenCode> + <TokenCode>.app-modal-content</TokenCode>{' '}
+          (вариант: <TokenCode>.modal-small</TokenCode> 400px / default 600px / <TokenCode>.modal-large</TokenCode> 900px /{' '}
+          <TokenCode>.modal-xlarge</TokenCode> 1200px). Backdrop click → <TokenCode>onClose</TokenCode>{' '}
+          (но `stopPropagation` на content). Кнопка X с <TokenCode>.app-modal-close</TokenCode>.
+          Для bottom-sheet — паттерн WorkoutSheetDemo выше.
         </Rule>
       </Section>
+
+      {confirmOpen && (
+        <div className="app-modal" onClick={() => setConfirmOpen(false)} role="presentation">
+          <div className="app-modal-content modal-small" onClick={(e) => e.stopPropagation()}>
+            <div className="app-modal-header">
+              <div className="app-modal-header-left">
+                <h2>Удалить тренировку?</h2>
+                <p className="app-modal-header-subtitle">Действие нельзя отменить</p>
+              </div>
+              <div className="app-modal-header-right">
+                <button className="app-modal-close" onClick={() => setConfirmOpen(false)} aria-label="Закрыть">×</button>
+              </div>
+            </div>
+            <div className="app-modal-body">
+              <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                Тренировка «Темповая · 8 км» от 11 мая будет удалена. Результаты и заметки тоже удалятся.
+              </p>
+              <div className="ds-modal-actions">
+                <button className="btn btn-secondary" onClick={() => setConfirmOpen(false)}>Отмена</button>
+                <button className="btn btn-primary" onClick={() => setConfirmOpen(false)}>Удалить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {formModalOpen && (
+        <div className="app-modal" onClick={() => setFormModalOpen(false)} role="presentation">
+          <div className="app-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="app-modal-header">
+              <div className="app-modal-header-left">
+                <h2>Новая тренировка</h2>
+                <p className="app-modal-header-subtitle">Добавить вручную</p>
+              </div>
+              <div className="app-modal-header-right">
+                <button className="app-modal-close" onClick={() => setFormModalOpen(false)} aria-label="Закрыть">×</button>
+              </div>
+            </div>
+            <div className="app-modal-body">
+              <div className="ds-form-grid">
+                <label className="ds-field">
+                  <span className="ds-field__label">Тип</span>
+                  <select className="ds-field__input" defaultValue="easy">
+                    <option value="easy">Лёгкий бег</option>
+                    <option value="tempo">Темповая</option>
+                    <option value="interval">Интервалы</option>
+                    <option value="long">Длительная</option>
+                  </select>
+                </label>
+                <label className="ds-field">
+                  <span className="ds-field__label">Дистанция (км)</span>
+                  <input className="ds-field__input" type="text" defaultValue="8" />
+                </label>
+                <label className="ds-field ds-field--full">
+                  <span className="ds-field__label">Заметка</span>
+                  <textarea className="ds-field__input ds-field__input--textarea" rows={3} placeholder="Описание тренировки..." />
+                </label>
+              </div>
+              <div className="ds-modal-actions">
+                <button className="btn btn-secondary" onClick={() => setFormModalOpen(false)}>Отмена</button>
+                <button className="btn btn-primary" onClick={() => setFormModalOpen(false)}>Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Glass surfaces ───────────────────────────────────────── */}
       <Section
