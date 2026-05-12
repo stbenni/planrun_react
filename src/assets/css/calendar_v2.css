@@ -194,7 +194,7 @@ h1 {
    CONTROLS BAR - Sticky navigation
    ======================================== */
 .controls {
-    background: white;
+    background: var(--card-bg);
     padding: var(--space-5) var(--space-12);
     border-bottom: 1px solid var(--gray-200);
     display: flex;
@@ -498,7 +498,7 @@ h1 {
    ======================================== */
 .training-cell {
     position: relative;
-    background: white;
+    background: var(--card-bg);
     border-radius: var(--radius-lg);
     padding: var(--space-3) var(--space-3);
     min-height: 130px;
@@ -755,7 +755,7 @@ h1 {
     width: 32px;
     height: 32px;
     padding: 0;
-    background: white;
+    background: var(--card-bg);
     color: var(--primary-500);
     border: 2px solid var(--gray-200);
     border-radius: var(--radius-lg);
@@ -789,7 +789,7 @@ h1 {
     bottom: 0;
     left: 0;
     right: 0;
-    background: white;
+    background: var(--card-bg);
     border-top: 1px solid var(--gray-200);
     box-shadow: 0 -4px 12px rgba(0,0,0,0.08);
     z-index: 999;
@@ -851,7 +851,7 @@ h1 {
 /* @keyframes fadeIn — унифицирован в src/styles/animations.css (v3.11) */
 
 .modal-content {
-    background: white;
+    background: var(--card-bg);
     margin: 5% auto;
     padding: 0;
     border-radius: var(--radius-2xl);
@@ -1008,7 +1008,7 @@ h1 {
    TODAY DASHBOARD - Карточка сегодняшнего дня
    ======================================== */
 .today-dashboard {
-    background: white;
+    background: var(--card-bg);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
@@ -1441,7 +1441,7 @@ h1 {
     font-size: var(--text-base);
     font-weight: var(--font-semibold);
     border: 1.5px solid var(--gray-300);
-    background: white;
+    background: var(--card-bg);
     color: var(--gray-900);
     cursor: pointer;
     transition: all var(--transition-base);
@@ -1827,7 +1827,7 @@ h1 {
    ======================================== */
 @media print {
     body { 
-        background: white; 
+        background: var(--card-bg); 
     }
     .header, .controls, .legend { 
         display: none; 

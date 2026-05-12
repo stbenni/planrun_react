@@ -21,7 +21,7 @@
 /* @keyframes fadeIn / slideUp — унифицированы в src/styles/animations.css (v3.11) */
 
 .modal-modern-content {
-  background: white;
+  background: var(--card-bg);
   border-radius: 20px;
   max-width: 600px;
   width: 100%;

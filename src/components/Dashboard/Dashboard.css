@@ -991,7 +991,7 @@ body.dashboard-customizer-dragging {
   font-size: 14px;
   line-height: 1;
   border: 1px solid var(--gray-300);
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--gray-600);

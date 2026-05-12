@@ -91,7 +91,7 @@
 }
 
 .trainers-placeholder .btn.trainers-apply-btn:hover:not(:disabled) {
-  background: white;
+  background: var(--card-bg);
   color: var(--primary-700);
   border-color: white;
   box-shadow: 0 20px 42px rgba(0, 0, 0, 0.24);
