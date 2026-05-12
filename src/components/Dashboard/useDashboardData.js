@@ -257,23 +257,6 @@ function buildMetrics(summaryObj, allResults, plan, workoutsList) {
   const workouts = filtered.length;
   const timeMin = filtered.reduce((s, w) => s + (parseFloat(w.duration_minutes ?? w.duration ?? 0) || 0), 0);
 
-  console.log('[buildMetrics]', {
-    planCats: [...planCats],
-    hasWalking,
-    mondayStr: monday.toISOString().slice(0, 10),
-    totalWorkoutsList: (workoutsList || []).length,
-    filteredCount: filtered.length,
-    filtered: filtered.map(w => ({
-      date: w.date ?? w.start_time?.split?.('T')?.[0],
-      type: w.activity_type ?? w.activity_type_name,
-      dist: w.distance_km ?? w.distance,
-      dur: w.duration_minutes ?? w.duration,
-    })),
-    distance: Math.round(distance * 10) / 10,
-    workouts,
-    timeHrs: Math.round(timeMin / 60),
-  });
-
   return {
     distance: Math.round(distance * 10) / 10,
     workouts,
