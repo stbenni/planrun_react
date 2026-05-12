@@ -258,7 +258,7 @@
 }
 
 [data-theme="dark"] .ao-card-attention-reason--compliance {
-  color: #FACC15;
+  color: var(--warning-500);
   background: rgba(234, 179, 8, 0.16);
   border-color: rgba(234, 179, 8, 0.32);
 }

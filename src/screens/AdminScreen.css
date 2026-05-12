@@ -916,7 +916,7 @@
 
 .admin-template-status.is-custom {
   background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  color: var(--success-700);
 }
 
 .admin-template-updated {

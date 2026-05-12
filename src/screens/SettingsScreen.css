@@ -1042,7 +1042,7 @@ img.notification-mobile-channel-row-icon {
 
 .notification-log-status.is-sent {
   background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  color: var(--success-700);
 }
 
 .notification-log-status.is-failed {
@@ -1062,7 +1062,7 @@ img.notification-mobile-channel-row-icon {
 
 .notification-log-status.is-digest {
   background: rgba(14, 165, 233, 0.12);
-  color: #0369a1;
+  color: var(--info-600);
 }
 
 .notification-log-meta,
