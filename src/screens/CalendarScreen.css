@@ -530,9 +530,7 @@
   animation: spin 0.7s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/* @keyframes spin — унифицирован в src/styles/animations.css (v3.11) */
 
 [data-theme="dark"] .btn-recalculate {
   background: var(--card-surface-compact-bg);

@@ -90,9 +90,7 @@
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/* @keyframes spin — унифицирован в src/styles/animations.css (v3.11) */
 
 /* Баннер «План генерируется» / «Ошибка генерации» — в стиле темы (primary/danger) */
 .plan-generation-notice {

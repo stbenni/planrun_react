@@ -1455,10 +1455,7 @@
 .goal-assessment-card__icon--spin {
   animation: spin 1.2s linear infinite;
 }
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+/* @keyframes spin — унифицирован в src/styles/animations.css (v3.11) */
 
 .goal-assessment-card__msg {
   padding: var(--space-2) var(--space-3);

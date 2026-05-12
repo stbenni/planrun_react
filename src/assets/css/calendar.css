@@ -545,10 +545,7 @@ h1 {
     }
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+/* @keyframes fadeIn — унифицирован в src/styles/animations.css (v3.11) */
 
 .modal-content {
     background: white;

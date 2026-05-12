@@ -893,7 +893,7 @@
 
 .week-selected-day {
   margin-top: 24px;
-  animation: slideUp 300ms ease;
+  animation: week-selected-day-slide-up 300ms ease;
 }
 
 .week-selected-day-two-blocks {
@@ -974,7 +974,9 @@
   font-weight: var(--font-normal);
 }
 
-@keyframes slideUp {
+/* Уникальный keyframe для .week-selected-day — слайд 10px (не путать с
+   глобальным slideUp 20px из animations.css). v3.11 rename. */
+@keyframes week-selected-day-slide-up {
   from {
     opacity: 0;
     transform: translateY(10px);

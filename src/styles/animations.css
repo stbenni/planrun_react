@@ -125,6 +125,14 @@
   }
 }
 
+/* Универсальный spin — для loader-иконок. Использовать
+   `animation: spin Ns linear infinite;`. Раньше дублировался в Dashboard.css,
+   CalendarScreen.css, RegisterScreen.css — теперь единый источник. */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 .loading,
 .dashboard-loading,
 .stats-loading {

@@ -848,10 +848,7 @@ h1 {
     }
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+/* @keyframes fadeIn — унифицирован в src/styles/animations.css (v3.11) */
 
 .modal-content {
     background: white;
@@ -1937,10 +1934,12 @@ h1 {
 }
 
 .training-category-selection {
-    animation: fadeIn 0.3s ease;
+    animation: training-category-fade-in 0.3s ease;
 }
 
-@keyframes fadeIn {
+/* Уникальный keyframe для .training-category-selection — не путать с глобальным
+   fadeIn (opacity-only) из animations.css. Здесь дополнительно слайд снизу 10px. */
+@keyframes training-category-fade-in {
     from {
         opacity: 0;
         transform: translateY(10px);
