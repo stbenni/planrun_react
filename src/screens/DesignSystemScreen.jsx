@@ -986,51 +986,70 @@ border: 1px solid color-mix(in srgb, var(--success-500) 28%, var(--card-border))
           </div>
         </div>
         <Rule
-          snippet={`{open && (
-  <div className="app-modal" onClick={onClose}>
-    <div className="app-modal-content modal-small" onClick={(e) => e.stopPropagation()}>
-      <div className="app-modal-header">
-        <div className="app-modal-header-left">
-          <h2>Заголовок</h2>
-          <p className="app-modal-header-subtitle">Подпись (опц.)</p>
-        </div>
-        <div className="app-modal-header-right">
-          <button className="app-modal-close" onClick={onClose} aria-label="Закрыть">×</button>
-        </div>
-      </div>
-      <div className="app-modal-body">
-        <p>Содержимое...</p>
-        <div className="ds-modal-actions">
-          <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
-          <button className="btn btn-primary" onClick={onConfirm}>Подтвердить</button>
-        </div>
-      </div>
-    </div>
+          snippet={`import Modal from '../components/common/Modal';
+
+// Confirm
+<Modal
+  isOpen={open}
+  onClose={() => setOpen(false)}
+  title="Удалить тренировку?"
+  headerSubtitle="Действие нельзя отменить"
+  size="small"
+  variant="modern"
+>
+  <p>Тренировка от 11 мая будет удалена.</p>
+  <div className="ds-modal-actions">
+    <button className="btn btn-secondary" onClick={() => setOpen(false)}>Отмена</button>
+    <button className="btn btn-primary" onClick={handleDelete}>Удалить</button>
   </div>
-)}`}
+</Modal>
+
+// Form (полноэкранная на мобиле)
+<Modal
+  isOpen={open}
+  onClose={onClose}
+  title="Новая тренировка"
+  size="medium"
+  variant="modern"
+  mobilePresentation="fullscreen"
+>
+  <form>...</form>
+</Modal>`}
         >
-          <strong>Никогда не пиши свою модалку с нуля.</strong> Используй{' '}
-          <TokenCode>.app-modal</TokenCode> + <TokenCode>.app-modal-content</TokenCode>{' '}
-          (вариант: <TokenCode>.modal-small</TokenCode> 400px / default 600px / <TokenCode>.modal-large</TokenCode> 900px /{' '}
-          <TokenCode>.modal-xlarge</TokenCode> 1200px). Backdrop click → <TokenCode>onClose</TokenCode>{' '}
-          (но `stopPropagation` на content). Кнопка X с <TokenCode>.app-modal-close</TokenCode>.
-          Для bottom-sheet — паттерн WorkoutSheetDemo выше.
+          <strong>Используй готовый <TokenCode>{'<Modal>'}</TokenCode> компонент</strong> из{' '}
+          <TokenCode>src/components/common/Modal.jsx</TokenCode> — не пиши свой div с{' '}
+          <TokenCode>.app-modal</TokenCode> руками. Wrapper делает createPortal в{' '}
+          <TokenCode>#modal-root</TokenCode>, lock body scroll, ESC handler, focus management,
+          aria attrs — всё бесплатно.
+          <br /><br />
+          Production использует <strong><TokenCode>variant="modern"</TokenCode></strong>{' '}
+          (gradient-primary header, white text) и <strong><TokenCode>mobilePresentation="fullscreen"</TokenCode></strong>{' '}
+          (на мобиле модалка раскрывается на весь экран). Size: <TokenCode>small</TokenCode> 400 /{' '}
+          <TokenCode>medium</TokenCode> 600 / <TokenCode>large</TokenCode> 900 /{' '}
+          <TokenCode>xlarge</TokenCode> 1200 / <TokenCode>fullscreen</TokenCode>. Confirm-модалки —{' '}
+          <TokenCode>small</TokenCode>, формы — <TokenCode>medium</TokenCode> + fullscreen на мобиле.
         </Rule>
       </Section>
 
+      {/* Preview confirm — отрисован визуально как <Modal variant="modern" size="small">.
+          Используем raw HTML вместо <Modal> чтобы scoped theme страницы работал
+          (Modal через portal рендерится вне .ds-screen и игнорирует data-theme на нас).
+          В реальном коде использовать <Modal /> wrapper — см. snippet в Rule. */}
       {confirmOpen && (
-        <div className="app-modal" onClick={() => setConfirmOpen(false)} role="presentation">
-          <div className="app-modal-content modal-small" onClick={(e) => e.stopPropagation()}>
-            <div className="app-modal-header">
+        <div className="app-modal app-modal--modern" onClick={() => setConfirmOpen(false)} role="presentation">
+          <div className="app-modal-content app-modal-content--modern modal-small" onClick={(e) => e.stopPropagation()}>
+            <div className="app-modal-header app-modal-header--modern">
               <div className="app-modal-header-left">
                 <h2>Удалить тренировку?</h2>
                 <p className="app-modal-header-subtitle">Действие нельзя отменить</p>
               </div>
               <div className="app-modal-header-right">
-                <button className="app-modal-close" onClick={() => setConfirmOpen(false)} aria-label="Закрыть">×</button>
+                <button className="app-modal-close app-modal-close--modern" onClick={() => setConfirmOpen(false)} aria-label="Закрыть">
+                  <CloseIcon className="modal-close-icon" />
+                </button>
               </div>
             </div>
-            <div className="app-modal-body">
+            <div className="app-modal-body app-modal-body--modern">
               <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                 Тренировка «Темповая · 8 км» от 11 мая будет удалена. Результаты и заметки тоже удалятся.
               </p>
@@ -1044,18 +1063,20 @@ border: 1px solid color-mix(in srgb, var(--success-500) 28%, var(--card-border))
       )}
 
       {formModalOpen && (
-        <div className="app-modal" onClick={() => setFormModalOpen(false)} role="presentation">
-          <div className="app-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="app-modal-header">
+        <div className="app-modal app-modal--modern" onClick={() => setFormModalOpen(false)} role="presentation">
+          <div className="app-modal-content app-modal-content--modern" onClick={(e) => e.stopPropagation()}>
+            <div className="app-modal-header app-modal-header--modern">
               <div className="app-modal-header-left">
                 <h2>Новая тренировка</h2>
                 <p className="app-modal-header-subtitle">Добавить вручную</p>
               </div>
               <div className="app-modal-header-right">
-                <button className="app-modal-close" onClick={() => setFormModalOpen(false)} aria-label="Закрыть">×</button>
+                <button className="app-modal-close app-modal-close--modern" onClick={() => setFormModalOpen(false)} aria-label="Закрыть">
+                  <CloseIcon className="modal-close-icon" />
+                </button>
               </div>
             </div>
-            <div className="app-modal-body">
+            <div className="app-modal-body app-modal-body--modern">
               <div className="ds-form-grid">
                 <label className="ds-field">
                   <span className="ds-field__label">Тип</span>
