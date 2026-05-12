@@ -21,6 +21,8 @@ build/
 .env.backup_*
 *.env.bak
 *.env.backup
+*.php.bak
+*.js.bak
 
 # IDE
 .vscode/
