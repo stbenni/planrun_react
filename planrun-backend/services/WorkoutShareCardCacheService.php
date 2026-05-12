@@ -515,7 +515,7 @@ class WorkoutShareCardCacheService extends BaseService {
     private function assertInfrastructureAvailable(): void {
         if (!$this->isInfrastructureAvailable()) {
             throw new RuntimeException(
-                'Кэш карточек шаринга недоступен. Выполните php scripts/migrate_all.php или php scripts/migrate_workout_share_cards.php',
+                'Кэш карточек шаринга недоступен. Выполните php scripts/migrate_all.php или php scripts/_applied_migrations/migrate_workout_share_cards.php',
                 503
             );
         }
