@@ -1120,10 +1120,8 @@ class WorkoutService extends BaseService {
         require_once __DIR__ . '/../cache_config.php';
         Cache::delete("training_plan_{$userId}");
 
-        // Автообновление VDOT по свежим тренировкам
-        if ($imported > 0) {
-            $this->maybeUpdateVdotFromWorkouts($userId);
-        }
+        // VDOT recompute уже идёт через TrainingStateBuilder.best_result —
+        // отдельный вызов maybeUpdateVdotFromWorkouts удалён в v3.14 как no-op.
 
         if ($shareQueueJobs > 0) {
             $this->launchWorkoutShareWorkerAsync();
@@ -1197,10 +1195,8 @@ class WorkoutService extends BaseService {
             require_once __DIR__ . '/../config/Logger.php';
             Logger::debug("Training plan cache invalidated after saving progress", ['user_id' => $userId]);
 
-            // Автообновление VDOT по свежим результатам
-            if ($completed && $resultDistance > 0 && ($resultTime || $resultPace)) {
-                $this->maybeUpdateVdotFromWorkouts($userId);
-            }
+            // VDOT recompute идёт через TrainingStateBuilder.best_result.
+            // Вызов maybeUpdateVdotFromWorkouts удалён в v3.14 как no-op.
 
             return ['success' => true];
         } catch (Exception $e) {
@@ -1865,17 +1861,6 @@ class WorkoutService extends BaseService {
         return 0;
     }
 
-    /**
-     * Устаревший метод — VDOT из тренировок теперь рассчитывается на лету
-     * через TrainingStateBuilder → StatsService::getBestResultForVdot().
-     *
-     * Ранее метод перезаписывал last_race_* полями из обычных тренировок,
-     * что загрязняло источник (race-поля заполнялись не-race данными)
-     * и создавало рассинхрон: виджет показывал новый VDOT, а план не пересчитывался.
-     *
-     * @deprecated Оставлен для обратной совместимости вызовов, ничего не делает.
-     */
-    public function maybeUpdateVdotFromWorkouts(int $userId): void {
-        // No-op: TrainingStateBuilder.best_result обрабатывает этот кейс корректно
-    }
+    // maybeUpdateVdotFromWorkouts() удалён в v3.14 — был no-op stub.
+    // VDOT теперь считается через TrainingStateBuilder → StatsService::getBestResultForVdot().
 }
