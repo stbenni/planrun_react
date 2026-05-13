@@ -229,7 +229,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
       if (!hasStructured && lines.length > 0) {
         lines.forEach((line, i) => {
           result.push({
-            id: `${baseId}-line-${i}`, name: line, plannedDescription: line,
+            id: `${baseId}-line-${i}`, exerciseId: ex.exercise_id ?? null, name: line,
+            plannedDescription: line,
             plannedSets: null, plannedReps: null, plannedWeight: null,
             plannedDistanceM: null, plannedDurationSec: null,
             doneSets: '', doneReps: '', doneWeight: '', doneDistanceM: '', removed: false,
@@ -255,12 +256,21 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             plannedDescription = m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
           }
         }
+        // Prefill «done» полей значениями из плана — атлет видит план в input'ах
+        // и правит только то, что фактически отличается.
+        // Prefill «done» полей значениями из плана — атлет видит план в input'ах
+        // и правит только то, что фактически отличается.
         result.push({
-          id: baseId, name: ex.name, plannedDescription: plannedDescription || null,
+          id: baseId, exerciseId: ex.exercise_id ?? null, name: ex.name,
+          plannedDescription: plannedDescription || null,
           plannedSets: ex.sets, plannedReps: ex.reps, plannedWeight: weight,
           plannedDistanceM: ex.distance_m != null ? Number(ex.distance_m) : null,
           plannedDurationSec: durSec,
-          doneSets: '', doneReps: '', doneWeight: '', doneDistanceM: '', removed: false,
+          doneSets: ex.sets ?? '',
+          doneReps: ex.reps ?? '',
+          doneWeight: weight ?? '',
+          doneDistanceM: ex.distance_m != null ? Number(ex.distance_m) : '',
+          removed: false,
         });
       }
     });
@@ -458,6 +468,62 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
         notes: buildNotes(),
         is_successful: true,
       });
+
+      // Структурированное сохранение ОФП/СБУ упражнений в executed_exercises.
+      // Это критично для AI: WorkoutBuilder и ofp_enricher читают эту таблицу
+      // для подбора весов на следующий цикл (progressive overload).
+      try {
+        const planDayId = dayPlan?.planDays?.[0]?.id ?? null;
+        if (planDayId) {
+          const ofpExecuted = plannedOfp.filter(p => !p.removed).map(p => ({
+            exercise_id: p.exerciseId ?? null,
+            exercise_name: p.name,
+            category: 'ofp',
+            planned_sets: p.plannedSets ?? null,
+            planned_reps: p.plannedReps ?? null,
+            planned_weight_kg: p.plannedWeight ?? null,
+            executed_sets: p.doneSets !== '' && p.doneSets != null ? Number(p.doneSets) : (p.plannedSets ?? null),
+            executed_reps: p.doneReps !== '' && p.doneReps != null ? Number(p.doneReps) : (p.plannedReps ?? null),
+            executed_weight_kg: p.doneWeight !== '' && p.doneWeight != null ? Number(p.doneWeight) : (p.plannedWeight ?? null),
+          }));
+          const sbuExecuted = plannedSbu.filter(p => !p.removed).map(p => ({
+            exercise_id: p.exerciseId ?? null,
+            exercise_name: p.name,
+            category: 'sbu',
+            planned_distance_m: p.plannedDistanceM ?? null,
+            executed_distance_m: p.doneDistanceM !== '' && p.doneDistanceM != null ? Number(p.doneDistanceM) : (p.plannedDistanceM ?? null),
+          }));
+          const additionalOfp = additionalExercises.filter(e => e.category === 'ofp').map(e => ({
+            exercise_id: e.exerciseId ?? null,
+            exercise_name: e.name,
+            category: 'ofp',
+            executed_sets: e.sets ?? null,
+            executed_reps: e.reps ?? null,
+            executed_weight_kg: e.weightKg ?? null,
+          }));
+          const additionalSbu = additionalExercises.filter(e => e.category === 'sbu').map(e => ({
+            exercise_id: e.exerciseId ?? null,
+            exercise_name: e.name,
+            category: 'sbu',
+            executed_distance_m: e.distanceM ?? null,
+          }));
+          const allExercises = [...ofpExecuted, ...sbuExecuted, ...additionalOfp, ...additionalSbu];
+          if (allExercises.length > 0) {
+            const csrfRes = await api.request('get_csrf_token', {}, 'GET');
+            const csrf = csrfRes?.data?.csrf_token;
+            await api.request('mark_exercises_completed', {
+              plan_day_id: planDayId,
+              executed_date: date,
+              exercises: allExercises,
+              _csrf: csrf,
+            }, 'POST');
+          }
+        }
+      } catch (exErr) {
+        // Не прерываем основной flow — saveResult уже прошёл успешно.
+        console.warn('mark_exercises_completed failed', exErr);
+      }
+
       alert('Результат сохранен!');
       onClose(); if (onSave) onSave();
     } catch (err) {

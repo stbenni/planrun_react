@@ -107,6 +107,14 @@ class PlanGenerationProcessorService extends BaseService {
                 $planData = $this->ensureIntermediateRacesInPlan($planData, (array) $trainingState['intermediate_races']);
             }
 
+            // Step 3 of stepped generation: LLM-enricher для ОФП/СБУ.
+            // Контекстно подбирает упражнения из exercise_library под нагрузку каждой недели.
+            // Если LLM упадёт — ensureOfpDaysInPlan ниже использует template fallback.
+            $planData = $this->enrichPlanWithOfpAndSbu($planData, $userId);
+
+            // Force-inject fallback: если enricher не сработал — гарантируем хотя бы template ОФП.
+            $planData = $this->ensureOfpDaysInPlan($userId, $planData);
+
             $planData = $this->attachGenerationExplanation($userId, $jobType, $payload, $planData, $trainingState ?? null);
 
             // Загружаем preferences пользователя для enforcement расписания в нормализаторе
@@ -1607,6 +1615,179 @@ class PlanGenerationProcessorService extends BaseService {
      * чтобы их видел чат при любом запросе о плане — а не только в результате job сразу
      * после recalculate.
      */
+    /**
+     * Step 3: LLM-enrichment планa ОФП/СБУ сессиями. LLM #4 видит беговой план и
+     * подбирает контекстные упражнения из exercise_library для preferred_ofp_days.
+     */
+    private function enrichPlanWithOfpAndSbu(array $planData, int $userId): array {
+        try {
+            require_once __DIR__ . '/../planrun_ai/ofp_enricher.php';
+
+            $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ?");
+            if (!$stmt) return $planData;
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $user = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$user) return $planData;
+
+            // Load exercise library
+            $libStmt = $this->db->prepare(
+                "SELECT id, category, name, default_sets, default_reps, default_distance_m,
+                        default_duration_sec, default_weight_kg
+                 FROM exercise_library WHERE is_active = 1"
+            );
+            if (!$libStmt) return $planData;
+            $libStmt->execute();
+            $libResult = $libStmt->get_result();
+            $library = [];
+            while ($r = $libResult->fetch_assoc()) $library[] = $r;
+            $libStmt->close();
+
+            if (empty($library)) return $planData;
+
+            $sessions = enrichPlanWithOfp($planData, $user, $library, $userId);
+            if (empty($sessions)) {
+                $this->logInfo('OFP enricher: no sessions returned, falling back to template', ['user_id' => $userId]);
+                return $planData;
+            }
+
+            // Inject sessions into planData
+            $injected = 0;
+            foreach ($planData['weeks'] as $wIdx => &$week) {
+                if (!isset($week['days']) || !is_array($week['days'])) continue;
+                foreach ($week['days'] as $dIdx => &$day) {
+                    $date = (string) ($day['date'] ?? '');
+                    if (!isset($sessions[$date])) continue;
+                    $currentType = (string) ($day['type'] ?? '');
+                    $isEmptyOfp = in_array($currentType, ['other', 'sbu'], true) && empty($day['exercises']);
+                    if (!in_array($currentType, ['rest', 'free'], true) && !$isEmptyOfp) continue;
+
+                    $exercises = $sessions[$date];
+                    $hasOfp = array_filter($exercises, fn($e) => ($e['category'] ?? '') === 'ofp');
+                    $newType = !empty($hasOfp) ? 'other' : 'sbu';
+
+                    $day['type'] = $newType;
+                    $day['is_key_workout'] = false;
+                    $day['distance_km'] = null;
+                    $day['pace'] = null;
+
+                    require_once __DIR__ . '/WorkoutBuilderService.php';
+                    $builder = new WorkoutBuilderService($this->db);
+                    $day['description'] = $builder->buildOfpDescription($exercises);
+
+                    // Total duration estimate
+                    $totalSec = 0;
+                    foreach ($exercises as $ex) {
+                        if (!empty($ex['duration_sec'])) $totalSec += (int) $ex['duration_sec'];
+                        elseif (!empty($ex['sets']) && !empty($ex['reps'])) $totalSec += (int) $ex['sets'] * 30;
+                    }
+                    $day['duration_minutes'] = max(25, min(60, (int) round($totalSec / 60) + 5));
+                    $day['exercises'] = $exercises;
+                    $injected++;
+                }
+                unset($day);
+            }
+            unset($week);
+
+            $this->logInfo('OFP enricher: injected sessions', [
+                'user_id' => $userId,
+                'count' => $injected,
+                'dates' => array_keys($sessions),
+            ]);
+        } catch (Throwable $e) {
+            $this->logError('OFP enricher failed (non-fatal)', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+        return $planData;
+    }
+
+    /**
+     * Force-inject ОФП в дни из preferred_ofp_days атлета. LLM регулярно игнорирует
+     * требование «ставь type=other в эти дни» даже при явной critical в critique.
+     * Поэтому детерминированно: если день в preferred_ofp_days сейчас rest — конвертируем в other.
+     */
+    private function ensureOfpDaysInPlan(int $userId, array $planData): array {
+        if (empty($planData['weeks'])) return $planData;
+
+        $stmt = $this->db->prepare("SELECT ofp_preference, preferred_ofp_days, weight_kg, experience_level FROM users WHERE id = ?");
+        if (!$stmt) return $planData;
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) return $planData;
+
+        $bodyweight = isset($row['weight_kg']) ? (float) $row['weight_kg'] : null;
+        $experienceLevel = $row['experience_level'] ?? null;
+        $ofpPref = (string) ($row['ofp_preference'] ?? '');
+        if ($ofpPref === '' || $ofpPref === 'none') return $planData;
+
+        $rawDays = $row['preferred_ofp_days'] ?? null;
+        $ofpDays = is_string($rawDays) ? json_decode($rawDays, true) : (is_array($rawDays) ? $rawDays : null);
+        if (!is_array($ofpDays) || empty($ofpDays)) return $planData;
+
+        // map: 'mon' => 1 (ISO N), 'tue' => 2, ...
+        $dayMap = ['mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5, 'sat' => 6, 'sun' => 7];
+        $ofpDowIndex = [];
+        foreach ($ofpDays as $d) {
+            $key = strtolower((string) $d);
+            if (isset($dayMap[$key])) $ofpDowIndex[$dayMap[$key]] = true;
+        }
+        if (empty($ofpDowIndex)) return $planData;
+
+        // Собираем ОФП-сессию: executed history → bodyweight × factor → library default.
+        require_once __DIR__ . '/WorkoutBuilderService.php';
+        $builder = new WorkoutBuilderService($this->db);
+        $ofpExercises = $builder->buildOfpSession($ofpPref, $bodyweight, $experienceLevel, $userId);
+        $ofpDescription = $builder->buildOfpDescription($ofpExercises);
+
+        // Total duration: sum durations + sets×reps rough estimate
+        $totalSec = 0;
+        foreach ($ofpExercises as $ex) {
+            if (!empty($ex['duration_sec'])) $totalSec += (int) $ex['duration_sec'];
+            elseif (!empty($ex['sets']) && !empty($ex['reps'])) $totalSec += (int) $ex['sets'] * 30; // ~30 сек на set
+        }
+        $totalMinutes = max(25, min(60, (int) round($totalSec / 60) + 5)); // +5 мин на отдых
+
+        $injected = 0;
+        foreach ($planData['weeks'] as $wIdx => &$week) {
+            if (!isset($week['days']) || !is_array($week['days'])) continue;
+            foreach ($week['days'] as $dIdx => &$day) {
+                $date = (string) ($day['date'] ?? '');
+                if ($date === '') continue;
+                $dow = (int) date('N', strtotime($date));
+                if (!isset($ofpDowIndex[$dow])) continue;
+                $currentType = (string) ($day['type'] ?? '');
+                // Конвертируем rest/free → other ИЛИ заполняем empty other/sbu.
+                $isEmptyOfp = in_array($currentType, ['other', 'sbu'], true) && empty($day['exercises']);
+                if (!in_array($currentType, ['rest', 'free'], true) && !$isEmptyOfp) continue;
+
+                $day['type'] = 'other';
+                $day['description'] = $ofpDescription;
+                $day['is_key_workout'] = false;
+                $day['distance_km'] = null;
+                $day['duration_minutes'] = $totalMinutes;
+                $day['pace'] = null;
+                $day['exercises'] = $ofpExercises;
+                $injected++;
+            }
+            unset($day);
+        }
+        unset($week);
+
+        if ($injected > 0) {
+            $this->logInfo('ensureOfpDaysInPlan: ОФП force-injected', [
+                'user_id' => $userId,
+                'count' => $injected,
+                'days' => array_keys(array_filter($ofpDays, fn($k) => isset($dayMap[strtolower((string)$k)]))),
+            ]);
+        }
+        return $planData;
+    }
+
     /**
      * Self-critique pass: независимый LLM-вызов ревьюит план, при необходимости
      * запускает revision. Возвращает planData с metadata.critique. Никогда не бросает —

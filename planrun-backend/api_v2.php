@@ -443,6 +443,18 @@ try {
         case 'list_exercise_library':
             planrunRouteControllerAction($db, ExerciseController::class, 'listExerciseLibrary', $method);
             break;
+
+        case 'mark_exercises_completed':
+            planrunRouteControllerAction($db, ExerciseController::class, 'markExercisesCompleted', $method, 'POST');
+            break;
+
+        case 'get_exercise_history':
+            planrunRouteControllerAction($db, ExerciseController::class, 'getExerciseHistory', $method);
+            break;
+
+        case 'get_executed_for_day':
+            planrunRouteControllerAction($db, ExerciseController::class, 'getExecutedForDay', $method);
+            break;
             
         // WeekController
         case 'add_week':

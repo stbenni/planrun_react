@@ -66,6 +66,10 @@ function runPlanSelfCritique(array $planData, array $user, array $context, int $
 - После promejutochnoj race (HM или ниже): recovery 3-5 дней, затем СРАЗУ длинная 20-24 км.
 - Recovery после long: следующий день ≤8 км easy или rest (но не серия rest).
 
+ОФП / СИЛОВЫЕ:
+- Если в профиле атлета указаны preferred_ofp_days (или ofp_preference != 'none') — в плане ДОЛЖНЫ быть дни type='other' (ОФП) в эти дни.
+- Без ОФП — повышен риск травм. Если атлет хочет ОФП а его нет в плане — это critical issue.
+
 ОБЩИЕ:
 - Quality density: 1-2 quality-дня в неделю, между ними ≥48ч
 - Race-week: 3-4 короткие пробежки 3-8 km + race. ЗАПРЕЩЕНО 4+ rest подряд перед марафоном.
@@ -442,6 +446,12 @@ function buildAthleteBlockForCritique(array $user, array $context): string {
     if (!empty($user['experience_level'])) $parts[] = "- Уровень: " . $user['experience_level'];
     if (!empty($user['weekly_base_km'])) $parts[] = "- Базовый объём: " . $user['weekly_base_km'] . " км/нед";
     if (!empty($user['sessions_per_week'])) $parts[] = "- Тренировок в неделю: " . $user['sessions_per_week'];
+    if (!empty($user['ofp_preference']) && $user['ofp_preference'] !== 'none') {
+        $ofpDaysJson = $user['preferred_ofp_days'] ?? null;
+        $ofpDays = is_string($ofpDaysJson) ? json_decode($ofpDaysJson, true) : (is_array($ofpDaysJson) ? $ofpDaysJson : null);
+        $daysStr = is_array($ofpDays) && !empty($ofpDays) ? implode(', ', $ofpDays) : 'дни не указаны';
+        $parts[] = "- ОФП: ХОЧЕТ заниматься ({$user['ofp_preference']}), preferred_days: {$daysStr}. В плане ДОЛЖНЫ быть type='other' дни!";
+    }
     if (!empty($user['race_date'])) $parts[] = "- Главный старт: " . $user['race_date'] . " (" . ($user['race_distance'] ?? '?') . ")";
     if (!empty($user['race_target_time'])) $parts[] = "- Целевое время: " . $user['race_target_time'];
     if (!empty($user['last_race_time']) && !empty($user['last_race_date'])) {

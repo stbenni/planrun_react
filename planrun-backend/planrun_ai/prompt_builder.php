@@ -1874,7 +1874,10 @@ function buildPreferencesBlock($userData) {
         $days = array_map(function($day) use ($dayLabels) {
             return $dayLabels[$day] ?? $day;
         }, $userData['preferred_ofp_days']);
-        $block .= "Предпочитаемые дни для ОФП: " . implode(', ', $days) . "\n";
+        $block .= "ОБЯЗАТЕЛЬНО: ОФП в дни: " . implode(', ', $days) . " (type=other).\n";
+        $block .= "Атлет ЯВНО выбрал эти дни для ОФП. Ставь type='other' в эти дни (минимум 1-2 ОФП в неделю), НЕ оставляй rest.\n";
+        $block .= "ОФП = силовые/функциональные тренировки 30-45 мин (приседания, выпады, планка, тяги). Critical для injury prevention при беге.\n";
+        $block .= "Если в эти же дни конфликт с бегом — приоритет ОФП в один из дней, бег перенеси.\n";
     } else {
         $block .= "Пользователь не планирует делать ОФП (выбрал «нет»). В плане не должно быть тренировок типа ОФП (type: other).\n";
     }
