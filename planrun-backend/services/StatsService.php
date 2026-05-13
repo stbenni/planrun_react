@@ -250,7 +250,7 @@ class StatsService extends BaseService {
             LEFT JOIN activity_types at ON wl.activity_type_id = at.id
             WHERE wl.user_id = ? AND wl.is_completed = 1
               AND wl.training_date >= ?
-              AND wl.distance_km >= 2 AND wl.distance_km <= 25 AND wl.distance_km IS NOT NULL
+              AND wl.distance_km >= 2 AND wl.distance_km <= 50 AND wl.distance_km IS NOT NULL
               AND wl.result_time IS NOT NULL AND TRIM(wl.result_time) != ''
               AND LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
         ");
@@ -283,7 +283,7 @@ class StatsService extends BaseService {
             SELECT distance_km, duration_seconds, duration_minutes, avg_pace, start_time
             FROM workouts
             WHERE user_id = ? AND DATE(start_time) >= ?
-              AND distance_km >= 2 AND distance_km <= 25 AND distance_km IS NOT NULL
+              AND distance_km >= 2 AND distance_km <= 50 AND distance_km IS NOT NULL
               AND LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) IN ('running', 'run', 'trail running', 'treadmill', 'бег')
         ");
         $autoStmt->bind_param("is", $userId, $cutoff);

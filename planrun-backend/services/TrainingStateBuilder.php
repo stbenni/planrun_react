@@ -101,25 +101,44 @@ class TrainingStateBuilder {
             $lastRaceWeeksOld = (time() - strtotime($lastRaceDate)) / (7 * 86400);
         }
 
-        if (!$vdot && $lastRaceDistKm > 0 && $lastRaceTimeSec > 0 && $lastRaceWeeksOld !== null && $lastRaceWeeksOld <= 8) {
-            $vdot = estimateVDOT($lastRaceDistKm, $lastRaceTimeSec);
-            $vdotSource = 'last_race';
-            $vdotSourceDetail = 'свежий результат забега/контрольной';
-            $vdotWeeksOld = $lastRaceWeeksOld;
-            $sourceDistanceKm = $lastRaceDistKm;
-            $sourceTimeSec = $lastRaceTimeSec;
+        // Сначала пытаемся найти ЛУЧШИЙ результат за расширенное окно (12 нед.) —
+        // это honest current fitness ceiling (если атлет недавно бежал HM 1:35 — это его forma,
+        // даже если последний марафон 3:43 показывает marathon-specific endurance gap).
+        $bestResult = null;
+        if (!$vdot && $userId > 0) {
+            $bestResult = $this->statsService->getBestResultForVdot($userId, 12, $targetDistKm > 0 ? $targetDistKm : null);
         }
 
-        if (!$vdot && $userId > 0) {
-            $best = $this->statsService->getBestResultForVdot($userId, 6, $targetDistKm > 0 ? $targetDistKm : null);
-            if ($best) {
-                $vdot = (float) $best['vdot'];
+        $lastRaceVdot = ($lastRaceDistKm > 0 && $lastRaceTimeSec > 0)
+            ? estimateVDOT($lastRaceDistKm, $lastRaceTimeSec)
+            : null;
+
+        if (!$vdot) {
+            // Декомпозируем: берём max между last_race и best_result, но с приоритетом
+            // на best_result если он значимо выше (атлет в хорошей форме на коротких).
+            $bestVdot = $bestResult ? (float) $bestResult['vdot'] : null;
+
+            if ($bestVdot !== null && $lastRaceVdot !== null && $bestVdot >= $lastRaceVdot + 0.5) {
+                $vdot = $bestVdot;
                 $vdotSource = 'best_result';
-                $vdotSourceDetail = $best['vdot_source_detail'] ?? null;
-                $sourceDistanceKm = isset($best['distance_km']) ? (float) $best['distance_km'] : null;
-                $sourceTimeSec = isset($best['time_sec']) ? (int) $best['time_sec'] : null;
-            } elseif ($lastRaceDistKm > 0 && $lastRaceTimeSec > 0) {
-                $vdot = estimateVDOT($lastRaceDistKm, $lastRaceTimeSec);
+                $vdotSourceDetail = $bestResult['vdot_source_detail'] ?? 'лучший результат за 12 недель';
+                $sourceDistanceKm = isset($bestResult['distance_km']) ? (float) $bestResult['distance_km'] : null;
+                $sourceTimeSec = isset($bestResult['time_sec']) ? (int) $bestResult['time_sec'] : null;
+            } elseif ($lastRaceVdot !== null && $lastRaceWeeksOld !== null && $lastRaceWeeksOld <= 8) {
+                $vdot = $lastRaceVdot;
+                $vdotSource = 'last_race';
+                $vdotSourceDetail = 'свежий результат забега/контрольной';
+                $vdotWeeksOld = $lastRaceWeeksOld;
+                $sourceDistanceKm = $lastRaceDistKm;
+                $sourceTimeSec = $lastRaceTimeSec;
+            } elseif ($bestVdot !== null) {
+                $vdot = $bestVdot;
+                $vdotSource = 'best_result';
+                $vdotSourceDetail = $bestResult['vdot_source_detail'] ?? 'лучший результат за 12 недель';
+                $sourceDistanceKm = isset($bestResult['distance_km']) ? (float) $bestResult['distance_km'] : null;
+                $sourceTimeSec = isset($bestResult['time_sec']) ? (int) $bestResult['time_sec'] : null;
+            } elseif ($lastRaceVdot !== null) {
+                $vdot = $lastRaceVdot;
                 $vdotSource = 'last_race_stale';
                 $vdotSourceDetail = 'устаревший race/control fallback';
                 $vdotWeeksOld = $lastRaceWeeksOld;
@@ -1790,11 +1809,42 @@ class TrainingStateBuilder {
             $gapPct = round(($predictedTargetSec - $goalTimeSec) / $predictedTargetSec * 100, 1);
         }
 
+        // Projection улучшения формы за период подготовки.
+        // Daniels rates: novice ~0.3 VDOT/week, intermediate ~0.18, advanced/expert ~0.10.
+        // Это даёт stretch_vdot к дате старта — реалистичная цель плана.
+        $weeksToGoal = isset($state['weeks_to_goal']) ? (int) $state['weeks_to_goal'] : 0;
+        $stretchTargetSec = null;
+        $stretchVdot = null;
+        if ($currentVdot > 0 && $weeksToGoal >= 3) {
+            $expLevel = strtolower((string) ($user['experience_level'] ?? 'intermediate'));
+            $rate = match (true) {
+                str_contains($expLevel, 'novice') || str_contains($expLevel, 'beginner') => 0.30,
+                str_contains($expLevel, 'advanced') || str_contains($expLevel, 'expert') => 0.12,
+                default => 0.18, // intermediate
+            };
+            // Cap: за 12 нед. максимум ~3 пункта (физиологический предел).
+            $maxGain = min(3.0, $weeksToGoal * $rate);
+            $stretchVdot = min(85.0, $currentVdot + $maxGain);
+            $stretchTargetSec = predictRaceTime($stretchVdot, $targetDistKm);
+        }
+
         $mode = 'goal_target';
         $effectiveTimeSec = $goalTimeSec > 0 ? $goalTimeSec : $predictedTargetSec;
+
         if ($severity === 'major' && $predictedTargetSec !== null && $predictedTargetSec > 0) {
-            $mode = 'realistic_target';
-            $effectiveTimeSec = $predictedTargetSec;
+            // Если есть прогноз с учётом тренинга — берём его как «реалистично-амбициозную» цель.
+            // Иначе fallback на predicted current state.
+            if ($stretchTargetSec !== null && $stretchTargetSec > 0) {
+                // Если goal быстрее stretch — оставляем stretch (агрессивно но в пределах физиологии)
+                // Если goal медленнее stretch — оставляем goal (атлет не хочет stretching)
+                $effectiveTimeSec = $goalTimeSec > 0 && $goalTimeSec > $stretchTargetSec
+                    ? $goalTimeSec
+                    : $stretchTargetSec;
+                $mode = 'stretch_target';
+            } else {
+                $effectiveTimeSec = $predictedTargetSec;
+                $mode = 'realistic_target';
+            }
         }
 
         if (!$effectiveTimeSec) {
@@ -1836,6 +1886,9 @@ class TrainingStateBuilder {
             'goal_target_time' => $goalTimeSec > 0 ? formatTimeSec($goalTimeSec) : null,
             'goal_target_pace' => $goalPaceSec ? formatPaceSec($goalPaceSec) : null,
             'predicted_target_time' => $predictedTargetSec !== null ? formatTimeSec($predictedTargetSec) : null,
+            'stretch_target_time' => $stretchTargetSec !== null ? formatTimeSec((int) $stretchTargetSec) : null,
+            'stretch_target_vdot' => $stretchVdot !== null ? round($stretchVdot, 1) : null,
+            'weeks_to_goal' => $weeksToGoal > 0 ? $weeksToGoal : null,
             'gap_pct' => $gapPct,
             'severity' => $severity !== '' ? $severity : 'none',
             'goal_paces' => $formattedGoalPaces,

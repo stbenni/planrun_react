@@ -196,6 +196,7 @@ export function createInitialNotificationSettings(timezone = 'Europe/Moscow') {
     },
     preferences: buildDefaultPreferences(),
     catalog: DEFAULT_CATALOG,
+    paused: false,
   };
 }
 
@@ -317,5 +318,6 @@ export function normalizeNotificationSettings(rawSettings = null, timezone = 'Eu
     },
     preferences,
     catalog,
+    paused: toBoolean(source.paused, defaults.paused),
   };
 }

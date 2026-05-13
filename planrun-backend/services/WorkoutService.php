@@ -172,15 +172,22 @@ class WorkoutService extends BaseService {
         }
 
         $planned = $this->fetchPlannedWorkoutForDate($userId, (string) ($summary['workout_date'] ?? $workoutDate));
-        $analysis = $this->generatePostWorkoutAnalysisText($userId, $summary, $planned);
+        $structure = null;
+        if ($sourceKind === 'workout') {
+            require_once __DIR__ . '/WorkoutStructureAnalyzer.php';
+            $structure = (new WorkoutStructureAnalyzer($this->db))->analyze($sourceId, null, $userId);
+        }
+        $analysis = $this->generatePostWorkoutAnalysisText($userId, $summary, $planned, $structure);
         if ($analysis === '') {
             return 0;
         }
 
+        $this->persistWorkoutAnalysis($userId, $sourceKind, $sourceId, $summary, $planned, $structure, $analysis);
+
         require_once __DIR__ . '/ChatService.php';
         $chatService = new ChatService($this->db);
         $result = $chatService->addAIMessageToUser($userId, $analysis, [
-            'event_key' => 'chat.ai_message',
+            'event_key' => 'coach.proactive_post_workout_analysis',
             'title' => 'Разбор тренировки',
             'link' => '/chat',
             'proactive_type' => 'post_workout_analysis',
@@ -251,7 +258,7 @@ class WorkoutService extends BaseService {
         }
 
         $stmt = $this->db->prepare(
-            "SELECT d.type, d.description
+            "SELECT d.type, d.description, d.is_key_workout
              FROM training_plan_days d
              INNER JOIN training_plan_weeks w ON w.id = d.week_id
              WHERE w.user_id = ? AND d.date = ?
@@ -269,13 +276,204 @@ class WorkoutService extends BaseService {
         return $row ?: null;
     }
 
-    private function generatePostWorkoutAnalysisText(int $userId, array $summary, ?array $planned): string {
+    /**
+     * Если импортированный workout соответствует плановому race/control дню,
+     * обновляет users.last_race_* и запускает auto-recalc через VDOT pipeline.
+     *
+     * Это критично: иначе marathon из Strava не учитывается в VDOT,
+     * и план продолжает строиться под устаревший last_race.
+     */
+    private function maybeUpdateLastRaceFromImport(
+        int $userId,
+        string $workoutDate,
+        ?float $distanceKm,
+        ?int $durationSeconds,
+        ?int $durationMinutes,
+        ?string $avgPace
+    ): void {
+        if ($distanceKm === null || $distanceKm < 4) return;
+
+        // Соответствует ли этот день плановому race/control?
+        $stmt = $this->db->prepare(
+            "SELECT d.type FROM training_plan_days d
+             INNER JOIN training_plan_weeks w ON w.id = d.week_id
+             WHERE w.user_id = ? AND d.date = ?
+             LIMIT 1"
+        );
+        if (!$stmt) return;
+        $stmt->bind_param('is', $userId, $workoutDate);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $plannedType = (string) ($row['type'] ?? '');
+        if (!in_array($plannedType, ['race', 'control'], true)) {
+            return;
+        }
+
+        $timeSec = $durationSeconds && $durationSeconds > 0
+            ? (int) $durationSeconds
+            : ($durationMinutes && $durationMinutes > 0 ? (int) $durationMinutes * 60 : 0);
+        if ($timeSec <= 0) return;
+
+        // Уже более свежий результат?
+        $checkStmt = $this->db->prepare("SELECT last_race_date FROM users WHERE id = ?");
+        if (!$checkStmt) return;
+        $checkStmt->bind_param('i', $userId);
+        $checkStmt->execute();
+        $existing = $checkStmt->get_result()->fetch_assoc();
+        $checkStmt->close();
+        if ($existing && !empty($existing['last_race_date']) && $existing['last_race_date'] >= $workoutDate) {
+            return;
+        }
+
+        require_once __DIR__ . '/TrainingStateBuilder.php';
+        require_once __DIR__ . '/WorkoutPlanRecalculationService.php';
+        require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+
+        $newVdot = estimateVDOT($distanceKm, $timeSec);
+        if ($newVdot < 20 || $newVdot > 85) return;
+
+        $builder = new TrainingStateBuilder($this->db);
+        $oldState = $builder->buildForUserId($userId);
+        $oldVdot = isset($oldState['vdot']) ? (float) $oldState['vdot'] : null;
+
+        $resultTime = $this->formatSecToTime($timeSec);
+        $distMap = [5 => '5k', 10 => '10k', 21 => 'half', 42 => 'marathon'];
+        $lastRaceDist = 'other';
+        $lastRaceDistKm = $distanceKm;
+        foreach ($distMap as $km => $label) {
+            if (abs($distanceKm - $km) < 0.6) {
+                $lastRaceDist = $label;
+                $lastRaceDistKm = null;
+                break;
+            }
+        }
+
+        $updateStmt = $this->db->prepare(
+            "UPDATE users SET last_race_distance = ?, last_race_distance_km = ?,
+                              last_race_time = ?, last_race_date = ?
+             WHERE id = ?"
+        );
+        if (!$updateStmt) return;
+        $updateStmt->bind_param('sdssi', $lastRaceDist, $lastRaceDistKm, $resultTime, $workoutDate, $userId);
+        $updateStmt->execute();
+        $updateStmt->close();
+
+        $this->logInfo("Last race auto-synced from import", [
+            'user_id' => $userId,
+            'date' => $workoutDate,
+            'distance_km' => $distanceKm,
+            'time' => $resultTime,
+            'new_vdot' => round($newVdot, 1),
+            'old_vdot' => $oldVdot,
+            'planned_type' => $plannedType,
+        ]);
+
+        try {
+            (new WorkoutPlanRecalculationService($this->db))->maybeQueueAfterPerformanceUpdate(
+                $userId,
+                $plannedType,
+                $workoutDate,
+                $oldVdot,
+                $newVdot
+            );
+        } catch (Throwable $e) {
+            $this->logError('auto-recalc after import failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function formatSecToTime(int $sec): string {
+        $h = (int) ($sec / 3600);
+        $m = (int) (($sec % 3600) / 60);
+        $s = $sec % 60;
+        return sprintf('%02d:%02d:%02d', $h, $m, $s);
+    }
+
+    private function persistWorkoutAnalysis(
+        int $userId,
+        string $sourceKind,
+        int $sourceId,
+        array $summary,
+        ?array $planned,
+        ?array $structure,
+        string $llmText
+    ): void {
+        try {
+            require_once __DIR__ . '/WorkoutAnalysisRepository.php';
+            $repo = new WorkoutAnalysisRepository($this->db);
+
+            $feedback = $this->fetchLatestFeedbackForWorkout($userId, $sourceKind, $sourceId);
+
+            $duration = null;
+            if (!empty($summary['duration_minutes'])) {
+                $duration = (int) $summary['duration_minutes'];
+            } elseif (!empty($summary['duration_seconds'])) {
+                $duration = (int) round((int) $summary['duration_seconds'] / 60);
+            }
+
+            $data = [
+                'user_id' => $userId,
+                'source_kind' => $sourceKind,
+                'source_id' => $sourceId,
+                'workout_date' => (string) ($summary['workout_date'] ?? date('Y-m-d')),
+                'planned_type' => $planned['type'] ?? null,
+                'planned_description' => $planned['description'] ?? null,
+                'planned_is_key' => $planned['is_key_workout'] ?? null,
+                'actual_distance_km' => $summary['distance_km'] ?? null,
+                'actual_duration_min' => $duration,
+                'actual_avg_pace' => $summary['pace'] ?? null,
+                'actual_avg_hr' => $summary['avg_heart_rate'] ?? null,
+                'actual_max_hr' => $summary['max_heart_rate'] ?? null,
+                'detected_type' => $structure['type'] ?? null,
+                'detected_confidence' => $structure['confidence'] ?? null,
+                'intensity' => $structure['avg_hr_pct_max'] ?? null,
+                'pace_variance' => $structure['pace_variance'] ?? null,
+                'structure' => $structure,
+                'llm_review_text' => $llmText,
+                'feedback_rpe' => $feedback['session_rpe'] ?? null,
+                'feedback_legs' => $feedback['legs_score'] ?? null,
+                'feedback_pain_flag' => $feedback['pain_flag'] ?? null,
+                'feedback_fatigue_flag' => $feedback['fatigue_flag'] ?? null,
+            ];
+            $data['summary_line'] = WorkoutAnalysisRepository::formatSummaryLine($data);
+
+            $repo->save($data);
+        } catch (Throwable $e) {
+            $this->logError('persistWorkoutAnalysis failed', [
+                'user_id' => $userId,
+                'source_kind' => $sourceKind,
+                'source_id' => $sourceId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function fetchLatestFeedbackForWorkout(int $userId, string $sourceKind, int $sourceId): array {
+        $stmt = $this->db->prepare(
+            "SELECT session_rpe, legs_score, pain_flag, fatigue_flag
+             FROM post_workout_followups
+             WHERE user_id = ? AND source_kind = ? AND source_id = ? AND status IN ('responded', 'completed')
+             ORDER BY responded_at DESC, id DESC
+             LIMIT 1"
+        );
+        if (!$stmt) return [];
+        $stmt->bind_param('isi', $userId, $sourceKind, $sourceId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ?: [];
+    }
+
+    private function generatePostWorkoutAnalysisText(int $userId, array $summary, ?array $planned, ?array $structure = null): string {
         $fake = trim((string) env('POST_WORKOUT_ANALYSIS_FAKE_RESPONSE', ''));
         if ((string) ($_ENV['APP_ENV'] ?? '') === 'testing' && $fake !== '') {
             return $fake;
         }
 
-        $facts = $this->buildPostWorkoutAnalysisFacts($summary, $planned);
+        $facts = $this->buildPostWorkoutAnalysisFacts($summary, $planned, $structure);
         if ($facts === '') {
             return '';
         }
@@ -288,7 +486,7 @@ class WorkoutService extends BaseService {
         return $this->buildPostWorkoutAnalysisFallback($summary, $planned);
     }
 
-    private function buildPostWorkoutAnalysisFacts(array $summary, ?array $planned): string {
+    private function buildPostWorkoutAnalysisFacts(array $summary, ?array $planned, ?array $structure = null): string {
         $lines = [];
         $lines[] = 'Фактическая тренировка:';
         $lines[] = '- дата: ' . (string) ($summary['workout_date'] ?? '');
@@ -328,6 +526,34 @@ class WorkoutService extends BaseService {
             }
         }
 
+        if ($structure !== null) {
+            $lines[] = '';
+            $lines[] = 'Структура тренировки (из lap-данных, классификация автоматическая):';
+            $lines[] = '- распознанный тип: ' . (string) ($structure['type'] ?? 'mixed')
+                . ' (уверенность: ' . (string) ($structure['confidence'] ?? 'low') . ')';
+            $lines[] = '- ' . (string) ($structure['narrative'] ?? '');
+            if (!empty($structure['median_pace'])) {
+                $lines[] = '- медианный темп: ' . $structure['median_pace'] . ' мин/км';
+            }
+            if (!empty($structure['lap_table'])) {
+                $lines[] = '- лапы (▲=быстрее медианы на 15%+, ▽=медленнее, ·=обычный):';
+                foreach ($structure['lap_table'] as $lap) {
+                    $line = sprintf(
+                        '  %s lap %d: %s км · %s мин/км',
+                        $lap['mark'] ?? '·',
+                        (int) ($lap['idx'] ?? 0),
+                        (string) ($lap['km'] ?? ''),
+                        (string) ($lap['pace'] ?? '—')
+                    );
+                    if (!empty($lap['hr'])) {
+                        $line .= ' · HR ' . (int) $lap['hr'];
+                        if (!empty($lap['zone'])) $line .= ' (' . $lap['zone'] . ')';
+                    }
+                    $lines[] = $line;
+                }
+            }
+        }
+
         return trim(implode("\n", $lines));
     }
 
@@ -342,7 +568,10 @@ class WorkoutService extends BaseService {
             'Пиши только на русском, обращайся к пользователю на «ты». Используй только факты из входных данных, ничего не выдумывай. ' .
             'Не используй английские конструкции вроде plan vs fact, easy, recovery, check-in. ' .
             'Формат: 2–4 коротких пункта через дефис без длинного вступления. ' .
-            'Отметь, что получилось, что важно восстановить или отследить, и как это соотносится с планом, если план есть. ' .
+            'Если есть блок «Структура тренировки», начни первый пункт с распознанного типа (например, «Интервальная: 3 рабочих отрезка по 1 км в темпе 3:41–3:47»). ' .
+            'Используй структуру для конкретики: упомяни рабочие отрезки, восстановления, пульсовые зоны. ' .
+            'Сравни факт с планом: что совпало, что разошлось. ' .
+            'Если автоматический тип не совпадает с планом (план «лёгкий», а по структуре «интервальная») — отметь это нейтрально, без укоризны. ' .
             'Не задавай вопрос о самочувствии: отдельный чек-ин придёт позже.';
 
         $payload = LlmGateway::withThinkingMode([
@@ -1043,7 +1272,9 @@ class WorkoutService extends BaseService {
                     $this->saveWorkoutTimeline((int)$existing['id'], $w['timeline'] ?? null);
                     $this->saveWorkoutLaps((int)$existing['id'], $w['laps'] ?? null);
                     $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, (int) $existing['id'], WorkoutShareCardCacheService::KIND_WORKOUT);
-                    $this->handlePostWorkoutCoachFlow((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', (int) $existing['id']);
+                    $workoutDateStr = (string) date('Y-m-d', strtotime($endTime ?: $startTime));
+                    $this->handlePostWorkoutCoachFlow((int) $userId, $workoutDateStr, 'workout', (int) $existing['id']);
+                    $this->maybeUpdateLastRaceFromImport((int) $userId, $workoutDateStr, $distanceKm, $durationSeconds, $durationMinutes, $avgPace);
                 } else {
                     $skipped++;
                 }
@@ -1107,7 +1338,9 @@ class WorkoutService extends BaseService {
                 $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
                 $this->saveWorkoutLaps($workoutId, $w['laps'] ?? null);
                 $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, $workoutId, WorkoutShareCardCacheService::KIND_WORKOUT);
-                $this->handlePostWorkoutCoachFlow((int) $userId, (string) date('Y-m-d', strtotime($endTime ?: $startTime)), 'workout', $workoutId);
+                $workoutDateStr = (string) date('Y-m-d', strtotime($endTime ?: $startTime));
+                $this->handlePostWorkoutCoachFlow((int) $userId, $workoutDateStr, 'workout', $workoutId);
+                $this->maybeUpdateLastRaceFromImport((int) $userId, $workoutDateStr, $distanceKm, $durationSeconds, $durationMinutes, $avgPace);
             } else {
                 $skipped++;
             }

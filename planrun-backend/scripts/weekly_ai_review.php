@@ -34,8 +34,11 @@ $reviewHour = 20;
 $reviewMinute = 0;
 $reviewDayOfWeek = 7; // воскресенье (ISO-8601: 1=Пн, 7=Вс)
 
+// Тестовый bypass фильтра: WEEKLY_REVIEW_FORCE_USER=<user_id> запускает обзор только для этого пользователя.
+$forceUserId = (int) (getenv('WEEKLY_REVIEW_FORCE_USER') ?: 0);
+
 // Находим пользователей с активным планом
-$stmt = $db->query("
+$result = $db->query("
     SELECT u.id, COALESCE(u.timezone, 'Europe/Moscow') AS timezone
     FROM users u
     INNER JOIN training_plan_weeks tpw ON tpw.user_id = u.id
@@ -43,12 +46,11 @@ $stmt = $db->query("
     HAVING MAX(DATE_ADD(tpw.start_date, INTERVAL 6 DAY)) >= CURDATE() - INTERVAL 7 DAY
 ");
 
-if (!$stmt) {
+if (!$result) {
     fwrite(STDERR, "Query failed: " . $db->error . "\n");
     exit(1);
 }
 
-$result = $stmt->get_result();
 $sent = 0;
 $errors = 0;
 
@@ -62,12 +64,18 @@ while ($row = $result->fetch_assoc()) {
         $userNow = new DateTime('now', new DateTimeZone('Europe/Moscow'));
     }
 
-    // Проверяем: воскресенье, 20:00
-    if ((int)$userNow->format('N') !== $reviewDayOfWeek) {
-        continue;
-    }
-    if ((int)$userNow->format('G') !== $reviewHour || (int)$userNow->format('i') !== $reviewMinute) {
-        continue;
+    // Проверяем: воскресенье, 20:00 (либо WEEKLY_REVIEW_FORCE_USER пропускает этот фильтр)
+    if ($forceUserId > 0) {
+        if ($userId !== $forceUserId) {
+            continue;
+        }
+    } else {
+        if ((int)$userNow->format('N') !== $reviewDayOfWeek) {
+            continue;
+        }
+        if ((int)$userNow->format('G') !== $reviewHour || (int)$userNow->format('i') !== $reviewMinute) {
+            continue;
+        }
     }
 
     try {

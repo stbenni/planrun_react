@@ -3009,6 +3009,31 @@ function buildRecalcTrainingPrinciplesBlock($userData, $goalType, array $recalcC
     }
     $block .= "\n";
 
+    // Marathon-specific требования к длинным.
+    $raceDist = strtolower((string) ($userData['race_distance'] ?? ''));
+    if (in_array($raceDist, ['marathon', '42.2k', '42k'], true)) {
+        $targetTime = trim((string) ($userData['race_target_time'] ?? ''));
+        $mpHint = $targetTime !== '' ? " (для цели {$targetTime} MP — рассчитай темп; не пиши «easy»)" : '';
+        $block .= "ПОДГОТОВКА К МАРАФОНУ — ЖЁСТКИЕ ТРЕБОВАНИЯ:\n";
+        $block .= "ДЛИТЕЛЬНЫЕ:\n";
+        $block .= "- Build phase: 3-4 длительных подряд по 26-32 км. ВСЕ длительные >= 24 км — С MP-блоком 8-16 км в марафонском темпе{$mpHint}.\n";
+        $block .= "- Peak длительная 30-34 км (≈75-80% от 42.2) за 2-3 недели до главного старта.\n";
+        $block .= "- Прогрессия монотонна: каждая следующая длительная >= предыдущей до peak. Не вставляй короткую длительную в середине build.\n";
+        $block .= "- Taper длительных: peak (32) → 24-26 → 18-22 → race week. Не 32 → 20 → 14 (резкий drop ломает выносливость).\n";
+        $block .= "- После промежуточного старта (race-день в плане):\n";
+        $block .= "  * Если race >= 21 км → 7-10 дней recovery, длительная следующей недели = race × 0.5-0.6 (10-13 км для HM) В ЛЁГКОМ темпе (easy+15 сек).\n";
+        $block .= "  * Если race 10-20 км → 5-7 дней recovery, длительная следующей недели = race × 0.7-0.8, темп лёгкий. НЕ ставь long той же или большей дистанции что race.\n";
+        $block .= "  * Затем строй прогрессию: recovery-длинная → +20-30% → +20% → peak.\n";
+        $block .= "- Каждая неделя build-фазы содержит ровно 1 длительную (type=long, >= 14 км), кроме recovery после главного race.\n";
+        $block .= "ТЕМП EASY:\n";
+        $block .= "- Easy темп рассчитывай от VDOT/marathon time атлета, а не fixed 5:45. Для атлета с marathon ~3:43 easy = 5:10-5:20.\n";
+        $block .= "- Easy дни 8-15 км, не превращай easy в medium-long (>18 км).\n";
+        $block .= "RACE-WEEK:\n";
+        $block .= "- 3-4 короткие пробежки 3-8 км + race day. Допускается 1-2 rest, но НЕ 4+ rest подряд.\n";
+        $block .= "- В race-week можно strides 4-6×100м после короткой пробежки для нервно-мышечной готовности.\n";
+        $block .= "СОБЛЮДЕНИЕ ВСЕХ ЭТИХ ПРАВИЛ — ОБЯЗАТЕЛЬНО. Нарушение делает план непригодным для марафона.\n\n";
+    }
+
     // Разгрузочные недели
     if (!empty($phase['recovery_weeks'])) {
         $keptWeeks = $recalcContext['kept_weeks'] ?? 0;
@@ -3150,6 +3175,31 @@ function buildRecalcContextBlock(array $ctx, ?string $origStartDate): string {
     $weeksToGen = $ctx['weeks_to_generate'] ?? null;
     if ($keptWeeks > 0 || $weeksToGen !== null) {
         $lines[] = "\nПлан: первые {$keptWeeks} нед. сохранены, генерировать {$weeksToGen} новых.";
+    }
+
+    $planHistoryRollup = $ctx['plan_history_rollup'] ?? null;
+    if (is_array($planHistoryRollup) && !empty($planHistoryRollup)) {
+        $lines[] = "\nИСТОРИЯ — ОБЪЁМЫ ПО НЕДЕЛЯМ (Пн–Вс; ИСПОЛЬЗУЙ эти цифры для оценки нагрузки, не считай сам):";
+        foreach ($planHistoryRollup as $line) {
+            $lines[] = $line;
+        }
+    }
+
+    $planKeyWorkouts = $ctx['plan_key_workouts'] ?? null;
+    if (is_array($planKeyWorkouts) && !empty($planKeyWorkouts)) {
+        $lines[] = "\nКЛЮЧЕВЫЕ/ЗНАЧИМЫЕ ТРЕНИРОВКИ ЦИКЛА (★=план key, ◆=значимая по факту — race / длительная / интервалы / heavy tempo):";
+        $lines[] = "Особое внимание на выполнение этих тренировок при пересчёте — на них держится скелет плана.";
+        foreach ($planKeyWorkouts as $line) {
+            $lines[] = "  {$line}";
+        }
+    }
+
+    $planHistory = $ctx['plan_history_lines'] ?? null;
+    if (is_array($planHistory) && !empty($planHistory)) {
+        $lines[] = "\nДЕТАЛЬНО ПО ТРЕНИРОВКАМ (план → факт, для понимания трендов и расхождений):";
+        foreach ($planHistory as $line) {
+            $lines[] = "  {$line}";
+        }
     }
 
     $weeksRemaining = $ctx['weeks_remaining_to_goal'] ?? null;

@@ -940,19 +940,24 @@
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--card-surface-compact-border);
   border-radius: var(--radius-lg);
-  background: var(--card-surface-compact-bg);
+  background-image: var(--select-arrow), var(--card-surface-compact-bg);
+  background-repeat: no-repeat, no-repeat;
+  background-position: right var(--space-4) center, 0 0;
+  background-size: 14px, auto;
   color: var(--text-primary);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
-  appearance: auto;
   box-shadow: var(--card-surface-compact-shadow);
   backdrop-filter: var(--card-surface-compact-backdrop);
   -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 [data-theme="dark"] .coach-athlete-selector__select {
-  background: var(--card-surface-compact-bg);
+  background-image: var(--select-arrow), var(--card-surface-compact-bg);
+  background-repeat: no-repeat, no-repeat;
+  background-position: right var(--space-4) center, 0 0;
+  background-size: 14px, auto;
   border-color: var(--card-surface-compact-border);
 }
 

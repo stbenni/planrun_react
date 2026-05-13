@@ -101,6 +101,19 @@ class UserProfileService extends BaseService {
             $types .= 'i';
         }
 
+        if (isset($data['birth_month'])) {
+            $birthMonth = $normalizeNull($data['birth_month']);
+            if ($birthMonth !== null) {
+                $birthMonth = (int)$birthMonth;
+                if ($birthMonth < 1 || $birthMonth > 12) {
+                    $this->throwValidationException('Некорректный месяц рождения (1-12)');
+                }
+            }
+            $updateFields[] = 'birth_month = ?';
+            $updateValues[] = $birthMonth;
+            $types .= 'i';
+        }
+
         if (isset($data['height_cm'])) {
             $heightCm = $normalizeNull($data['height_cm']);
             if ($heightCm !== null) {

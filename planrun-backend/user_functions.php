@@ -41,7 +41,7 @@ function getUserData($userId, $fields = null, $useCache = true) {
     if ($fields === null) {
         $fields = 'id, username, username_slug, email, role, goal_type, race_date, race_target_time, race_distance, 
                    target_marathon_date, target_marathon_time, training_start_date, 
-                   weekly_base_km, experience_level, gender, birth_year, height_cm, weight_kg, 
+                   weekly_base_km, experience_level, gender, birth_year, birth_month, height_cm, weight_kg,
                    timezone, telegram_id, created_at, updated_at, training_mode, 
                    ofp_preference, preferred_days, preferred_ofp_days, sessions_per_week, 
                    has_treadmill, training_time_pref, easy_pace_sec, 

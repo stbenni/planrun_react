@@ -929,8 +929,8 @@ class ApiClient {
   /**
    * Минимальная регистрация (логин, email, пароль, код из письма). После успеха — автологин.
    */
-  async registerMinimal({ username, email, password, verification_code }) {
-    return performRegisterMinimal(this, { username, email, password, verification_code });
+  async registerMinimal({ username, email, password, verification_code, timezone }) {
+    return performRegisterMinimal(this, { username, email, password, verification_code, timezone });
   }
 
   /**

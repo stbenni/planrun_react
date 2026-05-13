@@ -264,6 +264,32 @@ class ProactiveCoachService {
         return null;
     }
 
+    private function buildHistoryBlock(int $userId, int $maxLines = 16): string {
+        try {
+            require_once __DIR__ . '/WorkoutAnalysisRepository.php';
+            $repo = new WorkoutAnalysisRepository($this->db);
+            $lines = $repo->getSummaryLinesForActivePlan($userId);
+            $rollup = $repo->getWeeklyRollupForActivePlan($userId);
+            $keyLines = $repo->getKeyWorkoutSummaryForActivePlan($userId);
+            if (empty($lines) && empty($rollup) && empty($keyLines)) return '';
+
+            $out = "\nИСТОРИЯ ТРЕНИРОВОК (ИСПОЛЬЗУЙ цифры из блока, не считай сам):";
+            if (!empty($rollup)) {
+                $out .= "\nОбъёмы по неделям:\n" . implode("\n", $rollup);
+            }
+            if (!empty($keyLines)) {
+                $out .= "\nКлючевые/значимые тренировки:\n  " . implode("\n  ", $keyLines);
+            }
+            if (!empty($lines)) {
+                $tail = array_slice($lines, -$maxLines);
+                $out .= "\nПоследние тренировки:\n  " . implode("\n  ", $tail);
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
     private function generateMessage(int $userId, array $user, array $event): string {
         $type = $event['type'];
         $data = $event['data'] ?? [];
@@ -285,10 +311,13 @@ class ProactiveCoachService {
 
         if ($eventDescription === '') return '';
 
+        $historyBlock = $this->buildHistoryBlock($userId);
+
         $prompt = <<<PROMPT
 Ты — PlanRun, тренер по бегу. Напиши ОДНО короткое (2-3 предложения) проактивное сообщение для спортсмена.
 
 СОБЫТИЕ: {$eventDescription}
+{$historyBlock}
 
 ПРАВИЛА:
 - СТРОГО на русском.
@@ -447,10 +476,13 @@ PROMPT;
                 }
                 $eventDesc .= " ACWR: {$acwrVal} ({$acwrZone}).";
 
+                $historyBlock = $this->buildHistoryBlock($userId, 10);
+
                 $prompt = <<<PROMPT
 Ты — PlanRun, тренер по бегу. Напиши КРАТКИЙ утренний брифинг (2-3 предложения) перед тренировкой.
 
 ПЛАН НА СЕГОДНЯ: {$eventDesc}
+{$historyBlock}
 
 ПРАВИЛА:
 - СТРОГО на русском.
@@ -524,10 +556,13 @@ PROMPT;
                     $weekStats .= " ACWR: " . round((float) $acwr['acwr'], 2) . " ({$acwr['zone']}).";
                 }
 
+                $historyBlock = $this->buildHistoryBlock($userId, 20);
+
                 $prompt = <<<PROMPT
 Ты — PlanRun, тренер по бегу. Напиши еженедельный итог (4-6 предложений).
 
 ДАННЫЕ НЕДЕЛИ: {$weekStats}
+{$historyBlock}
 
 ПРАВИЛА:
 - СТРОГО на русском.

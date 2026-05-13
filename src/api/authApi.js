@@ -257,7 +257,7 @@ async function sendVerificationCode(client, email) {
   return { success: true, message: data.message };
 }
 
-async function registerMinimal(client, { username, email, password, verification_code }) {
+async function registerMinimal(client, { username, email, password, verification_code, timezone }) {
   const nativeApp = isNativeCapacitor();
   let deviceId = null;
   if (nativeApp) {
@@ -280,6 +280,7 @@ async function registerMinimal(client, { username, email, password, verification
     use_jwt: nativeApp,
   };
   if (deviceId) payload.device_id = deviceId;
+  if (timezone) payload.timezone = timezone;
 
   try {
     const fetchOptions = {

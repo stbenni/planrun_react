@@ -239,6 +239,10 @@
   --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.72);
   --surface-glass-blur: 18px;
 
+  /* Кастомная стрелка для <select> (chevron-down lucide-style, тема-aware).
+     Native arrow слишком прижат к границе и не управляется CSS — заменяем на свою SVG. */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+
   --scrollbar-size: 13px;
   --scrollbar-radius: 999px;
   --scrollbar-track-color: color-mix(in srgb, var(--surface-glass-control-strong) 90%, transparent);
@@ -401,6 +405,7 @@
   --surface-glass-shadow: 0 20px 42px rgba(0, 0, 0, 0.44), 0 10px 22px rgba(0, 0, 0, 0.24);
   --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
   --surface-glass-blur: 22px;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   --scrollbar-track-color: rgba(10, 14, 19, 0.92);
   --scrollbar-track-bg: linear-gradient(180deg, rgba(20, 25, 32, 0.94) 0%, rgba(10, 14, 19, 0.98) 100%);
   --scrollbar-track-border: color-mix(in srgb, var(--primary-500) 18%, rgba(255, 255, 255, 0.08));
@@ -481,6 +486,7 @@
     --surface-glass-shadow: 0 20px 42px rgba(0, 0, 0, 0.44), 0 10px 22px rgba(0, 0, 0, 0.24);
     --surface-glass-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
     --surface-glass-blur: 22px;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23CBD5E1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     --scrollbar-track-color: rgba(10, 14, 19, 0.92);
     --scrollbar-track-bg: linear-gradient(180deg, rgba(20, 25, 32, 0.94) 0%, rgba(10, 14, 19, 0.98) 100%);
     --scrollbar-track-border: color-mix(in srgb, var(--primary-500) 18%, rgba(255, 255, 255, 0.08));
@@ -579,4 +585,21 @@ html.native-app[data-theme="dark"] {
 [data-theme="dark"] .workout-chart-title .workout-chart-title-icon,
 [data-theme="dark"] .workout-chart-title .workout-chart-title-icon svg {
   color: var(--danger-500);
+}
+
+/* ========================================
+   <select> — глобальный кастомный chevron
+   Native arrow прижат к границе, заменяем на свою SVG (--select-arrow).
+   Локальные правила, использующие background: shorthand, должны включать
+   var(--select-arrow) первым слоем в multi-bg, иначе стрелка пропадёт.
+   ======================================== */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right var(--space-4) center;
+  background-size: 14px;
+  padding-right: calc(var(--space-4) + 14px + var(--space-3));
 }

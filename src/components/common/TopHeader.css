@@ -287,42 +287,6 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
   flex-shrink: 0;
 }
 
-/* Кнопка «Настроить план» — в стиле dashboard-customize (primary-50, primary-200, оранжевая палитра) */
-.top-header-onboarding-btn {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--primary-600);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-bg)) 100%);
-  border: 1px solid color-mix(in srgb, var(--primary-500) 12%, var(--surface-glass-border));
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition-base), color var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
-  box-shadow: var(--surface-glass-inset), 0 8px 18px rgba(15, 23, 42, 0.06), 0 6px 14px rgba(252, 76, 2, 0.06);
-  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.66)) saturate(1.14);
-  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.66)) saturate(1.14);
-}
-
-.top-header-onboarding-btn:hover {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 14%, var(--surface-glass-control-strong)) 0%, color-mix(in srgb, var(--primary-500) 5%, var(--surface-glass-control-bg)) 100%);
-  color: var(--primary-700);
-  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--surface-glass-border));
-}
-
-[data-theme="dark"] .top-header-onboarding-btn {
-  color: var(--primary-400);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 10%, var(--bg-tertiary)) 0%, color-mix(in srgb, var(--primary-500) 3%, var(--surface-glass-control-bg)) 100%);
-  border-color: color-mix(in srgb, var(--primary-500) 12%, var(--surface-glass-border));
-}
-
-[data-theme="dark"] .top-header-onboarding-btn:hover {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 14%, var(--bg-tertiary)) 0%, color-mix(in srgb, var(--primary-500) 5%, var(--surface-glass-control-bg)) 100%);
-  color: var(--primary-300);
-  border-color: color-mix(in srgb, var(--primary-500) 16%, var(--surface-glass-border));
-}
-
 .header-avatar-wrap {
   position: relative;
 }
@@ -548,11 +512,6 @@ html:not([data-theme="dark"]) .top-nav-item.active .top-nav-label {
 
 .top-header-mobile .top-header-nav {
   display: none;
-}
-
-.top-header-mobile .top-header-onboarding-btn {
-  padding: 6px 10px;
-  font-size: 12px;
 }
 
 /* ---------- Боковое меню (drawer) ---------- */

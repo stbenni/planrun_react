@@ -24,11 +24,24 @@ import {
   GraduationCapIcon,
   PaceIcon,
   MedalIcon,
+  WalkingIcon,
+  ZapIcon,
+  TrophyIcon,
+  FlameIcon,
 } from '../components/common/Icons';
 import getAuthClient from '../api/getAuthClient';
 import { useVerificationCodeFlow } from '../hooks/useVerificationCodeFlow';
+import { formatPaceMask, paceMaskToSeconds } from '../utils/paceMask';
 import './RegisterScreen.css';
 import './LoginScreen.css'; /* стили логина для короткого попапа регистрации */
+
+function detectBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
 
 const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalOnly, specializationOnly, onSpecializationSuccess }) => {
   const navigate = useNavigate();
@@ -480,6 +493,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         has_treadmill: formData.has_treadmill ? 1 : 0,
         is_first_race_at_distance: formData.is_first_race_at_distance ? 1 : 0,
         sessions_per_week: formData.preferred_days?.length || formData.sessions_per_week || null,
+        timezone: formData.timezone || detectBrowserTimezone() || undefined,
       };
       
       const result = await currentApi.register(submitData);
@@ -581,6 +595,7 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         email: formData.email.trim(),
         password: formData.password,
         verification_code: codeDigits,
+        timezone: detectBrowserTimezone() || undefined,
       });
       if (result.success) {
         const authenticatedUser = {
@@ -1021,18 +1036,27 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
               
               <div className="form-group">
                 <label>Что вы хотите достичь? <span className="required">*</span></label>
-                <select
-                  className="goal-type-select"
-                  value={formData.goal_type}
-                  onChange={(e) => handleChange('goal_type', e.target.value)}
-                  required
-                >
-                  <option value="">Выберите</option>
-                  <option value="health">Просто бегать для здоровья</option>
-                  <option value="race">Подготовка к забегу</option>
-                  <option value="weight_loss">Снижение веса</option>
-                  <option value="time_improvement">Улучшить время</option>
-                </select>
+                <div className="goal-card-grid" role="radiogroup" aria-label="Тип цели">
+                  {[
+                    { value: 'health', Icon: HeartIcon, title: 'Здоровье', desc: 'Бегать для тонуса и формы' },
+                    { value: 'race', Icon: MedalIcon, title: 'Забег', desc: 'Подготовиться к дистанции' },
+                    { value: 'weight_loss', Icon: FlameIcon, title: 'Похудение', desc: 'Скинуть лишний вес' },
+                    { value: 'time_improvement', Icon: TimeIcon, title: 'Улучшить время', desc: 'Пробежать быстрее' },
+                  ].map(({ value, Icon, title, desc }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={formData.goal_type === value}
+                      className={`goal-card ${formData.goal_type === value ? 'goal-card--active' : ''}`}
+                      onClick={() => handleChange('goal_type', value)}
+                    >
+                      <Icon size={28} className="goal-card__icon" aria-hidden />
+                      <span className="goal-card__title">{title}</span>
+                      <span className="goal-card__desc">{desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div
@@ -1276,48 +1300,46 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                     </div>
                     <div className="form-group">
                       <label><GraduationCapIcon className="form-label-icon" />Какой у тебя опыт? <span className="required">*</span></label>
-                      <select
-                        value={formData.experience_level}
-                        onChange={(e) => handleChange('experience_level', e.target.value)}
-                        required
-                      >
-                        <option value="novice">Новичок (не бегаю или менее 3 месяцев)</option>
-                        <option value="beginner">Начинающий (3-6 месяцев регулярного бега)</option>
-                        <option value="intermediate">Средний (6-12 месяцев регулярного бега)</option>
-                        <option value="advanced">Продвинутый (1-2 года регулярного бега)</option>
-                        <option value="expert">Опытный (более 2 лет регулярного бега)</option>
-                      </select>
-                      <small>Выберите уровень, который лучше всего описывает ваш опыт в беге</small>
+                      <div className="experience-card-grid" role="radiogroup" aria-label="Уровень подготовки">
+                        {[
+                          { value: 'novice', Icon: LeafIcon, title: 'Новичок', period: '< 3 мес' },
+                          { value: 'beginner', Icon: WalkingIcon, title: 'Начинающий', period: '3–6 мес' },
+                          { value: 'intermediate', Icon: RunningIcon, title: 'Средний', period: '6–12 мес' },
+                          { value: 'advanced', Icon: ZapIcon, title: 'Продвинутый', period: '1–2 года' },
+                          { value: 'expert', Icon: TrophyIcon, title: 'Опытный', period: '2+ года' },
+                        ].map(({ value, Icon, title, period }) => {
+                          const active = formData.experience_level === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              className={`experience-card ${active ? 'experience-card--active' : ''}`}
+                              onClick={() => handleChange('experience_level', value)}
+                            >
+                              <Icon size={24} className="experience-card__icon" aria-hidden />
+                              <span className="experience-card__title">{title}</span>
+                              <span className="experience-card__period">{period}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label><RunningIcon className="form-label-icon" />Сколько бегаешь сейчас?</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="400"
-                        step="1"
-                        placeholder="30"
-                        value={formData.weekly_base_km}
-                        onChange={(e) => handleChange('weekly_base_km', e.target.value)}
-                      />
-                      <small>км в неделю</small>
-                    </div>
-                    <div className="form-group hidden">
-                      <label>Тренировок в неделю</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="7"
-                        placeholder="3"
-                        value={formData.preferred_days?.length || formData.sessions_per_week || ''}
-                        readOnly
-                        style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
-                      />
-                      <small>Автоматически рассчитано из выбранных дней для бега</small>
-                    </div>
+                  <div className="form-group">
+                    <label><RunningIcon className="form-label-icon" />Сколько бегаешь сейчас?</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="400"
+                      step="1"
+                      placeholder="30"
+                      value={formData.weekly_base_km}
+                      onChange={(e) => handleChange('weekly_base_km', e.target.value)}
+                    />
+                    <small>км в неделю</small>
                   </div>
                   
                   {/* Расширенный профиль бегуна */}
@@ -1329,112 +1351,63 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </p>
                       
                       <div className="form-group">
-                        <label><PaceIcon className="form-label-icon" />Комфортный темп (минуты:секунды на км)</label>
-                        <input
-                          type="text"
-                          value={formData.easy_pace_min || ''}
-                          onChange={(e) => {
-                            let value = e.target.value;
-                            
-                            // Удаляем все кроме цифр и двоеточия
-                            value = value.replace(/[^\d:]/g, '');
-                            
-                            // Ограничиваем количество двоеточий (только одно)
-                            const colonCount = (value.match(/:/g) || []).length;
-                            if (colonCount > 1) {
-                              const firstColonIndex = value.indexOf(':');
-                              value = value.substring(0, firstColonIndex + 1) + value.substring(firstColonIndex + 1).replace(/:/g, '');
-                            }
-                            
-                            // Ограничиваем длину до 5 символов (MM:SS)
-                            if (value.length > 5) {
-                              value = value.substring(0, 5);
-                            }
-                            
-                            // Проверяем валидность формата
-                            // Разрешаем: пусто, M, MM, M:, MM:, M:S, MM:S, M:SS, MM:SS
-                            const validPattern = /^(\d{1,2}:?\d{0,2})?$/;
-                            if (value === '' || validPattern.test(value)) {
-                              handleChange('easy_pace_min', value);
-                              
-                              // Конвертируем в секунды для сохранения только если формат полный (MM:SS)
-                              if (value.includes(':')) {
-                                const parts = value.split(':');
-                                if (parts.length === 2) {
-                                  const minStr = parts[0];
-                                  const secStr = parts[1];
-                                  
-                                  // Проверяем что есть и минуты и секунды (хотя бы одна цифра)
-                                  if (minStr.length > 0 && secStr.length >= 1) {
-                                    const min = parseInt(minStr) || 0;
-                                    const sec = parseInt(secStr.padEnd(2, '0')) || 0; // Дополняем секунды нулем если нужно
-                                    
-                                    if (!isNaN(min) && !isNaN(sec) && sec < 60 && min >= 0) {
-                                      const totalSec = min * 60 + sec;
-                                      if (totalSec >= 180 && totalSec <= 600) {
-                                        handleChange('easy_pace_sec', String(totalSec));
-                                      } else {
-                                        // Не очищаем, просто не сохраняем если вне диапазона
-                                        // handleChange('easy_pace_sec', '');
-                                      }
-                                    }
-                                  }
-                                }
-                              } else if (value === '') {
+                        <label><PaceIcon className="form-label-icon" />Комфортный темп (мин:сек на км)</label>
+                        <div className="pace-row">
+                          <input
+                            type="text"
+                            className="pace-input"
+                            value={formData.easy_pace_min || ''}
+                            onChange={(e) => {
+                              const formatted = formatPaceMask(e.target.value);
+                              handleChange('easy_pace_min', formatted);
+                              const totalSec = paceMaskToSeconds(formatted);
+                              if (totalSec !== null && totalSec >= 180 && totalSec <= 600) {
+                                handleChange('easy_pace_sec', String(totalSec));
+                              } else if (formatted === '') {
                                 handleChange('easy_pace_sec', '');
                               }
-                            }
-                          }}
-                          onBlur={(e) => {
-                            // При потере фокуса форматируем значение если оно неполное
-                            let value = e.target.value;
-                            if (value && value.includes(':')) {
-                              const parts = value.split(':');
-                              if (parts.length === 2) {
-                                const min = parts[0].padStart(1, '0'); // Минуты: минимум 1 цифра
-                                const sec = parts[1].padEnd(2, '0').substring(0, 2); // Секунды: ровно 2 цифры
-                                const formatted = `${min}:${sec}`;
-                                if (formatted !== value) {
-                                  handleChange('easy_pace_min', formatted);
-                                  // Пересчитываем секунды
-                                  const totalSec = (parseInt(min) || 0) * 60 + (parseInt(sec) || 0);
-                                  if (totalSec >= 180 && totalSec <= 600) {
-                                    handleChange('easy_pace_sec', String(totalSec));
-                                  }
-                                }
-                              }
-                            }
-                          }}
-                          placeholder="7:00"
-                          maxLength={5}
-                        />
-                        <small>Введите темп в формате минуты:секунды (например, 7:00 означает 7 минут на километр)</small>
-                      </div>
-                      
-                      <div className="form-group">
-                        <label><TargetIcon className="form-label-icon" />Это твой первый забег на целевую дистанцию?</label>
-                        <div className="radio-group-horizontal">
-                          <label className="radio-option">
-                            <input
-                              type="radio"
-                              name="is_first_race_at_distance"
-                              value="1"
-                              checked={formData.is_first_race_at_distance === true || formData.is_first_race_at_distance === 1}
-                              onChange={() => handleChange('is_first_race_at_distance', true)}
-                            />
-                            <span>Да, первый раз</span>
-                          </label>
-                          <label className="radio-option">
-                            <input
-                              type="radio"
-                              name="is_first_race_at_distance"
-                              value="0"
-                              checked={formData.is_first_race_at_distance === false || formData.is_first_race_at_distance === 0}
-                              onChange={() => handleChange('is_first_race_at_distance', false)}
-                            />
-                            <span>Нет, уже бегал(а)</span>
-                          </label>
+                            }}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={5}
+                            placeholder="7:00"
+                          />
+                          <div className="pace-quick" role="group" aria-label="Быстрый выбор темпа">
+                            {['5:00', '6:00', '7:00', '8:00'].map(p => (
+                              <button
+                                key={p}
+                                type="button"
+                                className={`pace-quick__chip ${formData.easy_pace_min === p ? 'pace-quick__chip--active' : ''}`}
+                                onClick={() => {
+                                  handleChange('easy_pace_min', p);
+                                  const [min, sec] = p.split(':').map(Number);
+                                  handleChange('easy_pace_sec', String(min * 60 + sec));
+                                }}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
                         </div>
+                        <small>Темп для разминки и восстановления. Ориентир: <strong>5:00</strong> опытный · <strong>6:00</strong> уверенный · <strong>7:00</strong> начинающий · <strong>8:00</strong> очень спокойный.</small>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="settings-toggle">
+                          <span className="settings-toggle__label">
+                            <TargetIcon className="form-label-icon" /> Первый забег на эту дистанцию
+                            <small className="settings-toggle__hint">Если уже бегал — ниже укажи последний результат</small>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={formData.is_first_race_at_distance === true || formData.is_first_race_at_distance === 1}
+                            onChange={(e) => handleChange('is_first_race_at_distance', e.target.checked)}
+                            className="settings-toggle__input"
+                          />
+                          <span className="settings-toggle__track" aria-hidden>
+                            <span className="settings-toggle__thumb" />
+                          </span>
+                        </label>
                       </div>
                       
                       <div className="form-group">
@@ -1502,64 +1475,64 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
 
                   <div className="form-group">
                     <label>Выбери дни для бега</label>
-                    <div className="checkbox-group">
-                      {Object.entries(dayLabels).map(([key, label]) => (
-                        <label key={key} className="checkbox-item">
-                          <input
-                            type="checkbox"
-                            value={key}
-                            checked={formData.preferred_days.includes(key)}
-                            onChange={(e) => handleArrayChange('preferred_days', key, e.target.checked)}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
+                    <div className="week-pills" role="group" aria-label="Дни для бега">
+                      {Object.entries(dayLabels).map(([key, label]) => {
+                        const active = formData.preferred_days.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-pressed={active}
+                            className={`week-pill ${active ? 'week-pill--active' : ''}`}
+                            onClick={() => handleArrayChange('preferred_days', key, !active)}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
+                    {formData.preferred_days.length > 0 && (
+                      <small>Тренировок в неделю: <strong>{formData.preferred_days.length}</strong></small>
+                    )}
                   </div>
 
                   <div className="form-group">
-                    <label>Планируете ли вы делать ОФП? <span className="required">*</span></label>
-                    <small className="form-group-hint form-group-hint--spaced">ОФП — общая физическая подготовка (силовые, растяжка)</small>
-                    <div className="form-row form-row--two-cols ofp-choice-row">
-                      <label className={`gender-option ${formData.will_do_ofp === 'yes' ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="will_do_ofp"
-                          value="yes"
-                          checked={formData.will_do_ofp === 'yes'}
-                          onChange={(e) => handleChange('will_do_ofp', e.target.value)}
-                        />
-                        Да
-                      </label>
-                      <label className={`gender-option ${formData.will_do_ofp === 'no' ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="will_do_ofp"
-                          value="no"
-                          checked={formData.will_do_ofp === 'no'}
-                          onChange={(e) => handleChange('will_do_ofp', e.target.value)}
-                        />
-                        Нет
-                      </label>
-                    </div>
+                    <label className="settings-toggle">
+                      <span className="settings-toggle__label">
+                        Планируете ли вы делать ОФП?
+                        <small className="settings-toggle__hint">Общая физическая подготовка — силовые, растяжка</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={formData.will_do_ofp === 'yes'}
+                        onChange={(e) => handleChange('will_do_ofp', e.target.checked ? 'yes' : 'no')}
+                        className="settings-toggle__input"
+                      />
+                      <span className="settings-toggle__track" aria-hidden>
+                        <span className="settings-toggle__thumb" />
+                      </span>
+                    </label>
                   </div>
 
                   <div className={`ofp-fields-wrap ${formData.will_do_ofp === 'yes' ? 'ofp-fields-wrap--visible' : ''}`}>
                     <div className="ofp-fields-wrap__inner">
                       <div className="form-group">
                         <label>Выбери дни для ОФП</label>
-                        <div className="checkbox-group">
-                          {Object.entries(dayLabels).map(([key, label]) => (
-                            <label key={key} className="checkbox-item">
-                              <input
-                                type="checkbox"
-                                value={key}
-                                checked={formData.preferred_ofp_days.includes(key)}
-                                onChange={(e) => handleArrayChange('preferred_ofp_days', key, e.target.checked)}
-                              />
-                              <span>{label}</span>
-                            </label>
-                          ))}
+                        <div className="week-pills" role="group" aria-label="Дни для ОФП">
+                          {Object.entries(dayLabels).map(([key, label]) => {
+                            const active = formData.preferred_ofp_days.includes(key);
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                aria-pressed={active}
+                                className={`week-pill ${active ? 'week-pill--active' : ''}`}
+                                onClick={() => handleArrayChange('preferred_ofp_days', key, !active)}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                       <div className="form-group">
@@ -1594,13 +1567,17 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
                       </select>
                     </div>
                     <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px', cursor: 'pointer', marginTop: '28px' }}>
+                      <label className="settings-toggle">
+                        <span className="settings-toggle__label">Есть доступ к беговой дорожке</span>
                         <input
                           type="checkbox"
                           checked={formData.has_treadmill}
                           onChange={(e) => handleChange('has_treadmill', e.target.checked)}
+                          className="settings-toggle__input"
                         />
-                        <span>Есть доступ к беговой дорожке</span>
+                        <span className="settings-toggle__track" aria-hidden>
+                          <span className="settings-toggle__thumb" />
+                        </span>
                       </label>
                     </div>
                   </div>

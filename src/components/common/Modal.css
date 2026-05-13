@@ -242,6 +242,14 @@
   -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
+/* select — multi-bg чтобы chevron из --select-arrow не затёрся background: shorthand выше */
+.app-modal .form-group select {
+  background-image: var(--select-arrow), var(--card-surface-compact-bg);
+  background-repeat: no-repeat, no-repeat;
+  background-position: right var(--space-4) center, 0 0;
+  background-size: 14px, auto;
+}
+
 .app-modal .form-group input:focus,
 .app-modal .form-group select:focus,
 .app-modal .form-group textarea:focus {
@@ -361,6 +369,10 @@
 
 [data-theme="dark"] .app-modal .form-group select {
   color-scheme: dark;
+  background-image: var(--select-arrow), var(--card-surface-compact-bg);
+  background-repeat: no-repeat, no-repeat;
+  background-position: right var(--space-4) center, 0 0;
+  background-size: 14px, auto;
 }
 
 [data-theme="dark"] .app-modal .form-group select option,

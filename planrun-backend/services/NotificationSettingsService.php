@@ -26,7 +26,6 @@ class NotificationSettingsService extends BaseService {
         'coach.proactive_post_workout_checkin' => ['Вопрос после тренировки', 'Короткий вопрос о состоянии после тренировки'],
         'coach.proactive_post_workout_analysis' => ['Разбор после тренировки', 'AI-разбор выполненной тренировки'],
         'coach.proactive_post_workout_checkin_reply' => ['Ответ на состояние', 'AI-ответ после сообщения о самочувствии'],
-        'coach.proactive_message' => ['Сообщение от тренера', 'Общее проактивное сообщение от AI-тренера'],
     ];
 
     public function ensureSchema(): void {
@@ -49,6 +48,7 @@ class NotificationSettingsService extends BaseService {
                 workout_tomorrow_hour TINYINT NOT NULL DEFAULT 20,
                 workout_tomorrow_minute TINYINT NOT NULL DEFAULT 0,
                 email_digest_mode VARCHAR(16) NOT NULL DEFAULT 'instant',
+                paused TINYINT(1) NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_notification_channel_settings_updated (updated_at)
@@ -401,6 +401,8 @@ class NotificationSettingsService extends BaseService {
             }
         }
 
+        $paused = $channelRow ? ((int) ($channelRow['paused'] ?? 0)) === 1 : false;
+
         $settings = [
             'version' => 1,
             'timezone' => $user['timezone'],
@@ -409,6 +411,7 @@ class NotificationSettingsService extends BaseService {
             'quiet_hours' => $quietHours,
             'preferences' => $preferences,
             'catalog' => self::getEventCatalog(),
+            'paused' => $paused,
         ];
 
         $this->settingsCache[$userId] = $settings;
@@ -448,6 +451,7 @@ class NotificationSettingsService extends BaseService {
                     ? ($channelInput['email']['digest_mode'] ?? ($current['channels']['email']['digest_mode'] ?? 'instant'))
                     : ($current['channels']['email']['digest_mode'] ?? 'instant')
             ),
+            'paused' => $this->normalizeBool($payload['paused'] ?? ($current['paused'] ?? false)),
         ];
 
         $stmt = $this->db->prepare("INSERT INTO notification_channel_settings (
@@ -463,8 +467,9 @@ class NotificationSettingsService extends BaseService {
                 workout_today_minute,
                 workout_tomorrow_hour,
                 workout_tomorrow_minute,
-                email_digest_mode
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                email_digest_mode,
+                paused
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 mobile_push_enabled = VALUES(mobile_push_enabled),
                 web_push_enabled = VALUES(web_push_enabled),
@@ -477,12 +482,13 @@ class NotificationSettingsService extends BaseService {
                 workout_today_minute = VALUES(workout_today_minute),
                 workout_tomorrow_hour = VALUES(workout_tomorrow_hour),
                 workout_tomorrow_minute = VALUES(workout_tomorrow_minute),
-                email_digest_mode = VALUES(email_digest_mode)");
+                email_digest_mode = VALUES(email_digest_mode),
+                paused = VALUES(paused)");
         if (!$stmt) {
             $this->throwException('Не удалось сохранить настройки каналов', 500, ['error' => $this->db->error]);
         }
         $stmt->bind_param(
-            'iiiiiissiiiis',
+            'iiiiiissiiiisi',
             $userId,
             $channelRow['mobile_push_enabled'],
             $channelRow['web_push_enabled'],
@@ -495,7 +501,8 @@ class NotificationSettingsService extends BaseService {
             $channelRow['workout_today_minute'],
             $channelRow['workout_tomorrow_hour'],
             $channelRow['workout_tomorrow_minute'],
-            $channelRow['email_digest_mode']
+            $channelRow['email_digest_mode'],
+            $channelRow['paused']
         );
         $stmt->execute();
         if ($stmt->error) {
@@ -580,6 +587,12 @@ class NotificationSettingsService extends BaseService {
         $definition = $definitions[$eventKey] ?? null;
         if (!$definition) {
             return ['allowed' => false, 'reason' => 'unknown_event'];
+        }
+
+        // «Приостановить все уведомления» — мгновенный kill-switch для всех каналов и событий.
+        // Locked-события и игнор-quiet тоже подавляются: пользователь явно сказал "тишина".
+        if (!empty($settings['paused'])) {
+            return ['allowed' => false, 'reason' => 'paused'];
         }
 
         $channelData = $settings['channels'][$channel] ?? null;
@@ -1407,7 +1420,8 @@ class NotificationSettingsService extends BaseService {
                 workout_today_minute,
                 workout_tomorrow_hour,
                 workout_tomorrow_minute,
-                email_digest_mode
+                email_digest_mode,
+                paused
             FROM notification_channel_settings
             WHERE user_id = ?
             LIMIT 1");

@@ -87,6 +87,23 @@ class ChatService extends BaseService {
         $this->repository->touchConversation($conversationId);
         $this->triggerMemoryExtraction($userId, $conversationId);
 
+        try {
+            $this->dispatchNotificationEvent(
+                $userId,
+                'coach.proactive_post_workout_checkin_reply',
+                'Ответ AI-тренера',
+                $assistantContent,
+                '/chat',
+                ['proactive_type' => 'post_workout_checkin_reply']
+            );
+        } catch (\Throwable $e) {
+            Logger::warning('Post-workout reply notification dispatch failed', [
+                'userId' => $userId,
+                'messageId' => $messageId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return (int) $messageId;
     }
 

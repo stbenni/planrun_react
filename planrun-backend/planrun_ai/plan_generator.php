@@ -99,12 +99,60 @@ function generatePlanViaPlanRunAI($userId) {
         // Парсим JSON ответ с repair pipeline
         $planData = parseAndRepairPlanJSON($response, $userId);
 
+        $planData = applyCritiquePassToPlanData($planData, $user, $userId, 'ГЕНЕРАЦИЯ');
+
         return $planData;
 
     } catch (Exception $e) {
         error_log("PlanRun AI Generator: Ошибка при генерации плана: " . $e->getMessage());
         throw $e;
     }
+}
+
+/**
+ * Универсальная обёртка self-critique для generate / generateNext.
+ * Собирает мини-контекст (история тренировок), запускает critique, при необходимости —
+ * revision. Возвращает финальный planData с _generation_metadata.critique.
+ */
+function applyCritiquePassToPlanData(array $planData, array $user, int $userId, string $mode): array {
+    try {
+        require_once __DIR__ . '/plan_critique_generator.php';
+        require_once __DIR__ . '/../services/WorkoutAnalysisRepository.php';
+        require_once __DIR__ . '/../services/ChatContextBuilder.php';
+
+        $db = $GLOBALS['db'] ?? getDBConnection();
+        $repo = new WorkoutAnalysisRepository($db);
+        $ctx = new ChatContextBuilder($db);
+
+        $context = [
+            'new_start_date' => date('Y-m-d', strtotime('monday this week')),
+            'plan_history_rollup' => $repo->getWeeklyRollupForActivePlan($userId),
+            'plan_key_workouts' => $repo->getKeyWorkoutSummaryForActivePlan($userId),
+            'acwr' => $ctx->calculateACWR($userId),
+        ];
+
+        $critique = runPlanSelfCritique($planData, $user, $context, $userId);
+        if (is_array($critique)) {
+            error_log("PlanRun {$mode}: critique severity=" . ($critique['severity'] ?? '?')
+                . ", should_revise=" . (!empty($critique['should_revise']) ? 'yes' : 'no')
+                . ", issues=" . count($critique['issues'] ?? []));
+            if (!empty($critique['should_revise'])) {
+                $revised = revisePlanWithCritique($planData, $critique, $user, $context, $userId, $mode);
+                if (is_array($revised) && !empty($revised['weeks'])) {
+                    $planData = $revised;
+                    $critique['_revised'] = true;
+                    error_log("PlanRun {$mode}: plan revised based on critique");
+                }
+            }
+            if (!isset($planData['_generation_metadata']) || !is_array($planData['_generation_metadata'])) {
+                $planData['_generation_metadata'] = [];
+            }
+            $planData['_generation_metadata']['critique'] = $critique;
+        }
+    } catch (Throwable $e) {
+        error_log("PlanRun {$mode}: critique pass failed: " . $e->getMessage());
+    }
+    return $planData;
 }
 
 /**
@@ -182,7 +230,8 @@ function generateSplitPlan(array $user, string $goalType, array $chunks, int $us
 
     error_log("PlanRun AI Generator: Сплит-генерация завершена — итого " . count($allWeeks) . " недель");
 
-    return validatePlanStructure(['weeks' => $allWeeks], $userId);
+    $finalPlan = validatePlanStructure(['weeks' => $allWeeks], $userId);
+    return applyCritiquePassToPlanData($finalPlan, $user, $userId, 'СПЛИТ-ГЕНЕРАЦИЯ');
 }
 
 /**
@@ -563,6 +612,33 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
         'current_phase' => $currentPhaseInfo,
         'acwr' => $ctxBuilder->calculateACWR($userId),
         'last_plan_weeks' => $lastPlanWeeks,
+        'plan_history_lines' => (function () use ($userId) {
+            try {
+                require_once __DIR__ . '/../services/WorkoutAnalysisRepository.php';
+                return (new WorkoutAnalysisRepository($GLOBALS['db'] ?? getDBConnection()))
+                    ->getSummaryLinesForActivePlan($userId);
+            } catch (Throwable $e) {
+                return [];
+            }
+        })(),
+        'plan_history_rollup' => (function () use ($userId) {
+            try {
+                require_once __DIR__ . '/../services/WorkoutAnalysisRepository.php';
+                return (new WorkoutAnalysisRepository($GLOBALS['db'] ?? getDBConnection()))
+                    ->getWeeklyRollupForActivePlan($userId);
+            } catch (Throwable $e) {
+                return [];
+            }
+        })(),
+        'plan_key_workouts' => (function () use ($userId) {
+            try {
+                require_once __DIR__ . '/../services/WorkoutAnalysisRepository.php';
+                return (new WorkoutAnalysisRepository($GLOBALS['db'] ?? getDBConnection()))
+                    ->getKeyWorkoutSummaryForActivePlan($userId);
+            } catch (Throwable $e) {
+                return [];
+            }
+        })(),
     ];
 
     $prompt = buildRecalculationPrompt($user, $goalType, $recalcContext);
@@ -572,6 +648,35 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     try {
         $response = callAIAPI($prompt, $user, 3, $userId);
         $planData = parseAndRepairPlanJSON($response, $userId);
+
+        // Self-critique pass: независимый LLM-вызов ревьюит план, при необходимости — revision.
+        $critique = null;
+        try {
+            require_once __DIR__ . '/plan_critique_generator.php';
+            $critique = runPlanSelfCritique($planData, $user, $recalcContext, $userId);
+            if (is_array($critique)) {
+                error_log("PlanRun AI Recalculate: critique severity=" . ($critique['severity'] ?? '?')
+                    . ", should_revise=" . (!empty($critique['should_revise']) ? 'yes' : 'no')
+                    . ", issues=" . count($critique['issues'] ?? []));
+                if (!empty($critique['should_revise'])) {
+                    $revised = revisePlanWithCritique($planData, $critique, $user, $recalcContext, $userId, 'ПЕРЕСЧЁТ');
+                    if (is_array($revised) && !empty($revised['weeks'])) {
+                        $planData = $revised;
+                        $critique['_revised'] = true;
+                        error_log("PlanRun AI Recalculate: plan revised based on critique");
+                    }
+                }
+            }
+        } catch (Throwable $cE) {
+            error_log("PlanRun AI Recalculate: critique pass failed: " . $cE->getMessage());
+        }
+
+        if ($critique !== null) {
+            if (!isset($planData['_generation_metadata']) || !is_array($planData['_generation_metadata'])) {
+                $planData['_generation_metadata'] = [];
+            }
+            $planData['_generation_metadata']['critique'] = $critique;
+        }
 
         return [
             'plan' => $planData,
@@ -840,6 +945,8 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
     try {
         $response = callAIAPI($prompt, $modifiedUser, 3, $userId);
         $planData = parseAndRepairPlanJSON($response, $userId);
+
+        $planData = applyCritiquePassToPlanData($planData, $modifiedUser, $userId, 'НОВЫЙ ПЛАН');
 
         return $planData;
     } catch (Exception $e) {

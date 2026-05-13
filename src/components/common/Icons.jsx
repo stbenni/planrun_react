@@ -38,10 +38,12 @@ import {
   Bell,
   Smartphone,
   Image,
+  Camera,
   Palette,
   Users,
   ClipboardList,
   MapPin,
+  Globe,
   Trash2,
   Leaf,
   PenLine,
@@ -201,6 +203,9 @@ export function SmartphoneIcon(props) {
 export function ImageIcon(props) {
   return <Image {...iconProps} {...props} />;
 }
+export function CameraIcon(props) {
+  return <Camera {...iconProps} {...props} />;
+}
 export function PaletteIcon(props) {
   return <Palette {...iconProps} {...props} />;
 }
@@ -212,6 +217,9 @@ export function ClipboardListIcon(props) {
 }
 export function MapPinIcon(props) {
   return <MapPin {...iconProps} {...props} />;
+}
+export function GlobeIcon(props) {
+  return <Globe {...iconProps} {...props} />;
 }
 export function MountainIcon(props) {
   return <Mountain {...iconProps} {...props} />;

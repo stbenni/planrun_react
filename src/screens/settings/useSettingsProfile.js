@@ -118,6 +118,7 @@ export function useSettingsProfile({
         email: normalizeValue(formData.email),
         gender: normalizeValue(formData.gender),
         birth_year: normalizeValue(formData.birth_year),
+        birth_month: normalizeValue(formData.birth_month),
         height_cm: normalizeValue(formData.height_cm),
         weight_kg: normalizeValue(formData.weight_kg),
         timezone: formData.timezone,
@@ -219,7 +220,8 @@ export function useSettingsProfile({
         if (typeof setHasUnsavedChanges === 'function') {
           setHasUnsavedChanges(false);
         }
-        setMessage({ type: 'success', text: 'Изменения сохранены' });
+        // Auto-save через debounce 350ms — success-плашка избыточна, юзер не нажимал кнопку.
+        // Error-сообщение ниже в catch остаётся видимым.
       } else {
         throw new Error(response?.error || 'Ошибка обновления профиля');
       }

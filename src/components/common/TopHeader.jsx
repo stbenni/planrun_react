@@ -227,7 +227,7 @@ const TopHeader = () => {
         {user && (
         <div className="top-header-actions">
             {needsOnboarding && !isMobile && (
-              <button type="button" className="top-header-onboarding-btn" onClick={() => setShowOnboardingModal(true)}>
+              <button type="button" className="btn btn-primary btn--sm" onClick={() => setShowOnboardingModal(true)}>
                 Настроить план
               </button>
             )}

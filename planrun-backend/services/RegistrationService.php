@@ -101,16 +101,17 @@ class RegistrationService extends BaseService {
         $trainingModePlaceholder = 'self';
         $goalTypeHealth = 'health';
         $genderMale = 'male';
+        $timezone = $this->sanitizeTimezone($input['timezone'] ?? null) ?? 'Europe/Moscow';
 
         $stmt = $this->db->prepare(
-            "INSERT INTO users (username, username_slug, password, email, onboarding_completed, training_mode, goal_type, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO users (username, username_slug, password, email, onboarding_completed, training_mode, goal_type, gender, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         if (!$stmt) {
             throw new RuntimeException('Ошибка подготовки запроса: ' . $this->db->error, 500);
         }
 
         $stmt->bind_param(
-            'ssssisss',
+            'ssssissss',
             $username,
             $usernameSlug,
             $hashedPassword,
@@ -118,7 +119,8 @@ class RegistrationService extends BaseService {
             $onboardingCompleted,
             $trainingModePlaceholder,
             $goalTypeHealth,
-            $genderMale
+            $genderMale,
+            $timezone
         );
 
         if (!$stmt->execute()) {
@@ -246,6 +248,22 @@ class RegistrationService extends BaseService {
         return $this->userRepo()->findIdBySlug($slug) !== null;
     }
 
+    /**
+     * Валидация IANA-таймзоны из клиента (Intl.DateTimeFormat().resolvedOptions().timeZone).
+     * Возвращает null если значение не строка / пустое / не валидная IANA-зона.
+     */
+    private function sanitizeTimezone($value): ?string {
+        if (!is_string($value)) return null;
+        $value = trim($value);
+        if ($value === '' || strlen($value) > 64) return null;
+        try {
+            new DateTimeZone($value);
+            return $value;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
     private function insertFullUser(array $data, array $identity, string $password): int {
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
         $userData = [
@@ -263,6 +281,7 @@ class RegistrationService extends BaseService {
             'training_start_date' => ['value' => $data['training_start_date'] ?? null, 'type' => 's'],
             'gender' => ['value' => $data['gender'] ?? null, 'type' => 's'],
             'birth_year' => ['value' => $data['birth_year'] ?? null, 'type' => 'i'],
+            'birth_month' => ['value' => isset($data['birth_month']) && $data['birth_month'] !== null && $data['birth_month'] !== '' ? max(1, min(12, (int)$data['birth_month'])) : null, 'type' => 'i'],
             'height_cm' => ['value' => $data['height_cm'] ?? null, 'type' => 'i'],
             'weight_kg' => ['value' => $data['weight_kg'] ?? null, 'type' => 'd'],
             'experience_level' => ['value' => $data['experience_level'] ?? null, 'type' => 's'],
@@ -289,6 +308,7 @@ class RegistrationService extends BaseService {
             'last_race_date' => ['value' => $data['last_race_date'] ?? null, 'type' => 's'],
             'training_mode' => ['value' => $data['training_mode'] ?? 'ai', 'type' => 's'],
             'onboarding_completed' => ['value' => 1, 'type' => 'i'],
+            'timezone' => ['value' => $this->sanitizeTimezone($data['timezone'] ?? null) ?? 'Europe/Moscow', 'type' => 's'],
         ];
 
         $fields = array_keys($userData);

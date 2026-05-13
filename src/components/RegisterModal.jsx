@@ -28,8 +28,6 @@ const RegisterModal = ({ isOpen, onClose, onRegister, returnTo }) => {
       size="small"
       hideHeader
       centerBody
-      contentClassName="app-modal-content--register"
-      bodyClassName="app-modal-body--register"
     >
       <RegisterScreen
         embedInModal

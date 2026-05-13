@@ -17,11 +17,78 @@ import { isNativeCapacitor } from '../services/TokenStorageService';
 import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, ImageIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon, MailIcon, MessageCircleIcon, SmartphoneIcon } from '../components/common/Icons';
+import { UserIcon, RunningIcon, LockIcon, LinkIcon, CameraIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon, MailIcon, MessageCircleIcon, SmartphoneIcon, GlobeIcon, HeartIcon, MedalIcon, FlameIcon, TimeIcon, LeafIcon, WalkingIcon, ZapIcon, TrophyIcon } from '../components/common/Icons';
+
+const STATIC_TIMEZONES = ['Europe/Moscow', 'Europe/Kiev', 'Europe/Minsk', 'Asia/Almaty', 'Europe/London', 'America/New_York'];
+
+function detectBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+function formatTimezoneLabel(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date());
+    const offset = (parts.find((p) => p.type === 'timeZoneName')?.value || '').replace('GMT', 'UTC') || 'UTC';
+    return `${tz} (${offset})`;
+  } catch {
+    return tz;
+  }
+}
+
+function pluralizeYears(n) {
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return 'лет';
+  if (last === 1) return 'год';
+  if (last >= 2 && last <= 4) return 'года';
+  return 'лет';
+}
+
+function computeAge(birthYear, birthMonth) {
+  const yr = parseInt(birthYear, 10);
+  if (!yr || yr < 1900) return null;
+  const today = new Date();
+  let age = today.getFullYear() - yr;
+  const m = parseInt(birthMonth, 10);
+  if (m && m >= 1 && m <= 12 && today.getMonth() + 1 < m) {
+    age--;
+  }
+  return age >= 0 && age <= 150 ? age : null;
+}
+
+function computeIdealWeightRange(heightCm) {
+  const h = parseFloat(heightCm);
+  if (!h || h < 50 || h > 250) return null;
+  const meters = h / 100;
+  const min = Math.round(18.5 * meters * meters);
+  const max = Math.round(24.9 * meters * meters);
+  return { min, max };
+}
+
+function computeBmi(heightCm, weightKg) {
+  const h = parseFloat(heightCm);
+  const w = parseFloat(weightKg);
+  if (!h || !w || h < 50 || h > 250 || w < 20 || w > 300) return null;
+  const meters = h / 100;
+  const value = w / (meters * meters);
+  if (!isFinite(value)) return null;
+  const rounded = Math.round(value * 10) / 10;
+  let tone = 'success';
+  let label = 'норма';
+  if (rounded < 18.5) { tone = 'info'; label = 'недовес'; }
+  else if (rounded >= 25 && rounded < 30) { tone = 'warning'; label = 'повышен'; }
+  else if (rounded >= 30) { tone = 'danger'; label = 'высокий'; }
+  return { value: rounded, label, tone };
+}
 import { useMyCoaches } from './settings/useMyCoaches';
 import { useCoachPricing } from './settings/useCoachPricing';
 import { createInitialFormData, daysOfWeek } from './settings/profileForm';
-import { NOTIFICATION_CHANNELS, ensureNotificationChannelsEnabled, normalizeNotificationSettings } from './settings/notificationSettings';
+import { NOTIFICATION_CHANNELS, ensureNotificationChannelsEnabled, normalizeNotificationSettings, createInitialNotificationSettings } from './settings/notificationSettings';
+import { formatPaceMask, paceMaskToSeconds } from '../utils/paceMask';
 import { useSettingsActions } from './settings/useSettingsActions';
 import { useSettingsProfile } from './settings/useSettingsProfile';
 import { applyTheme, getSystemTheme, getThemePreference, VALID_TABS } from './settings/settingsUtils';
@@ -901,6 +968,13 @@ const SettingsScreen = ({ onLogout }) => {
     }));
   }, [updateNotificationSettings]);
 
+  const updatePaused = useCallback((value) => {
+    updateNotificationSettings((prev) => ({
+      ...prev,
+      paused: Boolean(value),
+    }));
+  }, [updateNotificationSettings]);
+
   const refreshCurrentBrowserWebPushState = useCallback(async () => {
     if (!browserNotificationsSupported || browserNotificationPermission !== 'granted') {
       setCurrentBrowserWebPushSubscribed(false);
@@ -1390,9 +1464,11 @@ const SettingsScreen = ({ onLogout }) => {
     const checked = event.locked
       ? channelKey === 'email'
       : Boolean(effectiveNotificationSettings.preferences?.[event.event_key]?.[field]);
+    const telegramNotLinkedHere = channelKey === 'telegram' && !channel.linked;
     const disabled = !supportsChannel
       || Boolean(event.locked)
-      || isChannelBusy;
+      || isChannelBusy
+      || telegramNotLinkedHere;
 
     return {
       supportsChannel,
@@ -1597,150 +1673,216 @@ const SettingsScreen = ({ onLogout }) => {
           <div className="tab-content active">
             <div className="settings-section">
               <h2><UserIcon size={22} className="section-icon" aria-hidden /> Личная информация</h2>
-              <p>Основные данные вашего профиля</p>
 
-              {/* Аватар */}
-              <div className="form-group">
-                <label>Аватар</label>
-                <div className="avatar-upload-shell">
-                  <input
-                    type="file"
-                    id="avatar-upload"
-                    className="avatar-upload-input"
-                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                    onChange={handleAvatarUpload}
-                  />
-
-                  <div className="avatar-preview-container">
+              <div className="settings-personal-hero">
+                <input
+                  type="file"
+                  id="avatar-upload"
+                  className="settings-personal-hero__input"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                  onChange={handleAvatarUpload}
+                />
+                <div className="settings-personal-hero__avatar-wrap">
+                  <label
+                    htmlFor="avatar-upload"
+                    className="settings-personal-hero__avatar-trigger"
+                    aria-label={formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}
+                    title={formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}
+                  >
                     {formData.avatar_path ? (
                       <img
                         src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api', 'md')}
                         alt="Аватар"
-                        className="avatar-preview avatar-preview--current"
+                        className="settings-personal-hero__avatar"
                       />
                     ) : (
-                      <div className="avatar-placeholder avatar-placeholder--profile" aria-hidden>
-                        {avatarInitials || <UserIcon size={44} />}
+                      <div className="settings-personal-hero__avatar settings-personal-hero__avatar--placeholder" aria-hidden>
+                        {avatarInitials || <UserIcon size={40} />}
                       </div>
                     )}
+                    <span className="settings-personal-hero__avatar-overlay" aria-hidden>
+                      <CameraIcon size={32} />
+                      <span className="settings-personal-hero__avatar-overlay-text">
+                        {formData.avatar_path ? 'Изменить' : 'Загрузить'}
+                      </span>
+                    </span>
+                  </label>
+                  {formData.avatar_path && (
+                    <button
+                      type="button"
+                      className="settings-personal-hero__remove-x"
+                      onClick={handleRemoveAvatar}
+                      aria-label="Удалить фото"
+                      title="Удалить фото"
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  )}
+                </div>
 
-                    <div className="avatar-preview-meta">
-                      <div className="avatar-preview-copy">
-                        <span className={`avatar-preview-badge ${formData.avatar_path ? 'avatar-preview-badge--ready' : ''}`}>
-                          {formData.avatar_path ? 'Текущий аватар' : 'Фото профиля'}
-                        </span>
-                        <div className="avatar-preview-title">{avatarDisplayName}</div>
-                      </div>
+                <div className="settings-personal-hero__fields">
+                  <div className="form-group">
+                    <label>Имя пользователя <span className="required">*</span></label>
+                    <input
+                      type="text"
+                      value={formData.username}
+                      onChange={(e) => handleInputChange('username', e.target.value)}
+                      placeholder="Ваше имя"
+                    />
+                  </div>
 
-                      <div className="avatar-actions-panel">
-                        <div className="avatar-actions">
-                          <label htmlFor="avatar-upload" className="avatar-upload-label avatar-upload-label--inline">
-                            <ImageIcon size={18} className="avatar-upload-icon" aria-hidden />
-                            <span>{formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}</span>
-                          </label>
-
-                          {formData.avatar_path && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm avatar-remove-btn"
-                              onClick={handleRemoveAvatar}
-                            >
-                              Удалить
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                  <div className="form-group">
+                    <label>Email <span className="required">*</span></label>
+                    <input
+                      type="email"
+                      value={formData.email || ''}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      placeholder="email@example.com"
+                    />
                   </div>
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Имя пользователя *</label>
-                <input
-                  type="text"
-                  value={formData.username}
-                  onChange={(e) => handleInputChange('username', e.target.value)}
-                  placeholder="Ваше имя"
-                />
-              </div>
+              <div className="settings-fieldset-group">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Пол</label>
+                    <div className="settings-segmented" role="radiogroup" aria-label="Пол">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={formData.gender === 'male'}
+                        className={`settings-segmented__btn ${formData.gender === 'male' ? 'settings-segmented__btn--active' : ''}`}
+                        onClick={() => handleInputChange('gender', formData.gender === 'male' ? null : 'male')}
+                      >
+                        Мужской
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={formData.gender === 'female'}
+                        className={`settings-segmented__btn ${formData.gender === 'female' ? 'settings-segmented__btn--active' : ''}`}
+                        onClick={() => handleInputChange('gender', formData.gender === 'female' ? null : 'female')}
+                      >
+                        Женский
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="form-group">
-                <label>Email <span className="required">*</span></label>
-                <input
-                  type="email"
-                  value={formData.email || ''}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  placeholder="email@example.com"
-                />
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Пол</label>
-                  <select
-                    value={formData.gender || ''}
-                    onChange={(e) => handleInputChange('gender', e.target.value || null)}
-                  >
-                    <option value="">Не указано</option>
-                    <option value="male">Мужской</option>
-                    <option value="female">Женский</option>
-                  </select>
+                  <div className="form-group">
+                    <label>Дата рождения</label>
+                    <input
+                      type="month"
+                      min="1900-01"
+                      max={`${new Date().getFullYear()}-12`}
+                      value={formData.birth_year && formData.birth_month
+                        ? `${formData.birth_year}-${String(formData.birth_month).padStart(2, '0')}`
+                        : ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (!v) {
+                          handleInputChange('birth_year', '');
+                          handleInputChange('birth_month', '');
+                        } else {
+                          const [y, m] = v.split('-');
+                          handleInputChange('birth_year', y);
+                          handleInputChange('birth_month', String(parseInt(m, 10)));
+                        }
+                      }}
+                    />
+                    {(() => {
+                      const age = computeAge(formData.birth_year, formData.birth_month);
+                      return age !== null ? <small>{age} {pluralizeYears(age)}</small> : null;
+                    })()}
+                  </div>
                 </div>
 
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Рост (см)</label>
+                    <input
+                      type="number"
+                      min="50"
+                      max="250"
+                      value={formData.height_cm || ''}
+                      onChange={(e) => handleInputChange('height_cm', e.target.value)}
+                      placeholder="175"
+                    />
+                    {(() => {
+                      const range = computeIdealWeightRange(formData.height_cm);
+                      return range ? <small>норма веса {range.min}–{range.max} кг</small> : null;
+                    })()}
+                  </div>
+
+                  <div className="form-group">
+                    <label>Вес (кг)</label>
+                    <input
+                      type="number"
+                      min="20"
+                      max="300"
+                      step="0.1"
+                      value={formData.weight_kg || ''}
+                      onChange={(e) => handleInputChange('weight_kg', e.target.value)}
+                      placeholder="70"
+                    />
+                    {(() => {
+                      const bmi = computeBmi(formData.height_cm, formData.weight_kg);
+                      return bmi ? (
+                        <small className="settings-bmi-hint">
+                          <span className="settings-bmi-hint__num">ИМТ {bmi.value}</span>
+                          <span className={`settings-bmi-hint__label settings-bmi-hint__label--${bmi.tone}`}>{bmi.label}</span>
+                        </small>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-fieldset-group">
                 <div className="form-group">
-                  <label>Год рождения</label>
-                  <input
-                    type="number"
-                    min="1900"
-                    max={new Date().getFullYear()}
-                    value={formData.birth_year || ''}
-                    onChange={(e) => handleInputChange('birth_year', e.target.value)}
-                    placeholder="1990"
+                  <label>Заметки о здоровье</label>
+                  <textarea
+                    value={formData.health_notes || ''}
+                    onChange={(e) => handleInputChange('health_notes', e.target.value || null)}
+                    placeholder="Особенности здоровья, травмы, ограничения..."
+                    rows="4"
                   />
+                  <small>AI-тренер учтёт это при составлении плана — например, обойдёт упражнения с нагрузкой на больное колено.</small>
                 </div>
               </div>
 
-              <div className="form-row">
+              <div className="settings-fieldset-group">
                 <div className="form-group">
-                  <label>Рост (см)</label>
-                  <input
-                    type="number"
-                    min="50"
-                    max="250"
-                    value={formData.height_cm || ''}
-                    onChange={(e) => handleInputChange('height_cm', e.target.value)}
-                    placeholder="175"
-                  />
+                  <label>Часовой пояс</label>
+                  <div className="settings-timezone-row">
+                    <select
+                      value={formData.timezone}
+                      onChange={(e) => handleInputChange('timezone', e.target.value)}
+                    >
+                      <option value="Europe/Moscow">Москва (UTC+3)</option>
+                      <option value="Europe/Kiev">Киев (UTC+2)</option>
+                      <option value="Europe/Minsk">Минск (UTC+3)</option>
+                      <option value="Asia/Almaty">Алматы (UTC+6)</option>
+                      <option value="Europe/London">Лондон (UTC+0)</option>
+                      <option value="America/New_York">Нью-Йорк (UTC-5)</option>
+                      {formData.timezone && !STATIC_TIMEZONES.includes(formData.timezone) && (
+                        <option value={formData.timezone}>{formatTimezoneLabel(formData.timezone)}</option>
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn--sm"
+                      onClick={() => {
+                        const tz = detectBrowserTimezone();
+                        if (tz) handleInputChange('timezone', tz);
+                      }}
+                      title="Подставить часовой пояс из браузера"
+                    >
+                      <GlobeIcon size={16} aria-hidden />
+                      <span>Определить</span>
+                    </button>
+                  </div>
                 </div>
-
-                <div className="form-group">
-                  <label>Вес (кг)</label>
-                  <input
-                    type="number"
-                    min="20"
-                    max="300"
-                    step="0.1"
-                    value={formData.weight_kg || ''}
-                    onChange={(e) => handleInputChange('weight_kg', e.target.value)}
-                    placeholder="70"
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Часовой пояс</label>
-                <select
-                  value={formData.timezone}
-                  onChange={(e) => handleInputChange('timezone', e.target.value)}
-                >
-                  <option value="Europe/Moscow">Москва (UTC+3)</option>
-                  <option value="Europe/Kiev">Киев (UTC+2)</option>
-                  <option value="Europe/Minsk">Минск (UTC+3)</option>
-                  <option value="Asia/Almaty">Алматы (UTC+6)</option>
-                  <option value="Europe/London">Лондон (UTC+0)</option>
-                  <option value="America/New_York">Нью-Йорк (UTC-5)</option>
-                </select>
               </div>
             </div>
             <div className="settings-section">
@@ -1834,19 +1976,41 @@ const SettingsScreen = ({ onLogout }) => {
           const webPushSetupState = getWebPushSetupState();
           const availableChannels = NOTIFICATION_CHANNELS.filter((key) => {
             const ch = effectiveNotificationSettings.channels?.[key] || {};
-            if (key === 'telegram') return ch.available && ch.linked;
+            // Telegram теперь показываем всегда; если не подключён — disabled с CTA
+            if (key === 'telegram') return true;
             if (key === 'mobile_push' && isMobileWeb) return false;
             if (key === 'web_push' && isNativeApp) return false;
             if (key === 'web_push') return true;
             if (key === 'mobile_push') return isNativeApp || ch.available;
             return true; // email always shown
           });
+          const telegramNotLinked = !effectiveNotificationSettings.channels?.telegram?.linked;
           const showWebPushSetup = !isNativeApp;
 
           return (
           <div className="tab-content active">
             <div className="settings-section notification-center">
               <h2><BellIcon size={22} className="section-icon" aria-hidden /> Уведомления</h2>
+
+              <label className={`settings-toggle notification-pause-toggle ${notificationSettings.paused ? 'is-paused' : ''}`}>
+                <span className="settings-toggle__label">
+                  Приостановить все уведомления
+                  <small className="settings-toggle__hint">
+                    {notificationSettings.paused
+                      ? 'Сейчас не приходит ничего — ни email, ни push. Включите снова чтобы возобновить.'
+                      : 'Глобальный kill-switch — отключает все уведомления, кроме обязательных писем. Удобно на отпуск.'}
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(notificationSettings.paused)}
+                  onChange={(e) => updatePaused(e.target.checked)}
+                  className="settings-toggle__input"
+                />
+                <span className="settings-toggle__track" aria-hidden>
+                  <span className="settings-toggle__thumb" />
+                </span>
+              </label>
 
               {showWebPushSetup && (
                 <div className={`notification-inline-helper ${webPushSetupState.key === 'connected' ? 'is-connected' : ''}`}>
@@ -1876,6 +2040,19 @@ const SettingsScreen = ({ onLogout }) => {
                     value={notificationSettings.schedule?.workout_today_time || '08:00'}
                     onChange={(e) => updateNotificationTime('workout_today_time', '08:00', e.target.value)}
                   />
+                  <div className="pace-quick" role="group" aria-label="Быстрый выбор времени">
+                    {['07:00', '08:00', '09:00'].map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`pace-quick__chip ${(notificationSettings.schedule?.workout_today_time || '08:00') === t ? 'pace-quick__chip--active' : ''}`}
+                        onClick={() => updateNotificationTime('workout_today_time', '08:00', t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <small>Утреннее уведомление о сегодняшней тренировке.</small>
                 </div>
                 <div className="form-group">
                   <label>Напоминание на завтра</label>
@@ -1884,17 +2061,37 @@ const SettingsScreen = ({ onLogout }) => {
                     value={notificationSettings.schedule?.workout_tomorrow_time || '20:00'}
                     onChange={(e) => updateNotificationTime('workout_tomorrow_time', '20:00', e.target.value)}
                   />
+                  <div className="pace-quick" role="group" aria-label="Быстрый выбор времени">
+                    {['19:00', '20:00', '21:00'].map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`pace-quick__chip ${(notificationSettings.schedule?.workout_tomorrow_time || '20:00') === t ? 'pace-quick__chip--active' : ''}`}
+                        onClick={() => updateNotificationTime('workout_tomorrow_time', '20:00', t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <small>Вечернее напоминание о завтрашней тренировке.</small>
                 </div>
               </div>
 
               <div className="notification-quiet-hours">
-                <label className="checkbox-label">
+                <label className="settings-toggle">
+                  <span className="settings-toggle__label">
+                    Тихие часы
+                    <small className="settings-toggle__hint">В это время уведомления не приходят</small>
+                  </span>
                   <input
                     type="checkbox"
                     checked={Boolean(notificationSettings.quiet_hours?.enabled)}
                     onChange={(e) => updateQuietHours('enabled', e.target.checked)}
+                    className="settings-toggle__input"
                   />
-                  <span>Тихие часы</span>
+                  <span className="settings-toggle__track" aria-hidden>
+                    <span className="settings-toggle__thumb" />
+                  </span>
                 </label>
                 {notificationSettings.quiet_hours?.enabled && (
                   <div className="notification-schedule-grid">
@@ -1926,17 +2123,31 @@ const SettingsScreen = ({ onLogout }) => {
 	                      <h3>{group.label}</h3>
 	                    </div>
 	                    <div className="notification-matrix notification-matrix--desktop">
-	                      <div className="notification-matrix-header notification-matrix-row">
+	                      <div className="notification-matrix-header notification-matrix-row" style={{ '--channels-count': availableChannels.length }}>
 	                        <div className="notification-event-copy">Событие</div>
 	                        {availableChannels.map((channelKey) => (
-	                          <div key={`${group.key}-${channelKey}-head`} className="notification-channel-head">
-	                            {channelMeta[channelKey].shortLabel}
-                          </div>
-                        ))}
+	                          <div
+                              key={`${group.key}-${channelKey}-head`}
+                              className="notification-channel-head"
+                              title={channelMeta[channelKey].label}
+                            >
+                              <span className="notification-channel-head-label">{channelMeta[channelKey].shortLabel}</span>
+                              {channelKey === 'telegram' && telegramNotLinked && (
+                                <button
+                                  type="button"
+                                  className="notification-channel-head__cta"
+                                  onClick={() => handleTabChange('integrations')}
+                                  title="Подключить Telegram в интеграциях"
+                                >
+                                  подключить
+                                </button>
+                              )}
+                            </div>
+                          ))}
                       </div>
 
 	                      {group.events.map((event) => (
-	                        <div key={event.event_key} className="notification-matrix-row">
+	                        <div key={event.event_key} className="notification-matrix-row" style={{ '--channels-count': availableChannels.length }}>
 	                          <div className="notification-event-copy">
 	                            <strong>{event.label}</strong>
 	                            {event.locked && <em>Обязательно</em>}
@@ -1945,14 +2156,20 @@ const SettingsScreen = ({ onLogout }) => {
 	                            const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
 
 	                            return (
-	                              <label key={`${event.event_key}-${channelKey}`} className={`notification-toggle ${disabled ? 'is-disabled' : ''}`}>
+	                              <label
+                                key={`${event.event_key}-${channelKey}`}
+                                className={`notification-toggle notification-toggle--icon ${disabled ? 'is-disabled' : ''}`}
+                                title={supportsChannel ? channelMeta[channelKey].label : 'Канал недоступен'}
+                              >
                                 <input
                                   type="checkbox"
                                   checked={checked}
                                   disabled={disabled}
                                   onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
                                 />
-                                <span>{supportsChannel ? channelMeta[channelKey].shortLabel : '—'}</span>
+                                {supportsChannel
+                                  ? renderNotificationChannelVisual(channelMeta[channelKey], 'notification-toggle-icon', 20)
+                                  : <span className="notification-toggle-dash">—</span>}
                               </label>
                             );
 	                          })}
@@ -2045,6 +2262,44 @@ const SettingsScreen = ({ onLogout }) => {
 	                  </div>
 	                ))}
 	              </div>
+
+              <div className="notification-section-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn--sm"
+                  onClick={async () => {
+                    if (!api) return;
+                    try {
+                      const result = await api.request('send_test_notification', { channel: '' }, 'POST');
+                      if (result?.success || result?.sent) {
+                        alert('Тестовое уведомление отправлено в активные каналы. Проверьте их.');
+                      } else {
+                        alert(result?.error || 'Не удалось отправить тестовое уведомление');
+                      }
+                    } catch (e) {
+                      alert(e.message || 'Не удалось отправить тестовое уведомление');
+                    }
+                  }}
+                >
+                  <BellIcon size={16} aria-hidden /> Отправить тестовое
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn--sm notification-section-actions__reset"
+                  onClick={() => {
+                    if (window.confirm('Сбросить настройки уведомлений к умолчаниям? Все события и расписание вернутся к стандартным значениям.')) {
+                      setFormData(prev => ({
+                        ...prev,
+                        notification_settings: ensureNotificationChannelsEnabled(
+                          createInitialNotificationSettings(prev.timezone || 'Europe/Moscow')
+                        ),
+                      }));
+                    }
+                  }}
+                >
+                  Сбросить к умолчаниям
+                </button>
+              </div>
             </div>
           </div>
           );
@@ -2054,58 +2309,37 @@ const SettingsScreen = ({ onLogout }) => {
         {activeTab === 'training' && (
           <div className="tab-content active" key={`training-${formData.weekly_base_km}-${formData.preferred_days?.length}`}>
             {/* Секция: Цели */}
-            <div className="settings-section">
+            <div className="settings-section" id="training-goals">
               <h2><TargetIcon size={22} className="section-icon" aria-hidden /> Мои цели</h2>
               <p>Расскажите о ваших целях для персонализированного плана</p>
 
               <div className="form-group">
-                <label>Тип цели *</label>
-                <div className="radio-group">
-                  <label className="radio-label">
-                    <input
-                      type="radio"
-                      name="goal_type"
-                      value="health"
-                      checked={formData.goal_type === 'health'}
-                      onChange={(e) => handleInputChange('goal_type', e.target.value)}
-                    />
-                    <span>Здоровье</span>
-                  </label>
-                  <label className="radio-label">
-                    <input
-                      type="radio"
-                      name="goal_type"
-                      value="race"
-                      checked={formData.goal_type === 'race'}
-                      onChange={(e) => handleInputChange('goal_type', e.target.value)}
-                    />
-                    <span>Забег</span>
-                  </label>
-                  <label className="radio-label">
-                    <input
-                      type="radio"
-                      name="goal_type"
-                      value="weight_loss"
-                      checked={formData.goal_type === 'weight_loss'}
-                      onChange={(e) => handleInputChange('goal_type', e.target.value)}
-                    />
-                    <span>Похудение</span>
-                  </label>
-                  <label className="radio-label">
-                    <input
-                      type="radio"
-                      name="goal_type"
-                      value="time_improvement"
-                      checked={formData.goal_type === 'time_improvement'}
-                      onChange={(e) => handleInputChange('goal_type', e.target.value)}
-                    />
-                    <span>Улучшение времени</span>
-                  </label>
+                <label>Тип цели <span className="required">*</span></label>
+                <div className="goal-card-grid" role="radiogroup" aria-label="Тип цели">
+                  {[
+                    { value: 'health', Icon: HeartIcon, title: 'Здоровье', desc: 'Бегать для тонуса и формы' },
+                    { value: 'race', Icon: MedalIcon, title: 'Забег', desc: 'Подготовиться к дистанции' },
+                    { value: 'weight_loss', Icon: FlameIcon, title: 'Похудение', desc: 'Скинуть лишний вес' },
+                    { value: 'time_improvement', Icon: TimeIcon, title: 'Улучшить время', desc: 'Пробежать быстрее' },
+                  ].map(({ value, Icon, title, desc }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={formData.goal_type === value}
+                      className={`goal-card ${formData.goal_type === value ? 'goal-card--active' : ''}`}
+                      onClick={() => handleInputChange('goal_type', value)}
+                    >
+                      <Icon size={28} className="goal-card__icon" aria-hidden />
+                      <span className="goal-card__title">{title}</span>
+                      <span className="goal-card__desc">{desc}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {formData.goal_type === 'race' && (
-                <div className="goal-race-section" style={{ display: 'block' }}>
+                <div className="goal-race-section">
                   <h3>Параметры забега</h3>
                   <div className="form-group">
                     <label>Целевая дистанция забега</label>
@@ -2123,14 +2357,9 @@ const SettingsScreen = ({ onLogout }) => {
                       <option value="half">Полумарафон (21.1 км)</option>
                       <option value="marathon">Марафон (42.2 км)</option>
                     </select>
-                    <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
+                    <small>
                       Какую дистанцию вы планируете пробежать?
                     </small>
-                    {process.env.NODE_ENV === 'development' && (
-                      <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: race_distance = "{formData.race_distance}" (type: {typeof formData.race_distance})
-                      </small>
-                    )}
                   </div>
                   <div className="form-row">
                     <div className="form-group">
@@ -2151,13 +2380,115 @@ const SettingsScreen = ({ onLogout }) => {
                       />
                     </div>
                   </div>
+
+                  <div className="form-group">
+                    <label className="settings-toggle">
+                      <span className="settings-toggle__label">Первый забег на эту дистанцию</span>
+                      <input
+                        type="checkbox"
+                        checked={formData.is_first_race_at_distance === 1 || formData.is_first_race_at_distance === true}
+                        onChange={(e) => handleInputChange('is_first_race_at_distance', e.target.checked ? 1 : 0)}
+                        className="settings-toggle__input"
+                      />
+                      <span className="settings-toggle__track" aria-hidden>
+                        <span className="settings-toggle__thumb" />
+                      </span>
+                    </label>
+                  </div>
+
+                  {!(formData.is_first_race_at_distance === 1 || formData.is_first_race_at_distance === true) && (
+                    <>
+                      <div className="form-group">
+                        <label>Дистанция последнего забега</label>
+                        <select
+                          key={`last_race_distance-${formData.last_race_distance || 'empty'}`}
+                          value={formData.last_race_distance || ''}
+                          onChange={(e) => handleInputChange('last_race_distance', e.target.value || null)}
+                        >
+                          <option value="">Не указано</option>
+                          <option value="5k">5 км</option>
+                          <option value="10k">10 км</option>
+                          <option value="half">Полумарафон</option>
+                          <option value="marathon">Марафон</option>
+                          <option value="other">Другая</option>
+                        </select>
+                      </div>
+
+                      {formData.last_race_distance === 'other' && (
+                        <div className="form-group">
+                          <label>Дистанция последнего забега (км)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="200"
+                            step="0.1"
+                            value={formData.last_race_distance_km || ''}
+                            onChange={(e) => handleInputChange('last_race_distance_km', e.target.value)}
+                          />
+                        </div>
+                      )}
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Время последнего забега</label>
+                          <input
+                            type="time"
+                            step="1"
+                            value={formData.last_race_time || ''}
+                            onChange={(e) => handleInputChange('last_race_time', e.target.value || null)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Дата последнего забега</label>
+                          <input
+                            type="date"
+                            value={formData.last_race_date || ''}
+                            onChange={(e) => handleInputChange('last_race_date', e.target.value || null)}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {formData.goal_type === 'health' && (
+                <div className="goal-race-section">
+                  <h3>Программа здоровья</h3>
+                  <div className="form-group">
+                    <label>Программа</label>
+                    <select
+                      key={`health_program-${formData.health_program || 'empty'}`}
+                      value={formData.health_program || ''}
+                      onChange={(e) => handleInputChange('health_program', e.target.value || null)}
+                    >
+                      <option value="">Не указано</option>
+                      <option value="start_running">Начать бегать</option>
+                      <option value="couch_to_5k">Couch to 5K</option>
+                      <option value="regular_running">Регулярный бег</option>
+                      <option value="custom">Своя программа</option>
+                    </select>
+                  </div>
+
+                  {formData.health_program && (
+                    <div className="form-group">
+                      <label>Длительность программы (недели)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="52"
+                        value={formData.health_plan_weeks || ''}
+                        onChange={(e) => handleInputChange('health_plan_weeks', e.target.value)}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
               {formData.goal_type === 'time_improvement' && (
-                <div className="goal-race-section" style={{ display: 'block' }}>
+                <div className="goal-race-section">
                   <h3>Улучшение результата</h3>
-                  <p style={{ color: 'var(--gray-600)', fontSize: '14px', marginBottom: '16px' }}>
+                  <p className="settings-section-lead">
                     Укажите дистанцию, дату и целевое время
                   </p>
                   <div className="form-group">
@@ -2197,7 +2528,7 @@ const SettingsScreen = ({ onLogout }) => {
               )}
 
               {formData.goal_type === 'weight_loss' && (
-                <div className="goal-race-section" style={{ display: 'block' }}>
+                <div className="goal-race-section">
                   <h3>Цель по весу</h3>
                   <div className="form-row">
                     <div className="form-group">
@@ -2225,31 +2556,91 @@ const SettingsScreen = ({ onLogout }) => {
             </div>
 
             {/* Секция: Настройки тренировок */}
-            <div className="settings-section">
+            <div className="settings-section" id="training-config">
               <h2><RunningIcon size={22} className="section-icon" aria-hidden /> Настройки тренировок</h2>
               <p>Параметры для создания персонализированного плана</p>
 
               <div className="form-group">
-                <label>Уровень подготовки *</label>
-                <select
-                  key={`experience_level-${formData.experience_level || 'novice'}`}
-                  value={formData.experience_level || 'novice'}
-                  onChange={(e) => handleInputChange('experience_level', e.target.value)}
-                >
-                  <option value="novice">Новичок (не бегаю или менее 3 месяцев)</option>
-                  <option value="beginner">Начинающий (3-6 месяцев регулярного бега)</option>
-                  <option value="intermediate">Средний (6-12 месяцев регулярного бега)</option>
-                  <option value="advanced">Продвинутый (1-2 года регулярного бега)</option>
-                  <option value="expert">Опытный (более 2 лет регулярного бега)</option>
-                </select>
-                <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                  Выберите уровень, который лучше всего описывает ваш опыт в беге
-                </small>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: experience_level = "{formData.experience_level}" (type: {typeof formData.experience_level})
-                  </small>
-                )}
+                <label>Уровень подготовки <span className="required">*</span></label>
+                <div className="experience-card-grid" role="radiogroup" aria-label="Уровень подготовки">
+                  {[
+                    { value: 'novice', Icon: LeafIcon, title: 'Новичок', period: '< 3 мес', desc: 'Не бегаю или менее 3 месяцев' },
+                    { value: 'beginner', Icon: WalkingIcon, title: 'Начинающий', period: '3–6 мес', desc: '3–6 месяцев регулярного бега' },
+                    { value: 'intermediate', Icon: RunningIcon, title: 'Средний', period: '6–12 мес', desc: '6–12 месяцев регулярного бега' },
+                    { value: 'advanced', Icon: ZapIcon, title: 'Продвинутый', period: '1–2 года', desc: '1–2 года регулярного бега' },
+                    { value: 'expert', Icon: TrophyIcon, title: 'Опытный', period: '2+ года', desc: 'Более 2 лет регулярного бега' },
+                  ].map(({ value, Icon, title, period, desc }) => {
+                    const active = (formData.experience_level || 'novice') === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        title={desc}
+                        className={`experience-card ${active ? 'experience-card--active' : ''}`}
+                        onClick={() => handleInputChange('experience_level', value)}
+                      >
+                        <Icon size={24} className="experience-card__icon" aria-hidden />
+                        <span className="experience-card__title">{title}</span>
+                        <span className="experience-card__period">{period}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const lvl = formData.experience_level || 'novice';
+                  const descMap = {
+                    novice: 'Не бегаю или менее 3 месяцев — план начнётся с малых объёмов и с постепенным наращиванием.',
+                    beginner: '3–6 месяцев регулярного бега — основа есть, добавим темповые работы и длительные.',
+                    intermediate: '6–12 месяцев регулярного бега — план включит интервалы, темпо и более серьёзные длительные.',
+                    advanced: '1–2 года регулярного бега — структурированные блоки, специфика, периодизация.',
+                    expert: 'Более 2 лет регулярного бега — продвинутые тренировки, тонкая настройка, пиковые нагрузки.',
+                  };
+                  return <small>{descMap[lvl]}</small>;
+                })()}
+              </div>
+
+              <div className="form-group">
+                <label>Комфортный темп (мин:сек на км)</label>
+                <div className="pace-row">
+                  <input
+                    type="text"
+                    className="pace-input"
+                    value={formData.easy_pace_min || ''}
+                    onChange={(e) => {
+                      const formatted = formatPaceMask(e.target.value);
+                      handleInputChange('easy_pace_min', formatted);
+                      const totalSec = paceMaskToSeconds(formatted);
+                      if (totalSec !== null && totalSec >= 180 && totalSec <= 600) {
+                        handleInputChange('easy_pace_sec', String(totalSec));
+                      } else if (formatted === '') {
+                        handleInputChange('easy_pace_sec', '');
+                      }
+                    }}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={5}
+                    placeholder="7:00"
+                  />
+                  <div className="pace-quick" role="group" aria-label="Быстрый выбор темпа">
+                    {['5:00', '6:00', '7:00', '8:00'].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`pace-quick__chip ${formData.easy_pace_min === p ? 'pace-quick__chip--active' : ''}`}
+                        onClick={() => {
+                          handleInputChange('easy_pace_min', p);
+                          const [min, sec] = p.split(':').map(Number);
+                          handleInputChange('easy_pace_sec', String(min * 60 + sec));
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <small>Темп для разминки и восстановления. Ориентир: <strong>5:00</strong> опытный · <strong>6:00</strong> уверенный · <strong>7:00</strong> начинающий · <strong>8:00</strong> очень спокойный.</small>
               </div>
 
               <div className="form-row">
@@ -2264,141 +2655,117 @@ const SettingsScreen = ({ onLogout }) => {
                     onChange={(e) => handleInputChange('weekly_base_km', e.target.value)}
                     placeholder="20"
                   />
-                  {process.env.NODE_ENV === 'development' && (
-                    <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                      Debug: {JSON.stringify({ value: formData.weekly_base_km, type: typeof formData.weekly_base_km })}
-                    </small>
-                  )}
                 </div>
 
                 <div className="form-group">
-                  <label>Тренировок в неделю</label>
+                  <label>Дата начала тренировок</label>
                   <input
-                    type="number"
-                    min="1"
-                    max="7"
-                    value={formData.preferred_days?.length || formData.sessions_per_week || ''}
-                    onChange={(e) => handleInputChange('sessions_per_week', e.target.value)}
-                    placeholder="3"
-                    readOnly
-                    style={{ backgroundColor: 'var(--gray-100)', cursor: 'not-allowed' }}
+                    type="date"
+                    value={formData.training_start_date || ''}
+                    onChange={(e) => handleInputChange('training_start_date', e.target.value || null)}
                   />
-                  <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Автоматически рассчитано из выбранных дней для бега
-                  </small>
-                  {process.env.NODE_ENV === 'development' && (
-                    <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                      Debug: {JSON.stringify({ value: formData.sessions_per_week, preferred_days_length: formData.preferred_days?.length })}
-                    </small>
-                  )}
                 </div>
               </div>
 
               <div className="form-group">
                 <label>Предпочитаемые дни для бега</label>
-                <div className="radio-group">
-                  {daysOfWeek.map(day => (
-                    <label key={day.value} className="radio-label">
-                      <input
-                        type="checkbox"
-                        checked={Array.isArray(formData.preferred_days) && formData.preferred_days.includes(day.value)}
-                        onChange={() => {
+                <div className="week-pills" role="group" aria-label="Дни для бега">
+                  {daysOfWeek.map(day => {
+                    const active = Array.isArray(formData.preferred_days) && formData.preferred_days.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        aria-pressed={active}
+                        className={`week-pill ${active ? 'week-pill--active' : ''}`}
+                        onClick={() => {
                           toggleDay('preferred_days', day.value);
-                          // Автоматически обновляем sessions_per_week
                           const currentDays = formData.preferred_days || [];
                           const newDays = currentDays.includes(day.value)
                             ? currentDays.filter(d => d !== day.value)
                             : [...currentDays, day.value];
                           setFormData(prev => ({ ...prev, sessions_per_week: String(newDays.length) }));
                         }}
-                      />
-                      <span>{day.label}</span>
-                    </label>
-                  ))}
+                      >
+                        {day.short || day.label?.slice(0, 2) || day.value}
+                      </button>
+                    );
+                  })}
                 </div>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px' }}>
-                    Debug: {JSON.stringify(formData.preferred_days)}
-                  </small>
-                )}
+                {(() => {
+                  const count = Array.isArray(formData.preferred_days) ? formData.preferred_days.length : 0;
+                  return count > 0 ? (
+                    <small>Тренировок в неделю: <strong>{count}</strong></small>
+                  ) : null;
+                })()}
               </div>
 
               <div className="form-group">
                 <label>Предпочитаемые дни для ОФП</label>
-                <div className="radio-group">
-                  {daysOfWeek.map(day => (
-                    <label key={day.value} className="radio-label">
-                      <input
-                        type="checkbox"
-                        checked={Array.isArray(formData.preferred_ofp_days) && formData.preferred_ofp_days.includes(day.value)}
-                        onChange={() => toggleDay('preferred_ofp_days', day.value)}
-                      />
-                      <span>{day.label}</span>
-                    </label>
-                  ))}
+                <div className="week-pills" role="group" aria-label="Дни для ОФП">
+                  {daysOfWeek.map(day => {
+                    const active = Array.isArray(formData.preferred_ofp_days) && formData.preferred_ofp_days.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        aria-pressed={active}
+                        className={`week-pill ${active ? 'week-pill--active' : ''}`}
+                        onClick={() => toggleDay('preferred_ofp_days', day.value)}
+                      >
+                        {day.short || day.label?.slice(0, 2) || day.value}
+                      </button>
+                    );
+                  })}
                 </div>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px' }}>
-                    Debug: {JSON.stringify(formData.preferred_ofp_days)}
-                  </small>
-                )}
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Предпочтения по ОФП</label>
+                  <select
+                    key={`ofp_preference-${formData.ofp_preference || 'empty'}`}
+                    value={formData.ofp_preference || ''}
+                    onChange={(e) => handleInputChange('ofp_preference', e.target.value || null)}
+                  >
+                    <option value="">Не указано</option>
+                    <option value="gym">Тренажерный зал</option>
+                    <option value="home">Дома</option>
+                    <option value="both">И зал, и дома</option>
+                    <option value="group_classes">Групповые занятия</option>
+                    <option value="online">Онлайн</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Предпочтительное время тренировок</label>
+                  <select
+                    key={`training_time_pref-${formData.training_time_pref || 'empty'}`}
+                    value={formData.training_time_pref || ''}
+                    onChange={(e) => handleInputChange('training_time_pref', e.target.value || null)}
+                  >
+                    <option value="">Не указано</option>
+                    <option value="morning">Утро</option>
+                    <option value="day">День</option>
+                    <option value="evening">Вечер</option>
+                  </select>
+                </div>
               </div>
 
               <div className="form-group">
-                <label>Предпочтения по ОФП</label>
-                <select
-                  key={`ofp_preference-${formData.ofp_preference || 'empty'}`}
-                  value={formData.ofp_preference || ''}
-                  onChange={(e) => handleInputChange('ofp_preference', e.target.value || null)}
-                >
-                  <option value="">Не указано</option>
-                  <option value="gym">Тренажерный зал</option>
-                  <option value="home">Дома</option>
-                  <option value="both">И зал, и дома</option>
-                  <option value="group_classes">Групповые занятия</option>
-                  <option value="online">Онлайн</option>
-                </select>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: ofp_preference = "{formData.ofp_preference}" (type: {typeof formData.ofp_preference})
-                  </small>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label>Предпочтительное время тренировок</label>
-                <select
-                  key={`training_time_pref-${formData.training_time_pref || 'empty'}`}
-                  value={formData.training_time_pref || ''}
-                  onChange={(e) => handleInputChange('training_time_pref', e.target.value || null)}
-                >
-                  <option value="">Не указано</option>
-                  <option value="morning">Утро</option>
-                  <option value="day">День</option>
-                  <option value="evening">Вечер</option>
-                </select>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: training_time_pref = "{formData.training_time_pref}" (type: {typeof formData.training_time_pref})
-                  </small>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label>
+                <label className="settings-toggle">
+                  <span className="settings-toggle__label">Есть беговая дорожка</span>
                   <input
                     type="checkbox"
                     key={`has_treadmill-${formData.has_treadmill}`}
                     checked={formData.has_treadmill || false}
                     onChange={(e) => handleInputChange('has_treadmill', e.target.checked)}
+                    className="settings-toggle__input"
                   />
-                  Есть беговая дорожка
+                  <span className="settings-toggle__track" aria-hidden>
+                    <span className="settings-toggle__thumb" />
+                  </span>
                 </label>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: has_treadmill = {String(formData.has_treadmill)}
-                  </small>
-                )}
               </div>
 
               <div className="form-group">
@@ -2413,189 +2780,9 @@ const SettingsScreen = ({ onLogout }) => {
                   <option value="both">AI + тренер</option>
                   <option value="self">Самостоятельно</option>
                 </select>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: training_mode = "{formData.training_mode}" (type: {typeof formData.training_mode})
-                  </small>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label>Дата начала тренировок</label>
-                <input
-                  type="date"
-                  value={formData.training_start_date || ''}
-                  onChange={(e) => handleInputChange('training_start_date', e.target.value || null)}
-                />
-                <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                  С какой даты вы планируете начать тренировки?
-                </small>
               </div>
             </div>
 
-            {/* Секция: Здоровье и опыт */}
-            <div className="settings-section">
-              <h2><OtherIcon size={22} className="section-icon" aria-hidden /> Здоровье и опыт</h2>
-              <p>Дополнительная информация для точной оценки</p>
-
-              <div className="form-group">
-                <label>Заметки о здоровье</label>
-                <textarea
-                  value={formData.health_notes || ''}
-                  onChange={(e) => handleInputChange('health_notes', e.target.value || null)}
-                  placeholder="Особенности здоровья, травмы, ограничения..."
-                  rows="4"
-                />
-              </div>
-
-              {formData.goal_type === 'health' && (
-                <>
-                  <div className="form-group">
-                    <label>Программа здоровья</label>
-                    <select
-                      key={`health_program-${formData.health_program || 'empty'}`}
-                      value={formData.health_program || ''}
-                      onChange={(e) => handleInputChange('health_program', e.target.value || null)}
-                    >
-                      <option value="">Не указано</option>
-                      <option value="start_running">Начать бегать</option>
-                      <option value="couch_to_5k">Couch to 5K</option>
-                      <option value="regular_running">Регулярный бег</option>
-                      <option value="custom">Своя программа</option>
-                    </select>
-                    {process.env.NODE_ENV === 'development' && (
-                      <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: health_program = "{formData.health_program}" (type: {typeof formData.health_program})
-                      </small>
-                    )}
-                  </div>
-
-                  {formData.health_program && (
-                    <div className="form-group">
-                      <label>Длительность программы (недели)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="52"
-                        value={formData.health_plan_weeks || ''}
-                        onChange={(e) => handleInputChange('health_plan_weeks', e.target.value)}
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div className="form-group">
-                <label>Комфортный темп (минуты:секунды на км)</label>
-                <input
-                  type="text"
-                  value={formData.easy_pace_min || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // Разрешаем промежуточный ввод: пусто, "5", "5:", "5:3", "5:30"
-                    const allowed = value === '' || /^\d{0,2}(:\d{0,2})?$/.test(value);
-                    if (!allowed) return;
-                    handleInputChange('easy_pace_min', value);
-                    // Полный формат MM:SS — конвертируем в секунды
-                    if (/^\d{1,2}:\d{2}$/.test(value)) {
-                      const [min, sec] = value.split(':').map(Number);
-                      if (!isNaN(min) && !isNaN(sec)) {
-                        const totalSec = min * 60 + sec;
-                        if (totalSec >= 180 && totalSec <= 600) {
-                          handleInputChange('easy_pace_sec', String(totalSec));
-                        }
-                      }
-                    } else if (value === '') {
-                      handleInputChange('easy_pace_sec', '');
-                    }
-                  }}
-                  placeholder="7:00"
-                  pattern="\d{1,2}:\d{2}"
-                />
-                <small>Введите темп в формате минуты:секунды (например, 7:00 означает 7 минут на километр)</small>
-                {process.env.NODE_ENV === 'development' && (
-                  <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                    Debug: easy_pace_min = "{formData.easy_pace_min}", easy_pace_sec = "{formData.easy_pace_sec}"
-                  </small>
-                )}
-              </div>
-
-              {formData.goal_type === 'race' && (
-                <>
-                  <div className="form-group">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formData.is_first_race_at_distance === 1 || formData.is_first_race_at_distance === true}
-                        onChange={(e) => handleInputChange('is_first_race_at_distance', e.target.checked ? 1 : 0)}
-                      />
-                      Первый забег на эту дистанцию
-                    </label>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Дистанция последнего забега</label>
-                    <select
-                      key={`last_race_distance-${formData.last_race_distance || 'empty'}`}
-                      value={formData.last_race_distance || ''}
-                      onChange={(e) => handleInputChange('last_race_distance', e.target.value || null)}
-                    >
-                      <option value="">Не указано</option>
-                      <option value="5k">5 км</option>
-                      <option value="10k">10 км</option>
-                      <option value="half">Полумарафон</option>
-                      <option value="marathon">Марафон</option>
-                      <option value="other">Другая</option>
-                    </select>
-                    <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                      На какой дистанции вы бежали в последний раз?
-                    </small>
-                    {process.env.NODE_ENV === 'development' && (
-                      <small style={{ color: 'gray', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Debug: last_race_distance = "{formData.last_race_distance}" (type: {typeof formData.last_race_distance})
-                      </small>
-                    )}
-                  </div>
-
-                  {formData.last_race_distance === 'other' && (
-                    <div className="form-group">
-                      <label>Дистанция последнего забега (км)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="200"
-                        step="0.1"
-                        value={formData.last_race_distance_km || ''}
-                        onChange={(e) => handleInputChange('last_race_distance_km', e.target.value)}
-                      />
-                      <small style={{ color: 'var(--gray-600)', fontSize: '12px', display: 'block', marginTop: '4px' }}>
-                        Укажите точную дистанцию в километрах, если она отличается от стандартных
-                      </small>
-                    </div>
-                  )}
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Время последнего забега</label>
-                      <input
-                        type="time"
-                        step="1"
-                        value={formData.last_race_time || ''}
-                        onChange={(e) => handleInputChange('last_race_time', e.target.value || null)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Дата последнего забега</label>
-                      <input
-                        type="date"
-                        value={formData.last_race_date || ''}
-                        onChange={(e) => handleInputChange('last_race_date', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
           </div>
         )}
 

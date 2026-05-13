@@ -56,6 +56,10 @@ class PlanGenerationProcessorService extends BaseService {
                 'generation_mode' => $useLlmPlanner ? 'llm_planner' : 'legacy',
             ]);
 
+            // Не sync'аем users.race_target_time перед generation: это user intent,
+            // не подменяем под текущую форму. Planner и critique получают
+            // effective_target_time через training_state.pace_strategy.
+
             if ($useLlmPlanner) {
                 $result = $this->processViaLlmPlanner($userId, $jobType, $payload, $traceId);
                 $planData = $result['plan'];
@@ -90,6 +94,17 @@ class PlanGenerationProcessorService extends BaseService {
 
             if (!$planData || !isset($planData['weeks']) || empty($planData['weeks'])) {
                 throw new RuntimeException('План не содержит данных о неделях', 500);
+            }
+
+            // Self-critique pass — независимый LLM-вызов ревьюит план как opposing coach.
+            // Если найдёт critical/moderate проблемы → второй вызов revisePlanWithCritique
+            // переделывает план. Работает для всех путей (llm_planner, legacy generate/recalculate/next).
+            $planData = $this->applyPlanCritique($planData, $userId, $mode, $trainingState ?? null);
+
+            // Safety-net: revision-pass иногда удаляет/изменяет manual race-дни. Повторно
+            // принудительно ставим intermediate-races из training_state после critique.
+            if (is_array($trainingState ?? null) && !empty($trainingState['intermediate_races'])) {
+                $planData = $this->ensureIntermediateRacesInPlan($planData, (array) $trainingState['intermediate_races']);
             }
 
             $planData = $this->attachGenerationExplanation($userId, $jobType, $payload, $planData, $trainingState ?? null);
@@ -142,6 +157,8 @@ class PlanGenerationProcessorService extends BaseService {
             );
             $this->appendPlanReview($userId, $planData, $reviewStartDate, $mode, $realismContext);
             $this->persistPlanSummary($userId, $planData);
+            // users.race_target_time не sync'аем — это user intent, остаётся как ввёл атлет.
+            // effective_target_time выводится в plan_review (отдельный канал коммуникации).
 
             $resultPayload = [
                 'user_id' => $userId,
@@ -766,20 +783,38 @@ class PlanGenerationProcessorService extends BaseService {
             $raceDate = (string) ($race['date'] ?? '');
             if ($raceDate === '') continue;
 
-            // Уже есть race на эту дату в плане?
+            $expectedKm = isset($race['distance_km']) && $race['distance_km'] !== null ? (float) $race['distance_km'] : 0.0;
+            $expectedDesc = isset($race['description']) ? (string) $race['description'] : '';
+
+            // Уже есть race на эту дату в плане? Проверяем, что дистанция совпадает с user input.
+            // AI может ставить race-день на правильную дату, но «переписать» дистанцию (15→8 км).
+            // Это unauthorized: distance_km — manual user input, защищаем.
             $alreadyPresent = false;
+            $distanceMismatch = false;
             foreach ($weeks as $week) {
                 foreach (($week['days'] ?? []) as $day) {
-                    if (($day['date'] ?? '') === $raceDate && ($day['type'] ?? '') === 'race') {
-                        $alreadyPresent = true;
-                        break 2;
+                    if (($day['date'] ?? '') !== $raceDate) continue;
+                    if (($day['type'] ?? '') !== 'race') continue;
+                    $alreadyPresent = true;
+                    if ($expectedKm > 0) {
+                        $actualKm = (float) ($day['distance_km'] ?? 0);
+                        if (abs($actualKm - $expectedKm) > 0.6) {
+                            $distanceMismatch = true;
+                            error_log(sprintf(
+                                'ensureIntermediateRacesInPlan: distance mismatch on %s — user %.1f km, plan %.1f km. Force-fix.',
+                                $raceDate,
+                                $expectedKm,
+                                $actualKm
+                            ));
+                        }
                     }
+                    break 2;
                 }
             }
-            if ($alreadyPresent) continue;
+            if ($alreadyPresent && !$distanceMismatch) continue;
 
-            $distanceKm = isset($race['distance_km']) && $race['distance_km'] !== null ? (float) $race['distance_km'] : 0.0;
-            $description = isset($race['description']) ? (string) $race['description'] : '';
+            $distanceKm = $expectedKm;
+            $description = $expectedDesc;
 
             // Force-place: найти день с этой датой и переписать в race.
             // ВАЖНО: foreach должен бежать по reference на $week['days'], иначе
@@ -1572,16 +1607,100 @@ class PlanGenerationProcessorService extends BaseService {
      * чтобы их видел чат при любом запросе о плане — а не только в результате job сразу
      * после recalculate.
      */
+    /**
+     * Self-critique pass: независимый LLM-вызов ревьюит план, при необходимости
+     * запускает revision. Возвращает planData с metadata.critique. Никогда не бросает —
+     * при любой ошибке возвращает исходный planData.
+     */
+    private function applyPlanCritique(array $planData, int $userId, string $mode, ?array $trainingState): array {
+        if ((int) env('PLAN_CRITIQUE_ENABLED', 1) !== 1) {
+            return $planData;
+        }
+
+        try {
+            require_once __DIR__ . '/../planrun_ai/plan_critique_generator.php';
+            require_once __DIR__ . '/WorkoutAnalysisRepository.php';
+            require_once __DIR__ . '/ChatContextBuilder.php';
+
+            // Загружаем user для критики
+            $userStmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+            if (!$userStmt) return $planData;
+            $userStmt->bind_param('i', $userId);
+            $userStmt->execute();
+            $user = $userStmt->get_result()->fetch_assoc();
+            $userStmt->close();
+            if (!$user) return $planData;
+
+            $repo = new WorkoutAnalysisRepository($this->db);
+            $ctx = new ChatContextBuilder($this->db);
+
+            $context = [
+                'new_start_date' => date('Y-m-d', strtotime('monday this week')),
+                'plan_history_rollup' => $repo->getWeeklyRollupForActivePlan($userId),
+                'plan_key_workouts' => $repo->getKeyWorkoutSummaryForActivePlan($userId),
+                'acwr' => $ctx->calculateACWR($userId),
+            ];
+
+            $critique = runPlanSelfCritique($planData, $user, $context, $userId);
+            if (!is_array($critique)) {
+                return $planData;
+            }
+
+            $this->logInfo("Plan critique completed", [
+                'user_id' => $userId,
+                'mode' => $mode,
+                'severity' => $critique['severity'] ?? '?',
+                'should_revise' => !empty($critique['should_revise']),
+                'issues_count' => count($critique['issues'] ?? []),
+            ]);
+
+            if (!empty($critique['should_revise'])) {
+                $revised = revisePlanWithCritique($planData, $critique, $user, $context, $userId, $mode);
+                if (is_array($revised) && !empty($revised['weeks'])) {
+                    $planData = $revised;
+                    $critique['_revised'] = true;
+                    $this->logInfo("Plan revised based on critique", [
+                        'user_id' => $userId,
+                        'mode' => $mode,
+                    ]);
+                }
+            }
+
+            if (!isset($planData['_generation_metadata']) || !is_array($planData['_generation_metadata'])) {
+                $planData['_generation_metadata'] = [];
+            }
+            $planData['_generation_metadata']['critique'] = $critique;
+        } catch (Throwable $e) {
+            $this->logError('Plan critique pass failed', [
+                'user_id' => $userId,
+                'mode' => $mode,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $planData;
+    }
+
     private function persistPlanSummary(int $userId, array $planData): void {
         $meta = is_array($planData['_generation_metadata'] ?? null) ? $planData['_generation_metadata'] : [];
         $summary = isset($meta['plan_summary']) ? trim((string) $meta['plan_summary']) : '';
         $riskReview = is_array($meta['risk_review'] ?? null) ? $meta['risk_review'] : null;
+        $critique = is_array($meta['critique'] ?? null) ? $meta['critique'] : null;
 
-        if ($summary === '' && empty($riskReview)) {
+        if ($summary === '' && empty($riskReview) && empty($critique)) {
             return;
         }
 
-        $riskJson = $riskReview !== null ? json_encode($riskReview, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+        // Compose: risk_review (от LLM-планировщика) + critique (от self-review pass) в один JSON.
+        $combined = [];
+        if (!empty($riskReview)) {
+            $combined['risk_review'] = $riskReview;
+        }
+        if (!empty($critique)) {
+            $combined['critique'] = $critique;
+        }
+        $riskJson = !empty($combined) ? json_encode($combined, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+
         $stmt = $this->db->prepare(
             "UPDATE users SET last_plan_summary = ?, last_plan_risk_review_json = ?, last_plan_generated_at = NOW() WHERE id = ?"
         );
@@ -1872,6 +1991,57 @@ class PlanGenerationProcessorService extends BaseService {
      *   race_distance_label.
      * Возвращает null, если у пользователя goal не race-типа или нет таргета.
      */
+    /**
+     * Pre-flight: оцениваем цель до запуска планировщика. Если formula-based goal-realism
+     * (TrainingStateBuilder) считает цель нереалистичной — синхронизируем users.race_target_time
+     * на effective_target_time. После этого вызов планера и calculatePaceZones будут единогласно
+     * работать с одной целью, а MP-блоки получат правильный темп.
+     */
+    private function preflightSyncTargetIfUnrealistic(int $userId): void {
+        try {
+            require_once __DIR__ . '/TrainingStateBuilder.php';
+            $state = (new TrainingStateBuilder($this->db))->buildForUserId($userId);
+            $strategy = is_array($state['pace_strategy'] ?? null) ? $state['pace_strategy'] : null;
+            if (!$strategy) return;
+
+            $realismContext = [
+                'severity' => (string) ($strategy['severity'] ?? 'none'),
+                'goal_target_time' => $strategy['goal_target_time'] ?? null,
+                'effective_target_time' => $strategy['effective_target_time'] ?? null,
+            ];
+            $this->syncRaceTargetTimeIfAdjusted($userId, $realismContext);
+        } catch (Throwable $e) {
+            $this->logError('preflightSyncTargetIfUnrealistic failed (non-fatal)', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Синхронизирует users.race_target_time с effective_target_time, если AI скорректировал цель.
+     * Это убирает рассогласование «у юзера в БД 3:15, AI планирует под 3:25», на которое
+     * critique-pass начинает ругаться при последующих recalc'ах.
+     */
+    private function syncRaceTargetTimeIfAdjusted(int $userId, ?array $realismContext): void {
+        if (!is_array($realismContext)) return;
+        $effective = trim((string) ($realismContext['effective_target_time'] ?? ''));
+        $goal = trim((string) ($realismContext['goal_target_time'] ?? ''));
+        if ($effective === '' || $goal === '' || $effective === $goal) return;
+
+        $stmt = $this->db->prepare("UPDATE users SET race_target_time = ? WHERE id = ?");
+        if (!$stmt) return;
+        $stmt->bind_param('si', $effective, $userId);
+        $stmt->execute();
+        $stmt->close();
+
+        $this->logInfo('race_target_time synced to AI-adjusted target', [
+            'user_id' => $userId,
+            'from' => $goal,
+            'to' => $effective,
+        ]);
+    }
+
     private function buildRealismContextForReview(?array $trainingState): ?array {
         if (!is_array($trainingState)) {
             return null;

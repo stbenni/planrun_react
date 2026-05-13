@@ -20,6 +20,43 @@ class ChatContextBuilder {
      * Включает профиль, план, статистику и постоянную «память» по пользователю
      * (хранится в БД, подставляется в каждый запрос — для модели выглядит как «она помнит»).
      */
+    private function formatPlanHistoryAnalyses(int $userId): string {
+        try {
+            require_once __DIR__ . '/WorkoutAnalysisRepository.php';
+            $repo = new WorkoutAnalysisRepository($this->db);
+            $lines = $repo->getSummaryLinesForActivePlan($userId);
+            if (empty($lines)) return '';
+
+            $rollup = $repo->getWeeklyRollupForActivePlan($userId);
+            $keyLines = $repo->getKeyWorkoutSummaryForActivePlan($userId);
+
+            $body = "═══ ИСТОРИЯ ТРЕНИРОВОК (с начала текущего плана + хвост предыдущего цикла) ═══\n";
+            $body .= "ВАЖНО: используй ЭТИ цифры, не считай объёмы сам. Окно охватывает завершившийся ранее план и текущий.\n";
+
+            if (!empty($rollup)) {
+                $body .= "\nОБЪЁМЫ ПО НЕДЕЛЯМ (Пн–Вс):\n";
+                foreach ($rollup as $line) {
+                    $body .= "{$line}\n";
+                }
+            }
+
+            if (!empty($keyLines)) {
+                $body .= "\nКЛЮЧЕВЫЕ/ЗНАЧИМЫЕ ТРЕНИРОВКИ (★=запланированные ключевые, ◆=значимые по факту — race / длительная / интервалы):\n";
+                foreach ($keyLines as $line) {
+                    $body .= "  {$line}\n";
+                }
+            }
+
+            $body .= "\nДЕТАЛЬНО ПО ТРЕНИРОВКАМ (план → факт):\n";
+            foreach ($lines as $line) {
+                $body .= "  {$line}\n";
+            }
+            return trim($body);
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
     public function buildContextForUser(int $userId): string {
         $user = getUserData($userId, null, false);
         $plan = loadTrainingPlanForUser($userId, false);
@@ -33,6 +70,7 @@ class ChatContextBuilder {
         $parts[] = $this->formatStats($stats);
         $parts[] = $this->formatCoachingInsights($userId);
         $parts[] = $this->formatRecentActivity($userId);
+        $parts[] = $this->formatPlanHistoryAnalyses($userId);
         $parts[] = $this->formatRecentWellness($userId);
         if ($memory !== '') {
             $parts[] = "═══ ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ (из прошлых диалогов; МОЖЕТ БЫТЬ УСТАРЕВШЕЙ — план мог быть пересчитан с тех пор) ═══\n"
@@ -363,12 +401,47 @@ class ChatContextBuilder {
             $lines[] = "РЕЗЮМЕ: {$summary}";
         }
         if (!empty($riskJson)) {
-            $risks = json_decode((string) $riskJson, true);
+            $decoded = json_decode((string) $riskJson, true);
+            // Поддержка двух форматов: старый — простой массив рисков; новый — {risk_review:[], critique:{}}
+            $risks = null;
+            $critique = null;
+            if (is_array($decoded)) {
+                if (isset($decoded['risk_review']) || isset($decoded['critique'])) {
+                    $risks = is_array($decoded['risk_review'] ?? null) ? $decoded['risk_review'] : null;
+                    $critique = is_array($decoded['critique'] ?? null) ? $decoded['critique'] : null;
+                } else {
+                    $risks = $decoded;
+                }
+            }
             if (is_array($risks) && !empty($risks)) {
                 $lines[] = "РИСКИ И ОГОВОРКИ:";
                 foreach ($risks as $i => $r) {
                     $rText = is_string($r) ? trim($r) : '';
                     if ($rText !== '') $lines[] = "  - {$rText}";
+                }
+            }
+            if (is_array($critique) && (!empty($critique['issues']) || !empty($critique['summary']))) {
+                $sev = (string) ($critique['severity'] ?? 'none');
+                $revised = !empty($critique['_revised']);
+                $lines[] = "САМОПРОВЕРКА (independent coach review):"
+                    . " severity={$sev}"
+                    . ($revised ? ", план был пересмотрен по замечаниям" : "");
+                if (!empty($critique['summary'])) {
+                    $lines[] = "  Итог: " . trim((string) $critique['summary']);
+                }
+                foreach ($critique['issues'] ?? [] as $issue) {
+                    if (!is_array($issue)) continue;
+                    $iSev = (string) ($issue['severity'] ?? 'minor');
+                    $title = (string) ($issue['title'] ?? '');
+                    $week = (string) ($issue['week'] ?? '');
+                    $desc = (string) ($issue['description'] ?? '');
+                    $line = "  - [{$iSev}] {$title}";
+                    if ($week !== '') $line .= " ({$week})";
+                    if ($desc !== '') $line .= ": " . $desc;
+                    $lines[] = $line;
+                }
+                if (!empty($critique['strengths'])) {
+                    $lines[] = "  Сильные стороны: " . implode('; ', array_slice($critique['strengths'], 0, 3));
                 }
             }
         }

@@ -171,6 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     $birthYear = !empty($input['birth_year']) ? (int)$input['birth_year'] : null;
+    $birthMonth = isset($input['birth_month']) && $input['birth_month'] !== '' && $input['birth_month'] !== null ? max(1, min(12, (int)$input['birth_month'])) : null;
     $heightCm = !empty($input['height_cm']) ? (int)$input['height_cm'] : null;
     $weightKg = !empty($input['weight_kg']) ? (float)$input['weight_kg'] : null;
     
@@ -419,6 +420,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'training_start_date' => !empty($trainingStartDate) ? $trainingStartDate : null,
         'gender' => $gender,
         'birth_year' => $birthYear,
+        'birth_month' => $birthMonth,
         'height_cm' => $heightCm,
         'weight_kg' => $weightKg,
         'experience_level' => $experienceLevel,
@@ -444,6 +446,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'last_race_time' => $lastRaceTime,
         'last_race_date' => $lastRaceDate,
         'training_mode' => $trainingMode,
+        'timezone' => !empty($input['timezone']) ? trim((string) $input['timezone']) : null,
     ]);
     if (empty($result['success'])) {
         planrunRespondJson($result);
