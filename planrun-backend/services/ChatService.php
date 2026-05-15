@@ -110,6 +110,20 @@ class ChatService extends BaseService {
     // ═══ Health ═══
 
     public function checkLlmHealth(): bool {
+        // #4: кэшируем ТОЛЬКО положительный результат на короткий TTL — иначе
+        // GET /models добавляет 100-500мс к каждому стриму. Негатив не кэшируем,
+        // чтобы восстановление LLM подхватывалось немедленно.
+        $cacheKey = 'llm_health_ok_' . md5($this->llmBaseUrl . '|' . $this->llmModel);
+        $ttl = max(5, min(120, (int) env('CHAT_HEALTH_CACHE_TTL_SECONDS', 30)));
+        try {
+            require_once __DIR__ . '/../cache_config.php';
+            if (Cache::get($cacheKey)) {
+                return true;
+            }
+        } catch (Throwable $e) {
+            // cache недоступен — деградируем к прямой проверке
+        }
+
         $url = $this->llmBaseUrl . '/models';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -131,6 +145,11 @@ class ChatService extends BaseService {
         if (empty($models)) {
             Logger::error('LLM health check: no models loaded', ['url' => $url, 'response' => substr($response, 0, 200)]);
             return false;
+        }
+        try {
+            Cache::set($cacheKey, 1, $ttl);
+        } catch (Throwable $e) {
+            // ignore — кэш необязателен
         }
         return true;
     }

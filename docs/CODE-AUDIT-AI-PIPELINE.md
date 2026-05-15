@@ -472,13 +472,13 @@ ChatController::sendMessageStream
 | 21 | ChatMemoryManager.php:205 | ✅ ИСПРАВЛЕНО v3.23 | race | LLM-извлечение без лока; read-merge-write под advisory-локом `GET_LOCK(planrun_chat_memory_{userId})`, перечитывает свежую память под локом. Конкурентные экстракции больше не теряют факты. |
 | 26 | ChatConfirmationHandler.php:118 | 🔴 | bug | `tryExtractFromLastProposal` ищет `'assistant'`, но DB хранит `'ai'` — всегда возвращает null |
 | 3 | ChatService.php:468/491 | 🟡 | smell | Использование переменной до объявления |
-| 4 | ChatService.php:285 | 🟡 | perf | Health check на каждый stream запрос |
+| 4 | ChatService.php:285 | ✅ ИСПРАВЛЕНО v3.25 | perf | Положительный health кэшируется на TTL (env CHAT_HEALTH_CACHE_TTL_SECONDS, default 30с). Негатив не кэшируется → восстановление LLM подхватывается мгновенно. Cache недоступен → деградация к прямой проверке. |
 | 5 | ChatService.php:541/707 | 🟡 | fragile | URL transform `preg_replace('/generate-plan$/', '/chat')` |
 | 6 | ChatService.php:321 | 🟡 | perf/safety | Think-tag buffer без верхней границы |
 | 7 | ChatService.php:298 | 🟡 | style | `array_intersect` как bool |
 | 12 | LlmGateway.php:195 | 🟡 | safety | Empty API-key fallback — fail-late вместо fail-fast |
 | 13 | LlmGateway.php:808 | 🟡 | bug | `getenv()` vs `env()` несогласованность default |
-| 17 | ChatActionParser.php:118 | 🟡 | perf | ~225 preg_replace на ответ |
+| 17 | ChatActionParser.php:118 | ✅ ИСПРАВЛЕНО v3.25 | perf | Early-return если в тексте нет `[A-Za-z]{2,}` — чистый русский (типичный случай) пропускает ~225 preg_replace целиком. Smoke-verified. |
 | 18 | ChatActionParser.php:67 | 🟡 | quality | Рискованный cut-английского-preamble может отрезать valid Latin |
 | 22 | ChatMemoryManager.php:185 | 🟡 | quality | FIFO compression теряет важные старые факты (травмы) |
 | 23 | ChatMemoryManager.php:168 | 🟡 | quality | Stop-words включают спортивные термины |
@@ -487,7 +487,7 @@ ChatController::sendMessageStream
 | 30 | ChatConfirmationHandler.php:283 | 🟡 | coupling | Тайт-coupling на текст error message |
 | 31 | ChatPromptBuilder.php:446 | 🟡 | quality | «запиши» triggers add-training, но это log_workout |
 | 32 | ChatPromptBuilder.php:386 | 🟡 | perf | RAG snippet без кэша добавляет 5-15с latency |
-| 37 | ChatToolRegistry.php:129 | 🟡 | perf | Dispatch-array из 25 closures на каждый вызов |
+| 37 | ChatToolRegistry.php:129 | ✅ ИСПРАВЛЕНО v3.25 | perf | `match($name)` вместо массива из 25 closures — не аллоцируем 25 замыканий на каждый executeTool (tool loop = 3-5 раундов). Поведение идентично (default → unknown_tool). |
 | 38 | ChatToolRegistry.php:782 | 🟡 | docs | VDOT magic numbers без источника |
 | 40 | ChatToolRegistry.php:822 | 🟡 | safety | `stateCache` риск при долгоживущем объекте |
 | 44 | ChatContextBuilder.php:494 | 🟡 | bug | `CURDATE()` без TZ user'a |

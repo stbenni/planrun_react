@@ -126,38 +126,36 @@ class ChatToolRegistry {
 
         Logger::debug('executeTool', ['tool' => $name, 'args' => $args, 'userId' => $userId]);
 
-        $dispatch = [
-            'get_date' => fn() => $this->executeGetDate($args, $userId),
-            'get_plan' => fn() => $this->executeGetPlan($args, $userId),
-            'get_workouts' => fn() => $this->executeGetWorkouts($args, $userId),
-            'get_day_details' => fn() => $this->executeGetDayDetails($args, $userId),
-            'update_training_day' => fn() => $this->executeUpdateTrainingDay($args, $userId),
-            'swap_training_days' => fn() => $this->executeSwapTrainingDays($args, $userId),
-            'delete_training_day' => fn() => $this->executeDeleteTrainingDay($args, $userId),
-            'move_training_day' => fn() => $this->executeMoveTrainingDay($args, $userId),
-            'recalculate_plan' => fn() => $this->executeRecalculatePlan($args, $userId),
-            'generate_next_plan' => fn() => $this->executeGenerateNextPlan($args, $userId),
-            'log_workout' => fn() => $this->executeLogWorkout($args, $userId),
-            'get_stats' => fn() => $this->executeGetStats($args, $userId),
-            'race_prediction' => fn() => $this->executeRacePrediction($args, $userId),
-            'get_profile' => fn() => $this->executeGetProfile($args, $userId),
-            'update_profile' => fn() => $this->executeUpdateProfile($args, $userId),
-            'get_training_load' => fn() => $this->executeGetTrainingLoad($args, $userId),
-            'add_training_day' => fn() => $this->executeAddTrainingDay($args, $userId),
-            'copy_day' => fn() => $this->executeCopyDay($args, $userId),
-            'get_personal_records' => fn() => $this->executeGetPersonalRecords($args, $userId),
-            'get_compliance_history' => fn() => $this->executeGetComplianceHistory($args, $userId),
-            'get_macrocycle_phase' => fn() => $this->executeGetMacrocyclePhase($args, $userId),
-            'get_load_policy' => fn() => $this->executeGetLoadPolicy($args, $userId),
-            'log_wellness' => fn() => $this->executeLogWellness($args, $userId),
-            'get_wellness_trend' => fn() => $this->executeGetWellnessTrend($args, $userId),
-            'get_weather' => fn() => $this->executeGetWeather($args, $userId),
-        ];
-
-        if (isset($dispatch[$name])) {
-            return $dispatch[$name]();
-        }
-        return json_encode(['error' => 'unknown_tool']);
+        // #37: match вместо массива из 25 closures — не аллоцируем 25 замыканий
+        // на каждый executeTool (tool loop = 3-5 раундов × несколько tools за раунд).
+        return match ($name) {
+            'get_date' => $this->executeGetDate($args, $userId),
+            'get_plan' => $this->executeGetPlan($args, $userId),
+            'get_workouts' => $this->executeGetWorkouts($args, $userId),
+            'get_day_details' => $this->executeGetDayDetails($args, $userId),
+            'update_training_day' => $this->executeUpdateTrainingDay($args, $userId),
+            'swap_training_days' => $this->executeSwapTrainingDays($args, $userId),
+            'delete_training_day' => $this->executeDeleteTrainingDay($args, $userId),
+            'move_training_day' => $this->executeMoveTrainingDay($args, $userId),
+            'recalculate_plan' => $this->executeRecalculatePlan($args, $userId),
+            'generate_next_plan' => $this->executeGenerateNextPlan($args, $userId),
+            'log_workout' => $this->executeLogWorkout($args, $userId),
+            'get_stats' => $this->executeGetStats($args, $userId),
+            'race_prediction' => $this->executeRacePrediction($args, $userId),
+            'get_profile' => $this->executeGetProfile($args, $userId),
+            'update_profile' => $this->executeUpdateProfile($args, $userId),
+            'get_training_load' => $this->executeGetTrainingLoad($args, $userId),
+            'add_training_day' => $this->executeAddTrainingDay($args, $userId),
+            'copy_day' => $this->executeCopyDay($args, $userId),
+            'get_personal_records' => $this->executeGetPersonalRecords($args, $userId),
+            'get_compliance_history' => $this->executeGetComplianceHistory($args, $userId),
+            'get_macrocycle_phase' => $this->executeGetMacrocyclePhase($args, $userId),
+            'get_load_policy' => $this->executeGetLoadPolicy($args, $userId),
+            'log_wellness' => $this->executeLogWellness($args, $userId),
+            'get_wellness_trend' => $this->executeGetWellnessTrend($args, $userId),
+            'get_weather' => $this->executeGetWeather($args, $userId),
+            default => json_encode(['error' => 'unknown_tool']),
+        };
     }
 
     // ── Constants ──

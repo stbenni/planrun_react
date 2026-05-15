@@ -126,7 +126,8 @@
 - [x] **Batch 1.5 — дубли resolvePainScore/resolveRiskLevel → `v3.22`** ✅ переименованы: resolveAnswerPainScore / resolveFeedbackPainScore / resolveRiskLevelFromScore / resolveFeedbackRiskLevel
 - [x] Batch 2 — medium-risk bugs (4 правки) → `v3.23` ✅ #2 (частично, осознанно), #105, #21, #80
 - [x] Batch 3 — quality + resilience (#53, #71, #16, #96) → `v3.24` ✅
-- [ ] Batch 4+ — по мере касания файлов
+- [x] Batch 4 (часть) — #4 health-cache, #37 match-dispatch, #17 en-dict guard → `v3.25` ✅
+- [ ] Batch 4 (остаток) — #32 RAG cache, #46 WorkoutQueryBuilder, #81 DRY save, #102 multi-event (выше риск, отдельно)
 - [ ] Batch 6 — dead code cleanup (после стабильности llm_planner ≥2 нед)
 
 После закрытия Batch 1-3: останется 97 не-критичных находок из 112. Архитектурные — отдельной дорожной картой.

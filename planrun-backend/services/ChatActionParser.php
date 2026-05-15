@@ -116,6 +116,11 @@ class ChatActionParser {
     // ── English term replacement ──
 
     private function replaceEnglishTerms(string $text): string {
+        // #17: ~225 preg_replace на каждый ответ — пропускаем целиком, если в
+        // тексте нет ни одного латинского слова (типичный случай: чистый русский).
+        if (!preg_match('/[A-Za-z]{2,}/', $text)) {
+            return $text;
+        }
         $terms = [
             'slightly faster than race pace' => 'чуть быстрее гоночного темпа',
             'today\'s workout' => 'сегодняшняя тренировка', 'today\'s training' => 'сегодняшняя тренировка',
