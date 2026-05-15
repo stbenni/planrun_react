@@ -382,24 +382,51 @@ PROMPT;
             $base = env('PLANRUN_AI_API_URL', 'http://127.0.0.1:8000/api/v1/generate-plan');
             $url = preg_replace('#/generate-plan$#', '/retrieve-knowledge', $base);
         }
-        $payload = json_encode(['query' => $currentMessage, 'limit' => 8]);
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_CONNECTTIMEOUT => 5,
-        ]);
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($httpCode !== 200 || $response === false) {
-            return $context;
+
+        // #32: RAG-выдача по запросу стабильна (документация), но HTTP-вызов
+        // добавляет до 15с к каждому стриму. Кэшируем sources по хэшу запроса.
+        // Форматирование ниже не трогаем — кэш только убирает сетевой вызов.
+        $cacheKey = 'rag_sources_' . md5(mb_strtolower(trim($currentMessage)) . '|8');
+        $ragTtl = max(60, min(86400, (int) env('CHAT_RAG_CACHE_TTL_SECONDS', 3600)));
+        $sources = null;
+        try {
+            require_once __DIR__ . '/../cache_config.php';
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                $sources = $cached;
+            }
+        } catch (Throwable $e) {
+            // cache недоступен — деградируем к прямому вызову
         }
-        $data = json_decode($response, true);
-        $sources = $data['sources'] ?? [];
+
+        if ($sources === null) {
+            $payload = json_encode(['query' => $currentMessage, 'limit' => 8]);
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $payload,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_CONNECTTIMEOUT => 5,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode !== 200 || $response === false) {
+                return $context;
+            }
+            $data = json_decode($response, true);
+            $sources = $data['sources'] ?? [];
+            if (!empty($sources)) {
+                try {
+                    Cache::set($cacheKey, $sources, $ragTtl);
+                } catch (Throwable $e) {
+                    // ignore — кэш необязателен
+                }
+            }
+        }
+
         if (empty($sources)) {
             return $context;
         }

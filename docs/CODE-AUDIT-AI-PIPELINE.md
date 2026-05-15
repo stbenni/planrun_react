@@ -486,7 +486,7 @@ ChatController::sendMessageStream
 | 27 | ChatConfirmationHandler.php:* | 🟡 | design | Хрупкие regex-парсеры предложений |
 | 30 | ChatConfirmationHandler.php:283 | 🟡 | coupling | Тайт-coupling на текст error message |
 | 31 | ChatPromptBuilder.php:446 | 🟡 | quality | «запиши» triggers add-training, но это log_workout |
-| 32 | ChatPromptBuilder.php:386 | 🟡 | perf | RAG snippet без кэша добавляет 5-15с latency |
+| 32 | ChatPromptBuilder.php:386 | ✅ ИСПРАВЛЕНО v3.26 | perf | RAG `sources` кэшируются по md5(query) (env CHAT_RAG_CACHE_TTL_SECONDS, default 1ч). Форматирование snippet не тронуто — кэш только убирает HTTP-вызов. Cache недоступен → деградация к прямому вызову. |
 | 37 | ChatToolRegistry.php:129 | ✅ ИСПРАВЛЕНО v3.25 | perf | `match($name)` вместо массива из 25 closures — не аллоцируем 25 замыканий на каждый executeTool (tool loop = 3-5 раундов). Поведение идентично (default → unknown_tool). |
 | 38 | ChatToolRegistry.php:782 | 🟡 | docs | VDOT magic numbers без источника |
 | 40 | ChatToolRegistry.php:822 | 🟡 | safety | `stateCache` риск при долгоживущем объекте |
@@ -819,7 +819,7 @@ PlanGenerationQueueService::reserveNextJob (SELECT ... FOR UPDATE SKIP LOCKED)
 | 76 | DeepSeekPlanPlanner.php:35 | 🟡 | obs | `lastUsage` теряет историю при множественных вызовах |
 | 77 | plan_generator.php:117 | 🟡 | DRY | Дубль critique pipeline с PlanGenerationProcessor |
 | 78 | plan_generator.php:250 | 🟡 | DRY | parseAndRepairPlanJSON vs repairAndParseCritiqueJson |
-| 81 | plan_saver.php | 🟡 | DRY | Save/Recalculate дублируют ~80 строк |
+| 81 | plan_saver.php | ✅ ИСПРАВЛЕНО v3.26 | DRY | ~80 дублированных строк weeks→days→exercises вынесены в `saverWriteNormalizedWeeks($db,$userId,$weeks,$logPrefix)`. SQL/bind байт-идентичны; `INSERT INTO training_plan_weeks` теперь в одном месте. Вызывается внутри открытой транзакции caller'а. |
 | 83 | plan_critique_generator.php:51 | 🟡 | maintenance | Длинный inline prompt вместо файла |
 | 85 | plan_critique_generator.php:351 | 🟡 | magic | Sanity-check thresholds 60% / 2 training days |
 | 86 | plan_normalizer.php | 🟡 | tech-debt | 1791 строк, функциональный стиль |

@@ -52,6 +52,104 @@ function planStructureLooksNormalized($planData): bool {
 }
 
 /**
+ * #81: общий insert-цикл weeks→days→exercises. Раньше ~80 строк дублировались
+ * байт-в-байт в saveTrainingPlan и saveRecalculatedPlan (отличался только
+ * префикс в error_log). Логика и SQL сохранены идентичными; вызывать ВНУТРИ
+ * уже открытой транзакции caller'а.
+ */
+function saverWriteNormalizedWeeks($db, int $userId, array $weeks, string $logPrefix): void {
+    foreach ($weeks as $week) {
+        $stmt = $db->prepare(
+            "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
+        );
+        $wn = $week['week_number'];
+        $sd = $week['start_date'];
+        $tv = $week['total_volume'];
+        $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
+        $stmt->execute();
+        $weekId = $db->insert_id;
+        $stmt->close();
+
+        if (!$weekId) {
+            throw new Exception("Ошибка создания недели {$wn}");
+        }
+
+        foreach ($week['days'] as $day) {
+            $type = $day['type'];
+            if (!in_array($type, SAVER_ALLOWED_TYPES, true)) {
+                error_log("{$logPrefix}: invalid type '{$type}' for user {$userId}, defaulting to 'rest'");
+                $type = 'rest';
+            }
+
+            $stmt = $db->prepare(
+                "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+            );
+            $dow  = $day['day_of_week'];
+            $desc = $day['description'];
+            $isKey = $day['is_key_workout'] ? 1 : 0;
+            $date = $day['date'];
+            $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
+            $stmt->execute();
+
+            if ($stmt->error) {
+                $stmt->close();
+                throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: " . $stmt->error);
+            }
+
+            $dayId = $db->insert_id;
+            $stmt->close();
+
+            if (!$dayId) {
+                throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: insert_id = 0");
+            }
+
+            foreach ($day['exercises'] as $ex) {
+                if ($ex['category'] === 'run') {
+                    $stmt = $db->prepare(
+                        "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, pace, notes)
+                         VALUES (?, ?, 'run', ?, ?, ?, ?, ?)"
+                    );
+                    $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                    $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                    $paceVal = $ex['pace'] ?? null;
+                    $stmt->bind_param('iisiiss',
+                        $userId, $dayId, $ex['name'], $distM, $durSec, $paceVal, $ex['notes']
+                    );
+                    $stmt->execute();
+                    if ($stmt->error) {
+                        error_log("{$logPrefix}: run exercise error: " . $stmt->error);
+                    }
+                    $stmt->close();
+                } else {
+                    $stmt = $db->prepare(
+                        "INSERT INTO training_day_exercises
+                         (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
+                         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
+                    );
+                    $sets = $ex['sets'] !== null ? (int) $ex['sets'] : null;
+                    $reps = $ex['reps'] !== null ? (int) $ex['reps'] : null;
+                    $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
+                    $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
+                    $weightKg = $ex['weight_kg'] !== null ? (float) $ex['weight_kg'] : null;
+                    $orderIdx = (int) ($ex['order_index'] ?? 0);
+                    $stmt->bind_param('iissiiidisi',
+                        $userId, $dayId, $ex['category'], $ex['name'],
+                        $sets, $reps, $distM, $durSec, $weightKg,
+                        $ex['notes'], $orderIdx
+                    );
+                    $stmt->execute();
+                    if ($stmt->error) {
+                        error_log("{$logPrefix}: exercise error: " . $stmt->error);
+                    }
+                    $stmt->close();
+                }
+            }
+        }
+    }
+}
+
+/**
  * Сохранение плана тренировок в БД.
  *
  * @param mysqli $db       Соединение с БД
@@ -95,95 +193,7 @@ function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPrefe
         $stmt->execute();
         $stmt->close();
 
-        foreach ($normalized['weeks'] as $week) {
-            $stmt = $db->prepare(
-                "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
-            );
-            $wn = $week['week_number'];
-            $sd = $week['start_date'];
-            $tv = $week['total_volume'];
-            $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
-            $stmt->execute();
-            $weekId = $db->insert_id;
-            $stmt->close();
-
-            if (!$weekId) {
-                throw new Exception("Ошибка создания недели {$wn}");
-            }
-
-            foreach ($week['days'] as $day) {
-                $type = $day['type'];
-                if (!in_array($type, SAVER_ALLOWED_TYPES, true)) {
-                    error_log("saveTrainingPlan: invalid type '{$type}' for user {$userId}, defaulting to 'rest'");
-                    $type = 'rest';
-                }
-
-                $stmt = $db->prepare(
-                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
-                );
-                $dow  = $day['day_of_week'];
-                $desc = $day['description'];
-                $isKey = $day['is_key_workout'] ? 1 : 0;
-                $date = $day['date'];
-                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
-                $stmt->execute();
-
-                if ($stmt->error) {
-                    $stmt->close();
-                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: " . $stmt->error);
-                }
-
-                $dayId = $db->insert_id;
-                $stmt->close();
-
-                if (!$dayId) {
-                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: insert_id = 0");
-                }
-
-                foreach ($day['exercises'] as $ex) {
-                    if ($ex['category'] === 'run') {
-                        $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, pace, notes)
-                             VALUES (?, ?, 'run', ?, ?, ?, ?, ?)"
-                        );
-                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
-                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $paceVal = $ex['pace'] ?? null;
-                        $stmt->bind_param('iisiiss',
-                            $userId, $dayId, $ex['name'], $distM, $durSec, $paceVal, $ex['notes']
-                        );
-                        $stmt->execute();
-                        if ($stmt->error) {
-                            error_log("saveTrainingPlan: run exercise error: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    } else {
-                        $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises
-                             (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
-                             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
-                        );
-                        $sets = $ex['sets'] !== null ? (int) $ex['sets'] : null;
-                        $reps = $ex['reps'] !== null ? (int) $ex['reps'] : null;
-                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
-                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $weightKg = $ex['weight_kg'] !== null ? (float) $ex['weight_kg'] : null;
-                        $orderIdx = (int) ($ex['order_index'] ?? 0);
-                        $stmt->bind_param('iissiiidisi',
-                            $userId, $dayId, $ex['category'], $ex['name'],
-                            $sets, $reps, $distM, $durSec, $weightKg,
-                            $ex['notes'], $orderIdx
-                        );
-                        $stmt->execute();
-                        if ($stmt->error) {
-                            error_log("saveTrainingPlan: exercise error: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    }
-                }
-            }
-        }
+        saverWriteNormalizedWeeks($db, $userId, $normalized['weeks'], 'saveTrainingPlan');
 
         $db->commit();
 
@@ -294,95 +304,7 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
             $stmt->close();
         }
 
-        foreach ($normalized['weeks'] as $week) {
-            $stmt = $db->prepare(
-                "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
-            );
-            $wn = $week['week_number'];
-            $sd = $week['start_date'];
-            $tv = $week['total_volume'];
-            $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
-            $stmt->execute();
-            $weekId = $db->insert_id;
-            $stmt->close();
-
-            if (!$weekId) {
-                throw new Exception("Ошибка создания недели {$wn}");
-            }
-
-            foreach ($week['days'] as $day) {
-                $type = $day['type'];
-                if (!in_array($type, SAVER_ALLOWED_TYPES, true)) {
-                    error_log("saveRecalculatedPlan: invalid type '{$type}', defaulting to 'rest'");
-                    $type = 'rest';
-                }
-
-                $stmt = $db->prepare(
-                    "INSERT INTO training_plan_days (user_id, week_id, day_of_week, type, description, is_key_workout, date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
-                );
-                $dow  = $day['day_of_week'];
-                $desc = $day['description'];
-                $isKey = $day['is_key_workout'] ? 1 : 0;
-                $date = $day['date'];
-                $stmt->bind_param('iiissis', $userId, $weekId, $dow, $type, $desc, $isKey, $date);
-                $stmt->execute();
-
-                if ($stmt->error) {
-                    $stmt->close();
-                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: " . $stmt->error);
-                }
-
-                $dayId = $db->insert_id;
-                $stmt->close();
-
-                if (!$dayId) {
-                    throw new Exception("Ошибка создания дня {$dow} для недели {$wn}: insert_id = 0");
-                }
-
-                foreach ($day['exercises'] as $ex) {
-                    if ($ex['category'] === 'run') {
-                        $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises (user_id, plan_day_id, category, name, distance_m, duration_sec, pace, notes)
-                             VALUES (?, ?, 'run', ?, ?, ?, ?, ?)"
-                        );
-                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
-                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $paceVal = $ex['pace'] ?? null;
-                        $stmt->bind_param('iisiiss',
-                            $userId, $dayId, $ex['name'], $distM, $durSec, $paceVal, $ex['notes']
-                        );
-                        $stmt->execute();
-                        if ($stmt->error) {
-                            error_log("saveRecalculatedPlan: run exercise error: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    } else {
-                        $stmt = $db->prepare(
-                            "INSERT INTO training_day_exercises
-                             (user_id, plan_day_id, exercise_id, category, name, sets, reps, distance_m, duration_sec, weight_kg, pace, notes, order_index)
-                             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)"
-                        );
-                        $sets = $ex['sets'] !== null ? (int) $ex['sets'] : null;
-                        $reps = $ex['reps'] !== null ? (int) $ex['reps'] : null;
-                        $distM = $ex['distance_m'] !== null ? (int) $ex['distance_m'] : null;
-                        $durSec = $ex['duration_sec'] !== null ? (int) $ex['duration_sec'] : null;
-                        $weightKg = $ex['weight_kg'] !== null ? (float) $ex['weight_kg'] : null;
-                        $orderIdx = (int) ($ex['order_index'] ?? 0);
-                        $stmt->bind_param('iissiiidisi',
-                            $userId, $dayId, $ex['category'], $ex['name'],
-                            $sets, $reps, $distM, $durSec, $weightKg,
-                            $ex['notes'], $orderIdx
-                        );
-                        $stmt->execute();
-                        if ($stmt->error) {
-                            error_log("saveRecalculatedPlan: exercise error: " . $stmt->error);
-                        }
-                        $stmt->close();
-                    }
-                }
-            }
-        }
+        saverWriteNormalizedWeeks($db, $userId, $normalized['weeks'], 'saveRecalculatedPlan');
 
         $db->commit();
 
