@@ -66,6 +66,8 @@ class ProactiveCoachService {
         foreach ($users as $user) {
             $userId = (int) $user['id'];
             try {
+                if (!$this->isWithinUserSendWindow($user, 'daily')) { $stats['skipped']++; continue; }
+
                 $events = $this->detectEvents($userId, $user);
                 if (empty($events)) { $stats['skipped']++; continue; }
 
@@ -482,6 +484,11 @@ PROMPT;
                     continue;
                 }
 
+                if (!$this->isWithinUserSendWindow($user, 'daily')) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
                 $tz = $this->getUserTz($userId, $user);
                 $today = (new DateTime('now', $tz))->format('Y-m-d');
                 $stmt = $this->db->prepare(
@@ -586,6 +593,11 @@ PROMPT;
             $userId = (int) $user['id'];
             try {
                 if ($this->isOnCooldown($userId, 'weekly_digest')) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                if (!$this->isWithinUserSendWindow($user, 'weekly')) {
                     $stats['skipped']++;
                     continue;
                 }
@@ -793,5 +805,53 @@ PROMPT;
     private function getUserTz(int $userId, array $user): DateTimeZone {
         $tz = $user['timezone'] ?? 'Europe/Moscow';
         try { return new DateTimeZone($tz); } catch (Exception $e) { return new DateTimeZone('Europe/Moscow'); }
+    }
+
+    /**
+     * TZ-гейт проактива: слать ТОЛЬКО если сейчас в таймзоне юзера — его окно отправки.
+     *
+     * Окно из training_time_pref: morning→[6,9), day→[11,14), evening→[17,20),
+     * нет/неизвестно → дефолт [6,9). Жёсткий override для всех: env
+     * PROACTIVE_SEND_WINDOW="H-H" (напр. "7-10").
+     *
+     * ВАЖНО: требует ежечасного cron (`0 * * * *`). При cron «раз/день в фикс.
+     * час» этот гейт почти всегда вернёт false (час не совпадёт с окном юзера),
+     * и проактив перестанет слаться — это by design, расписание управляется
+     * локальным утром юзера, а не моментом запуска скрипта.
+     *
+     * Для weekly_digest ($kind='weekly') дополнительно требуется, чтобы в TZ
+     * юзера было воскресенье (cron должен быть `0 * * * 0`).
+     */
+    private function isWithinUserSendWindow(array $user, string $kind = 'daily'): bool {
+        $userId = (int) ($user['id'] ?? 0);
+        $tz = $this->getUserTz($userId, $user);
+        $nowLocal = new DateTime('now', $tz);
+
+        if ($kind === 'weekly' && (int) $nowLocal->format('N') !== 7) {
+            return false; // не воскресенье в TZ юзера
+        }
+
+        [$startHour, $endHour] = $this->resolveSendWindowHours($user);
+        $h = (int) $nowLocal->format('G');
+        return $h >= $startHour && $h < $endHour;
+    }
+
+    /**
+     * @return array{0:int,1:int} [startHour, endHour) в локальном времени юзера.
+     */
+    private function resolveSendWindowHours(array $user): array {
+        $override = trim((string) env('PROACTIVE_SEND_WINDOW', ''));
+        if ($override !== '' && preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $override, $m)) {
+            $s = max(0, min(23, (int) $m[1]));
+            $e = max($s + 1, min(24, (int) $m[2]));
+            return [$s, $e];
+        }
+
+        $pref = strtolower(trim((string) ($user['training_time_pref'] ?? '')));
+        return match ($pref) {
+            'day' => [11, 14],
+            'evening' => [17, 20],
+            default => [6, 9], // morning + неизвестно/пусто
+        };
     }
 }

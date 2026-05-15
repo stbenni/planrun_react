@@ -1132,9 +1132,15 @@ _Итого: 3 366 строк._
 | 124 ✅ УДАЛЕНО v3.27 | **5 unused public-методов** (0 вызовов во всём backend+frontend) | мелочь | Вырезаны: `ChatContextBuilder::setUserMemory`, `ChatMemoryManager::addFact`+`clearMemory`, `PlanGenerationQueueService::getJobById`, `DeepSeekPlanPlanner::getLastUsage`. Re-verified 0 внешних ссылок (php+js+jsx). |
 | 125 ✅ ВЫЧИЩЕНО v3.27 | **~8 мёртвых env-флагов в production `.env`** | мелочь | 8 флагов (code_refs=0, остатки staged/repair/skeleton) удалены из прод `.env` через sed по точному совпадению (diff подтвердил — только эти 8). **`.env` gitignored → правка не в git**, это правка прод-конфига; безопасна т.к. код их не читает. `PLAN_LLM_PLANNER_THINKING` оставлен (живой legacy fallback). |
 
+## 4.6 — Проактив игнорирует таймзону юзера (follow-up investigation)
+
+| # | Что | Тяжесть | Детали |
+|---|---|---|---|
+| 126 ✅ ИСПРАВЛЕНО v3.28 | **Проактив слался в серверное MSK-утро всем, включая международных юзеров** | 🔴 | Реальный cron: `0 4 * * *` (=07:00 MSK, один абсолютный момент). В коде НЕ было TZ-гейта — «утро» = момент запуска скрипта. Для международной базы: «утренний брифинг» в Нью-Йорке = 23:00 пред. дня (про уже прошедшую тренировку), Токио = 13:00. Фикс: `isWithinUserSendWindow()` — слать только если в **TZ юзера** его окно из `training_time_pref` (morning 6-9 / day 11-14 / evening 17-20, дефолт 6-9; override `PROACTIVE_SEND_WINDOW`). Применён в processDailyBriefings + processWeeklyDigests (+воскресенье в TZ юзера) + processAllUsers. **⚠ Требует ops-смены cron на ежечасный** (см. ниже) — иначе гейт почти всегда false и проактив не слётся (by design). |
+
 ## Phase 4 — Сводка
 
-**+13 новых находок** (113-125): 6 критичных, 4 средних, 3 мелочи. Главное:
+**+14 новых находок** (113-126): 7 критичных, 4 средних, 3 мелочи. Главное:
 
 1. **~6 100 строк мёртвого в production кода** (legacy generation chain + skeleton + async + text_generator) — это ~26% проаудированного. Не удалять сразу (нужны тестам/dry-run), но: (а) пометить `@deprecated` + явный guard «не должно вызываться при PLAN_GENERATION_MODE=llm_planner», (б) вынести тесты на моки, (в) запланировать удаление после N недель стабильного llm_planner.
 2. **#118 — реальный product-gap**: self-mode юзеры выпадают из проактивного коучинга. Требует продуктового решения, не just-cleanup.
