@@ -30,6 +30,21 @@
 
 ---
 
+## Batch 1.5 — Консолидация опасных дублей (ДО любых pain/risk-фиксов!)
+
+Из Phase 4 deep-pass. **Делать перед Batch 2** — иначе #105 уйдёт в одну из двух копий.
+
+| # | Файл | Что делаем |
+|---|---|---|
+| 119 | PlanReadinessCheckService:412 / PostWorkoutFollowupService:1455 | `resolvePainScore` — 2 разные реализации с одним именем. Разнести имена (`resolveReadinessPainScore` / `resolveFeedbackPainScore`) ИЛИ вынести в shared helper. Цель — исключить «поправил не ту копию». |
+| 120 | AthleteSignalsService:411 / PostWorkoutFollowupService:1402 | `resolveRiskLevel` — 2 разные сигнатуры/логики. Аналогично — разнести имена или консолидировать с явными порогами. |
+
+**Risk**: низкий (переименование private-методов в пределах класса). **Value**: убирает ловушку, породившую #105.
+
+**Commit message**: `v3.22: audit fix batch 1.5 — disambiguate duplicate resolvePainScore/resolveRiskLevel`
+
+---
+
 ## Batch 2 — Medium-risk bug fixes (4 правки, ~1-2 часа)
 
 | # | Файл | Что делаем |
@@ -86,11 +101,29 @@
 
 ---
 
+## Batch 6 — Dead code cleanup (отдельный тег, ПОСЛЕ стабильности llm_planner ≥2 нед)
+
+Из Phase 4 deep-pass. ~6 100 строк мёртвого в production кода. **Не удалять сразу** — нужно тестам/dry-run.
+
+| # | Что | Действие |
+|---|---|---|
+| 117 | `text_generator.php`, orphan `hasStructuredFields`/`parsePlanRunAIResponse` | Удалить (0 ссылок везде, включая тесты) |
+| 113 | `generate_plan_async.php` | Удалить (systemd использует scripts/plan_generation_worker.php) |
+| 116/118 | `create_empty_plan.php` + self-mode | **Продуктовое решение**: звать createEmptyPlan при self-регистрации ЛИБО осознанно исключить self-mode из проактива + удалить файл |
+| 115 | legacy generation chain (plan_generator, prompt_builder build*, planrun_ai_integration) | `@deprecated` + guard «не вызывать при PLAN_GENERATION_MODE=llm_planner», миграция тестов на моки, удаление после N недель |
+| 114 | `PlanSkeletonBuilder.php` | Решить вместе с #115 (используется только legacy+тесты) |
+
+**Risk**: низкий технически, но требует подтверждения что dry-run/тесты переведены. Отдельный тег `v3.2x`.
+
+---
+
 ## Прогресс
 
-- [ ] Batch 1 — surgical critical (6 правок) → `v3.21`
-- [ ] Batch 2 — medium-risk bugs (4 правки) → `v3.22`
-- [ ] Batch 3 — quality + dead code (5 правок) → `v3.23`
+- [x] Batch 1 — surgical critical (6 правок) → `v3.21` ✅ commit 62a743a
+- [x] **Batch 1.5 — дубли resolvePainScore/resolveRiskLevel → `v3.22`** ✅ переименованы: resolveAnswerPainScore / resolveFeedbackPainScore / resolveRiskLevelFromScore / resolveFeedbackRiskLevel
+- [ ] Batch 2 — medium-risk bugs (4 правки) → `v3.23`
+- [ ] Batch 3 — quality + dead code (5 правок) → `v3.24`
 - [ ] Batch 4+ — по мере касания файлов
+- [ ] Batch 6 — dead code cleanup (после стабильности llm_planner ≥2 нед)
 
 После закрытия Batch 1-3: останется 97 не-критичных находок из 112. Архитектурные — отдельной дорожной картой.

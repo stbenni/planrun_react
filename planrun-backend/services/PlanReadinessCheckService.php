@@ -115,7 +115,7 @@ class PlanReadinessCheckService extends BaseService {
         }
 
         $answerText = trim(mb_substr((string) ($answer['answer_text'] ?? $answer['text'] ?? ''), 0, 1000));
-        $painScore = $this->resolvePainScore($answer['current_pain_score'] ?? $answer['pain_score'] ?? null, $answerText);
+        $painScore = $this->resolveAnswerPainScore($answer['current_pain_score'] ?? $answer['pain_score'] ?? null, $answerText);
         if ($painScore === null) {
             $this->throwException('Укажите боль или дискомфорт по шкале 0-10', 422);
         }
@@ -409,7 +409,7 @@ class PlanReadinessCheckService extends BaseService {
         return implode('; ', $parts);
     }
 
-    private function resolvePainScore($raw, string $answerText): ?int {
+    private function resolveAnswerPainScore($raw, string $answerText): ?int {
         if (is_numeric($raw)) {
             return max(0, min(10, (int) $raw));
         }

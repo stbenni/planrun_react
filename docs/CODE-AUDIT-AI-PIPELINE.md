@@ -1087,3 +1087,63 @@ _Итого: 3 366 строк._
 ---
 
 **Аудит завершён 2026-05-15.** Документ — read-only зафиксированная картина состояния AI-пайплайна на 2026-05-15. При фиксе любой из проблем — обновлять [`MEMORY.md`](../../home/st_benni/.claude/projects/-var-www-planrun/memory/MEMORY.md), но не сам этот документ (он точка во времени, не текущая истина).
+
+---
+
+# Phase 4 — Глубокий проход: reachability, дубликаты, мёртвый код, обрыв проводки
+
+> Второй проход (2026-05-15) — другой срез: не построчное чтение, а **cross-file анализ достижимости**. Проверено: что вообще не вызывается, что дублируется с разной логикой, что сломано в проводке. Подтверждён ключевой факт: `.env` содержит `PLAN_GENERATION_MODE=llm_planner` → **в production legacy-путь генерации не исполняется вообще**.
+
+## 4.1 — Мёртвый код в production
+
+| # | Что | Объём | Доказательство |
+|---|---|---|---|
+| 113 🔴 | **`generate_plan_async.php` — 100% мёртвый** | 163 стр | systemd `planrun-plan-generation-worker@.service` → `scripts/plan_generation_worker.php`, НЕ этот файл. Ноль вызовов в backend/scripts/service/sh. Апгрейд #56 с 🟢 до 🔴 (вводит в заблуждение — выглядит как точка входа). |
+| 114 🟡 | **`PlanSkeletonBuilder.php` мёртв в production** | 677 стр | Используется только legacy `plan_generator.php` (мёртв в проде) + unit-тесты. В llm_planner-пути DeepSeek сам строит calendar (`buildCalendarWeeks`). 677 строк сложнейшей логики (#65) живут только ради тестов. |
+| 115 🔴 | **Весь legacy plan-generation chain мёртв в production** | ~4 600 стр | `.env:43 PLAN_GENERATION_MODE=llm_planner`. Не исполняются в проде: `plan_generator.php` (1268 — generate/recalculate/next/split Via PlanRunAI), `prompt_builder.php` build*Prompt + все block-builders (~2000+ из 3538), `planrun_ai_integration.php` `callAIAPI`/`callPlanRunAIAPI`, `text_generator.php` (94). Только тесты/dry-run скрипты их зовут. Апгрейд/объединение #70/#77/#78/#58/#88. **prompt_builder.php — НЕ весь мёртв**: `estimateVDOT`, `getTrainingPaces`, `computeMacrocycle`, `assessGoalRealism`, `computeRaceDayPosition`, `getPromptWeekdayOrder` живут (зовутся из PlanScenarioResolver/PlanSkeletonBuilder/TrainingStateBuilder/plan_normalizer). Половина файла жива, половина мертва — худший вид tech-debt. |
+| 116 🔴 | **`createEmptyPlan()` / `create_empty_plan.php` — orphan + обрыв self-mode** | 88 стр | Ноль вызовов: ни PHP, ни API-action, ни frontend, ни scripts. **Self-mode НЕ создаёт план в БД** — `RegistrationService::startPlanGeneration` при `trainingMode==='self'` (L387) только возвращает строку «Календарь готов», `createEmptyPlan` не зовётся. См. #118 — это даёт реальный product-gap. |
+| 117 🟢 | **Чистые orphan-функции** (0 ссылок везде, включая тесты) | — | `hasStructuredFields` (plan_normalizer.php:367), `parsePlanRunAIResponse` (plan_generator.php:1050), `generateTextFromExercises` (text_generator.php — весь файл мёртв, подтверждает #58). |
+
+## 4.2 — Обрыв проводки (живые последствия)
+
+| # | Что | Тяжесть | Описание |
+|---|---|---|---|
+| 118 🔴 | **Self-mode пользователи не получают календарь в БД + исключены из проактивного коучинга** | критично | `createEmptyPlan` не вызывается → у self-mode юзера нет строк `training_plan_weeks/days`. Следствие: `ProactiveCoachService::getActiveUsers()` фильтрует `EXISTS (training_plan_weeks)` → self-mode юзеры **никогда не получают daily briefing / weekly digest / проактивные сообщения**. Если фронт рисует пустой календарь клиентски (calendarHelpers.js:254 «режим самостоятельно») — UI работает, но вся проактивная подсистема для них мертва. Нужно решение: либо звать `createEmptyPlan` при self-регистрации, либо осознанно исключить self-mode из проактива и убрать `create_empty_plan.php`. |
+
+## 4.3 — Опасная дупликация (одно имя — разная логика)
+
+| # | Что | Тяжесть | Риск |
+|---|---|---|---|
+| 119 ✅ | **`resolvePainScore` — 2 разные реализации** | ИСПРАВЛЕНО v3.22 | Было: `PlanReadinessCheckService` vs `PostWorkoutFollowupService`, одно имя — разная логика. Разнесены: `resolveAnswerPainScore` (Readiness, парсит из ответа юзера) / `resolveFeedbackPainScore` (Followup, NLP-вывод). Ловушка #105 устранена. |
+| 120 ✅ | **`resolveRiskLevel` — 2 разные реализации** | ИСПРАВЛЕНО v3.22 | Разнесены: `resolveRiskLevelFromScore` (AthleteSignals, score+flags) / `resolveFeedbackRiskLevel` (Followup, summary-массив). |
+| 121 🟡 | **Copy-paste хелперы (идентичная логика, N копий)** | средне | `getUserTz` ×3 (#48), `resolveRaceDistanceKm` ×3 (идентичный `match`: Processor/QualityGate/DeepSeekPlanPlanner), `formatDateRu` ×3 (ToolRegistry/Readiness/Followup), `isValidDate` ×2, `envInt`/`envBool` ×4 (LlmGateway/Processor/DeepSeekPlanPlanner/Readiness), `nullableInt` ×3, `getDayTypeRu` ×2, `ensureSchema` ×3 (runtime-schema, #107). Кандидаты на общий `trait` / `DateHelpers` / `EnvHelpers`. |
+
+## 4.4 — Невидимые/недокументированные env-флаги
+
+| # | Что | Тяжесть | Список |
+|---|---|---|---|
+| 122 🟡 | **~16 env-флагов читаются кодом, но отсутствуют в `.env` И `.env.example`** | средне | Всегда падают в hardcoded default, ops о них не знает: `PLANRUN_AI_MAX_TOKENS_HARD_LIMIT` (это #52 — подтверждает критичность фикса: без override default = то что исполняется), `PLAN_CRITIQUE_ENABLED/MAX_REVISIONS/MAX_TOKENS/TIMEOUT_SECONDS`, `PLAN_REVISION_MAX_TOKENS/TIMEOUT_SECONDS`, `OFP_ENRICHER_ENABLED/MAX_TOKENS`, `CHAT_MAX_TOOL_ROUNDS`, `CHAT_TOOL_RESULT_MAX_BYTES`, `CHAT_PENDING_RESPONSE_TTL_SECONDS`, `RAG_RETRIEVE_URL`, `USE_PLANRUN_AI`, `PLANRUN_AI_TIMEOUT`, `PLAN_AI_EVENT_LOG_ENABLED`. Добавить в `.env.example` с комментариями (даже если значение = default). Из них `PLAN_CRITIQUE_*`, `OFP_ENRICHER_*`, `PLAN_AI_EVENT_LOG_ENABLED` управляют живыми (в проде) фичами — критично иметь видимый knob. |
+
+## Phase 4 — Сводка
+
+**+10 новых находок** (113-122): 6 критичных, 3 средних, 1 мелочь. Главное:
+
+1. **~6 100 строк мёртвого в production кода** (legacy generation chain + skeleton + async + text_generator) — это ~26% проаудированного. Не удалять сразу (нужны тестам/dry-run), но: (а) пометить `@deprecated` + явный guard «не должно вызываться при PLAN_GENERATION_MODE=llm_planner», (б) вынести тесты на моки, (в) запланировать удаление после N недель стабильного llm_planner.
+2. **#118 — реальный product-gap**: self-mode юзеры выпадают из проактивного коучинга. Требует продуктового решения, не just-cleanup.
+3. **#119/#120 — `resolvePainScore`/`resolveRiskLevel` дубли с разной логикой** — самые опасные: каждый фикс pain/risk нужно делать в ДВУХ местах, иначе тихий drift. Это первоочередное к консолидации (выше Batch 2 по риску).
+
+### Обновлённый приоритет фиксов (с учётом Phase 4)
+
+Вставить перед Batch 2:
+
+**Batch 1.5 — консолидация опасных дублей (до любых pain/risk-фиксов):**
+- #119 объединить `resolvePainScore` в один shared helper (или явно разнести имена `resolveReadinessPainScore` / `resolveFeedbackPainScore` чтобы исключить путаницу).
+- #120 то же для `resolveRiskLevel`.
+- Только ПОСЛЕ этого делать #105 (negation) — иначе фикс уйдёт в одну из двух копий.
+
+**Batch 6 — dead code cleanup (отдельный тег, после стабильности llm_planner):**
+- Удалить `text_generator.php`, `generate_plan_async.php`, orphan-функции (#117).
+- Решить судьбу `create_empty_plan.php` + self-mode (#116/#118) — продуктовое решение.
+- `@deprecated` на legacy generation chain (#115), миграция тестов.
+
+**Документ Phase 4 дополнен 2026-05-15** (тот же deep-pass, отдельный срез анализа).

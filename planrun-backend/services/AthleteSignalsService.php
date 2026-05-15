@@ -173,7 +173,7 @@ class AthleteSignalsService extends BaseService {
         $metrics['highlights'] = array_values(array_unique(array_slice($highlights, 0, 6)));
         $metrics['planning_biases'] = array_values(array_unique($planningBiases));
         $metrics['note_risk_score'] = round(min(1.0, $riskScore), 2);
-        $metrics['note_risk_level'] = $this->resolveRiskLevel(
+        $metrics['note_risk_level'] = $this->resolveRiskLevelFromScore(
             $metrics['note_risk_score'],
             $metrics['has_note_illness_signal'],
             $metrics['has_note_pain_signal']
@@ -255,7 +255,7 @@ class AthleteSignalsService extends BaseService {
             (float) ($noteMetrics['note_risk_score'] ?? 0.0)
         );
 
-        $overallRiskLevel = $this->resolveRiskLevel(
+        $overallRiskLevel = $this->resolveRiskLevelFromScore(
             $overallRiskScore,
             !empty($feedback['has_recent_pain']) || !empty($noteMetrics['has_note_pain_signal']),
             !empty($noteMetrics['has_note_illness_signal'])
@@ -408,7 +408,7 @@ class AthleteSignalsService extends BaseService {
         return rtrim(mb_substr($clean, 0, $limit - 1, 'UTF-8')) . '…';
     }
 
-    private function resolveRiskLevel(float $riskScore, bool $hasPrimarySignal, bool $hasSecondarySignal): string {
+    private function resolveRiskLevelFromScore(float $riskScore, bool $hasPrimarySignal, bool $hasSecondarySignal): string {
         if ($hasPrimarySignal || $riskScore >= 0.75 || $hasSecondarySignal) {
             return 'high';
         }

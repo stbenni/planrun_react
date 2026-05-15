@@ -817,7 +817,7 @@ class PostWorkoutFollowupService extends BaseService {
             ['пульс', 'чсс', 'сердце'],
             $classification
         );
-        $painScore = $explicitPainScore ?? $this->resolvePainScore($normalized, $classification, $painFlag);
+        $painScore = $explicitPainScore ?? $this->resolveFeedbackPainScore($normalized, $classification, $painFlag);
 
         $structuredLoad = array_filter([$legsScore, $breathScore, $hrStrainScore], static fn($value): bool => $value !== null);
         $loadComponent = !empty($structuredLoad) ? (array_sum($structuredLoad) / (count($structuredLoad) * 10.0)) : 0.0;
@@ -1343,7 +1343,7 @@ class PostWorkoutFollowupService extends BaseService {
             + ((float) ($summary['breath_score_delta'] ?? 0.0) / 2.0)
             + ((float) ($summary['hr_strain_score_delta'] ?? 0.0) / 2.0)
         ) / 4), 2);
-        $summary['risk_level'] = $this->resolveRiskLevel($summary);
+        $summary['risk_level'] = $this->resolveFeedbackRiskLevel($summary);
 
         return $summary;
     }
@@ -1399,7 +1399,7 @@ class PostWorkoutFollowupService extends BaseService {
         ];
     }
 
-    private function resolveRiskLevel(array $summary): string {
+    private function resolveFeedbackRiskLevel(array $summary): string {
         if (
             !empty($summary['has_recent_pain'])
             || (float) ($summary['recent_average_recovery_risk'] ?? 0.0) >= 0.75
@@ -1452,7 +1452,7 @@ class PostWorkoutFollowupService extends BaseService {
         };
     }
 
-    private function resolvePainScore(string $normalized, string $classification, bool $painFlag): ?int {
+    private function resolveFeedbackPainScore(string $normalized, string $classification, bool $painFlag): ?int {
         $parsed = $this->extractStructuredScore($normalized, ['боль', 'pain'], 10, 0);
         if ($parsed !== null) {
             return $parsed;
