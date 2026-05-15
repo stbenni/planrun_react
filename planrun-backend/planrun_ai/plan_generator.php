@@ -1041,23 +1041,6 @@ function detectCurrentPhase(array $userData, string $goalType, int $keptWeeks): 
     ];
 }
 
-/**
- * Парсинг ответа от PlanRun AI API
- *
- * @param string $response JSON ответ от PlanRun AI API
- * @return array Распарсенный план
- */
-function parsePlanRunAIResponse($response) {
-    // PlanRun AI API уже возвращает валидный JSON, просто парсим
-    $plan = json_decode($response, true);
-    
-    if (!$plan) {
-        throw new Exception("Не удалось распарсить ответ от PlanRun AI API");
-    }
-    
-    return $plan;
-}
-
 function decodeGeneratedPlanResponse(string $response, array $userData, string $sourceLabel = 'PlanRun AI'): array {
     $plan = parseAndRepairPlanJSON($response, 0);
     $expectedWeeks = !empty($userData['plan_skeleton']['weeks']) && is_array($userData['plan_skeleton']['weeks'])

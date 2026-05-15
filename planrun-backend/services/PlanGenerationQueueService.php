@@ -242,18 +242,6 @@ class PlanGenerationQueueService extends BaseService {
         $stmt->close();
     }
 
-    public function getJobById(int $jobId): ?array {
-        $stmt = $this->db->prepare('SELECT * FROM ' . self::TABLE . ' WHERE id = ? LIMIT 1');
-        if (!$stmt) {
-            throw new RuntimeException('Не удалось загрузить задачу очереди', 500);
-        }
-        $stmt->bind_param('i', $jobId);
-        $stmt->execute();
-        $job = $stmt->get_result()->fetch_assoc() ?: null;
-        $stmt->close();
-        return $job;
-    }
-
     public function findLatestActiveJobForUser(int $userId): ?array {
         $stmt = $this->db->prepare(
             'SELECT * FROM ' . self::TABLE . ' WHERE user_id = ? AND status IN (?, ?) ORDER BY id DESC LIMIT 1'

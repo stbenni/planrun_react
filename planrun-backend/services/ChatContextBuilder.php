@@ -129,19 +129,6 @@ class ChatContextBuilder {
         return $stmt->execute();
     }
 
-    /**
-     * Записать или обновить «память» пользователя (постоянный контекст для AI).
-     * Вызывать из админки, API или после суммаризации диалога.
-     */
-    public function setUserMemory(int $userId, string $content): bool {
-        $content = trim($content);
-        $stmt = $this->db->prepare("INSERT INTO chat_user_memory (user_id, content) VALUES (?, ?) ON DUPLICATE KEY UPDATE content = VALUES(content)");
-        if (!$stmt || !$stmt->bind_param('is', $userId, $content)) {
-            return false;
-        }
-        return $stmt->execute();
-    }
-
     private function formatProfile(?array $user): string {
         if (!$user) {
             return '';

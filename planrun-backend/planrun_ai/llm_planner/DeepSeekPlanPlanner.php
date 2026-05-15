@@ -528,15 +528,6 @@ class DeepSeekPlanPlanner
         return $parsed;
     }
 
-    /**
-     * Returns last LLM call usage metrics for observability logging.
-     *
-     * @return array<string,int|null>
-     */
-    public function getLastUsage(): array
-    {
-        return $this->lastUsage;
-    }
 
     private function loadUser(int $userId): array
     {

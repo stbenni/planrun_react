@@ -256,21 +256,4 @@ PROMPT;
         return $result;
     }
 
-    /**
-     * Добавляет один факт в память без LLM-вызова.
-     * Для программного использования (из tools, событий и т.д.)
-     */
-    public function addFact(int $userId, string $category, string $fact): bool {
-        $formatted = "[{$category}] {$fact}";
-        $existing = $this->getMemory($userId);
-        $merged = $this->mergeFacts($existing, [$formatted]);
-        return $this->saveMemory($userId, $merged);
-    }
-
-    /**
-     * Очищает память пользователя.
-     */
-    public function clearMemory(int $userId): bool {
-        return $this->saveMemory($userId, '');
-    }
 }

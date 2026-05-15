@@ -364,19 +364,6 @@ function refreshRunNotesAfterDistanceChange(array $day): array {
 /**
  * Определяет, содержит ли день новый структурированный формат (без description).
  */
-function hasStructuredFields(array $day): bool {
-    if (!empty($day['warmup_km']) || !empty($day['reps']) || !empty($day['interval_m'])) return true;
-    if (!empty($day['segments'])) return true;
-    if (!empty($day['exercises'])) return true;
-    if (!empty($day['notes'])) return true;
-    $type = strtolower(trim($day['type'] ?? ''));
-    if (in_array($type, ['easy', 'long', 'tempo', 'race', 'control'], true)) {
-        if (!empty($day['distance_km'])) return true; // distance_km = structured, даже если LLM добавил description
-    }
-    if ($type === 'rest' && empty($day['description'])) return true;
-    return false;
-}
-
 const PLAN_TYPE_MAP = [
     'easy_run'  => 'easy',
     'easy'      => 'easy',

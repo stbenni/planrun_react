@@ -1599,22 +1599,6 @@ class PlanGenerationProcessorService extends BaseService {
         return new WeekRepository($this->db);
     }
 
-    private function activateLatestPlan(int $userId): void {
-        $stmt = $this->db->prepare("
-            UPDATE user_training_plans 
-            SET is_active = TRUE 
-            WHERE user_id = ? 
-            ORDER BY id DESC 
-            LIMIT 1
-        ");
-        if (!$stmt) {
-            return;
-        }
-        $stmt->bind_param('i', $userId);
-        $stmt->execute();
-        $stmt->close();
-    }
-
     /**
      * Сохраняет plan_summary и risk_review (включая «цель нереалистичная»/рекомендации) в users,
      * чтобы их видел чат при любом запросе о плане — а не только в результате job сразу
@@ -2177,33 +2161,6 @@ class PlanGenerationProcessorService extends BaseService {
      *   race_distance_label.
      * Возвращает null, если у пользователя goal не race-типа или нет таргета.
      */
-    /**
-     * Pre-flight: оцениваем цель до запуска планировщика. Если formula-based goal-realism
-     * (TrainingStateBuilder) считает цель нереалистичной — синхронизируем users.race_target_time
-     * на effective_target_time. После этого вызов планера и calculatePaceZones будут единогласно
-     * работать с одной целью, а MP-блоки получат правильный темп.
-     */
-    private function preflightSyncTargetIfUnrealistic(int $userId): void {
-        try {
-            require_once __DIR__ . '/TrainingStateBuilder.php';
-            $state = (new TrainingStateBuilder($this->db))->buildForUserId($userId);
-            $strategy = is_array($state['pace_strategy'] ?? null) ? $state['pace_strategy'] : null;
-            if (!$strategy) return;
-
-            $realismContext = [
-                'severity' => (string) ($strategy['severity'] ?? 'none'),
-                'goal_target_time' => $strategy['goal_target_time'] ?? null,
-                'effective_target_time' => $strategy['effective_target_time'] ?? null,
-            ];
-            $this->syncRaceTargetTimeIfAdjusted($userId, $realismContext);
-        } catch (Throwable $e) {
-            $this->logError('preflightSyncTargetIfUnrealistic failed (non-fatal)', [
-                'user_id' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
     /**
      * Синхронизирует users.race_target_time с effective_target_time, если AI скорректировал цель.
      * Это убирает рассогласование «у юзера в БД 3:15, AI планирует под 3:25», на которое

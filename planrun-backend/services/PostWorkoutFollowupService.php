@@ -744,10 +744,6 @@ class PostWorkoutFollowupService extends BaseService {
         $update->close();
     }
 
-    private function classifyFeedback(string $content): string {
-        return (string) ($this->analyzeFeedback($content)['classification'] ?? 'neutral');
-    }
-
     private function analyzeFeedback(string $content): array {
         $normalized = mb_strtolower(trim($content));
         $explicitPainScore = $this->extractStructuredScore($normalized, ['боль', 'pain'], 10, 0);
