@@ -169,8 +169,9 @@ class ChatActionParser {
         $engMonths = ['January' => 'января', 'February' => 'февраля', 'March' => 'марта', 'April' => 'апреля', 'May' => 'мая', 'June' => 'июня', 'July' => 'июля', 'August' => 'августа', 'September' => 'сентября', 'October' => 'октября', 'November' => 'ноября', 'December' => 'декабря'];
         foreach ($engMonths as $en => $ru) $text = preg_replace('/\b' . $en . '\b/iu', $ru, $text);
 
-        $text = preg_replace('/\bthy\b/iu', '', $text);
-        $text = preg_replace('/\b(your|my|his|her|its|our|their)\b/iu', '', $text);
+        // #16: удаление местоимений (your/my/his/...) убрано — оно рушило смысл
+        // легитимных фраз («your VDOT 52» → «VDOT 52»). English-leak фиксируется
+        // через logLeakedEnglish (warning), а не тихим вырезанием.
 
         return $text;
     }

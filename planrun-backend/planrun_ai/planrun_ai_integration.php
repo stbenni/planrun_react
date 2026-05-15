@@ -51,6 +51,7 @@ function callPlanRunAIAPI($prompt, $userData, $maxRetries = 3, $userId = null) {
     $retryDelay = 1;
     
     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+        $httpCode = 0; // #53: defined до try — иначе catch падает на undefined если throw до curl_getinfo
         try {
             if ($attempt > 1) {
                 error_log("callPlanRunAIAPI: Попытка $attempt/$maxRetries после задержки $retryDelay сек");

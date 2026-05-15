@@ -468,7 +468,7 @@ ChatController::sendMessageStream
 | 1 | ChatService.php:237 | 🔴 | bug | `$db->insert_id` после `addMessage` может вернуть неверный ID |
 | 2 | ChatService.php:202/375 | 🟡 ЧАСТИЧНО v3.23 | bug | Memory extraction + health-check добавлены в non-stream. Confirmation handlers НАМЕРЕННО не добавлены: non-stream = fallback после неудачного стрима, повторный прогон исполнил бы plan-mutating tool дважды (документировано в коде). |
 | 11 | LlmGateway.php:797 | 🔴 | bug | `sleepBeforeRetry` cap 30s игнорирует длинный Retry-After |
-| 16 | ChatActionParser.php:172 | 🔴 | quality | Удаление всех en-местоимений ломает смысл legitimate использования |
+| 16 | ChatActionParser.php:172 | ✅ ИСПРАВЛЕНО v3.24 | quality | Удаление местоимений (your/my/his/...) и `thy` убрано. English-leak фиксируется через logLeakedEnglish (warning), а не тихим вырезанием. |
 | 21 | ChatMemoryManager.php:205 | ✅ ИСПРАВЛЕНО v3.23 | race | LLM-извлечение без лока; read-merge-write под advisory-локом `GET_LOCK(planrun_chat_memory_{userId})`, перечитывает свежую память под локом. Конкурентные экстракции больше не теряют факты. |
 | 26 | ChatConfirmationHandler.php:118 | 🔴 | bug | `tryExtractFromLastProposal` ищет `'assistant'`, но DB хранит `'ai'` — всегда возвращает null |
 | 3 | ChatService.php:468/491 | 🟡 | smell | Использование переменной до объявления |
@@ -798,9 +798,9 @@ PlanGenerationQueueService::reserveNextJob (SELECT ... FOR UPDATE SKIP LOCKED)
 | # | Файл:строка | Тяжесть | Категория | Краткое описание |
 |---|---|---|---|---|
 | 52 | planrun_ai_integration.php:22 | 🔴 | bug | `MAX_TOKENS_HARD_LIMIT=4096` default режет планы |
-| 53 | planrun_ai_integration.php:126 | 🔴 | bug | `$httpCode` undefined в catch первой попытки |
+| 53 | planrun_ai_integration.php:126 | ✅ ИСПРАВЛЕНО v3.24 | bug | `$httpCode = 0` инициализируется в начале каждой итерации до try. (Legacy-путь мёртв в проде, но фикс тривиален и защищает тесты/скрипты.) |
 | 67 | PlanQualityGate.php:78-80 | 🔴 | bug | `applyTrainingStateLoadRepairs` вызвана дважды |
-| 71 | PlanGenerationProcessorService.php:1104 | 🔴 | perf | Фильтр activity_type в PHP после SQL |
+| 71 | PlanGenerationProcessorService.php:1104 | ✅ ИСПРАВЛЕНО v3.24 | perf | `WHERE ... distance_km>0 AND activity IN ('running','run','trail running','treadmill')` в обоих SQL (workout_log + workouts). Семантически идентично PHP-фильтру (пусто→running), но вело/плавание не тащатся из БД. Этот путь живой (enrichRecalculatePayload зовётся из processViaLlmPlanner). |
 | 74 | DeepSeekPlanPlanner.php:511 | 🔴 | bug | finish_reason='length' hard-throws без retry |
 | 80 | plan_saver.php:30 | ✅ ИСПРАВЛЕНО v3.23 | safety | `planStructureLooksNormalized()` — каждая неделя 7 дней, у дня type/day_of_week/date. При провале фолбэк на полную normalizeTrainingPlan + error_log. Применено в saveTrainingPlan и saveRecalculatedPlan. |
 | 88 | prompt_builder.php | 🔴 | tech-debt | 3538 строк в одном файле — критический долг |
@@ -1000,7 +1000,7 @@ _Итого: 3 366 строк._
 
 | # | Файл:строка | Тяжесть | Категория | Краткое описание |
 |---|---|---|---|---|
-| 96 | AiPlanGenerationEventLogger.php:413 | 🔴 | safety | 28-параметрный `bind_param` хрупкий к изменениям |
+| 96 | AiPlanGenerationEventLogger.php:413 | ✅ ИСПРАВЛЕНО v3.24 | safety | Единый источник истины `$fields` (колонка⇒[тип,значение]); columns/placeholders/type-string/params выводятся автоматически через call_user_func_array. Type-string проверен — байт-в-байт идентичен прежней (`isssssiisiiiiiisssisssssssss`, 28 кол). Добавление поля больше не требует ручной синхронизации. |
 | 105 | PostWorkoutFollowupService.php:751 | ✅ ИСПРАВЛЕНО v3.23 | bug | Negation-guard: `$painScan` вырезает отрицаемые фразы боли (окно ≤12 симв) перед детекцией. Smoke-test: «уже ничего не болит»→ok, «болит колено»→pain, «сильно болит ахилл» (далеко от «не могу»)→pain. Фикс ушёл строго в `resolveFeedbackPainScan`/analyzeFeedback (дубль #119 уже разнесён в v3.22). |
 | 91 | AiObservabilityService.php:59 | 🟡 | obs | Silent fail при prepare — все события теряются |
 | 93 | AthleteSignalsService.php:185 | 🟡 | quality | Note-regex без negation |

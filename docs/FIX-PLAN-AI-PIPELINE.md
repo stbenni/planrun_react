@@ -125,7 +125,7 @@
 - [x] Batch 1 — surgical critical (6 правок) → `v3.21` ✅ commit 62a743a
 - [x] **Batch 1.5 — дубли resolvePainScore/resolveRiskLevel → `v3.22`** ✅ переименованы: resolveAnswerPainScore / resolveFeedbackPainScore / resolveRiskLevelFromScore / resolveFeedbackRiskLevel
 - [x] Batch 2 — medium-risk bugs (4 правки) → `v3.23` ✅ #2 (частично, осознанно), #105, #21, #80
-- [ ] Batch 3 — quality + dead code (5 правок) → `v3.24`
+- [x] Batch 3 — quality + resilience (#53, #71, #16, #96) → `v3.24` ✅
 - [ ] Batch 4+ — по мере касания файлов
 - [ ] Batch 6 — dead code cleanup (после стабильности llm_planner ≥2 нед)
 

@@ -1,6 +1,6 @@
 {
   "name": "planrun-web",
-  "version": "3.23.0",
+  "version": "3.24.0",
   "description": "PlanRun Web App - React",
   "type": "module",
   "scripts": {

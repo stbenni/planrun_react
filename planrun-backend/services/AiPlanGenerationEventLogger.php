@@ -361,15 +361,52 @@ class AiPlanGenerationEventLogger extends BaseService {
     }
 
     private function insert(array $row): ?int {
-        $sql = "INSERT INTO ai_plan_generation_events
-                (user_id, job_type, surface, cohort, model, model_selection_reason, complexity_score,
-                 enable_thinking, planner_strategy, duration_ms, prompt_tokens, completion_tokens,
-                 total_tokens, prompt_cache_hit_tokens, prompt_cache_miss_tokens,
-                 gate_mode, gate_resolved_mode, gate_status, retries,
-                 issue_codes, applied_repair_codes, normalizer_warning_codes,
-                 status, error_code, error_message, prompt_version, trace_id, metadata)
-                VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $metadataJson = json_encode($row['metadata'] ?? null, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($metadataJson === false) {
+            $metadataJson = null;
+        }
+
+        // #96: единый источник истины — колонка => [тип, значение]. Список колонок,
+        // плейсхолдеры, type-string и params выводятся автоматически: добавление поля
+        // не требует ручной синхронизации 28-символьной bind-строки.
+        $fields = [
+            'user_id'                  => ['i', $row['user_id']],
+            'job_type'                 => ['s', $row['job_type']],
+            'surface'                  => ['s', $row['surface']],
+            'cohort'                   => ['s', $row['cohort']],
+            'model'                    => ['s', $row['model']],
+            'model_selection_reason'   => ['s', $row['model_selection_reason']],
+            'complexity_score'         => ['i', $row['complexity_score']],
+            'enable_thinking'          => ['i', $row['enable_thinking']],
+            'planner_strategy'         => ['s', $row['planner_strategy']],
+            'duration_ms'              => ['i', $row['duration_ms']],
+            'prompt_tokens'            => ['i', $row['prompt_tokens']],
+            'completion_tokens'        => ['i', $row['completion_tokens']],
+            'total_tokens'             => ['i', $row['total_tokens']],
+            'prompt_cache_hit_tokens'  => ['i', $row['prompt_cache_hit_tokens'] ?? null],
+            'prompt_cache_miss_tokens' => ['i', $row['prompt_cache_miss_tokens'] ?? null],
+            'gate_mode'                => ['s', $row['gate_mode']],
+            'gate_resolved_mode'       => ['s', $row['gate_resolved_mode']],
+            'gate_status'              => ['s', $row['gate_status']],
+            'retries'                  => ['i', $row['retries']],
+            'issue_codes'              => ['s', json_encode($row['issue_codes'], JSON_UNESCAPED_UNICODE)],
+            'applied_repair_codes'     => ['s', json_encode($row['applied_repair_codes'], JSON_UNESCAPED_UNICODE)],
+            'normalizer_warning_codes' => ['s', json_encode($row['normalizer_warning_codes'], JSON_UNESCAPED_UNICODE)],
+            'status'                   => ['s', $row['status'] ?? 'success'],
+            'error_code'               => ['s', $row['error_code'] ?? null],
+            'error_message'            => ['s', $row['error_message'] ?? null],
+            'prompt_version'           => ['s', $row['prompt_version']],
+            'trace_id'                 => ['s', $row['trace_id']],
+            'metadata'                 => ['s', $metadataJson],
+        ];
+
+        $columns = array_keys($fields);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $types = implode('', array_map(static fn(array $f): string => $f[0], $fields));
+        $values = array_map(static fn(array $f) => $f[1], $fields);
+
+        $sql = "INSERT INTO ai_plan_generation_events (" . implode(', ', $columns) . ")\n"
+             . "                VALUES (" . $placeholders . ")";
 
         $stmt = $this->db->prepare($sql);
         if (!$stmt) {
@@ -377,70 +414,12 @@ class AiPlanGenerationEventLogger extends BaseService {
             return null;
         }
 
-        $issueCodesJson = json_encode($row['issue_codes'], JSON_UNESCAPED_UNICODE);
-        $repairCodesJson = json_encode($row['applied_repair_codes'], JSON_UNESCAPED_UNICODE);
-        $normalizerJson = json_encode($row['normalizer_warning_codes'], JSON_UNESCAPED_UNICODE);
-        $metadataJson = json_encode($row['metadata'] ?? null, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($metadataJson === false) {
-            $metadataJson = null;
+        // bind_param требует ссылки — собираем массив референсов.
+        $bindParams = [$types];
+        foreach ($values as $i => $v) {
+            $bindParams[] = &$values[$i];
         }
-
-        $userId = $row['user_id'];
-        $jobType = $row['job_type'];
-        $surface = $row['surface'];
-        $cohort = $row['cohort'];
-        $model = $row['model'];
-        $modelReason = $row['model_selection_reason'];
-        $complexity = $row['complexity_score'];
-        $thinking = $row['enable_thinking'];
-        $strategy = $row['planner_strategy'];
-        $duration = $row['duration_ms'];
-        $promptTokens = $row['prompt_tokens'];
-        $completionTokens = $row['completion_tokens'];
-        $totalTokens = $row['total_tokens'];
-        $cacheHitTokens = $row['prompt_cache_hit_tokens'] ?? null;
-        $cacheMissTokens = $row['prompt_cache_miss_tokens'] ?? null;
-        $gateMode = $row['gate_mode'];
-        $gateResolved = $row['gate_resolved_mode'];
-        $gateStatus = $row['gate_status'];
-        $retries = $row['retries'];
-        $status = $row['status'] ?? 'success';
-        $errorCode = $row['error_code'] ?? null;
-        $errorMessage = $row['error_message'] ?? null;
-        $promptVersion = $row['prompt_version'];
-        $traceId = $row['trace_id'];
-
-        $stmt->bind_param(
-            'isssssiisiiiiiisssisssssssss',
-            $userId,
-            $jobType,
-            $surface,
-            $cohort,
-            $model,
-            $modelReason,
-            $complexity,
-            $thinking,
-            $strategy,
-            $duration,
-            $promptTokens,
-            $completionTokens,
-            $totalTokens,
-            $cacheHitTokens,
-            $cacheMissTokens,
-            $gateMode,
-            $gateResolved,
-            $gateStatus,
-            $retries,
-            $issueCodesJson,
-            $repairCodesJson,
-            $normalizerJson,
-            $status,
-            $errorCode,
-            $errorMessage,
-            $promptVersion,
-            $traceId,
-            $metadataJson
-        );
+        call_user_func_array([$stmt, 'bind_param'], $bindParams);
 
         if (!$stmt->execute()) {
             $this->logError('Не удалось записать событие ai_plan_generation_events', ['error' => $stmt->error]);

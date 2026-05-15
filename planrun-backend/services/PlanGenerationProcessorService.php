@@ -1101,14 +1101,17 @@ class PlanGenerationProcessorService extends BaseService {
 
             // Из workout_log (ручные)
             $weekKms = [];
+            // #71: фильтр беговых активностей в WHERE — не тащим вело/плавание/силовые из БД
             $stmt = $this->db->prepare("
                 SELECT wl.training_date,
                        wl.distance_km,
                        LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) AS activity_type
                 FROM workout_log wl
                 LEFT JOIN activity_types at ON at.id = wl.activity_type_id
-                WHERE user_id = ? AND is_completed = 1
-                  AND training_date >= ? AND training_date <= ?
+                WHERE wl.user_id = ? AND wl.is_completed = 1
+                  AND wl.training_date >= ? AND wl.training_date <= ?
+                  AND COALESCE(wl.distance_km, 0) > 0
+                  AND LOWER(COALESCE(NULLIF(TRIM(at.name), ''), 'running')) IN ('running','run','trail running','treadmill')
             ");
             if ($stmt) {
                 $stmt->bind_param('iss', $userId, $fourWeeksAgo, $today);
@@ -1131,6 +1134,8 @@ class PlanGenerationProcessorService extends BaseService {
                        LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) AS activity_type
                 FROM workouts
                 WHERE user_id = ? AND DATE(start_time) >= ? AND DATE(start_time) <= ?
+                  AND COALESCE(distance_km, 0) > 0
+                  AND LOWER(COALESCE(NULLIF(TRIM(activity_type), ''), 'running')) IN ('running','run','trail running','treadmill')
             ");
             if ($stmt) {
                 $stmt->bind_param('iss', $userId, $fourWeeksAgo, $today);
