@@ -112,6 +112,9 @@
 | 116/118 | `create_empty_plan.php` + self-mode | **Продуктовое решение**: звать createEmptyPlan при self-регистрации ЛИБО осознанно исключить self-mode из проактива + удалить файл |
 | 115 | legacy generation chain (plan_generator, prompt_builder build*, planrun_ai_integration) | `@deprecated` + guard «не вызывать при PLAN_GENERATION_MODE=llm_planner», миграция тестов на моки, удаление после N недель |
 | 114 | `PlanSkeletonBuilder.php` | Решить вместе с #115 (используется только legacy+тесты) |
+| 123 | 3 мёртвых private: `activateLatestPlan`, `preflightSyncTargetIfUnrealistic`, `classifyFeedback` | Удалить (0 вызовов) |
+| 124 | 5 unused public: `setUserMemory`, `addFact`, `clearMemory`, `getJobById`, `getLastUsage` | Удалить или пометить как намеренное API |
+| 125 | ~8 мёртвых env-флагов в `.env`/`.env.example` (USE_SKELETON_GENERATOR, PLAN_LLM_DETAIL/REPAIR/MACRO/ENRICHER/REVIEWER_*) | Вычистить (остатки удалённых стратегий) |
 
 **Risk**: низкий технически, но требует подтверждения что dry-run/тесты переведены. Отдельный тег `v3.2x`.
 
@@ -121,7 +124,7 @@
 
 - [x] Batch 1 — surgical critical (6 правок) → `v3.21` ✅ commit 62a743a
 - [x] **Batch 1.5 — дубли resolvePainScore/resolveRiskLevel → `v3.22`** ✅ переименованы: resolveAnswerPainScore / resolveFeedbackPainScore / resolveRiskLevelFromScore / resolveFeedbackRiskLevel
-- [ ] Batch 2 — medium-risk bugs (4 правки) → `v3.23`
+- [x] Batch 2 — medium-risk bugs (4 правки) → `v3.23` ✅ #2 (частично, осознанно), #105, #21, #80
 - [ ] Batch 3 — quality + dead code (5 правок) → `v3.24`
 - [ ] Batch 4+ — по мере касания файлов
 - [ ] Batch 6 — dead code cleanup (после стабильности llm_planner ≥2 нед)

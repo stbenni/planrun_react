@@ -18,6 +18,40 @@ require_once __DIR__ . '/../repositories/WeekRepository.php';
 const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other', 'free', 'easy', 'sbu', 'fartlek', 'control', 'walking'];
 
 /**
+ * #80: структурная проверка перед тем, как ДОВЕРИТЬ фаст-пути `alreadyNormalized`.
+ * Раньше проверялось только `weeks[0].days[0].date` — поверхностно: остальной план
+ * мог быть кривым и писался в БД как есть. Теперь — каждая неделя ровно 7 дней,
+ * у каждого дня type/day_of_week/date. При провале caller падает на полную
+ * normalizeTrainingPlan (безопасный дефолт), а не пишет мусор.
+ */
+function planStructureLooksNormalized($planData): bool {
+    if (!is_array($planData) || empty($planData['weeks']) || !is_array($planData['weeks'])) {
+        return false;
+    }
+    foreach ($planData['weeks'] as $week) {
+        if (!is_array($week) || !isset($week['days']) || !is_array($week['days']) || count($week['days']) !== 7) {
+            return false;
+        }
+        foreach ($week['days'] as $day) {
+            if (!is_array($day)) {
+                return false;
+            }
+            $type = $day['type'] ?? null;
+            if (!is_string($type) || $type === '') {
+                return false;
+            }
+            if (!isset($day['day_of_week']) || !is_numeric($day['day_of_week'])) {
+                return false;
+            }
+            if (empty($day['date']) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $day['date'])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
  * Сохранение плана тренировок в БД.
  *
  * @param mysqli $db       Соединение с БД
@@ -28,10 +62,13 @@ const SAVER_ALLOWED_TYPES = ['rest', 'tempo', 'interval', 'long', 'race', 'other
  * @throws Exception
  */
 function saveTrainingPlan($db, $userId, $planData, $startDate, ?array $userPreferences = null, bool $alreadyNormalized = false) {
-    if ($alreadyNormalized && !empty($planData['weeks']) && isset($planData['weeks'][0]['days'][0]['date'])) {
+    if ($alreadyNormalized && planStructureLooksNormalized($planData)) {
         // Plan already went through normalizeTrainingPlan (e.g. via PlanQualityGate) — skip re-normalization
         $normalized = ['weeks' => $planData['weeks'], 'warnings' => []];
     } else {
+        if ($alreadyNormalized) {
+            error_log("saveTrainingPlan (user {$userId}): alreadyNormalized=true но структура не прошла проверку — форсирую normalizeTrainingPlan");
+        }
         $normalized = normalizeTrainingPlan($planData, $startDate, 0, $userPreferences);
     }
 
@@ -175,7 +212,7 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
     $weekRepo = new WeekRepository($db);
     $lastKeptWeek = $weekRepo->getMaxWeekNumberBefore($userId, $cutoffDate);
 
-    if ($alreadyNormalized && !empty($newPlanData['weeks']) && isset($newPlanData['weeks'][0]['days'][0]['date'])) {
+    if ($alreadyNormalized && planStructureLooksNormalized($newPlanData)) {
         // Plan already normalized via PlanQualityGate. Re-number weeks for DB schema (keptWeeks + idx)
         // and recompute start_date per week, but skip the full normalizer pass to avoid double-processing
         // (simplifyRaceWeekDays, load repairs, etc. would run twice and over-trim the plan).
@@ -189,6 +226,9 @@ function saveRecalculatedPlan($db, $userId, array $newPlanData, string $cutoffDa
         unset($week);
         $normalized = ['weeks' => $weeks, 'warnings' => []];
     } else {
+        if ($alreadyNormalized) {
+            error_log("saveRecalculatedPlan (user {$userId}): alreadyNormalized=true но структура не прошла проверку — форсирую normalizeTrainingPlan");
+        }
         $normalized = normalizeTrainingPlan($newPlanData, $cutoffDate, $lastKeptWeek, $userPreferences);
     }
     $preservedCurrentWeekDays = [];

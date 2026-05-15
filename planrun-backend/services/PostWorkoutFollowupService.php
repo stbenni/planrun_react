@@ -751,13 +751,22 @@ class PostWorkoutFollowupService extends BaseService {
     private function analyzeFeedback(string $content): array {
         $normalized = mb_strtolower(trim($content));
         $explicitPainScore = $this->extractStructuredScore($normalized, ['боль', 'pain'], 10, 0);
-        $painVerbDetected = (bool) preg_match('/болит|забол|тянет|прострел|ноет|ломит|щем|режет|дискомфорт|судорог|головокруж|тошн|травм|отек|опух/u', $normalized);
+        // Negation guard (#105): вырезаем отрицаемые фразы боли ("не болит", "ничего не
+        // болит", "уже не болит", "без боли", "не беспокоит") из рабочей копии перед
+        // детекцией. Аффирмативная боль ("болит колено") остаётся — окно ≤12 символов
+        // между отрицанием и словом боли, чтобы не съесть реальную жалобу поодаль.
+        $painScan = preg_replace(
+            '/(?:\bне\b|нет|ничего\s+не|больше\s+не|уже\s+не|без)\s.{0,12}?(?:болит|болей|боли|боль|беспоко|дискомфорт|тянет|ноет|ломит|прострел|травм|опух|от[её]к)/u',
+            ' ',
+            $normalized
+        ) ?? $normalized;
+        $painVerbDetected = (bool) preg_match('/болит|забол|тянет|прострел|ноет|ломит|щем|режет|дискомфорт|судорог|головокруж|тошн|травм|отек|опух/u', $painScan);
         $bodyPartMention = (bool) preg_match('/колен|ахилл|икр|голен|стоп|спин|поясниц/u', $normalized);
         $injuryKeywordDetected = $painVerbDetected || (
             $bodyPartMention
-            && (bool) preg_match('/бол|тян|прострел|дискомфорт|судорог|травм|забил|забит|неприят/u', $normalized)
+            && (bool) preg_match('/бол|тян|прострел|дискомфорт|судорог|травм|забил|забит|неприят/u', $painScan)
         );
-        $painFlag = $injuryKeywordDetected || (bool) preg_match('/\b(?:боль|pain)\b/u', $normalized);
+        $painFlag = $injuryKeywordDetected || (bool) preg_match('/\b(?:боль|pain)\b/u', $painScan);
         if ($explicitPainScore !== null) {
             if ($explicitPainScore <= 0) {
                 $painFlag = $injuryKeywordDetected && $painVerbDetected;

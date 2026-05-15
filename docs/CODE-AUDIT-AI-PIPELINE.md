@@ -466,10 +466,10 @@ ChatController::sendMessageStream
 | # | Файл:строка | Тяжесть | Категория | Краткое описание |
 |---|---|---|---|---|
 | 1 | ChatService.php:237 | 🔴 | bug | `$db->insert_id` после `addMessage` может вернуть неверный ID |
-| 2 | ChatService.php:202/375 | 🔴 | bug | Memory extraction и confirmation handlers только в stream-пути |
+| 2 | ChatService.php:202/375 | 🟡 ЧАСТИЧНО v3.23 | bug | Memory extraction + health-check добавлены в non-stream. Confirmation handlers НАМЕРЕННО не добавлены: non-stream = fallback после неудачного стрима, повторный прогон исполнил бы plan-mutating tool дважды (документировано в коде). |
 | 11 | LlmGateway.php:797 | 🔴 | bug | `sleepBeforeRetry` cap 30s игнорирует длинный Retry-After |
 | 16 | ChatActionParser.php:172 | 🔴 | quality | Удаление всех en-местоимений ломает смысл legitimate использования |
-| 21 | ChatMemoryManager.php:205 | 🔴 | race | Конкурентные `extractAndSaveMemory` теряют факты |
+| 21 | ChatMemoryManager.php:205 | ✅ ИСПРАВЛЕНО v3.23 | race | LLM-извлечение без лока; read-merge-write под advisory-локом `GET_LOCK(planrun_chat_memory_{userId})`, перечитывает свежую память под локом. Конкурентные экстракции больше не теряют факты. |
 | 26 | ChatConfirmationHandler.php:118 | 🔴 | bug | `tryExtractFromLastProposal` ищет `'assistant'`, но DB хранит `'ai'` — всегда возвращает null |
 | 3 | ChatService.php:468/491 | 🟡 | smell | Использование переменной до объявления |
 | 4 | ChatService.php:285 | 🟡 | perf | Health check на каждый stream запрос |
@@ -802,7 +802,7 @@ PlanGenerationQueueService::reserveNextJob (SELECT ... FOR UPDATE SKIP LOCKED)
 | 67 | PlanQualityGate.php:78-80 | 🔴 | bug | `applyTrainingStateLoadRepairs` вызвана дважды |
 | 71 | PlanGenerationProcessorService.php:1104 | 🔴 | perf | Фильтр activity_type в PHP после SQL |
 | 74 | DeepSeekPlanPlanner.php:511 | 🔴 | bug | finish_reason='length' hard-throws без retry |
-| 80 | plan_saver.php:30 | 🔴 | safety | `$alreadyNormalized=true` пропускает валидацию полностью |
+| 80 | plan_saver.php:30 | ✅ ИСПРАВЛЕНО v3.23 | safety | `planStructureLooksNormalized()` — каждая неделя 7 дней, у дня type/day_of_week/date. При провале фолбэк на полную normalizeTrainingPlan + error_log. Применено в saveTrainingPlan и saveRecalculatedPlan. |
 | 88 | prompt_builder.php | 🔴 | tech-debt | 3538 строк в одном файле — критический долг |
 | 54 | planrun_ai_integration.php:87 | 🟡 | security | SSL verify disabled |
 | 55 | planrun_ai_integration.php:57 | 🟡 | resilience | Linear backoff без jitter |
@@ -1001,7 +1001,7 @@ _Итого: 3 366 строк._
 | # | Файл:строка | Тяжесть | Категория | Краткое описание |
 |---|---|---|---|---|
 | 96 | AiPlanGenerationEventLogger.php:413 | 🔴 | safety | 28-параметрный `bind_param` хрупкий к изменениям |
-| 105 | PostWorkoutFollowupService.php:751 | 🔴 | bug | `analyzeFeedback` не учитывает negation («не болит» → pain) |
+| 105 | PostWorkoutFollowupService.php:751 | ✅ ИСПРАВЛЕНО v3.23 | bug | Negation-guard: `$painScan` вырезает отрицаемые фразы боли (окно ≤12 симв) перед детекцией. Smoke-test: «уже ничего не болит»→ok, «болит колено»→pain, «сильно болит ахилл» (далеко от «не могу»)→pain. Фикс ушёл строго в `resolveFeedbackPainScan`/analyzeFeedback (дубль #119 уже разнесён в v3.22). |
 | 91 | AiObservabilityService.php:59 | 🟡 | obs | Silent fail при prepare — все события теряются |
 | 93 | AthleteSignalsService.php:185 | 🟡 | quality | Note-regex без negation |
 | 94 | AthleteSignalsService.php:197 | 🟡 | maintenance | Risk weights магические |
@@ -1124,9 +1124,17 @@ _Итого: 3 366 строк._
 |---|---|---|---|
 | 122 🟡 | **~16 env-флагов читаются кодом, но отсутствуют в `.env` И `.env.example`** | средне | Всегда падают в hardcoded default, ops о них не знает: `PLANRUN_AI_MAX_TOKENS_HARD_LIMIT` (это #52 — подтверждает критичность фикса: без override default = то что исполняется), `PLAN_CRITIQUE_ENABLED/MAX_REVISIONS/MAX_TOKENS/TIMEOUT_SECONDS`, `PLAN_REVISION_MAX_TOKENS/TIMEOUT_SECONDS`, `OFP_ENRICHER_ENABLED/MAX_TOKENS`, `CHAT_MAX_TOOL_ROUNDS`, `CHAT_TOOL_RESULT_MAX_BYTES`, `CHAT_PENDING_RESPONSE_TTL_SECONDS`, `RAG_RETRIEVE_URL`, `USE_PLANRUN_AI`, `PLANRUN_AI_TIMEOUT`, `PLAN_AI_EVENT_LOG_ENABLED`. Добавить в `.env.example` с комментариями (даже если значение = default). Из них `PLAN_CRITIQUE_*`, `OFP_ENRICHER_*`, `PLAN_AI_EVENT_LOG_ENABLED` управляют живыми (в проде) фичами — критично иметь видимый knob. |
 
+## 4.5 — Мёртвые методы и флаги (второй deep-pass проход)
+
+| # | Что | Тяжесть | Детали |
+|---|---|---|---|
+| 123 🟡 | **3 мёртвых private-метода** | средне | `PlanGenerationProcessorService::activateLatestPlan()` (~25 стр, L1597) — 0 вызовов вообще. `PlanGenerationProcessorService::preflightSyncTargetIfUnrealistic()` (~26 стр, L2181) — единственная «ссылка» = собственный logError-текст внутри себя, реального вызова нет. `PostWorkoutFollowupService::classifyFeedback()` (L747) — тонкая обёртка над `analyzeFeedback()['classification']`, никто не зовёт. Удалить. (`enrichAggregateRow` — НЕ мёртв: вызывается через `array_map([$this,...])`, ложное срабатывание скана.) |
+| 124 🟢 | **5 unused public-методов** (0 вызовов во всём backend, вкл. тесты/контроллеры/api_v2) | мелочь | `ChatContextBuilder::setUserMemory()` (запись делает ChatMemoryManager::saveMemory), `ChatMemoryManager::addFact()` (подтверждает #25 — не просто race-prone, а вообще не вызывается), `ChatMemoryManager::clearMemory()`, `PlanGenerationQueueService::getJobById()`, `DeepSeekPlanPlanner::getLastUsage()` (lastUsage читается напрямую как `$this->lastUsage` в generate(), геттер не нужен). Удалить или оставить как намеренное API (тогда пометить). |
+| 125 🟢 | **~8 мёртвых env-флагов в production `.env`** | мелочь | Лежат в `.env` (прод!), но код их НЕ читает (code_refs=0) — остатки удалённых стратегий staged/repair/skeleton (Phase A.2/A.4/D.3): `USE_SKELETON_GENERATOR`, `PLAN_LLM_DETAIL_MODEL`, `PLAN_LLM_REPAIR_MODEL`, `PLAN_LLM_PLANNER_MACRO_MAX_TOKENS`, `PLAN_LLM_PLANNER_REPAIR_MAX_TOKENS`, `PLAN_LLM_ENRICHER_MODEL`, `PLAN_LLM_REVIEWER_MAX_TOKENS`, `LLM_REVIEWER_MAX_TOKENS`. Безвредны (нигде не читаются), но вводят ops в заблуждение — выглядят как рабочие knob'ы несуществующих режимов. Вычистить из `.env`/`.env.example`. (`PLAN_LLM_PLANNER_THINKING` — НЕ мёртв: legacy backwards-compat fallback в конструкторе DeepSeekPlanPlanner, оставить.) |
+
 ## Phase 4 — Сводка
 
-**+10 новых находок** (113-122): 6 критичных, 3 средних, 1 мелочь. Главное:
+**+13 новых находок** (113-125): 6 критичных, 4 средних, 3 мелочи. Главное:
 
 1. **~6 100 строк мёртвого в production кода** (legacy generation chain + skeleton + async + text_generator) — это ~26% проаудированного. Не удалять сразу (нужны тестам/dry-run), но: (а) пометить `@deprecated` + явный guard «не должно вызываться при PLAN_GENERATION_MODE=llm_planner», (б) вынести тесты на моки, (в) запланировать удаление после N недель стабильного llm_planner.
 2. **#118 — реальный product-gap**: self-mode юзеры выпадают из проактивного коучинга. Требует продуктового решения, не just-cleanup.

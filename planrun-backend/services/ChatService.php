@@ -219,6 +219,17 @@ class ChatService extends BaseService {
         $context = $this->promptBuilder->appendRagSnippet($context, $content);
         $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
 
+        // #2: health-check parity со streamResponse. Confirmation handlers сюда
+        // НАМЕРЕННО НЕ добавлены: non-stream — это fallback после неудачного стрима;
+        // если стрим успел выполнить tool (swap/delete плана) и оборвался, повторный
+        // прогон confirmation handlers исполнил бы plan-mutating tool ДВАЖДЫ.
+        if (!$this->checkLlmHealth()) {
+            $msg = 'Извини, LLM-сервер сейчас недоступен. Попробуй через минуту.';
+            $aiMsgId = $this->repository->addMessage($conversation['id'], 'ai', null, $msg);
+            $this->repository->touchConversation($conversation['id']);
+            return ['content' => $msg, 'message_id' => $aiMsgId];
+        }
+
         $response = $this->callLlm($messages, $userId);
         $fullContent = $this->actionParser->sanitizeResponse($response['content'] ?? '');
         $planWasUpdated = false;
@@ -234,6 +245,9 @@ class ChatService extends BaseService {
                 $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
             }
         }
+
+        // #2: memory extraction parity — раньше non-stream путь НИКОГДА не обновлял память.
+        $this->triggerMemoryExtraction($userId, $conversation['id']);
 
         return ['content' => $fullContent, 'message_id' => $aiMessageId];
     }

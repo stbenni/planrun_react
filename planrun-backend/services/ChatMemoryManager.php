@@ -32,12 +32,52 @@ class ChatMemoryManager {
     public function extractAndSaveMemory(int $userId, array $recentMessages): bool {
         if (count($recentMessages) < self::MIN_MESSAGES_FOR_EXTRACTION) return false;
 
+        // LLM-извлечение без лока (медленно, read-only на память).
         $existingMemory = $this->getMemory($userId);
         $newFacts = $this->extractFacts($recentMessages, $existingMemory, $userId);
         if (empty($newFacts)) return false;
 
-        $merged = $this->mergeFacts($existingMemory, $newFacts);
-        return $this->saveMemory($userId, $merged);
+        // #21: read-merge-write под advisory-локом, чтобы конкурентные экстракции
+        // (stream + admin-pushed AI message) не теряли факты друг друга. Лок держим
+        // только на быстрый merge+save, НЕ на LLM-вызов выше.
+        $lockName = 'planrun_chat_memory_' . $userId;
+        $locked = $this->acquireLock($lockName, 5);
+        try {
+            // Под локом перечитываем — могла обновиться параллельной экстракцией.
+            $freshMemory = $locked ? $this->getMemory($userId) : $existingMemory;
+            $merged = $this->mergeFacts($freshMemory, $newFacts);
+            return $this->saveMemory($userId, $merged);
+        } finally {
+            if ($locked) {
+                $this->releaseLock($lockName);
+            }
+        }
+    }
+
+    private function acquireLock(string $name, int $timeoutSeconds): bool {
+        try {
+            $stmt = $this->db->prepare('SELECT GET_LOCK(?, ?) AS ok');
+            if (!$stmt) return false;
+            $stmt->bind_param('si', $name, $timeoutSeconds);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc() ?: [];
+            $stmt->close();
+            return (int) ($row['ok'] ?? 0) === 1;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function releaseLock(string $name): void {
+        try {
+            $stmt = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            if (!$stmt) return;
+            $stmt->bind_param('s', $name);
+            $stmt->execute();
+            $stmt->close();
+        } catch (Throwable $e) {
+            // ignore
+        }
     }
 
     /**
