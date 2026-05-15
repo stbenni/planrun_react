@@ -796,7 +796,9 @@ class LlmGateway
 
     private static function sleepBeforeRetry(int $seconds): void
     {
-        usleep(max(1, min(30, $seconds)) * 1000000);
+        // Cap 120s: honour provider Retry-After even when it asks for a longer pause.
+        // Previously capped at 30s, which retried straight into the next 429.
+        usleep(max(1, min(120, $seconds)) * 1000000);
     }
 
     private static function optionInt(array $options, string $key, int $default, int $min, int $max): int

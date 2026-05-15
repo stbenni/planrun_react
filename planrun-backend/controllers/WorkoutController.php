@@ -160,6 +160,42 @@ class WorkoutController extends BaseController {
     }
 
     /**
+     * GET get_recent_workout_analyses — лента последних разборов тренировок
+     * для Coach Insights Feed на дашборде.
+     * ?limit=10 (макс 30)
+     */
+    public function getRecentWorkoutAnalyses() {
+        if (!$this->requireAuth()) return;
+        try {
+            require_once __DIR__ . '/../services/WorkoutAnalysisRepository.php';
+            $limit = max(1, min(30, (int)($this->getParam('limit') ?: 10)));
+            $repo = new WorkoutAnalysisRepository($this->db);
+            $rows = $repo->getRecent((int)$this->calendarUserId, $limit);
+            $analyses = array_map(static function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'source_kind' => (string) $r['source_kind'],
+                    'source_id' => (int) $r['source_id'],
+                    'workout_date' => (string) $r['workout_date'],
+                    'planned_type' => $r['planned_type'] !== null ? (string) $r['planned_type'] : null,
+                    'detected_type' => $r['detected_type'] !== null ? (string) $r['detected_type'] : null,
+                    'detected_confidence' => $r['detected_confidence'] !== null ? (float) $r['detected_confidence'] : null,
+                    'intensity' => $r['intensity'] !== null ? (string) $r['intensity'] : null,
+                    'actual_distance_km' => $r['actual_distance_km'] !== null ? (float) $r['actual_distance_km'] : null,
+                    'actual_duration_min' => isset($r['actual_duration_min']) && $r['actual_duration_min'] !== null ? (int) $r['actual_duration_min'] : null,
+                    'actual_avg_pace' => $r['actual_avg_pace'] !== null ? (string) $r['actual_avg_pace'] : null,
+                    'actual_avg_hr' => isset($r['actual_avg_hr']) && $r['actual_avg_hr'] !== null ? (int) $r['actual_avg_hr'] : null,
+                    'summary_line' => (string) $r['summary_line'],
+                    'llm_review_text' => $r['llm_review_text'] !== null ? (string) $r['llm_review_text'] : null,
+                ];
+            }, $rows);
+            $this->returnSuccess(['analyses' => $analyses]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * GET data_version — лёгкий endpoint для polling
      */
     public function dataVersion() {

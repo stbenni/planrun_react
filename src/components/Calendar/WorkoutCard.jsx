@@ -65,6 +65,54 @@ function stripRedundantTypePrefix(description, type) {
   return rest || description;
 }
 
+/**
+ * Распарсить плоский описательный текст ОФП/СБУ в структуру упражнений.
+ * Ожидаемый формат строк (генерируется WorkoutBuilderService::buildOfpDescription):
+ *   "Приседания со штангой — 4×12, 60 кг"
+ *   "Планка — 3× по 60 сек"
+ *   "Подъемы на носки — 3×20"
+ *   "СБУ: бег с захлёстом — 4×30 м"
+ * Возвращает массив { name, sets, reps, weight, duration, distance } или null если ни одной строки не распарсилось.
+ */
+function parseStructuredExercises(text) {
+  if (!text || typeof text !== 'string') return null;
+  const stripped = text.replace(/<\/p\s*>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+  const lines = stripped.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  const result = [];
+  for (const raw of lines) {
+    const parts = raw.split(/\s+—\s+|\s+-\s+/);
+    if (parts.length < 2) {
+      result.push({ name: raw, raw });
+      continue;
+    }
+    const name = parts[0].trim();
+    const tail = parts.slice(1).join(' — ');
+    const item = { name, raw };
+    const setsReps = tail.match(/(\d+)\s*[×x*]\s*(\d+)(?!\s*(?:м|m|сек|с\b))/i);
+    if (setsReps) {
+      item.sets = setsReps[1];
+      item.reps = setsReps[2];
+    }
+    const setsDuration = tail.match(/(\d+)\s*[×x*]\s*по\s*(\d+)\s*сек/i);
+    if (setsDuration) {
+      item.sets = setsDuration[1];
+      item.duration = setsDuration[2] + ' сек';
+    }
+    const setsDist = tail.match(/(\d+)\s*[×x*]\s*(\d+)\s*м\b/i);
+    if (setsDist) {
+      item.sets = setsDist[1];
+      item.distance = setsDist[2] + ' м';
+    }
+    const weight = tail.match(/(\d+(?:[.,]\d+)?)\s*кг/i);
+    if (weight) item.weight = weight[1].replace(',', '.') + ' кг';
+    const standaloneDuration = tail.match(/(?<!по\s)(\d+)\s*сек(?!\s*[×x*])/i);
+    if (standaloneDuration && !item.duration) item.duration = standaloneDuration[1] + ' сек';
+    result.push(item);
+  }
+  return result.length > 0 ? result : null;
+}
+
 /** Ограничить описание до maxItems пунктов (по <li> или по строкам), вернуть { html, hasMore } */
 function limitDescription(description, maxItems) {
   if (!description || !maxItems || typeof document === 'undefined') {
@@ -291,6 +339,43 @@ const WorkoutCard = ({
               {planDay.description && (() => {
                 const stripped = stripRedundantTypePrefix(planDay.description, planDay.type);
                 if (!stripped) return null;
+                const isStructured = planDay.type === 'other' || planDay.type === 'sbu';
+                if (isStructured) {
+                  const exercises = parseStructuredExercises(stripped);
+                  if (exercises && exercises.length > 0) {
+                    const limit = maxDescriptionItems || exercises.length;
+                    const visible = exercises.slice(0, limit);
+                    const hasMore = exercises.length > limit;
+                    return (
+                      <>
+                        <ul className="workout-card-exercise-list">
+                          {visible.map((ex, idx) => (
+                            <li key={idx} className="workout-card-exercise-row">
+                              <span className="workout-card-exercise-name">{ex.name}</span>
+                              {(ex.sets || ex.reps || ex.weight || ex.duration || ex.distance) && (
+                                <span className="workout-card-exercise-meta">
+                                  {ex.sets && ex.reps && (
+                                    <span className="workout-card-chip">{ex.sets}×{ex.reps}</span>
+                                  )}
+                                  {ex.sets && !ex.reps && (ex.duration || ex.distance) && (
+                                    <span className="workout-card-chip">{ex.sets}×{ex.duration || ex.distance}</span>
+                                  )}
+                                  {ex.weight && (
+                                    <span className="workout-card-chip workout-card-chip--accent">{ex.weight}</span>
+                                  )}
+                                  {!ex.sets && ex.duration && (
+                                    <span className="workout-card-chip">{ex.duration}</span>
+                                  )}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        {hasMore && <span className="workout-card-plan-day-more">и др. (+{exercises.length - limit})</span>}
+                      </>
+                    );
+                  }
+                }
                 const { html, hasMore } = maxDescriptionItems
                   ? limitDescription(stripped, maxDescriptionItems)
                   : { html: stripped, hasMore: false };

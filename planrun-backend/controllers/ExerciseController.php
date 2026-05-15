@@ -156,6 +156,23 @@ class ExerciseController extends BaseController {
     }
 
     /**
+     * Карта дат → категории (ofp/sbu) с зафиксированным выполнением.
+     * GET /api_v2.php?action=get_executed_dates&weeks=26
+     */
+    public function getExecutedDates() {
+        if (!$this->requireAuth()) return;
+        try {
+            require_once __DIR__ . '/../services/ExecutedExerciseService.php';
+            $weeks = isset($_GET['weeks']) ? max(1, min(52, (int) $_GET['weeks'])) : 26;
+            $svc = new ExecutedExerciseService($this->db);
+            $result = $svc->getCompletedDatesByCategory($this->calendarUserId, $weeks);
+            $this->returnSuccess(['executed_by_date' => $result]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Получить отмеченное выполнение для конкретного plan-day.
      * GET /api_v2.php?action=get_executed_for_day&plan_day_id=123
      */

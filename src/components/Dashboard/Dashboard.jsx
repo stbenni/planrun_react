@@ -23,7 +23,6 @@ import usePlanStore from '../../stores/usePlanStore';
 import WorkoutCard from '../Calendar/WorkoutCard';
 import DashboardWeekStrip from './DashboardWeekStrip';
 import DashboardStatsWidget from './DashboardStatsWidget';
-import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon } from './DashboardMetricIcons';
 import { DASHBOARD_MODULE_IDS, DASHBOARD_MODULE_LABELS } from './dashboardConfig';
 import { toLocalDateString } from './dashboardDateUtils';
 import { expandLayoutForMobile, getDefaultLayout, getStoredLayout, layoutExpandSlot, layoutInsertRow, layoutMergeIntoRow, layoutRemoveId, layoutToOrder, orderToLayout, saveLayout } from './dashboardLayout';
@@ -33,6 +32,11 @@ import SkeletonScreen from '../common/SkeletonScreen';
 import { RunningIcon, AlertTriangleIcon, CalendarIcon, RestIcon, SkipForwardIcon, CloseIcon, SettingsIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import TrainingLoadWidget from './TrainingLoadWidget';
+import DailyBriefingHero from './DailyBriefingHero';
+import GoalCountdownWidget from './GoalCountdownWidget';
+import CoachInsightsWidget from './CoachInsightsWidget';
+import PersonalRecordsWidget from './PersonalRecordsWidget';
+import TrendComparisonWidget from './TrendComparisonWidget';
 import './Dashboard.css';
 
 /** Полоска-зона сброса «вставить перед строкой N» (для @dnd-kit) */
@@ -276,6 +280,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     showPlanMessage,
     todayWorkout,
     weekProgress,
+    workoutsByDate,
   } = useDashboardData({
     api,
     clearPlanMessage,
@@ -477,6 +482,11 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           </div>
         </div>
 
+        <DailyBriefingHero
+          api={api}
+          onOpenChat={onNavigate ? () => onNavigate('chat') : undefined}
+        />
+
         {hasAnyPlannedWorkout && (
           <div className="dashboard-hero-kpi" aria-label="Сводка недели">
             <div className="dashboard-hero-kpi__primary">
@@ -549,7 +559,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                           isToday={true}
                           compact={row.type === 'double' ? (expandedWorkoutCard !== 'today') : false}
                           planDays={row.type === 'single' ? (todayWorkout.planDays || []) : (expandedWorkoutCard === 'today' ? (todayWorkout.planDays || []) : ((todayWorkout.planDays?.length > 1) ? (todayWorkout.planDays.slice(0, 1)) : (todayWorkout.planDays || [])))}
-                          maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'today' ? 3 : null}
+                          maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'today' ? 2 : null}
                           extraActions={
                             <>
                               {!progressDataMap[todayWorkout.date] && (row.type === 'single' || expandedWorkoutCard !== 'today') && (
@@ -599,63 +609,42 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
               </div>
             );
           }
-          if (moduleId === 'quick_metrics') {
+          if (moduleId === 'trend_compare') {
             return (
-              <div key="quick_metrics" className={sectionClass}>
-                <h2 className="section-title">Быстрые метрики</h2>
-                <div className="dashboard-module-card dashboard-module-card--metrics">
-                <div className={`dashboard-metrics-grid ${hasAnyPlannedWorkout ? 'dashboard-metrics-grid--with-progress' : ''}`}>
-                {hasAnyPlannedWorkout ? (
-                  <div className="metric-card metric-card--progress">
-                    <div className="metric-card__value metric-card__value--progress">
-                      <div className="progress-card-head">
-                        <p className="progress-value" aria-label={`Выполнено ${weekProgress.completed} из ${weekProgress.total} тренировок`}>
-                          <span className="progress-value-current">{weekProgress.completed}</span>
-                          <span className="progress-value-sep"> из </span>
-                          <span className="progress-value-total">{weekProgress.total}</span>
-                        </p>
-                        <p className="progress-subtitle">тренировок за неделю</p>
-                      </div>
-                      <div className="progress-bar-wrap">
-                        <div className="progress-bar" role="progressbar" aria-valuenow={progressPercentage} aria-valuemin={0} aria-valuemax={100} title={`${progressPercentage}%`}>
-                          <div className="progress-bar-fill" style={{ width: `${progressPercentage}%` }} />
-                        </div>
-                        <span className="progress-percentage">{progressPercentage}%</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-                  <div className="metric-card metric-card--primary">
-                    <div className="metric-card__label">
-                      <MetricDistanceIcon className="metric-card__icon" />
-                      <span>{metrics.hasWalking ? 'Дистанция (бег + ходьба)' : 'Дистанция'}</span>
-                    </div>
-                    <div className="metric-card__value">
-                      <span className="metric-card__number">{metrics.distance}</span>
-                      <span className="metric-card__unit">км</span>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-card__label">
-                      <MetricActivityIcon className="metric-card__icon" />
-                      <span>{metrics.hasWalking ? 'Активности' : 'Тренировки'}</span>
-                    </div>
-                    <div className="metric-card__value">
-                      <span className="metric-card__number">{metrics.workouts}</span>
-                      <span className="metric-card__unit">{metrics.hasWalking ? 'активностей' : 'тренировок'}</span>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-card__label">
-                      <MetricTimeIcon className="metric-card__icon" />
-                      <span>Время</span>
-                    </div>
-                    <div className="metric-card__value">
-                      <span className="metric-card__number">{metrics.time}</span>
-                      <span className="metric-card__unit">часов</span>
-                    </div>
-                  </div>
+              <div key="trend_compare" className={sectionClass}>
+                <h2 className="section-title">Тренд месяца</h2>
+                <div className="dashboard-module-card">
+                  <TrendComparisonWidget workoutsByDate={workoutsByDate} />
                 </div>
+              </div>
+            );
+          }
+          if (moduleId === 'personal_records') {
+            return (
+              <div key="personal_records" className={sectionClass}>
+                <h2 className="section-title">Личные рекорды</h2>
+                <div className="dashboard-module-card">
+                  <PersonalRecordsWidget api={api} />
+                </div>
+              </div>
+            );
+          }
+          if (moduleId === 'coach_insights') {
+            return (
+              <div key="coach_insights" className={sectionClass}>
+                <h2 className="section-title">Разборы тренировок</h2>
+                <div className="dashboard-module-card">
+                  <CoachInsightsWidget api={api} limit={row.type === 'double' ? 4 : 6} onNavigate={onNavigate} />
+                </div>
+              </div>
+            );
+          }
+          if (moduleId === 'goal_countdown') {
+            return (
+              <div key="goal_countdown" className={sectionClass}>
+                <h2 className="section-title">Главная цель</h2>
+                <div className="dashboard-module-card">
+                  <GoalCountdownWidget api={api} plan={plan} onNavigate={onNavigate} />
                 </div>
               </div>
             );
@@ -680,7 +669,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                         status="planned"
                         compact={row.type === 'double' ? (expandedWorkoutCard !== 'next') : false}
                         planDays={row.type === 'single' ? (nextWorkout.planDays || []) : (expandedWorkoutCard === 'next' ? (nextWorkout.planDays || []) : ((nextWorkout.planDays?.length > 1) ? (nextWorkout.planDays.slice(0, 1)) : (nextWorkout.planDays || [])))}
-                        maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'next' ? 3 : null}
+                        maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'next' ? 2 : null}
                         extraActions={
                           <>
                             {(row.type === 'single' || expandedWorkoutCard !== 'next') && (

@@ -17,6 +17,20 @@
   color: var(--text-primary) !important;
   backdrop-filter: var(--card-surface-backdrop);
   -webkit-backdrop-filter: var(--card-surface-backdrop-webkit);
+  /* flex-column + min-height: 100% позволяют карточкам в double-row
+     быть одной высоты, а actions всегда прилипают к низу. */
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.workout-card .workout-card-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.workout-card .workout-actions {
+  margin-top: auto;
 }
 
 .workout-card::before {
@@ -534,9 +548,12 @@
 }
 
 .workout-card-plan-day-type {
-  font-weight: 600;
-  font-size: 24px;
-  color: var(--gray-800);
+  font-size: 22px;
+  font-weight: 800;
+  font-family: var(--font-stats);
+  color: var(--gray-900);
+  letter-spacing: -0.3px;
+  line-height: 1.3;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -545,6 +562,100 @@
 
 [data-theme="dark"] .workout-card-plan-day-type {
   color: var(--text-primary);
+}
+
+/* Структурированный список упражнений для ОФП/СБУ — Strava-style */
+.workout-card-exercise-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workout-card-exercise-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+/* Compact-режим (виджеты дашборда в двух колонках): строки тоньше,
+   чтобы карточка ОФП по высоте соответствовала карточке бега. */
+.workout-card-compact .workout-card-exercise-row {
+  padding: 6px 0;
+  gap: 8px;
+}
+
+.workout-card-compact .workout-card-exercise-name {
+  font-size: 14px;
+}
+
+.workout-card-compact .workout-card-chip {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.workout-card-compact .workout-card-plan-day-type {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.workout-card-exercise-row:last-child {
+  border-bottom: none;
+}
+
+[data-theme="dark"] .workout-card-exercise-row {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.workout-card-exercise-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+  flex: 1;
+  min-width: 0;
+}
+
+[data-theme="dark"] .workout-card-exercise-name {
+  color: var(--text-primary);
+}
+
+.workout-card-exercise-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.workout-card-chip {
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--gray-100);
+  color: var(--gray-800);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .workout-card-chip {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.workout-card-chip--accent {
+  background: rgba(252, 76, 2, 0.12);
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .workout-card-chip--accent {
+  background: rgba(252, 76, 2, 0.18);
+  color: var(--primary-400);
 }
 
 .workout-card-key-badge {
@@ -726,6 +837,19 @@
   .workout-title {
     font-size: 18px;
     margin-bottom: 12px;
+  }
+
+  .workout-card-plan-day-type {
+    font-size: 18px;
+  }
+
+  .workout-card-exercise-name {
+    font-size: 14px;
+  }
+
+  .workout-card-chip {
+    font-size: 12px;
+    padding: 3px 8px;
   }
 
   .workout-metrics {

@@ -224,8 +224,9 @@ class ChatService extends BaseService {
         $planWasUpdated = false;
         $fullContent = $this->actionParser->parseAndExecuteActions($fullContent, $userId, $history, $content, $planWasUpdated);
 
+        $aiMessageId = null;
         if ($fullContent !== '') {
-            $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, [
+            $aiMessageId = $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, [
                 'model' => $this->llmModel, 'eval_count' => $response['usage']['total_tokens'] ?? null
             ]);
             $this->repository->touchConversation($conversation['id']);
@@ -234,7 +235,7 @@ class ChatService extends BaseService {
             }
         }
 
-        return ['content' => $fullContent, 'message_id' => $this->db->insert_id ?? null];
+        return ['content' => $fullContent, 'message_id' => $aiMessageId];
     }
 
     // ═══ AI messaging (streaming) ═══
@@ -732,6 +733,20 @@ class ChatService extends BaseService {
     }
 
     // ═══ Messaging CRUD ═══
+
+    /**
+     * Последний свежий briefing/insight от тренера за окно времени.
+     * Используется dashboard hero-card для отображения утреннего инсайта.
+     */
+    public function getLatestProactiveMessage(int $userId, string $proactiveType, int $sinceHours = 36): ?array {
+        $row = $this->repository->getLatestProactiveMessage($userId, $proactiveType, $sinceHours);
+        if (!$row) return null;
+        return [
+            'id' => (int) $row['id'],
+            'content' => (string) $row['content'],
+            'created_at' => (string) $row['created_at'],
+        ];
+    }
 
     public function getMessages(int $userId, string $type = 'ai', int $limit = 50, int $offset = 0): array {
         $conversation = $this->repository->getOrCreateConversation($userId, $type);

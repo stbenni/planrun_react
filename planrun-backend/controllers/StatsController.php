@@ -156,6 +156,21 @@ class StatsController extends BaseController {
     }
 
     /**
+     * Личные рекорды на ключевых дистанциях (5K/10K/half/marathon) за последние 52 нед.
+     * GET /api_v2.php?action=get_personal_records
+     */
+    public function personalRecords() {
+        try {
+            require_once __DIR__ . '/../services/StatsService.php';
+            $svc = new StatsService($this->db);
+            $rows = $svc->getBestRacesProgression((int)$this->calendarUserId, 52);
+            $this->returnSuccess(['records' => is_array($rows) ? $rows : []]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Тренировочная нагрузка (TRIMP / ATL / CTL / TSB)
      * GET /api_v2.php?action=training_load&days=90
      */

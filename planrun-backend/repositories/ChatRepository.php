@@ -29,6 +29,28 @@ class ChatRepository extends BaseRepository {
     }
 
     /**
+     * Последнее проактивное AI-сообщение указанного типа (daily_briefing,
+     * weekly_digest, post_workout_analysis и т.п.) за окно времени.
+     * Используется дашбордом для подсветки свежего брифинга на hero-карточке.
+     */
+    public function getLatestProactiveMessage(int $userId, string $proactiveType, int $sinceHours = 36): ?array {
+        return $this->fetchOne(
+            "SELECT m.id, m.content, m.created_at, m.metadata
+             FROM chat_messages m
+             INNER JOIN chat_conversations c ON c.id = m.conversation_id
+             WHERE c.user_id = ?
+               AND c.type = 'ai'
+               AND m.sender_type = 'ai'
+               AND m.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+               AND JSON_UNQUOTE(JSON_EXTRACT(m.metadata, '$.proactive_type')) = ?
+             ORDER BY m.created_at DESC, m.id DESC
+             LIMIT 1",
+            [$userId, $sinceHours, $proactiveType],
+            'iis'
+        );
+    }
+
+    /**
      * Получить разговор по ID (с проверкой принадлежности пользователю)
      */
     public function getConversationById(int $conversationId, int $userId): ?array {

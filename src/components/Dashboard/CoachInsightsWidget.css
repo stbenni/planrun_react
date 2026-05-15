@@ -1,0 +1,240 @@
+/**
+ * Coach Insights Feed — Whoop-style карточки разбора тренировок.
+ * Структура: head (тип + дата) → voice quote (главный takeaway) → metrics row.
+ */
+
+.coach-insights {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+.coach-insights--empty {
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.coach-insights--empty p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.coach-insights--empty span {
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 340px;
+  color: var(--text-tertiary);
+}
+
+.coach-insight {
+  display: flex;
+  position: relative;
+  min-height: 0;
+}
+
+.coach-insight__btn {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--card-surface-compact-border);
+  background: var(--card-surface-compact-bg);
+  border-radius: var(--radius-lg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+
+.coach-insight__btn:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--card-surface-compact-border));
+  box-shadow: var(--shadow-md);
+}
+
+.coach-insight__btn:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+.coach-insight__strip {
+  flex-shrink: 0;
+  width: 4px;
+  align-self: stretch;
+}
+
+.coach-insight--easy .coach-insight__strip { background: var(--workout-easy); }
+.coach-insight--tempo .coach-insight__strip { background: var(--workout-tempo); }
+.coach-insight--interval .coach-insight__strip { background: var(--workout-interval); }
+.coach-insight--long .coach-insight__strip { background: var(--workout-long); }
+.coach-insight--control .coach-insight__strip { background: var(--workout-control); }
+.coach-insight--race .coach-insight__strip { background: var(--primary-500); }
+.coach-insight--other .coach-insight__strip { background: var(--workout-strip-ofp); }
+.coach-insight--sbu .coach-insight__strip { background: var(--workout-strip-sbu); }
+.coach-insight--rest .coach-insight__strip { background: var(--workout-rest); }
+.coach-insight--run .coach-insight__strip { background: var(--workout-strip-run); }
+
+.coach-insight__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ── Head (тип · дата) ── */
+.coach-insight__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.coach-insight__title {
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .coach-insight__title {
+  color: var(--primary-400);
+}
+
+.coach-insight__sep {
+  color: var(--text-tertiary);
+  font-weight: 700;
+}
+
+.coach-insight__date {
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+  letter-spacing: 0.2px;
+}
+
+/* ── Voice of Coach (главный takeaway) ── */
+.coach-insight__voice {
+  position: relative;
+  padding-left: 30px;
+  min-height: 24px;
+}
+
+.coach-insight__quote {
+  position: absolute;
+  left: 0;
+  top: -12px;
+  font-family: var(--font-stats);
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: color-mix(in srgb, var(--primary-500) 35%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+.coach-insight__voice-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.coach-insight__voice--fallback .coach-insight__voice-text {
+  color: var(--text-secondary);
+  font-style: normal;
+}
+
+.coach-insight__voice--fallback .coach-insight__quote {
+  color: color-mix(in srgb, var(--text-tertiary) 60%, transparent);
+}
+
+/* ── Metrics footer ── */
+.coach-insight__metrics {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-compact-border));
+  flex-wrap: wrap;
+}
+
+.coach-insight__metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-stats);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+.coach-insight__metric-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--primary-500);
+  line-height: 1;
+}
+
+.coach-insight__metric-unit {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: lowercase;
+  letter-spacing: 0.1px;
+}
+
+.coach-insight__metric--muted .coach-insight__metric-value {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+/* Skeleton */
+.coach-insights__skeleton {
+  height: 110px;
+  border-radius: var(--radius-lg);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  animation: coach-insights-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes coach-insights-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 640px) {
+  .coach-insight__voice-text {
+    font-size: 14px;
+  }
+  .coach-insight__quote {
+    font-size: 40px;
+    top: -8px;
+  }
+  .coach-insight__metric-value {
+    font-size: 16px;
+  }
+  .coach-insight__metrics {
+    gap: var(--space-3);
+  }
+}

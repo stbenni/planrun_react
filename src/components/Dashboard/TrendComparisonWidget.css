@@ -1,0 +1,126 @@
+/**
+ * Trend Comparison — сравнение этого месяца с предыдущим.
+ */
+
+.trend-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.trend-comparison__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.trend-comparison__head-period {
+  font-family: var(--font-stats);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.trend-comparison__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.trend-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+}
+
+.trend-card__label {
+  font-family: var(--font-stats);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.trend-card__value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.trend-card__number {
+  font-family: var(--font-stats);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-card__unit {
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.trend-card__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+}
+
+.trend-card__delta--up {
+  color: var(--success-600, #16a34a);
+}
+
+[data-theme="dark"] .trend-card__delta--up {
+  color: var(--success-400, #4ade80);
+}
+
+.trend-card__delta--down {
+  color: var(--danger-600, #dc2626);
+}
+
+[data-theme="dark"] .trend-card__delta--down {
+  color: var(--danger-400, #f87171);
+}
+
+.trend-card__delta--neutral {
+  color: var(--text-tertiary);
+}
+
+.trend-card__prev {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .trend-comparison__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .trend-card:nth-child(3) {
+    grid-column: span 2;
+  }
+  .trend-card__number {
+    font-size: 20px;
+  }
+}

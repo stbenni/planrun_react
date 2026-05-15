@@ -346,6 +346,10 @@ try {
             break;
             
         // WorkoutController
+        case 'get_recent_workout_analyses':
+            planrunRouteControllerAction($db, WorkoutController::class, 'getRecentWorkoutAnalyses', $method, 'GET');
+            break;
+
         case 'get_day':
             planrunRouteControllerAction($db, WorkoutController::class, 'getDay', $method);
             break;
@@ -419,6 +423,10 @@ try {
             planrunRouteControllerAction($db, StatsController::class, 'racePrediction', $method, 'GET');
             break;
 
+        case 'get_personal_records':
+            planrunRouteControllerAction($db, StatsController::class, 'personalRecords', $method, 'GET');
+            break;
+
         case 'training_load':
             planrunRouteControllerAction($db, StatsController::class, 'trainingLoad', $method, 'GET');
             break;
@@ -454,6 +462,10 @@ try {
 
         case 'get_executed_for_day':
             planrunRouteControllerAction($db, ExerciseController::class, 'getExecutedForDay', $method);
+            break;
+
+        case 'get_executed_dates':
+            planrunRouteControllerAction($db, ExerciseController::class, 'getExecutedDates', $method);
             break;
             
         // WeekController
@@ -705,6 +717,10 @@ try {
             break;
 
         // ChatController
+        case 'get_latest_proactive_message':
+            planrunRouteControllerAction($db, ChatController::class, 'getLatestProactiveMessage', $method, 'GET');
+            break;
+
         case 'chat_get_messages':
             planrunRouteControllerAction($db, ChatController::class, 'getMessages', $method, 'GET');
             break;

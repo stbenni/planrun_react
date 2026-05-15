@@ -54,10 +54,11 @@ function getWorkoutStripClass(type) {
   return map[type] || (type === 'free' ? null : 'run');
 }
 
-const MonthlyCalendar = ({ 
-  workoutsData = {}, 
+const MonthlyCalendar = ({
+  workoutsData = {},
   workoutsListByDate = {},
-  resultsData = {}, 
+  resultsData = {},
+  executedByDate = {},
   planData = null,
   api,
   onDateClick,
@@ -153,7 +154,7 @@ const MonthlyCalendar = ({
     const dateStr = formatDate(date);
     
     const planDay = getPlanDayForDate(dateStr, planData);
-    const completion = getDayCompletionStatus(dateStr, planDay, workoutsData, resultsData, workoutsListByDate);
+    const completion = getDayCompletionStatus(dateStr, planDay, workoutsData, resultsData, workoutsListByDate, executedByDate);
     const isCompleted = completion.status === 'completed';
     const isRestExtra = completion.status === 'rest_extra';
     const restExtraType = completion.extraWorkoutType;

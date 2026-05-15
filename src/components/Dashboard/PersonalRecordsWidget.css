@@ -1,0 +1,151 @@
+/**
+ * Personal Records — 4 карточки (5K / 10K / Half / Marathon).
+ */
+
+.pr-widget {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.pr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-xl, var(--radius-2xl));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--primary-500) 8%, var(--card-surface-compact-bg)) 0%,
+      var(--card-surface-compact-bg) 70%
+    );
+  border: 1px solid color-mix(in srgb, var(--primary-500) 14%, var(--card-surface-compact-border));
+  box-shadow: var(--card-surface-compact-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 0;
+}
+
+.pr-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.pr-card--empty {
+  background: var(--card-surface-compact-bg);
+  border-color: var(--card-surface-compact-border);
+  opacity: 0.7;
+}
+
+.pr-card--skeleton {
+  min-height: 120px;
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  animation: pr-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pr-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.pr-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pr-card__label {
+  font-family: var(--font-stats);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .pr-card__label {
+  color: var(--primary-400);
+}
+
+.pr-card--empty .pr-card__label {
+  color: var(--text-tertiary);
+}
+
+.pr-card__vdot {
+  font-family: var(--font-stats);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  color: var(--text-tertiary);
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--primary-500) 8%, transparent);
+}
+
+.pr-card__time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-stats);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-card__time--empty {
+  color: var(--text-tertiary);
+}
+
+.pr-card__trophy {
+  flex-shrink: 0;
+  color: var(--primary-500);
+  align-self: center;
+}
+
+.pr-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pr-card__pace {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+}
+
+.pr-card__date {
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-card__empty-hint {
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 640px) {
+  .pr-widget {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .pr-card__time {
+    font-size: 22px;
+  }
+  .pr-card {
+    padding: var(--space-3);
+  }
+}

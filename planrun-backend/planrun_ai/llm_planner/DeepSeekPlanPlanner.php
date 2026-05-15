@@ -468,7 +468,7 @@ class DeepSeekPlanPlanner
             . "\n\nСегодня: " . gmdate('Y-m-d') . " (UTC)";
     }
 
-    private function requestJson(string $model, string $prompt, int $maxTokens, int $timeoutSeconds, bool $enableThinking): array
+    private function requestJson(string $model, string $prompt, int $maxTokens, int $timeoutSeconds, bool $enableThinking, bool $allowLengthRetry = true): array
     {
         if ($this->apiKey === '') {
             throw new RuntimeException('DeepSeek API key is empty', 500);
@@ -509,6 +509,13 @@ class DeepSeekPlanPlanner
         $choice = (array) ($json['choices'][0] ?? []);
         $finishReason = (string) ($choice['finish_reason'] ?? '');
         if ($finishReason === 'length') {
+            if ($allowLengthRetry) {
+                $bumped = min(65536, (int) round($maxTokens * 1.6));
+                if ($bumped > $maxTokens) {
+                    error_log("DeepSeekPlanPlanner: response truncated at {$maxTokens} tokens, retrying with {$bumped}");
+                    return $this->requestJson($model, $prompt, $bumped, $timeoutSeconds, $enableThinking, false);
+                }
+            }
             throw new RuntimeException('DeepSeek planner response was truncated: increase PLAN_LLM_PLANNER_*_MAX_TOKENS', 500);
         }
 

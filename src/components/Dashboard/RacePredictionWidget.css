@@ -88,63 +88,72 @@
 }
 .race-prediction__vdot-value {
   font-family: var(--font-stats);
-  font-size: var(--text-4xl);
-  font-weight: var(--font-bold);
-  font-style: italic;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
   color: var(--primary-500);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .race-prediction__vdot-label {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
   display: flex;
-  line-height: 1.1;
+  line-height: 1.2;
   flex-direction: column;
+  gap: 2px;
 }
 .race-prediction__vdot-source {
-  font-size: var(--text-xs);
-  font-weight: var(--font-normal);
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-tertiary);
 }
 .race-prediction__vdot-source--low {
   color: var(--warning-500, #d97706);
 }
 
-/* Goal countdown — как metric-card: фон gray-50, бордер */
+/* Goal countdown — brand-chip с оранжевым акцентом, как чипы в карточке */
 .race-prediction__goal {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--card-surface-compact-bg);
-  border: 1px solid var(--card-surface-compact-border);
-  border-radius: var(--card-surface-radius-compact);
-  font-size: var(--text-sm);
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(252, 76, 2, 0.12);
+  border: 1px solid rgba(252, 76, 2, 0.2);
+  border-radius: var(--radius-full, 999px);
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
   min-width: 0;
-  box-shadow: var(--card-surface-compact-shadow);
-  backdrop-filter: var(--card-surface-compact-backdrop);
-  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
 }
 .race-prediction__goal-dist {
-  font-weight: var(--font-semibold);
+  color: var(--primary-600);
   text-transform: uppercase;
-  color: var(--text-primary);
+  letter-spacing: 0.3px;
 }
 .race-prediction__goal-days {
-  color: var(--text-secondary);
+  color: var(--primary-700, var(--primary-600));
+  opacity: 0.85;
+  font-weight: 500;
 }
 
 [data-theme="dark"] .race-prediction__goal {
-  background: var(--card-surface-compact-bg);
-  border-color: var(--card-surface-compact-border);
+  background: rgba(252, 76, 2, 0.18);
+  border-color: rgba(252, 76, 2, 0.32);
 }
 [data-theme="dark"] .race-prediction__goal-dist {
-  color: var(--text-primary);
+  color: var(--primary-400);
 }
 [data-theme="dark"] .race-prediction__goal-days {
-  color: var(--text-secondary);
+  color: var(--primary-400);
+  opacity: 0.85;
 }
 
 /* Predictions table — заголовок uppercase, secondary */
@@ -158,13 +167,17 @@
 .race-prediction__table-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  padding: var(--space-2) 0;
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
+  padding: 8px 0;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .race-prediction__table-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .race-prediction__table-header:has(span:nth-child(4)) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
@@ -172,10 +185,11 @@
 .race-prediction__row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  padding: var(--space-3) 0;
-  font-size: var(--text-sm);
+  padding: 12px 0;
+  font-size: 14px;
   border-bottom: 1px solid var(--gray-200);
   align-items: center;
+  position: relative;
 }
 .race-prediction__row:has(.race-prediction__time--riegel) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
@@ -187,30 +201,52 @@
 .race-prediction__table-header > span:last-child {
   text-align: right;
 }
+/* Target row — оранжевая полоска слева + насыщеннее фон, как brand-блок */
 .race-prediction__row--target {
-  background: var(--primary-50);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-2);
-  margin: 0 calc(-1 * var(--space-2));
+  background: rgba(252, 76, 2, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px 12px 18px;
+  margin: 0 -14px 0 -10px;
   border-bottom-color: transparent;
 }
+.race-prediction__row--target::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--primary-500);
+}
 .race-prediction__dist {
-  font-weight: var(--font-medium);
+  font-weight: 600;
   color: var(--text-primary);
+}
+.race-prediction__row--target .race-prediction__dist {
+  color: var(--primary-600);
+}
+[data-theme="dark"] .race-prediction__row--target .race-prediction__dist {
+  color: var(--primary-400);
 }
 .race-prediction__time {
   font-family: var(--font-stats);
-  font-weight: var(--font-bold);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.2px;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   padding-left: 10px;
 }
 .race-prediction__time--riegel {
   color: var(--text-secondary);
-  font-weight: var(--font-normal);
+  font-weight: 500;
+  font-size: 14px;
 }
 .race-prediction__pace {
-  font-size: var(--text-sm);
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   padding-right: 10px;
@@ -229,22 +265,19 @@
 }
 
 [data-theme="dark"] .race-prediction__row {
-  border-bottom-color: var(--card-border);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 [data-theme="dark"] .race-prediction__row--target {
-  background: rgba(255, 107, 61, 0.12);
-}
-[data-theme="dark"] .race-prediction__table-header {
-  border-bottom-color: var(--card-border);
+  background: rgba(252, 76, 2, 0.14);
 }
 
-/* Training paces — как легенда дашборда */
+/* Training paces — список с разделителями + чип темпа справа */
 .race-prediction__paces {
   margin-top: var(--space-1);
 }
 .race-prediction__paces-title {
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -253,28 +286,49 @@
 .race-prediction__paces-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 0;
 }
 .race-prediction__pace-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
+  gap: 10px;
+  padding: 10px 0;
+  font-size: 14px;
+  border-bottom: 1px solid var(--gray-200);
+}
+.race-prediction__pace-item:last-child {
+  border-bottom: none;
+}
+[data-theme="dark"] .race-prediction__pace-item {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 .race-prediction__pace-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent);
 }
 .race-prediction__pace-label {
   flex: 1;
   color: var(--text-primary);
+  font-weight: 600;
+  min-width: 0;
 }
 .race-prediction__pace-value {
   font-family: var(--font-stats);
-  font-weight: var(--font-bold);
+  font-size: 13px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  color: var(--gray-800);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--gray-100);
+  white-space: nowrap;
+}
+[data-theme="dark"] .race-prediction__pace-value {
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
 }
 
@@ -413,10 +467,10 @@
 
 .race-prediction__compact-cell-time {
   font-family: var(--font-stats);
-  font-size: 1.3rem;
-  font-style: italic;
-  line-height: 0.95;
-  font-weight: var(--font-bold);
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  line-height: 1;
+  font-weight: 800;
   color: var(--primary-500);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

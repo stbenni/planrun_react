@@ -391,7 +391,8 @@ class WorkoutAnalysisRepository {
     public function getRecent(int $userId, int $limit = 20): array {
         $stmt = $this->db->prepare(
             "SELECT id, source_kind, source_id, workout_date, planned_type, detected_type,
-                    detected_confidence, intensity, actual_distance_km, actual_avg_pace,
+                    detected_confidence, intensity, actual_distance_km, actual_duration_min,
+                    actual_avg_pace, actual_avg_hr,
                     summary_line, llm_review_text
              FROM workout_analyses
              WHERE user_id = ?

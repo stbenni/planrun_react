@@ -264,6 +264,43 @@ class ProactiveCoachService {
         return null;
     }
 
+    /**
+     * Контекст главной цели атлета (race goal + days_to_race + phase + best_races).
+     * Помогает LLM привязывать совет к конкретному старту.
+     */
+    private function buildGoalContext(int $userId): string {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT goal_type, race_date, race_distance, race_target_time
+                 FROM users WHERE id = ? LIMIT 1"
+            );
+            if (!$stmt) return '';
+            $stmt->bind_param('i', $userId);
+            $stmt->execute();
+            $user = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$user || ($user['goal_type'] ?? '') !== 'race' || empty($user['race_date'])) {
+                return '';
+            }
+            $raceDate = (string) $user['race_date'];
+            $daysToRace = (int) ((strtotime($raceDate) - time()) / 86400);
+            if ($daysToRace < 0) return '';
+
+            $distLabel = (string) ($user['race_distance'] ?? '');
+            $targetTime = trim((string) ($user['race_target_time'] ?? ''));
+
+            $parts = [];
+            $parts[] = "Главная цель: {$distLabel}";
+            if ($targetTime !== '') $parts[] = "целевое время {$targetTime}";
+            $parts[] = "до старта {$daysToRace} " . ($daysToRace === 1 ? 'день' : ($daysToRace < 5 ? 'дня' : 'дней'));
+
+            return "\nЦЕЛЬ: " . implode(', ', $parts) . '.';
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
     private function buildHistoryBlock(int $userId, int $maxLines = 16): string {
         try {
             require_once __DIR__ . '/WorkoutAnalysisRepository.php';
@@ -312,30 +349,41 @@ class ProactiveCoachService {
         if ($eventDescription === '') return '';
 
         $historyBlock = $this->buildHistoryBlock($userId);
+        $goalContext = $this->buildGoalContext($userId);
 
         $prompt = <<<PROMPT
-Ты — PlanRun, тренер по бегу. Напиши ОДНО короткое (2-3 предложения) проактивное сообщение для спортсмена.
+Ты — PlanRun, AI-тренер по бегу. Напиши короткую реакцию на событие из жизни атлета.
+{$goalContext}
 
 СОБЫТИЕ: {$eventDescription}
 {$historyBlock}
 
-ПРАВИЛА:
-- СТРОГО на русском.
-- Обращайся к спортсмену на «ты», не на «вы».
-- Тон: дружелюбный, заботливый тренер.
-- При паузе: мягко, без укоров. «Заметил паузу, как ты? Если нужна помощь с планом — напиши».
-- При перегрузке: серьёзно. «Нагрузка высокая, рекомендую отдых/лёгкий бег».
-- При забеге: поддержка. «Забег близко! Сосредоточься на восстановлении».
-- При рекорде: похвала. «Отличный результат!»
-- При росте VDOT: воодушевление. «Форма растёт, продолжай!»
-- При рекорде объёма: похвала + напоминание про восстановление.
-- При серии тренировок: подчеркни стабильность и дисциплину.
-- При достижении цели (прогноз быстрее плана): поздравь, настрой на финиш.
-- При низком выполнении: без давления. «Заметил, что тренировок стало меньше. Может, пересчитаем план?»
-- НЕ используй эмодзи. Без «Привет!» — сразу к делу.
+ФОРМАТ ОТВЕТА:
+- 2 связных предложения (не bullet, не пункты).
+- 1-е: констатация события с конкретной цифрой из СОБЫТИЯ.
+- 2-е: следующий шаг — что делать или о чём подумать.
+
+ТОН ПО ТИПУ СОБЫТИЯ:
+- pause / low_compliance: мягко, без давления. Спроси что мешает, предложи помощь.
+- overload / overload_warning: серьёзно и прямо — назови ACWR, рекомендуй отдых или лёгкий бег.
+- distance_record / volume_record: отметь рекорд с цифрой, напомни про восстановление.
+- vdot_improvement / goal_achievable: констатируй рост формы с цифрой, призови держать темп.
+- consistency_streak: отметь стабильность с числом недель.
+- race_approaching: спокойно, без паники — фокус на восстановлении.
+
+ОБЯЗАТЕЛЬНО:
+- Строго на русском. На «ты».
+- Конкретная цифра из СОБЫТИЯ должна быть в тексте.
+
+ЗАПРЕЩЕНО:
+- Эмодзи.
+- "Молодец", "Так держать", "Отличная работа", "Поздравляю", "Не сдавайся".
+- Английские слова.
+- Восклицательные знаки больше одного на сообщение.
+- Bullet-points, дефисы.
 PROMPT;
 
-        $content = $this->callLlmSimple($prompt, 200, $userId);
+        $content = $this->callLlmSimple($prompt, 220, $userId);
         return $content !== '' ? $content : $this->getFallbackMessage($type, $data);
     }
 
@@ -477,24 +525,35 @@ PROMPT;
                 $eventDesc .= " ACWR: {$acwrVal} ({$acwrZone}).";
 
                 $historyBlock = $this->buildHistoryBlock($userId, 10);
+                $goalContext = $this->buildGoalContext($userId);
 
                 $prompt = <<<PROMPT
-Ты — PlanRun, тренер по бегу. Напиши КРАТКИЙ утренний брифинг (2-3 предложения) перед тренировкой.
+Ты — PlanRun, AI-тренер по бегу. Напиши утренний брифинг перед сегодняшней тренировкой.
+{$goalContext}
 
 ПЛАН НА СЕГОДНЯ: {$eventDesc}
 {$historyBlock}
 
-ПРАВИЛА:
-- СТРОГО на русском.
-- Обращайся к спортсмену на «ты», не на «вы».
-- Тон: мотивирующий, конкретный.
-- Назови тип тренировки и используй детали из описания плана, если они есть.
-- Дай один ключевой совет.
-- Если ACWR высокий — предупреди о нагрузке.
-- НЕ используй эмодзи. Без «Привет!» и «Доброе утро!» — сразу к делу.
+ФОРМАТ ОТВЕТА:
+- 2–3 связных предложения (не bullet-список, не пункты через дефис).
+- Первое: кратко напомни ЧТО за тренировка с цифрами из плана (дистанция/темп/интервалы).
+- Второе: один конкретный совет — на чём сегодня сфокусироваться (темп, пульсовая зона, ощущение, разминка/заминка).
+- Третье (если уместно): связь с целью или контекст нагрузки. Например, "за 14 дней до марафона держим объём" или "ACWR в норме, можно работать".
+
+ОБЯЗАТЕЛЬНО:
+- Строго на русском. На «ты».
+- Используй ТОЛЬКО цифры из плана и истории, ничего не выдумывай.
+- Один конкретный совет, без общих слов.
+
+ЗАПРЕЩЕНО:
+- Эмодзи, любые символы кроме букв и пунктуации.
+- "Привет!", "Доброе утро!", "Удачи!", "Так держать!", "Молодец", "Сегодня важный день".
+- Вопросы пользователю.
+- Bullet-points, дефисы в начале строк, нумерованные списки.
+- Английские слова (easy, tempo, recovery, base, build — пиши по-русски).
 PROMPT;
 
-                $message = $this->callLlmSimple($prompt, 260, $userId);
+                $message = $this->callLlmSimple($prompt, 320, $userId);
                 if ($message === '') {
                     $message = $this->getDailyBriefingFallback($typeRu, $description, $isKey, $acwrZone);
                 }
@@ -557,25 +616,37 @@ PROMPT;
                 }
 
                 $historyBlock = $this->buildHistoryBlock($userId, 20);
+                $goalContext = $this->buildGoalContext($userId);
 
                 $prompt = <<<PROMPT
-Ты — PlanRun, тренер по бегу. Напиши еженедельный итог (4-6 предложений).
+Ты — PlanRun, AI-тренер по бегу. Напиши итог завершившейся недели атлета.
+{$goalContext}
 
 ДАННЫЕ НЕДЕЛИ: {$weekStats}
 {$historyBlock}
 
-ПРАВИЛА:
-- СТРОГО на русском.
-- Обращайся к спортсмену на «ты», не на «вы».
-- Начни с общей оценки недели.
-- Отметь объём и регулярность.
-- Если выполнение ниже 70%, мягко спроси о причинах и предложи скорректировать план.
-- Если нагрузка высокая, напомни про восстановление.
-- Дай 1-2 рекомендации на следующую неделю.
-- НЕ используй эмодзи. Без приветствий — сразу к оценке недели.
+ФОРМАТ ОТВЕТА:
+- 3–5 связных предложений (не bullet, не дефисы, не "пункт 1, пункт 2").
+- 1-е предложение: оценка недели одним фактом — объём км, число тренировок, выполнение %.
+- 2-е: что особенно отметить (ключевая тренировка, рекорд, или наоборот пропуск/слабое место). Конкретно с цифрами.
+- 3-е: динамика vs прошлая неделя (объём вырос/упал, темп улучшился), из истории недель.
+- 4-е (если уместно): рекомендация на следующую неделю — что держать, что добавить, где осторожнее.
+
+ОБЯЗАТЕЛЬНО:
+- Строго на русском. На «ты».
+- Используй ТОЛЬКО цифры из блока статистики/истории. Не выдумывай.
+- Если выполнение < 70% — без давления, спроси что мешает, предложи скорректировать.
+- Если ACWR в зоне overload — обязательно упомяни про восстановление.
+
+ЗАПРЕЩЕНО:
+- Эмодзи.
+- "Молодец", "Так держать", "Отлично сработал" — общие слова.
+- Bullet-points, нумерация.
+- Английские слова из плана (easy, tempo, recovery, etc.) — пиши по-русски.
+- Приветствия и подписи "Твой тренер".
 PROMPT;
 
-                $message = $this->callLlmSimple($prompt, 420, $userId);
+                $message = $this->callLlmSimple($prompt, 500, $userId);
                 if ($message === '') {
                     $message = "Итог недели: {$weekStats} На следующей неделе держи нагрузку ровно и внимательно следи за восстановлением.";
                 }
@@ -625,7 +696,31 @@ PROMPT;
             return '';
         }
 
-        return trim((string) ($response['choices'][0]['message']['content'] ?? ''));
+        $content = trim((string) ($response['choices'][0]['message']['content'] ?? ''));
+        return $this->normalizeProse($content);
+    }
+
+    /**
+     * LLM временами нарушает запрет на bullet-формат — стрипим ведущие маркеры,
+     * markdown bold/italic и схлопываем в один связный текст.
+     */
+    private function normalizeProse(string $text): string {
+        if ($text === '') return '';
+        $text = preg_replace('/\*\*(.+?)\*\*/u', '$1', $text);
+        $text = preg_replace('/\*(.+?)\*/u', '$1', $text);
+        $text = str_replace('`', '', $text);
+        $lines = preg_split('/\r?\n/u', $text);
+        $clean = [];
+        foreach ($lines as $line) {
+            $line = ltrim($line);
+            $line = preg_replace('/^(?:[-—–*•·]+|\d+[.)])\s+/u', '', $line);
+            $line = trim($line);
+            if ($line !== '') $clean[] = $line;
+        }
+        $joined = implode(' ', $clean);
+        $joined = preg_replace('/\s+/u', ' ', $joined);
+        $joined = preg_replace('/\s+([,.;:!?])/u', '$1', $joined);
+        return trim($joined);
     }
 
     private function countPlannedWorkouts(int $userId, string $startDate, string $endDate): int {

@@ -28,6 +28,25 @@ class ChatController extends BaseController {
     }
 
     /**
+     * Последний проактивный AI-инсайт указанного типа (daily_briefing,
+     * weekly_digest, post_workout_analysis) за окно ~36 часов.
+     * Используется dashboard hero-card.
+     * GET get_latest_proactive_message?type=daily_briefing&hours=36
+     */
+    public function getLatestProactiveMessage() {
+        if (!$this->requireAuth()) return;
+        $type = (string) $this->getParam('type', 'daily_briefing');
+        $hours = max(1, min(72, (int)($this->getParam('hours') ?: 36)));
+        try {
+            $msg = $this->chatService->getLatestProactiveMessage($this->currentUserId, $type, $hours);
+            header('Cache-Control: no-store, no-cache, must-revalidate');
+            $this->returnSuccess(['message' => $msg]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Получить сообщения чата
      * GET chat_get_messages?type=ai|admin&limit=50&offset=0
      */

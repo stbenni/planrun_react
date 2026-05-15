@@ -618,12 +618,12 @@
 
 .dashboard-greeting {
   font-family: var(--font-stats), sans-serif;
-  font-size: var(--text-3xl);
-  font-weight: var(--font-extrabold);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
   color: var(--gray-900);
   margin-bottom: 4px;
   line-height: 1.1;
-  letter-spacing: 0;
   text-transform: none;
 }
 
@@ -1193,6 +1193,18 @@ body.dashboard-customizer-dragging {
 .dashboard-row-two .dashboard-module-card {
   min-height: 280px;
   overflow: hidden;
+  flex: 1;
+}
+
+/* Содержимое виджетов внутри double-row растягивается на всю карточку,
+   чтобы фон/рамка не обрезались по короткому контенту, а соседний виджет
+   не висел в воздухе. */
+.dashboard-row-two .dashboard-module-card .race-prediction,
+.dashboard-row-two .dashboard-module-card .training-load,
+.dashboard-row-two .dashboard-module-card .dashboard-stats-widget,
+.dashboard-row-two .dashboard-module-card .dashboard-metrics-grid {
+  flex: 1;
+  min-height: 0;
 }
 
 /* У пустых карточек верхнего ряда тень и скругление должны рисоваться самим блоком, без квадратного клипа родителя */
@@ -1701,10 +1713,12 @@ body.dashboard-customizer-dragging {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-family: var(--font-stats);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--text-secondary);
-  font-family: 'Jost', sans-serif;
 }
 
 .dashboard-week-strip-legend-dot {
@@ -2121,14 +2135,16 @@ body.dashboard-customizer-dragging {
 }
 
 .dashboard-time-range-btn {
-  min-height: 40px;
-  padding: 8px 14px;
-  border-radius: 12px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--gray-700);
-  font-size: 14px;
-  font-weight: 600;
+  color: var(--text-secondary);
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
   cursor: pointer;
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
@@ -2195,9 +2211,11 @@ body.dashboard-customizer-dragging {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .dashboard-stat-metric-card__icon {
@@ -2216,12 +2234,12 @@ body.dashboard-customizer-dragging {
 
 .dashboard-stat-metric-card__number {
   font-family: var(--font-stats);
-  font-weight: 700;
-  font-style: italic;
-  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -0.5px;
   color: var(--gray-900);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .dashboard-stat-metric-card__unit {
@@ -2315,14 +2333,14 @@ body.dashboard-customizer-dragging {
 /* Заголовок секции */
 .section-title {
   font-family: var(--font-stats), sans-serif;
-  font-size: var(--text-xl);
-  font-weight: var(--font-bold);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
   color: var(--text-primary);
   margin-bottom: var(--space-3);
   padding: 0;
-  letter-spacing: 0;
   text-transform: none;
-  line-height: 1.2;
+  line-height: 1.3;
 }
 
 [data-theme="dark"] .section-title {
@@ -2352,12 +2370,11 @@ body.dashboard-customizer-dragging {
 /* Число «X из Y» — акцент на выполненных */
 .progress-value {
   margin: 0;
-  font-style: italic;
   font-family: var(--font-stats), sans-serif;
-  font-weight: var(--font-bold);
+  font-weight: 800;
   font-size: var(--text-5xl);
   line-height: 1;
-  letter-spacing: 0;
+  letter-spacing: -0.8px;
   font-variant-numeric: tabular-nums;
   color: var(--primary-500);
 }
@@ -2434,12 +2451,11 @@ body.dashboard-customizer-dragging {
 
 .progress-percentage {
   font-family: var(--font-stats);
-  font-weight: var(--font-bold);
-  font-style: italic;
+  font-weight: 700;
   flex-shrink: 0;
-  font-size: var(--text-sm);
+  font-size: 13px;
   color: var(--gray-700);
-  letter-spacing: 0;
+  letter-spacing: -0.2px;
   min-width: 4ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -2808,7 +2824,16 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__number,
 .dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__unit {
   font-size: var(--text-3xl);
-  font-style: italic;
+  font-style: normal;
+  letter-spacing: -0.5px;
+}
+
+.dashboard-module-card:has(.dashboard-metrics-grid) .metric-card:not(.metric-card--progress) .metric-card__unit,
+.dashboard-module-card:has(.dashboard-stats-widget) .metric-card .metric-card__unit {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-secondary);
+  letter-spacing: 0;
 }
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card--progress {
   flex-direction: column;
@@ -2883,9 +2908,10 @@ body.dashboard-customizer-dragging {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: var(--text-sm);
-  font-weight: 300;
-  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
 }
 
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__icon,
@@ -2908,12 +2934,12 @@ body.dashboard-customizer-dragging {
 .dashboard-module-card:has(.dashboard-metrics-grid) .metric-card__number,
 .dashboard-module-card:has(.dashboard-stats-widget) .metric-card__number {
   font-family: var(--font-stats);
-  font-weight: 700;
-  font-style: italic;
-  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -0.5px;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  line-height: 1;
 }
 
 /* Главная KPI (метка .metric-card--primary, например дистанция) выделяется бренд-оранжевым,

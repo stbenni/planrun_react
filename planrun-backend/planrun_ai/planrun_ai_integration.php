@@ -19,7 +19,8 @@ function resolvePlanRunAIMaxTokens(array $userData): int {
         $tokens = 12000;
     }
 
-    $hardLimit = max(512, (int) env('PLANRUN_AI_MAX_TOKENS_HARD_LIMIT', 4096));
+    // Default 32768: prior 4096 silently truncated every plan response (12-20K picked above).
+    $hardLimit = max(512, (int) env('PLANRUN_AI_MAX_TOKENS_HARD_LIMIT', 32768));
     if ($tokens > $hardLimit) {
         error_log("resolvePlanRunAIMaxTokens: capped max_tokens {$tokens} -> {$hardLimit}");
     }

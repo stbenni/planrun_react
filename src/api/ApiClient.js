@@ -1092,6 +1092,37 @@ class ApiClient {
     return performGetAllWorkoutsList(this, viewContext, limit);
   }
 
+  /**
+   * Карта дат → массив категорий с executed_exercises (ofp/sbu).
+   * Используется календарём для подсветки выполненных ОФП/СБУ дней.
+   */
+  async getExecutedDates(weeks = 26) {
+    return this.request('get_executed_dates', { weeks }, 'GET');
+  }
+
+  /**
+   * Последний проактивный AI-инсайт (daily_briefing / weekly_digest / ...).
+   * Используется hero-карточкой дашборда.
+   */
+  async getLatestProactiveMessage(type = 'daily_briefing', hours = 36) {
+    return this.request('get_latest_proactive_message', { type, hours }, 'GET');
+  }
+
+  /**
+   * Последние разборы тренировок (workout_analyses).
+   * Используется Coach Insights Feed на дашборде.
+   */
+  async getRecentWorkoutAnalyses(limit = 10) {
+    return this.request('get_recent_workout_analyses', { limit }, 'GET');
+  }
+
+  /**
+   * Личные рекорды (5K/10K/half/marathon) за 52 нед.
+   */
+  async getPersonalRecords() {
+    return this.request('get_personal_records', {}, 'GET');
+  }
+
   async getRacePrediction(viewContext = null) {
     return performGetRacePrediction(this, viewContext);
   }

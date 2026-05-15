@@ -65,18 +65,19 @@ function hasAnyPlannedWorkout(weeksData) {
   return false;
 }
 
-function buildProgressDataMap(plan, summaryObj, allResults, workoutsListByDate) {
+function buildProgressDataMap(plan, summaryObj, allResults, workoutsListByDate, executedByDate = {}) {
   const resultsData = buildResultsData(allResults);
   const allDates = new Set([
     ...Object.keys(resultsData),
     ...Object.keys(workoutsListByDate),
     ...Object.keys(summaryObj || {}),
+    ...Object.keys(executedByDate || {}),
   ]);
   const progressDataMap = {};
 
   allDates.forEach((dateStr) => {
     const planDay = getPlanDayForDate(dateStr, plan);
-    const status = getDayCompletionStatus(dateStr, planDay, summaryObj, resultsData, workoutsListByDate);
+    const status = getDayCompletionStatus(dateStr, planDay, summaryObj, resultsData, workoutsListByDate, executedByDate);
     if (status.status === 'completed') {
       progressDataMap[dateStr] = true;
     }
@@ -142,7 +143,7 @@ function findDashboardWorkouts(plan, user) {
   };
 }
 
-function hasWorkoutForCategory(dateStr, category, workoutsList, allResults, summaryObj) {
+function hasWorkoutForCategory(dateStr, category, workoutsList, allResults, summaryObj, executedByDate) {
   const workoutsOnDate = workoutsList.filter((workout) => (
     (workout.date ?? workout.start_time?.split?.('T')?.[0]) === dateStr
   ));
@@ -170,10 +171,23 @@ function hasWorkoutForCategory(dateStr, category, workoutsList, allResults, summ
     }
   }
 
+  // ОФП/СБУ закрываются через mark_exercises_completed → executed_exercises.
+  // Без этой проверки запланированные ОФП-дни никогда не попадали бы в "выполнено",
+  // даже если атлет отметил все упражнения.
+  const executedCats = executedByDate?.[dateStr];
+  if (Array.isArray(executedCats)) {
+    for (const cat of executedCats) {
+      const c = String(cat).toLowerCase();
+      if ((c === 'ofp' && category === 'other') || (c === 'sbu' && category === 'sbu')) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
-function calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj) {
+function calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj, executedByDate) {
   if (!currentWeek?.start_date) {
     return { completed: 0, total: 0 };
   }
@@ -191,7 +205,7 @@ function calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj
   }
 
   const completed = plannedDays.filter((plannedDay) => (
-    hasWorkoutForCategory(plannedDay.date, plannedDay.plannedCategory, workoutsList, allResults, summaryObj)
+    hasWorkoutForCategory(plannedDay.date, plannedDay.plannedCategory, workoutsList, allResults, summaryObj, executedByDate)
   )).length;
 
   return { completed, total: plannedDays.length };
@@ -283,6 +297,7 @@ export function useDashboardData({
   const [loading, setLoading] = useState(true);
   const [nextWorkout, setNextWorkout] = useState(null);
   const [progressDataMap, setProgressDataMap] = useState({});
+  const [workoutsByDate, setWorkoutsByDate] = useState({});
   const [planExists, setPlanExists] = useState(false);
   const [plan, setPlan] = useState(null);
   const [hasAnyPlannedWorkoutState, setHasAnyPlannedWorkout] = useState(false);
@@ -316,7 +331,7 @@ export function useDashboardData({
         planData = store.plan;
       }
 
-      const [planStatusRes, planRes, allResults, workoutsSummaryRes, workoutsListRes] = await Promise.all([
+      const [planStatusRes, planRes, allResults, workoutsSummaryRes, workoutsListRes, executedDatesRes] = await Promise.all([
         shouldCheckPlanStatus
           ? (planStatus != null
             ? Promise.resolve(planStatus)
@@ -330,7 +345,9 @@ export function useDashboardData({
         api.getAllResults().catch(() => ({ results: [] })),
         api.getAllWorkoutsSummary().catch(() => ({})),
         api.getAllWorkoutsList(null, 500).catch(() => ({ workouts: [] })),
+        api.getExecutedDates ? api.getExecutedDates(26).catch(() => ({})) : Promise.resolve({}),
       ]);
+      const executedByDate = executedDatesRes?.data?.executed_by_date ?? executedDatesRes?.executed_by_date ?? {};
 
       planStatus = planStatus ?? planStatusRes;
       planData = planData ?? planRes;
@@ -371,12 +388,13 @@ export function useDashboardData({
       usePlanStore.getState().setPlan(planData);
 
       const workoutsListByDate = buildWorkoutsListByDate(workoutsList);
-      setProgressDataMap(buildProgressDataMap(planData, summaryObj, allResults, workoutsListByDate));
+      setProgressDataMap(buildProgressDataMap(planData, summaryObj, allResults, workoutsListByDate, executedByDate));
+      setWorkoutsByDate(summaryObj && typeof summaryObj === 'object' ? summaryObj : {});
 
       const { todayWorkout: currentWorkout, nextWorkout: upcomingWorkout, currentWeek } = findDashboardWorkouts(planData, user);
       setTodayWorkout(currentWorkout);
       setNextWorkout(upcomingWorkout);
-      setWeekProgress(calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj));
+      setWeekProgress(calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj, executedByDate));
       setMetrics(buildMetrics(summaryObj, allResults, planData, workoutsList));
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -485,5 +503,6 @@ export function useDashboardData({
     showPlanMessage,
     todayWorkout,
     weekProgress,
+    workoutsByDate,
   };
 }

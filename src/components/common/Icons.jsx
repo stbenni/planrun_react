@@ -23,6 +23,7 @@ import {
   Heart,
   AlertTriangle,
   TrendingUp,
+  TrendingDown,
   Target,
   GraduationCap,
   User,
@@ -154,6 +155,9 @@ export function ZapIcon(props) {
 }
 export function TrendingUpIcon(props) {
   return <TrendingUp {...iconProps} {...props} />;
+}
+export function TrendingDownIcon(props) {
+  return <TrendingDown {...iconProps} {...props} />;
 }
 export function TargetIcon(props) {
   return <Target {...iconProps} {...props} />;

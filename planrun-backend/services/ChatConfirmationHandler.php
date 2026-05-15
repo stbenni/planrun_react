@@ -115,7 +115,8 @@ class ChatConfirmationHandler {
     public function tryExtractFromLastProposal(array $history, int $userId): ?array {
         $lastAi = null;
         for ($i = count($history) - 1; $i >= 0; $i--) {
-            if (($history[$i]['sender_type'] ?? '') === 'assistant') {
+            // chat_messages.sender_type хранит 'ai' (не 'assistant') — см. getLastAssistantMessage
+            if (($history[$i]['sender_type'] ?? '') === 'ai') {
                 $lastAi = trim($history[$i]['content'] ?? '');
                 break;
             }

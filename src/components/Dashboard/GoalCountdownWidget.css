@@ -1,0 +1,225 @@
+/**
+ * Goal Countdown — hero-блок с обратным отсчётом до главной цели.
+ * Следует Design System: --radius-2xl, --primary-500 акцент, font-stats для цифр.
+ */
+
+.goal-countdown {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-2xl);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-bg)) 0%,
+      color-mix(in srgb, var(--primary-500) 6%, var(--card-surface-bg)) 50%,
+      var(--card-surface-bg) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--primary-500) 22%, var(--card-surface-border));
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  font-family: inherit;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.goal-countdown:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+  border-color: color-mix(in srgb, var(--primary-500) 38%, var(--card-surface-border));
+}
+
+.goal-countdown:active {
+  transform: translateY(-1px);
+}
+
+.goal-countdown:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 3px;
+}
+
+/* Декоративные оранжевые «лучи» в углу */
+.goal-countdown__glow {
+  position: absolute;
+  top: -30%;
+  right: -15%;
+  width: 70%;
+  height: 200%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--primary-500) 26%, transparent) 0%,
+    transparent 65%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.goal-countdown__head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.goal-countdown__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--primary-500);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.goal-countdown__title {
+  font-family: var(--font-stats);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .goal-countdown__title {
+  color: var(--primary-400);
+}
+
+.goal-countdown__phase {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--primary-500) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 22%, transparent);
+  font-family: var(--font-stats);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .goal-countdown__phase {
+  background: color-mix(in srgb, var(--primary-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--primary-500) 36%, transparent);
+  color: var(--primary-400);
+}
+
+.goal-countdown__main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.goal-countdown__days {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.goal-countdown__days-value {
+  font-family: var(--font-stats);
+  font-size: 72px;
+  font-weight: 800;
+  letter-spacing: -2px;
+  line-height: 0.9;
+  color: var(--primary-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-countdown__days-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+}
+
+.goal-countdown__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.goal-countdown__meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 10%, transparent);
+  font-size: 13px;
+}
+
+.goal-countdown__meta-row:last-child {
+  border-bottom: none;
+}
+
+.goal-countdown__meta-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.goal-countdown__meta-value {
+  font-family: var(--font-stats);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  text-align: right;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+}
+
+.goal-countdown__meta-value--accent {
+  color: var(--primary-500);
+}
+
+.goal-countdown__footer {
+  position: relative;
+  z-index: 1;
+  margin-top: -2px;
+}
+
+.goal-countdown__weeks {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .goal-countdown {
+    padding: var(--space-4) var(--space-4);
+  }
+  .goal-countdown__main {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+  .goal-countdown__days {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .goal-countdown__days-value {
+    font-size: 56px;
+    letter-spacing: -1.5px;
+  }
+  .goal-countdown__phase {
+    margin-left: 0;
+  }
+}

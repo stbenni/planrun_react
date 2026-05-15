@@ -96,6 +96,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
   const handledNavigationStateKeyRef = useRef(null);
   const [workoutsData, setWorkoutsData] = useState({}); // Данные о тренировках по датам (сводка)
   const [workoutsListByDate, setWorkoutsListByDate] = useState({}); // Отдельные тренировки по датам (для проверки типов)
+  const [executedByDate, setExecutedByDate] = useState({}); // Карта дат → категории executed_exercises (ofp/sbu)
   const [resultsData, setResultsData] = useState({}); // Данные о результатах по датам
   const [loading, setLoading] = useState(true);
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
@@ -345,7 +346,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       const uid = viewContext ? null : (calendarUserId !== user?.id ? calendarUserId : null);
 
       // Все запросы параллельно — не блокируем друг друга
-      const [planData, workoutsSummary, workoutsListRes, allResults] = await Promise.all([
+      const [planData, workoutsSummary, workoutsListRes, allResults, executedDatesRes] = await Promise.all([
         api.getPlan(uid, viewContext || undefined).catch((err) => {
           console.error('Error loading plan:', err);
           return null;
@@ -353,6 +354,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
         api.getAllWorkoutsSummary(vc).catch(() => ({})),
         api.getAllWorkoutsList(vc, 500).catch(() => ({ workouts: [] })),
         api.getAllResults(vc).catch(() => ({ results: [] })),
+        api.getExecutedDates ? api.getExecutedDates(26).catch(() => ({})) : Promise.resolve({}),
       ]);
 
       // План
@@ -403,6 +405,10 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
         }
       });
       setResultsData(resultsByDate);
+
+      // Даты с executed_exercises (для статуса completed на ОФП/СБУ-днях)
+      const execMap = executedDatesRes?.data?.executed_by_date ?? executedDatesRes?.executed_by_date ?? {};
+      setExecutedByDate(execMap && typeof execMap === 'object' ? execMap : {});
     } catch (error) {
       if (error?.code === 'TIMEOUT' || error?.message?.includes('aborted')) return;
       console.error('Error loading plan:', error);
@@ -896,6 +902,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
             workoutsData={workoutsData}
             workoutsListByDate={workoutsListByDate}
             resultsData={resultsData}
+            executedByDate={executedByDate}
             api={api}
             canEdit={canEdit}
             canView={canView}
@@ -923,6 +930,7 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
               workoutsData={workoutsData}
               workoutsListByDate={workoutsListByDate}
               resultsData={resultsData}
+              executedByDate={executedByDate}
               planData={planData}
               api={api}
               onDateClick={(date) => {

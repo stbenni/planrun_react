@@ -218,6 +218,16 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     }
   }, [intervalPlanDay, fartlekPlanDay]);
 
+  /** Красиво форматирует длительность: 60→«1 мин», 90→«1 мин 30 сек», 45→«45 сек». */
+  const formatDuration = (sec) => {
+    if (sec == null || sec <= 0) return '';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (m === 0) return `${s} сек`;
+    if (s === 0) return `${m} мин`;
+    return `${m} мин ${s} сек`;
+  };
+
   const expandDayExercises = (exercises, category) => {
     const result = [];
     exercises.forEach((ex, exIndex) => {
@@ -233,31 +243,32 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             plannedDescription: line,
             plannedSets: null, plannedReps: null, plannedWeight: null,
             plannedDistanceM: null, plannedDurationSec: null,
-            doneSets: '', doneReps: '', doneWeight: '', doneDistanceM: '', removed: false,
+            doneSets: '', doneReps: '', doneWeight: '', doneDistanceM: '', doneDurationSec: '', removed: false,
           });
         });
       } else {
         const weight = ex.weight_kg != null ? Number(ex.weight_kg) : null;
         const durSec = ex.duration_sec != null ? Number(ex.duration_sec) : null;
+        const distLabel = (m) => m >= 1000 ? (m / 1000).toFixed(1) + ' км' : m + ' м';
         let plannedDescription = '';
         if (category === 'ofp') {
-          if (ex.sets != null && ex.reps != null) plannedDescription += `${ex.sets}×${ex.reps}`;
-          if (weight != null && weight > 0) plannedDescription += (plannedDescription ? ', ' : '') + `${weight} кг`;
-          if (durSec != null && durSec > 0 && !plannedDescription) {
-            const m = Math.floor(durSec / 60);
-            const sec = durSec % 60;
-            plannedDescription = m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
+          if (ex.sets != null && durSec != null && durSec > 0) {
+            plannedDescription = `${ex.sets}× по ${formatDuration(durSec)}`;
+          } else if (ex.sets != null && ex.reps != null) {
+            plannedDescription = `${ex.sets}×${ex.reps}`;
+            if (weight != null && weight > 0) plannedDescription += `, ${weight} кг`;
+          } else if (durSec != null && durSec > 0) {
+            plannedDescription = formatDuration(durSec);
           }
         } else {
-          if (ex.distance_m != null) plannedDescription = ex.distance_m >= 1000 ? (ex.distance_m / 1000).toFixed(1) + ' км' : ex.distance_m + ' м';
-          if (durSec != null && durSec > 0 && !plannedDescription) {
-            const m = Math.floor(durSec / 60);
-            const sec = durSec % 60;
-            plannedDescription = m > 0 ? `${m} мин ${sec} сек` : `${sec} сек`;
+          if (ex.reps != null && ex.distance_m != null) {
+            plannedDescription = `${ex.reps}×${distLabel(Number(ex.distance_m))}`;
+          } else if (ex.distance_m != null) {
+            plannedDescription = distLabel(Number(ex.distance_m));
+          } else if (durSec != null && durSec > 0) {
+            plannedDescription = formatDuration(durSec);
           }
         }
-        // Prefill «done» полей значениями из плана — атлет видит план в input'ах
-        // и правит только то, что фактически отличается.
         // Prefill «done» полей значениями из плана — атлет видит план в input'ах
         // и правит только то, что фактически отличается.
         result.push({
@@ -270,6 +281,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
           doneReps: ex.reps ?? '',
           doneWeight: weight ?? '',
           doneDistanceM: ex.distance_m != null ? Number(ex.distance_m) : '',
+          doneDurationSec: durSec ?? '',
           removed: false,
         });
       }
@@ -399,15 +411,22 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
       const sets = p.doneSets !== '' && p.doneSets != null ? p.doneSets : p.plannedSets;
       const reps = p.doneReps !== '' && p.doneReps != null ? p.doneReps : p.plannedReps;
       const w = p.doneWeight !== '' && p.doneWeight != null ? Number(p.doneWeight) : p.plannedWeight;
+      const dur = p.doneDurationSec !== '' && p.doneDurationSec != null ? Number(p.doneDurationSec) : p.plannedDurationSec;
+      const isDuration = p.plannedDurationSec != null && p.plannedDurationSec > 0 && p.plannedReps == null;
       let line = p.name;
-      if (sets != null && reps != null) line += ` ${sets}×${reps}`;
-      if (w != null && w > 0) line += `, ${w} кг`;
+      if (isDuration && sets != null && dur != null) line += ` ${sets}× по ${formatDuration(dur)}`;
+      else if (sets != null && reps != null) line += ` ${sets}×${reps}`;
+      if (!isDuration && w != null && w > 0) line += `, ${w} кг`;
       if (line === p.name && p.plannedDescription) line = p.plannedDescription;
       parts.push('ОФП: ' + line);
     });
     plannedSbu.filter(p => !p.removed).forEach(p => {
+      const reps = p.doneReps !== '' && p.doneReps != null ? p.doneReps : p.plannedReps;
       const m = p.doneDistanceM !== '' && p.doneDistanceM != null ? Number(p.doneDistanceM) : p.plannedDistanceM;
-      const str = m != null ? (m >= 1000 ? (m / 1000).toFixed(1) + ' км' : m + ' м') : (p.plannedDescription || '');
+      let str = '';
+      if (reps != null && m != null) str = `${reps}×${m >= 1000 ? (m / 1000).toFixed(1) + ' км' : m + ' м'}`;
+      else if (m != null) str = m >= 1000 ? (m / 1000).toFixed(1) + ' км' : m + ' м';
+      else if (p.plannedDescription) str = p.plannedDescription;
       if (str || p.name) parts.push(`СБУ: ${p.name}${str ? ' ' + str : ''}`);
     });
     additionalExercises.forEach(e => {
@@ -482,15 +501,19 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             planned_sets: p.plannedSets ?? null,
             planned_reps: p.plannedReps ?? null,
             planned_weight_kg: p.plannedWeight ?? null,
+            planned_duration_sec: p.plannedDurationSec ?? null,
             executed_sets: p.doneSets !== '' && p.doneSets != null ? Number(p.doneSets) : (p.plannedSets ?? null),
             executed_reps: p.doneReps !== '' && p.doneReps != null ? Number(p.doneReps) : (p.plannedReps ?? null),
             executed_weight_kg: p.doneWeight !== '' && p.doneWeight != null ? Number(p.doneWeight) : (p.plannedWeight ?? null),
+            executed_duration_sec: p.doneDurationSec !== '' && p.doneDurationSec != null ? Number(p.doneDurationSec) : (p.plannedDurationSec ?? null),
           }));
           const sbuExecuted = plannedSbu.filter(p => !p.removed).map(p => ({
             exercise_id: p.exerciseId ?? null,
             exercise_name: p.name,
             category: 'sbu',
+            planned_reps: p.plannedReps ?? null,
             planned_distance_m: p.plannedDistanceM ?? null,
+            executed_reps: p.doneReps !== '' && p.doneReps != null ? Number(p.doneReps) : (p.plannedReps ?? null),
             executed_distance_m: p.doneDistanceM !== '' && p.doneDistanceM != null ? Number(p.doneDistanceM) : (p.plannedDistanceM ?? null),
           }));
           const additionalOfp = additionalExercises.filter(e => e.category === 'ofp').map(e => ({
@@ -564,24 +587,24 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     <div className="add-training-custom-row">
       <input type="text" placeholder="Название упражнения" value={customNewName} onChange={(e) => setCustomNewName(e.target.value)} className="add-training-input add-training-custom-name" />
       {cat === 'ofp' && (
-        <>
+        <div className="add-training-custom-params">
           <input type="number" min={1} max={20} placeholder="подх." value={customNewSets} onChange={(e) => setCustomNewSets(e.target.value)} className="add-training-input add-training-custom-ofp" />
           <span className="add-training-library-ofp-sep">×</span>
           <input type="number" min={1} max={100} placeholder="повт." value={customNewReps} onChange={(e) => setCustomNewReps(e.target.value)} className="add-training-input add-training-custom-ofp" />
           <input type="number" min={0} step={0.5} placeholder="кг" value={customNewWeightKg} onChange={(e) => setCustomNewWeightKg(e.target.value)} className="add-training-input add-training-custom-weight" />
-        </>
+        </div>
       )}
       {cat === 'sbu' && (
-        <input type="number" min={10} max={2000} step={10} placeholder="м" value={customNewDistanceM} onChange={(e) => setCustomNewDistanceM(e.target.value)} className="add-training-input add-training-custom-dist" />
+        <input type="number" min={10} max={2000} step={10} placeholder="дистанция, м" value={customNewDistanceM} onChange={(e) => setCustomNewDistanceM(e.target.value)} className="add-training-input add-training-custom-dist" />
       )}
-      <button type="button" className="btn btn-secondary add-training-custom-add" onClick={() => addAdditionalExercise(cat)}>Добавить</button>
+      <button type="button" className="btn btn-primary add-training-custom-add" onClick={() => addAdditionalExercise(cat)}>Добавить</button>
     </div>
   );
 
   const renderSimpleRunBlock = (block) => (
     <div key={block.id} className="add-training-run-calc result-modal-run-block">
       <div className="result-modal-run-block-head">
-        <p className="add-training-block-title">{TYPE_LABELS[block.type] || 'Бег'}</p>
+        <p className="add-training-block-title result-modal-section-title">{TYPE_LABELS[block.type] || 'Бег'}</p>
         {runBlocks.length > 1 && (
           <button type="button" className="result-modal-remove-run" onClick={() => removeRunBlock(block.id)} aria-label="Удалить">×</button>
         )}
@@ -600,7 +623,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   const renderIntervalForm = () => (
     <div className="add-training-interval">
-      <p className="add-training-block-title">Интервалы</p>
+      <p className="add-training-block-title result-modal-section-title">Интервалы</p>
       {intervalPlanDay?.description && (
         <p className="result-modal-planned-subtitle">План: {intervalPlanDay.description}</p>
       )}
@@ -629,7 +652,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
   const renderFartlekForm = () => (
     <div className="add-training-fartlek">
-      <p className="add-training-block-title">Фартлек</p>
+      <p className="add-training-block-title result-modal-section-title">Фартлек</p>
       {fartlekPlanDay?.description && (
         <p className="result-modal-planned-subtitle">План: {fartlekPlanDay.description}</p>
       )}
@@ -684,23 +707,36 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
           {hasOfpPlan && (
             <div className="add-training-library">
-              <p className="add-training-block-title">ОФП</p>
+              <p className="add-training-block-title result-modal-section-title">ОФП</p>
               {plannedOfp.filter(p => !p.removed).length > 0 && (
                 <>
                   <p className="result-modal-planned-subtitle">Запланировано — отметьте сделанное или удалите</p>
                   <div className="add-training-library-list">
-                    {plannedOfp.filter(p => !p.removed).map(p => (
+                    {plannedOfp.filter(p => !p.removed).map(p => {
+                      const isDuration = p.plannedDurationSec != null && p.plannedDurationSec > 0 && p.plannedReps == null;
+                      const isWeighted = p.plannedWeight != null && p.plannedWeight > 0;
+                      return (
                       <div key={p.id} className="add-training-library-item">
-                        <span className="add-training-library-name">{p.name}{p.plannedDescription ? ` (${p.plannedDescription})` : ''}</span>
+                        <div className="add-training-library-text">
+                          <span className="add-training-library-name">{p.name}</span>
+                          {p.plannedDescription && <span className="add-training-library-planned">План: {p.plannedDescription}</span>}
+                        </div>
                         <div className="add-training-library-ofp-params">
                           <input type="number" min={0} max={20} placeholder="подх." value={p.doneSets} onChange={(e) => updatePlannedOfp(p.id, 'doneSets', e.target.value)} className="add-training-library-ofp-input" />
                           <span className="add-training-library-ofp-sep">×</span>
-                          <input type="number" min={0} max={100} placeholder="повт." value={p.doneReps} onChange={(e) => updatePlannedOfp(p.id, 'doneReps', e.target.value)} className="add-training-library-ofp-input" />
-                          <input type="number" min={0} step={0.5} placeholder="кг" value={p.doneWeight} onChange={(e) => updatePlannedOfp(p.id, 'doneWeight', e.target.value)} className="add-training-library-ofp-input add-training-library-ofp-weight" />
+                          {isDuration ? (
+                            <input type="number" min={0} max={3600} placeholder="сек" value={p.doneDurationSec} onChange={(e) => updatePlannedOfp(p.id, 'doneDurationSec', e.target.value)} className="add-training-library-ofp-input add-training-library-ofp-duration" />
+                          ) : (
+                            <input type="number" min={0} max={100} placeholder="повт." value={p.doneReps} onChange={(e) => updatePlannedOfp(p.id, 'doneReps', e.target.value)} className="add-training-library-ofp-input" />
+                          )}
+                          {isWeighted && (
+                            <input type="number" min={0} step={0.5} placeholder="кг" value={p.doneWeight} onChange={(e) => updatePlannedOfp(p.id, 'doneWeight', e.target.value)} className="add-training-library-ofp-input add-training-library-ofp-weight" />
+                          )}
                         </div>
                         <button type="button" className="add-training-custom-remove-btn" onClick={() => removePlannedOfp(p.id)} aria-label="Не делал" title="Не делал">×</button>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 </>
               )}
@@ -720,17 +756,21 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
 
           {hasSbuPlan && (
             <div className="add-training-library">
-              <p className="add-training-block-title">СБУ</p>
+              <p className="add-training-block-title result-modal-section-title">СБУ</p>
               {plannedSbu.filter(p => !p.removed).length > 0 && (
                 <>
                   <p className="result-modal-planned-subtitle">Запланировано — отметьте дистанцию или удалите</p>
                   <div className="add-training-library-list">
                     {plannedSbu.filter(p => !p.removed).map(p => (
                       <div key={p.id} className="add-training-library-item">
-                        <span className="add-training-library-name">{p.name}{p.plannedDescription ? ` (${p.plannedDescription})` : ''}</span>
-                        <div className="add-training-library-sbu-dist">
-                          <input type="number" min={0} max={2000} step={10} placeholder="м" value={p.doneDistanceM} onChange={(e) => updatePlannedSbu(p.id, 'doneDistanceM', e.target.value)} className="add-training-library-dist-input" />
-                          <span className="add-training-library-dist-unit">м</span>
+                        <div className="add-training-library-text">
+                          <span className="add-training-library-name">{p.name}</span>
+                          {p.plannedDescription && <span className="add-training-library-planned">План: {p.plannedDescription}</span>}
+                        </div>
+                        <div className="add-training-library-ofp-params">
+                          <input type="number" min={0} max={20} placeholder="повт." value={p.doneReps} onChange={(e) => updatePlannedSbu(p.id, 'doneReps', e.target.value)} className="add-training-library-ofp-input" />
+                          <span className="add-training-library-ofp-sep">×</span>
+                          <input type="number" min={0} max={2000} step={10} placeholder="м" value={p.doneDistanceM} onChange={(e) => updatePlannedSbu(p.id, 'doneDistanceM', e.target.value)} className="add-training-library-ofp-input add-training-library-ofp-dist" />
                         </div>
                         <button type="button" className="add-training-custom-remove-btn" onClick={() => removePlannedSbu(p.id)} aria-label="Не делал" title="Не делал">×</button>
                       </div>
@@ -755,7 +795,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
           {extraTypes.map(typeId => {
             if (typeId === 'ofp') return (
               <div key="ofp" className="add-training-library result-modal-type-block-enter">
-                <p className="add-training-block-title">ОФП</p>
+                <p className="add-training-block-title result-modal-section-title">ОФП</p>
                 <div className="add-training-custom">
                   <p className="add-training-block-title">Своё упражнение</p>
                   {renderCustomForm('ofp')}
@@ -765,7 +805,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             );
             if (typeId === 'sbu') return (
               <div key="sbu" className="add-training-library result-modal-type-block-enter">
-                <p className="add-training-block-title">СБУ</p>
+                <p className="add-training-block-title result-modal-section-title">СБУ</p>
                 <div className="add-training-custom">
                   <p className="add-training-block-title">Своё упражнение</p>
                   {renderCustomForm('sbu')}

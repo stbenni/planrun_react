@@ -76,6 +76,8 @@ class PlanQualityGate
         $repaired = applyTrainingStatePaceRepairs($normalizedPlan, $trainingState);
         $repaired = applyTrainingStateWorkoutDetailFallbacks($repaired, $trainingState);
         $repaired = applyTrainingStateLoadRepairs($repaired, $trainingState);
+        // minimum-distance repair поднимает слишком короткие тренировки → недельный объём
+        // может снова выйти за cap, поэтому load repair прогоняется повторно после него.
         $repaired = applyTrainingStateMinimumDistanceRepairs($repaired, $trainingState);
         $repaired = applyTrainingStateLoadRepairs($repaired, $trainingState);
 

@@ -376,7 +376,7 @@ export function getPlanDayForDate(dateStr, planData) {
  * @param {Object} workoutsListByDate { [date]: [{ activity_type?, ... }] }
  * @returns {{ status: 'completed'|'rest_extra'|'planned'|'rest', extraWorkoutType?: string }}
  */
-export function getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate) {
+export function getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate, executedByDate) {
   const plannedItems = planDayForDate?.items ?? (planDayForDate ? [{ type: planDayForDate.type }] : []);
   const plannedNonRest = plannedItems.filter((p) => p.type !== 'rest' && p.type !== 'free');
   const plannedCategories = [...new Set(plannedNonRest.map((p) => planTypeToCategory(p.type)).filter(Boolean))];
@@ -394,6 +394,14 @@ export function getDayCompletionStatus(dateStr, planDayForDate, workoutsData, re
     const t = workoutsData[dateStr].activity_type ?? 'running';
     actualCategories.add(workoutTypeToCategory(t));
   }
+  // Категории из executed_exercises: ofp → 'other', sbu → 'sbu'.
+  // Backend mark_exercises_completed пишет туда независимо от workout_log,
+  // поэтому ОФП/СБУ-дни без записанного бега тоже становятся completed.
+  (executedByDate?.[dateStr] || []).forEach((cat) => {
+    const c = String(cat).toLowerCase();
+    if (c === 'ofp') actualCategories.add('other');
+    else if (c === 'sbu') actualCategories.add('sbu');
+  });
   const actualArr = [...actualCategories];
 
   if (plannedNonRest.length === 0) {

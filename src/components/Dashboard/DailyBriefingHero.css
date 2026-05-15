@@ -1,0 +1,149 @@
+/**
+ * DailyBriefingHero — hero-карточка с утренним AI-брифингом.
+ * Следует Design System: --radius-2xl, --shadow-glow, --primary-500, font-stats.
+ */
+
+.daily-briefing-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-5) var(--space-6);
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-2xl);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--primary-500) 14%, var(--card-surface-bg)) 0%,
+      color-mix(in srgb, var(--primary-500) 4%, var(--card-surface-bg)) 60%,
+      var(--card-surface-bg) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--primary-500) 18%, var(--card-surface-border));
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  font-family: inherit;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.daily-briefing-hero:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+  border-color: color-mix(in srgb, var(--primary-500) 32%, var(--card-surface-border));
+}
+
+.daily-briefing-hero:active {
+  transform: translateY(-1px);
+}
+
+.daily-briefing-hero:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 3px;
+}
+
+/* Декоративный оранжевый «glow» в правом верхнем углу */
+.daily-briefing-hero__glow {
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 60%;
+  height: 200%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--primary-500) 22%, transparent) 0%,
+    transparent 60%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.daily-briefing-hero__head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.daily-briefing-hero__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--primary-500);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.daily-briefing-hero__title {
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--primary-600);
+}
+
+[data-theme="dark"] .daily-briefing-hero__title {
+  color: var(--primary-400);
+}
+
+.daily-briefing-hero__date {
+  margin-left: auto;
+  font-family: var(--font-stats);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-secondary);
+  text-transform: lowercase;
+}
+
+.daily-briefing-hero__content {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.daily-briefing-hero__cta {
+  position: relative;
+  z-index: 1;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: var(--primary-500);
+  color: #fff;
+  font-family: var(--font-stats);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  transition: background 0.2s ease;
+}
+
+.daily-briefing-hero:hover .daily-briefing-hero__cta {
+  background: var(--primary-600);
+}
+
+@media (max-width: 640px) {
+  .daily-briefing-hero {
+    padding: var(--space-4) var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .daily-briefing-hero__content {
+    font-size: 15px;
+  }
+}

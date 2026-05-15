@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import LogoLoading from '../common/LogoLoading';
 import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
+import { TrendingUpIcon, TrendingDownIcon, TargetIcon, ZapIcon, CompletedIcon, AlertTriangleIcon } from '../common/Icons';
 import './TrainingLoadWidget.css';
 
 /* ── TSB status helpers ── */
@@ -39,29 +40,25 @@ function getRecommendations(atl, ctl, tsb) {
   const items = [];
 
   if (tsb >= 15) {
-    // Восстановлен — можно нагружать
-    items.push({ icon: '↗', text: 'Можно увеличить нагрузку' });
-    items.push({ icon: '🎯', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
-    items.push({ icon: '💡', text: 'Хорошее время для интенсивных тренировок' });
+    items.push({ Icon: TrendingUpIcon, tone: 'positive', text: 'Можно увеличить нагрузку' });
+    items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Хорошее время для интенсивных тренировок' });
   } else if (tsb >= 5) {
-    // Свежий — оптимально
-    items.push({ icon: '✓', text: 'Оптимальное состояние' });
-    items.push({ icon: '🎯', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
-    items.push({ icon: '💡', text: 'Поддерживайте текущий уровень нагрузки' });
+    items.push({ Icon: CompletedIcon, tone: 'positive', text: 'Оптимальное состояние' });
+    items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Поддерживайте текущий уровень нагрузки' });
   } else if (tsb >= -10) {
-    // Нагрузка — нормально, но следить
-    items.push({ icon: '⚡', text: 'Идёт адаптация к нагрузке' });
-    items.push({ icon: '🎯', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Идёт адаптация к нагрузке' });
+    items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
     if (atl > ctl * 1.4) {
-      items.push({ icon: '⚠', text: 'ATL сильно выше формы — запланируйте отдых' });
+      items.push({ Icon: AlertTriangleIcon, tone: 'warning', text: 'ATL сильно выше формы — запланируйте отдых' });
     } else {
-      items.push({ icon: '💡', text: 'Включите лёгкие тренировки для восстановления' });
+      items.push({ Icon: ZapIcon, tone: 'accent', text: 'Включите лёгкие тренировки для восстановления' });
     }
   } else {
-    // Перегрузка
-    items.push({ icon: '⬇', text: 'Снизьте нагрузку для восстановления' });
-    items.push({ icon: '🎯', text: `Макс TRIMP: ${optLow}` });
-    items.push({ icon: '⚠', text: 'Риск перетренированности — нужен отдых' });
+    items.push({ Icon: TrendingDownIcon, tone: 'warning', text: 'Снизьте нагрузку для восстановления' });
+    items.push({ Icon: TargetIcon, tone: 'neutral', text: `Макс TRIMP: ${optLow}` });
+    items.push({ Icon: AlertTriangleIcon, tone: 'warning', text: 'Риск перетренированности — нужен отдых' });
   }
 
   return items;
@@ -524,12 +521,17 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
       {!compact && (
         <div className="training-load__recs">
           <div className="training-load__recs-title">Рекомендации</div>
-          {recommendations.map((r, i) => (
-            <div key={i} className="training-load__rec-row">
-              <span className="training-load__rec-icon">{r.icon}</span>
-              <span className="training-load__rec-text">{r.text}</span>
-            </div>
-          ))}
+          {recommendations.map((r, i) => {
+            const Icon = r.Icon;
+            return (
+              <div key={i} className={`training-load__rec-row training-load__rec-row--${r.tone}`}>
+                <span className="training-load__rec-icon" aria-hidden>
+                  <Icon size={18} />
+                </span>
+                <span className="training-load__rec-text">{r.text}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 

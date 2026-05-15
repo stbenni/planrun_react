@@ -183,6 +183,35 @@ class ExecutedExerciseService extends BaseService {
         return $rows;
     }
 
+    /**
+     * Карта дат → массив категорий с непустым executed_exercises (ofp/sbu).
+     * Используется фронтом для подсветки выполненных ОФП/СБУ-дней в календаре.
+     * @return array<string, string[]> { 'YYYY-MM-DD' => ['ofp','sbu'] }
+     */
+    public function getCompletedDatesByCategory(int $userId, int $lookbackWeeks = 26): array {
+        $this->ensureSchema();
+        $sinceDate = date('Y-m-d', strtotime("-{$lookbackWeeks} weeks"));
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT executed_date, category
+             FROM executed_exercises
+             WHERE user_id = ? AND executed_date >= ?
+             ORDER BY executed_date DESC"
+        );
+        if (!$stmt) return [];
+        $stmt->bind_param('is', $userId, $sinceDate);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $byDate = [];
+        while ($row = $result->fetch_assoc()) {
+            $date = (string) $row['executed_date'];
+            $cat = (string) $row['category'];
+            if (!isset($byDate[$date])) $byDate[$date] = [];
+            if (!in_array($cat, $byDate[$date], true)) $byDate[$date][] = $cat;
+        }
+        $stmt->close();
+        return $byDate;
+    }
+
     public function getByPlanDay(int $userId, int $planDayId): array {
         $this->ensureSchema();
         $stmt = $this->db->prepare(

@@ -124,7 +124,7 @@ function getVirtualCurrentWeek() {
 
 const MOBILE_BREAKPOINT = '(max-width: 640px)';
 
-const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate, initialDateKey = null }) => {
+const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData, executedByDate = {}, api, canEdit = false, canView = false, viewContext = null, onDayPress, onOpenResultModal, onOpenWorkoutDetails, onAddTraining, onEditTraining, onTrainingAdded, currentWeekNumber, initialDate, initialDateKey = null }) => {
   const [isMobile, setIsMobile] = useState(
     () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_BREAKPOINT).matches : false)
   );
@@ -222,7 +222,7 @@ const WeekCalendar = ({ plan, workoutsData, workoutsListByDate = {}, resultsData
           || (Array.isArray(rawDay) ? rawDay.find((d) => d && d.type !== 'rest' && d.type !== 'free') || rawDay[0] : rawDay))
         : null;
       const isToday = date.getTime() === today.getTime();
-      const completion = getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate);
+      const completion = getDayCompletionStatus(dateStr, planDayForDate, workoutsData, resultsData, workoutsListByDate, executedByDate);
       const isCompleted = completion.status === 'completed';
       const isRestExtra = completion.status === 'rest_extra';
       const restExtraType = completion.extraWorkoutType;
