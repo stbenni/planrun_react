@@ -75,11 +75,11 @@
   --bg-secondary: #F8FAFC;
   --bg-tertiary: #F1F5F9;
   --app-background-base: #F4F7FB;
+  /* v2 design: warm radial — два оранжевых пятна (top-left + bottom-right) над тёплым linear gradient. */
   --app-background-image:
-    radial-gradient(circle at 12% 18%, rgba(252, 76, 2, 0.10) 0%, rgba(252, 76, 2, 0) 28%),
-    radial-gradient(circle at 84% 12%, rgba(255, 107, 61, 0.06) 0%, rgba(255, 107, 61, 0) 22%),
-    radial-gradient(circle at 72% 82%, rgba(59, 130, 246, 0.07) 0%, rgba(59, 130, 246, 0) 28%),
-    linear-gradient(180deg, #FAFCFF 0%, #F3F7FB 54%, #ECF3F8 100%);
+    radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.07) 0%, transparent 50%),
+    radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.05) 0%, transparent 55%),
+    linear-gradient(180deg, #FAF7F3 0%, #F4F7FB 100%);
   
   /* ========================================
      TEXT COLORS - Цвета текста для светлой темы (хороший контраст)
@@ -222,13 +222,29 @@
   --page-mobile-end-spacing: var(--space-4);
 
   /* ========================================
-     LIQUID GLASS (мобильный UI, Apple-style)
+     LIQUID GLASS (v2: warm orange tint, для карточек)
      ======================================== */
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-bg-strong: rgba(255, 255, 255, 0.84);
-  --glass-border: 1px solid rgba(226, 232, 240, 0.66);
+  --glass-card-bg: rgba(255, 255, 255, 0.72);
+  --glass-card-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-card-blur: blur(20px) saturate(1.16);
+  --glass-card-blur-strong: blur(24px) saturate(1.2);
+  --glass-card-border: rgba(252, 76, 2, 0.08);
+  --glass-card-border-strong: rgba(252, 76, 2, 0.12);
+  --glass-card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 12px 28px rgba(15, 23, 42, 0.06),
+    0 4px 12px rgba(252, 76, 2, 0.04);
+  --glass-card-shadow-strong:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 20px 40px rgba(15, 23, 42, 0.08),
+    0 8px 20px rgba(252, 76, 2, 0.07);
+  /* Legacy aliases — старые компоненты продолжают работать.
+     Новые компоненты используют --glass-card-* напрямую. */
+  --glass-bg: var(--glass-card-bg);
+  --glass-bg-strong: var(--glass-card-bg-strong);
+  --glass-border: 1px solid var(--glass-card-border);
   --glass-blur: 20px;
-  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --glass-shadow: var(--glass-card-shadow);
   --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.68);
   --surface-glass-bg: rgba(248, 250, 252, 0.74);
   --surface-glass-bg-strong: rgba(255, 255, 255, 0.9);
@@ -285,11 +301,11 @@
   --bg-secondary: #F8FAFC;
   --bg-tertiary: #F1F5F9;
   --app-background-base: #F4F7FB;
+  /* v2 design: warm radial — два оранжевых пятна (top-left + bottom-right) над тёплым linear gradient. */
   --app-background-image:
-    radial-gradient(circle at 12% 18%, rgba(252, 76, 2, 0.10) 0%, rgba(252, 76, 2, 0) 28%),
-    radial-gradient(circle at 84% 12%, rgba(255, 107, 61, 0.06) 0%, rgba(255, 107, 61, 0) 22%),
-    radial-gradient(circle at 72% 82%, rgba(59, 130, 246, 0.07) 0%, rgba(59, 130, 246, 0) 28%),
-    linear-gradient(180deg, #FAFCFF 0%, #F3F7FB 54%, #ECF3F8 100%);
+    radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.07) 0%, transparent 50%),
+    radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.05) 0%, transparent 55%),
+    linear-gradient(180deg, #FAF7F3 0%, #F4F7FB 100%);
   --text-primary: #0F172A;
   --text-secondary: #475569;
   --text-tertiary: #64748B;
@@ -317,11 +333,11 @@
   --bg-secondary: #14181F;
   --bg-tertiary: #1C222B;
   --app-background-base: #0B1015;
+  /* v2 dark: warm radial — оранжевые пятна сильнее по альфе на тёмном фоне. */
   --app-background-image:
-    radial-gradient(circle at 14% 18%, rgba(252, 76, 2, 0.16) 0%, rgba(252, 76, 2, 0) 24%),
-    radial-gradient(circle at 84% 12%, rgba(255, 122, 69, 0.10) 0%, rgba(255, 122, 69, 0) 22%),
-    radial-gradient(circle at 68% 78%, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0) 24%),
-    linear-gradient(180deg, #0A0F14 0%, #10161D 52%, #151D26 100%);
+    radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.10) 0%, transparent 50%),
+    radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.06) 0%, transparent 55%),
+    linear-gradient(180deg, #0F151D 0%, #0B1015 100%);
   
   /* Text - Мягче, менее контрастный */
   --text-primary: #F3F4F6;
@@ -391,11 +407,26 @@
   --shadow-glow-strong: 0 0 72px -10px rgba(252, 76, 2, 0.70), 0 0 28px -8px rgba(252, 76, 2, 0.50);
   --shadow-glow-success: 0 0 48px -8px rgba(46, 213, 115, 0.50);
 
-  /* Liquid Glass — тёмная тема */
-  --glass-bg: rgba(10, 12, 16, 0.78);
-  --glass-bg-strong: rgba(15, 18, 23, 0.9);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.06);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.42);
+  /* Liquid Glass — тёмная тема (v2: warm orange tint, более прозрачное стекло) */
+  --glass-card-bg: rgba(28, 34, 43, 0.62);
+  --glass-card-bg-strong: rgba(33, 41, 52, 0.78);
+  --glass-card-blur: blur(18px) saturate(1.16);
+  --glass-card-blur-strong: blur(22px) saturate(1.2);
+  --glass-card-border: rgba(252, 76, 2, 0.14);
+  --glass-card-border-strong: rgba(252, 76, 2, 0.18);
+  --glass-card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    0 4px 12px rgba(252, 76, 2, 0.08);
+  --glass-card-shadow-strong:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 40px rgba(0, 0, 0, 0.45),
+    0 8px 20px rgba(252, 76, 2, 0.12);
+  /* Legacy aliases — старые --glass-bg/--glass-border продолжают работать */
+  --glass-bg: var(--glass-card-bg);
+  --glass-bg-strong: var(--glass-card-bg-strong);
+  --glass-border: 1px solid var(--glass-card-border);
+  --glass-shadow: var(--glass-card-shadow);
   --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
   --surface-glass-bg: rgba(16, 19, 24, 0.84);
   --surface-glass-bg-strong: rgba(22, 27, 33, 0.92);
@@ -435,10 +466,9 @@
     --bg-tertiary: #1C222B;
     --app-background-base: #0B1015;
     --app-background-image:
-      radial-gradient(circle at 14% 18%, rgba(252, 76, 2, 0.16) 0%, rgba(252, 76, 2, 0) 24%),
-      radial-gradient(circle at 84% 12%, rgba(255, 122, 69, 0.10) 0%, rgba(255, 122, 69, 0) 22%),
-      radial-gradient(circle at 68% 78%, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0) 24%),
-      linear-gradient(180deg, #0A0F14 0%, #10161D 52%, #151D26 100%);
+      radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.10) 0%, transparent 50%),
+      radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.06) 0%, transparent 55%),
+      linear-gradient(180deg, #0F151D 0%, #0B1015 100%);
     --text-primary: #F3F4F6;
     --text-secondary: #CBD5E1;
     --text-tertiary: #94A3B8;
@@ -473,10 +503,24 @@
     --danger-50: rgba(239, 68, 68, 0.15);
     --danger-500: #FF5252;
     --danger-600: #EF4444;
-    --glass-bg: rgba(10, 12, 16, 0.78);
-    --glass-bg-strong: rgba(15, 18, 23, 0.9);
-    --glass-border: 1px solid rgba(255, 255, 255, 0.06);
-    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.42);
+    --glass-card-bg: rgba(28, 34, 43, 0.62);
+    --glass-card-bg-strong: rgba(33, 41, 52, 0.78);
+    --glass-card-blur: blur(18px) saturate(1.16);
+    --glass-card-blur-strong: blur(22px) saturate(1.2);
+    --glass-card-border: rgba(252, 76, 2, 0.14);
+    --glass-card-border-strong: rgba(252, 76, 2, 0.18);
+    --glass-card-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 12px 28px rgba(0, 0, 0, 0.35),
+      0 4px 12px rgba(252, 76, 2, 0.08);
+    --glass-card-shadow-strong:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 20px 40px rgba(0, 0, 0, 0.45),
+      0 8px 20px rgba(252, 76, 2, 0.12);
+    --glass-bg: var(--glass-card-bg);
+    --glass-bg-strong: var(--glass-card-bg-strong);
+    --glass-border: 1px solid var(--glass-card-border);
+    --glass-shadow: var(--glass-card-shadow);
     --glass-shadow-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
     --surface-glass-bg: rgba(16, 19, 24, 0.84);
     --surface-glass-bg-strong: rgba(22, 27, 33, 0.92);

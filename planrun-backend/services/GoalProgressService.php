@@ -46,7 +46,7 @@ class GoalProgressService extends BaseService {
         if (!$user) return [];
 
         $goalType = $user['goal_type'] ?? 'health';
-        $raceDate = $user['race_date'] ?? $user['target_marathon_date'] ?? null;
+        $raceDate = $user['race_date'] ?? null;
         $raceTargetTimeSec = $this->parseTargetTimeSec($user);
 
         $targetDistKm = $this->parseTargetDistKm($user);
@@ -257,8 +257,7 @@ class GoalProgressService extends BaseService {
 
     private function getUser(int $userId): ?array {
         $stmt = $this->db->prepare(
-            "SELECT id, goal_type, race_distance, race_date, race_target_time,
-                    target_marathon_date, target_marathon_time
+            "SELECT id, goal_type, race_distance, race_date, race_target_time
              FROM users WHERE id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $userId);
@@ -269,7 +268,7 @@ class GoalProgressService extends BaseService {
     }
 
     private function parseTargetTimeSec(array $user): ?int {
-        $time = $user['race_target_time'] ?? $user['target_marathon_time'] ?? null;
+        $time = $user['race_target_time'] ?? null;
         if (!$time) return null;
         $parts = explode(':', $time);
         if (count($parts) === 3) return (int) $parts[0] * 3600 + (int) $parts[1] * 60 + (int) $parts[2];

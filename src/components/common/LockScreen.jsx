@@ -3,7 +3,7 @@
  * Показывается при запуске, когда включены PIN или биометрия.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FingerprintIcon } from './Icons';
 import PinInput from './PinInput';
@@ -21,10 +21,9 @@ const LockScreen = () => {
   const [pinEnabled, setPinEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const hasTriggeredBiometric = useRef(false);
 
   const navigate = useNavigate();
-  const { pinLogin, biometricLogin, beginPasswordReauth, checkBiometricAvailability, checkPinAvailability } = useAuthStore();
+  const { pinLogin, biometricLogin, beginPasswordReauth, checkBiometricAvailability, checkPinAvailability, tryAutoTriggerBiometric } = useAuthStore();
 
   useEffect(() => {
     if (!isNativeCapacitor()) return;
@@ -35,12 +34,13 @@ const LockScreen = () => {
     }).catch(() => {});
   }, [checkBiometricAvailability, checkPinAvailability]);
 
-  // Авто-вызов биометрии при открытии, если отпечаток включён (один раз за сессию экрана)
+  // Авто-вызов биометрии при открытии. Guard живёт в store (_biometricAutoTriggered)
+  // — переживает ремаунты LockScreen. tryAutoTriggerBiometric() атомарно ставит флаг.
   useEffect(() => {
-    if (!biometricAvailable || !biometricEnabled || hasTriggeredBiometric.current) return;
-    hasTriggeredBiometric.current = true;
+    if (!biometricAvailable || !biometricEnabled) return;
+    if (!tryAutoTriggerBiometric()) return;
     handleBiometricLogin();
-  }, [biometricAvailable, biometricEnabled]);
+  }, [biometricAvailable, biometricEnabled, tryAutoTriggerBiometric]);
 
   const handlePinSubmit = async (pin) => {
     if (!pin || pin.length !== 4) return;

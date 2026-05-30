@@ -56,6 +56,9 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const [extraTypes, setExtraTypes] = useState([]);
   const [showAddTypeDropdown, setShowAddTypeDropdown] = useState(false);
   const nextCustomIdRef = useRef(0);
+  // При редактировании существующей записи запоминаем её week_number/day_name,
+  // чтобы saveResult обновил ту же строку, а не создал дубликат.
+  const [existingKeys, setExistingKeys] = useState(null);
 
   // Interval fields
   const [warmupKm, setWarmupKm] = useState('');
@@ -167,6 +170,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     setCustomNewName(''); setCustomNewSets(''); setCustomNewReps(''); setCustomNewWeightKg(''); setCustomNewDistanceM('');
     setShowOfpCustomForm(false); setShowSbuCustomForm(false);
     setExtraTypes([]); setShowAddTypeDropdown(false);
+    setExistingKeys(null);
     setWarmupKm(''); setWarmupPace(''); setIntervalReps(''); setIntervalDistM('');
     setIntervalPace(''); setRestDistM(''); setRestType('jog'); setCooldownKm(''); setCooldownPace('');
     setFartlekWarmupKm('');
@@ -329,6 +333,9 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
       const res = await api.getResult(date);
       const result = res?.data?.result ?? res?.result ?? res;
       if (result && typeof result === 'object') {
+        if (result.week_number != null && result.day_name) {
+          setExistingKeys({ week: Number(result.week_number), day: result.day_name });
+        }
         setFormData({ notes: result.notes ?? '' });
         const dist = result.result_distance ?? result.distance_km;
         const timeRaw = result.result_time;
@@ -473,13 +480,25 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     e.preventDefault();
     setLoading(true);
     try {
-      const week = weekNumber ?? 1;
-      const day = dayKey ?? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(date + 'T12:00:00').getDay()];
+      // Приоритет: ключи существующей записи (для редактирования) → пропы из календаря → дефолт по дате.
+      const week = existingKeys?.week ?? weekNumber ?? 1;
+      const day = existingKeys?.day ?? dayKey ?? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(date + 'T12:00:00').getDay()];
       const avgHr = runBlocks.length > 0
         ? runBlocks.map(b => parseInt(b.hr, 10)).filter(n => !Number.isNaN(n) && n > 0)
         : (runHR ? [parseInt(runHR, 10)] : []);
+      // Определяем activity_type_id: 1=Бег, 2=ОФП, 9=СБУ.
+      // Приоритет: если есть беговая часть — это беговая тренировка (даже если есть ОФП/СБУ).
+      // Иначе — по доминирующему блоку: ОФП > СБУ.
+      const hasOfp = plannedOfp.some(p => !p.removed) || additionalExercises.some(e => e.category === 'ofp');
+      const hasSbu = plannedSbu.some(p => !p.removed) || additionalExercises.some(e => e.category === 'sbu');
+      const hasRunData = runBlocks.length > 0 || !!intervalPlanDay || !!fartlekPlanDay;
+      let activityTypeId = 1;
+      if (!hasRunData) {
+        if (hasOfp) activityTypeId = 2;
+        else if (hasSbu) activityTypeId = 9;
+      }
       await api.saveResult({
-        date, week, day, activity_type_id: 1,
+        date, week, day, activity_type_id: activityTypeId,
         result_distance: getResultDistance(),
         result_time: getResultTime(),
         result_pace: getResultPace(),

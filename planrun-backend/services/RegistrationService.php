@@ -149,6 +149,136 @@ class RegistrationService extends BaseService {
         ];
     }
 
+    /**
+     * Авто-создание аккаунта для Telegram Mini App.
+     * Без email/пароля от пользователя: email = NULL, пароль = случайный (вход только через Telegram).
+     * Пользователь попадает в онбординг (onboarding_completed = 0).
+     *
+     * @param array $tgUser Данные Telegram-пользователя (id, first_name, last_name, username, ...)
+     * @return array{user_id:int,username:string}
+     */
+    public function registerFromTelegram(array $tgUser, ?string $timezone = null): array {
+        if (!$this->isRegistrationEnabled()) {
+            throw new RuntimeException('Регистрация отключена администратором', 403);
+        }
+
+        $telegramId = (int) ($tgUser['id'] ?? 0);
+        if ($telegramId <= 0) {
+            throw new RuntimeException('Некорректный Telegram-пользователь', 400);
+        }
+
+        // Гонка: пользователь уже мог быть создан параллельным запросом.
+        $existingId = $this->userRepo()->findIdByTelegramId($telegramId);
+        if ($existingId !== null) {
+            $stmt = $this->db->prepare('SELECT username FROM users WHERE id = ? LIMIT 1');
+            $stmt->bind_param('i', $existingId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            return ['user_id' => $existingId, 'username' => (string) ($row['username'] ?? ('tg_' . $telegramId))];
+        }
+
+        $username = $this->generateUniqueUsernameFromTelegram($tgUser);
+        $usernameSlug = $this->generateUniqueUsernameSlug($username);
+        $hashedPassword = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
+        $tz = $this->sanitizeTimezone($timezone) ?? 'Europe/Moscow';
+        $email = null;
+        $onboardingCompleted = 0;
+        $trainingMode = 'self';
+        $goalType = 'health';
+        $gender = 'male';
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO users (username, username_slug, password, email, telegram_id, onboarding_completed, training_mode, goal_type, gender, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        if (!$stmt) {
+            throw new RuntimeException('Ошибка подготовки запроса: ' . $this->db->error, 500);
+        }
+        $stmt->bind_param(
+            'ssssiissss',
+            $username,
+            $usernameSlug,
+            $hashedPassword,
+            $email,
+            $telegramId,
+            $onboardingCompleted,
+            $trainingMode,
+            $goalType,
+            $gender,
+            $tz
+        );
+        if (!$stmt->execute()) {
+            $error = $stmt->error;
+            $stmt->close();
+            // Дубликат telegram_id из-за гонки — возвращаем уже созданного пользователя.
+            if (stripos($error, 'Duplicate') !== false) {
+                $existingId = $this->userRepo()->findIdByTelegramId($telegramId);
+                if ($existingId !== null) {
+                    return ['user_id' => $existingId, 'username' => $username];
+                }
+            }
+            throw new RuntimeException('Ошибка выполнения запроса: ' . $error, 500);
+        }
+        $userId = (int) $this->db->insert_id;
+        $stmt->close();
+
+        if ($userId < 1) {
+            throw new RuntimeException('Не удалось получить ID нового пользователя', 500);
+        }
+
+        return ['user_id' => $userId, 'username' => $username];
+    }
+
+    private function generateUniqueUsernameFromTelegram(array $tgUser): string {
+        $telegramId = (int) ($tgUser['id'] ?? 0);
+        $candidates = [];
+
+        $tgUsername = $this->normalizeUsername((string) ($tgUser['username'] ?? ''));
+        if ($tgUsername !== '') {
+            $candidates[] = $tgUsername;
+        }
+        $fullName = trim(trim((string) ($tgUser['first_name'] ?? '')) . ' ' . trim((string) ($tgUser['last_name'] ?? '')));
+        $normalizedName = $this->normalizeUsername($fullName);
+        if ($normalizedName !== '') {
+            $candidates[] = $normalizedName;
+        }
+
+        foreach ($candidates as $base) {
+            if (mb_strlen($base) < 3) {
+                continue;
+            }
+            if (mb_strlen($base) > 45) {
+                $base = mb_substr($base, 0, 45);
+            }
+            if (!$this->userExistsByUsername($base)) {
+                return $base;
+            }
+            for ($i = 1; $i <= 99; $i++) {
+                $candidate = $base . '_' . $i;
+                if (mb_strlen($candidate) <= 50 && !$this->userExistsByUsername($candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        $fallback = 'tg_' . $telegramId;
+        if (!$this->userExistsByUsername($fallback)) {
+            return $fallback;
+        }
+        return 'tg_' . $telegramId . '_' . substr(md5(uniqid((string) mt_rand(), true)), 0, 6);
+    }
+
+    /** Оставляет только символы, допустимые в username (буквы/цифры/пробел/дефис/подчёркивание), схлопывает пробелы. */
+    private function normalizeUsername(string $value): string {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $value = preg_replace('/[^a-zA-Z0-9_а-яА-ЯёЁ\s-]+/u', '', $value);
+        $value = preg_replace('/\s+/u', ' ', (string) $value);
+        return trim((string) $value);
+    }
+
     public function registerFull(array $data): array {
         $username = trim((string) ($data['username'] ?? ''));
         $password = trim((string) ($data['password'] ?? ''));
@@ -276,8 +406,6 @@ class RegistrationService extends BaseService {
             'race_distance' => ['value' => $data['race_distance'] ?? null, 'type' => 's'],
             'race_date' => ['value' => $data['race_date'] ?? null, 'type' => 's'],
             'race_target_time' => ['value' => $data['race_target_time'] ?? null, 'type' => 's'],
-            'target_marathon_date' => ['value' => $data['target_marathon_date'] ?? null, 'type' => 's'],
-            'target_marathon_time' => ['value' => $data['target_marathon_time'] ?? null, 'type' => 's'],
             'training_start_date' => ['value' => $data['training_start_date'] ?? null, 'type' => 's'],
             'gender' => ['value' => $data['gender'] ?? null, 'type' => 's'],
             'birth_year' => ['value' => $data['birth_year'] ?? null, 'type' => 'i'],
@@ -358,16 +486,10 @@ class RegistrationService extends BaseService {
         if ($goalType === 'race' || $goalType === 'time_improvement') {
             if (!empty($data['race_date'])) {
                 $planDate = $data['race_date'];
-                $planTime = $data['race_target_time'] ?: ($data['target_marathon_time'] ?? null);
-            } elseif (!empty($data['target_marathon_date'])) {
-                $planDate = $data['target_marathon_date'];
-                $planTime = $data['target_marathon_time'] ?? null;
+                $planTime = $data['race_target_time'] ?? null;
             }
         } elseif ($goalType === 'weight_loss') {
-            $planDate = $data['weight_goal_date'] ?: ($data['target_marathon_date'] ?? null);
-        } elseif ($goalType === 'health') {
-            $planDate = $data['target_marathon_date'] ?? null;
-            $planTime = $data['target_marathon_time'] ?? null;
+            $planDate = $data['weight_goal_date'] ?? null;
         }
 
         $stmt = $this->db->prepare('

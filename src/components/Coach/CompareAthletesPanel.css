@@ -1,0 +1,200 @@
+/**
+ * CompareAthletesPanel — модалка сравнения атлетов.
+ */
+
+.cmp__scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 12400;
+  animation: cmp-fade 0.2s ease-out;
+}
+
+.cmp {
+  position: fixed;
+  top: 4%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 960px;
+  max-width: calc(100vw - 24px);
+  max-height: 92vh;
+  background: var(--card-bg, #fff);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  z-index: 12500;
+  overflow: hidden;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+  animation: cmp-pop 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes cmp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cmp-pop {
+  from { transform: translate(-50%, 8px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.cmp__head {
+  padding: 18px 24px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.cmp__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.cmp__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin: 4px 0 0;
+}
+
+.cmp__close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: var(--gray-100);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cmp__close:hover { background: var(--gray-200); color: var(--text-primary); }
+
+.cmp__columns {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  gap: 1px;
+  background: var(--card-border);
+  padding: 0;
+}
+
+.cmp__col {
+  background: var(--card-bg, #fff);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cmp__col-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 4px;
+  border-radius: 10px;
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.cmp__col-head:hover { background: var(--gray-50); }
+
+.cmp__col-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.cmp__col-goal {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.cmp__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: var(--gray-50);
+  border-radius: 10px;
+}
+
+.cmp__metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: 0.08em;
+}
+
+.cmp__metric-value {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cmp-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0;
+}
+
+.cmp-trend {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--success-500);
+  letter-spacing: 0;
+}
+
+.cmp-warn {
+  color: var(--danger-500);
+}
+
+.cmp-muted {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.cmp__chart {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 56px;
+}
+
+@media (max-width: 768px) {
+  .cmp {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100vh;
+    transform: none;
+    border-radius: 0;
+  }
+  .cmp__columns {
+    grid-template-columns: 1fr !important;
+  }
+}

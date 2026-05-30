@@ -1,0 +1,202 @@
+/**
+ * AthleteGrid — тепловая карта compliance тайлами.
+ */
+
+.coach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.coach-grid-empty {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.coach-tile {
+  position: relative;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px 14px 14px;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.coach-tile:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 22%, var(--card-border));
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+}
+
+.coach-tile--active {
+  border-color: var(--primary-500);
+  background: var(--primary-50, #FFF4F0);
+}
+
+.coach-tile--selected:not(.coach-tile--active) {
+  border-color: var(--primary-400, #FF6B3D);
+  background: color-mix(in srgb, var(--primary-500) 4%, var(--card-bg, #fff));
+}
+
+.coach-tile__strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gray-100);
+}
+
+.coach-tile__strip-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.coach-tile__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coach-tile__head-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.coach-tile__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coach-tile__sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.coach-tile__check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-500);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.coach-tile__metrics {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.coach-tile__week {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.coach-tile__week-total {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 18px;
+}
+
+.coach-tile__vdot {
+  text-align: right;
+}
+
+.coach-tile__vdot-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+}
+
+.coach-tile__vdot-value {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.coach-tile__chart {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.coach-tile__chart-empty {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.coach-tile__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.coach-tile__spacer {
+  flex: 1;
+}
+
+.coach-tile__badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.coach-tile__badge svg {
+  flex-shrink: 0;
+}
+
+.coach-tile__badge--danger {
+  background: color-mix(in srgb, var(--danger-500) 16%, transparent);
+  color: var(--danger-500);
+}
+
+.coach-tile__badge--success {
+  background: #DCFCE7;
+  color: #166534;
+}
+
+.coach-tile__badge--muted {
+  color: var(--text-tertiary);
+  background: transparent;
+  font-weight: 500;
+  padding: 0;
+}
+
+.coach-tile__days-to-race {
+  font-family: var(--font-stats), sans-serif;
+  font-weight: 700;
+  color: var(--primary-500);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .coach-grid {
+    grid-template-columns: 1fr;
+  }
+}

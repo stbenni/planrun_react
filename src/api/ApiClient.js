@@ -10,6 +10,7 @@ import { ApiError, buildApiError, extractRetryAfter } from './apiError';
 import {
   login as performLogin,
   loginWithJwt as performLoginWithJwt,
+  telegramMiniAppAuth as performTelegramMiniAppAuth,
   logout as performLogout,
   requestResetPassword as performRequestResetPassword,
   confirmResetPassword as performConfirmResetPassword,
@@ -91,12 +92,14 @@ import {
   chatSendMessage as performChatSendMessage,
   chatSendMessageStream as performChatSendMessageStream,
   chatSendMessageToAdmin as performChatSendMessageToAdmin,
+  uploadChatMedia as performUploadChatMedia,
   chatGetDirectDialogs as performChatGetDirectDialogs,
   chatGetDirectMessages as performChatGetDirectMessages,
   chatSendMessageToUser as performChatSendMessageToUser,
   chatClearDirectDialog as performChatClearDirectDialog,
   chatMarkRead as performChatMarkRead,
   chatClearAi as performChatClearAi,
+  chatClearAdmin as performChatClearAdmin,
   chatMarkAllRead as performChatMarkAllRead,
   chatAdminMarkAllRead as performChatAdminMarkAllRead,
   chatAdminSendMessage as performChatAdminSendMessage,
@@ -119,6 +122,7 @@ import {
   removeCoach as performRemoveCoach,
   applyCoach as performApplyCoach,
   getCoachAthletes as performGetCoachAthletes,
+  getAthleteDetails as performGetAthleteDetails,
   getCoachPricing as performGetCoachPricing,
   updateCoachPricing as performUpdateCoachPricing,
   getCoachGroups as performGetCoachGroups,
@@ -130,6 +134,12 @@ import {
   getCoachApplications as performGetCoachApplications,
   approveCoachApplication as performApproveCoachApplication,
   rejectCoachApplication as performRejectCoachApplication,
+  listWorkoutTemplates as performListWorkoutTemplates,
+  listExerciseLibrary as performListExerciseLibrary,
+  saveWorkoutTemplate as performSaveWorkoutTemplate,
+  deleteWorkoutTemplate as performDeleteWorkoutTemplate,
+  bulkAssignTraining as performBulkAssignTraining,
+  getCoachEvents as performGetCoachEvents,
 } from './coachApi';
 
 const PROACTIVE_REFRESH_MS = 60000; // обновлять за 60 сек до истечения
@@ -895,6 +905,15 @@ class ApiClient {
   }
 
   /**
+   * Вход/регистрация через Telegram Mini App по подписанному initData.
+   * @param {string} initData - window.Telegram.WebApp.initData
+   * @param {string|null} timezone - IANA-таймзона клиента (для авто-создания аккаунта)
+   */
+  async telegramMiniAppAuth(initData, timezone = null) {
+    return performTelegramMiniAppAuth(this, initData, timezone);
+  }
+
+  /**
    * Выход из системы
    */
   async logout() {
@@ -978,6 +997,10 @@ class ApiClient {
       const trainingMode = data?.training_mode ?? 'ai';
 
       if (isAuthenticated) {
+        const goalType = data?.goal_type ?? null;
+        const raceDate = data?.race_date ?? null;
+        const raceDistance = data?.race_distance ?? null;
+        const raceTargetTime = data?.race_target_time ?? null;
         return {
           authenticated: true,
           user_id: userId,
@@ -987,7 +1010,11 @@ class ApiClient {
           training_mode: trainingMode,
           ...(name != null && { name }),
           ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath }),
-          ...(timezone != null && timezone !== '' && { timezone })
+          ...(timezone != null && timezone !== '' && { timezone }),
+          ...(goalType && { goal_type: goalType }),
+          ...(raceDate && { race_date: raceDate }),
+          ...(raceDistance && { race_distance: raceDistance }),
+          ...(raceTargetTime && { race_target_time: raceTargetTime })
         };
       }
       
@@ -1288,8 +1315,8 @@ class ApiClient {
 
   // --- Plan notifications ---
 
-  async getPlanNotifications() {
-    return performGetPlanNotifications(this);
+  async getPlanNotifications(options = {}) {
+    return performGetPlanNotifications(this, options);
   }
 
   async markPlanNotificationRead(notificationId) {
@@ -1391,8 +1418,8 @@ class ApiClient {
    * Отправить сообщение AI (без streaming)
    * @param {string} content
    */
-  async chatSendMessage(content) {
-    return performChatSendMessage(this, content);
+  async chatSendMessage(content, attachment = null) {
+    return performChatSendMessage(this, content, attachment);
   }
 
   /**
@@ -1409,8 +1436,12 @@ class ApiClient {
    * Отправить сообщение администрации (из чата «От администрации»)
    * @param {string} content
    */
-  async chatSendMessageToAdmin(content) {
-    return performChatSendMessageToAdmin(this, content);
+  async chatSendMessageToAdmin(content, attachment = null) {
+    return performChatSendMessageToAdmin(this, content, attachment);
+  }
+
+  async uploadChatMedia(file) {
+    return performUploadChatMedia(this, file);
   }
 
   /**
@@ -1435,8 +1466,8 @@ class ApiClient {
    * @param {number} targetUserId ID получателя
    * @param {string} content Текст сообщения
    */
-  async chatSendMessageToUser(targetUserId, content) {
-    return performChatSendMessageToUser(this, targetUserId, content);
+  async chatSendMessageToUser(targetUserId, content, attachment = null) {
+    return performChatSendMessageToUser(this, targetUserId, content, attachment);
   }
 
   /**
@@ -1460,6 +1491,13 @@ class ApiClient {
    */
   async chatClearAi() {
     return performChatClearAi(this);
+  }
+
+  /**
+   * Очистить чат с администрацией (user-side)
+   */
+  async chatClearAdmin() {
+    return performChatClearAdmin(this);
   }
 
   /**
@@ -1589,6 +1627,10 @@ class ApiClient {
     return performGetCoachAthletes(this);
   }
 
+  async getAthleteDetails(athleteId, weekStart = null) {
+    return performGetAthleteDetails(this, athleteId, weekStart);
+  }
+
   async getCoachPricing(coachId = null) {
     return performGetCoachPricing(this, coachId);
   }
@@ -1632,6 +1674,31 @@ class ApiClient {
 
   async rejectCoachApplication(applicationId) {
     return performRejectCoachApplication(this, applicationId);
+  }
+
+  // Шаблоны тренировок и bulk-assign
+  async listWorkoutTemplates() {
+    return performListWorkoutTemplates(this);
+  }
+
+  async listExerciseLibrary() {
+    return performListExerciseLibrary(this);
+  }
+
+  async saveWorkoutTemplate(data) {
+    return performSaveWorkoutTemplate(this, data);
+  }
+
+  async deleteWorkoutTemplate(templateId) {
+    return performDeleteWorkoutTemplate(this, templateId);
+  }
+
+  async bulkAssignTraining(payload) {
+    return performBulkAssignTraining(this, payload);
+  }
+
+  async getCoachEvents(hoursBack = 48) {
+    return performGetCoachEvents(this, hoursBack);
   }
 }
 

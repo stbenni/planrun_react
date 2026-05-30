@@ -153,8 +153,9 @@ export function getNoteCounts(client, startDate, endDate, viewContext = null) {
   return client.request('get_note_counts', params, 'GET');
 }
 
-export function getPlanNotifications(client) {
-  return client.request('get_plan_notifications', {}, 'GET');
+export function getPlanNotifications(client, { includeRead = false, limit = 50 } = {}) {
+  const extra = includeRead ? { include_read: '1', limit: String(limit) } : {};
+  return client.request('get_plan_notifications', {}, 'GET', extra);
 }
 
 export function markPlanNotificationRead(client, notificationId) {

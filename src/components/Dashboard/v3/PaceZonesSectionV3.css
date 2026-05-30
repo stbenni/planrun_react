@@ -1,0 +1,60 @@
+.pace-v3 { font-family: 'Montserrat', sans-serif; }
+
+.pace-v3__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pace-v3__list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pace-v3__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--gray-100);
+  border-radius: 8px;
+}
+
+[data-theme="dark"] .pace-v3__row {
+  background: var(--bg-tertiary);
+}
+
+.pace-v3__stripe {
+  width: 3px;
+  align-self: stretch;
+  min-height: 28px;
+  border-radius: 4px;
+}
+
+.pace-v3__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pace-v3__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pace-v3__use {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.pace-v3__pace {
+  font-family: var(--font-stats), 'Jost', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}

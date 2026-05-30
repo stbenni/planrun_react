@@ -836,7 +836,7 @@ function liveRecalcAllowsShortRaceLongShare(array $user, array $after, float $pe
 
 function liveRecalcUserRaceDistanceKm(array $user): float
 {
-    $distance = strtolower(trim((string) ($user['race_distance'] ?? $user['target_marathon_distance'] ?? '')));
+    $distance = strtolower(trim((string) ($user['race_distance'] ?? '')));
     return match ($distance) {
         '5k', '5', '5.0', '5 км' => 5.0,
         '10k', '10', '10.0', '10 км' => 10.0,
@@ -848,7 +848,7 @@ function liveRecalcUserRaceDistanceKm(array $user): float
 
 function liveRecalcRaceDate(array $user): string
 {
-    return (string) ($user['race_date'] ?? $user['target_marathon_date'] ?? '');
+    return (string) ($user['race_date'] ?? '');
 }
 
 function liveRecalcEvaluate(

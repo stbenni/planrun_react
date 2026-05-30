@@ -154,8 +154,6 @@ class UserProfileService extends BaseService {
         $this->addNullableStringField($data, 'race_distance', $updateFields, $updateValues, $types, $normalizeNull);
         $this->addNullableStringField($data, 'race_date', $updateFields, $updateValues, $types, $normalizeNull);
         $this->addNullableStringField($data, 'race_target_time', $updateFields, $updateValues, $types, $normalizeNull);
-        $this->addNullableStringField($data, 'target_marathon_date', $updateFields, $updateValues, $types, $normalizeNull);
-        $this->addNullableStringField($data, 'target_marathon_time', $updateFields, $updateValues, $types, $normalizeNull);
 
         // --- Опыт и тренировки ---
         if (isset($data['experience_level'])) {

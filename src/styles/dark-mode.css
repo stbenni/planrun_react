@@ -26,12 +26,6 @@ body:not([data-theme])[data-theme="dark"],
   color: var(--text-primary);
 }
 
-[data-theme="dark"] p,
-[data-theme="dark"] span,
-[data-theme="dark"] div {
-  color: inherit;
-}
-
 /* Компоненты в темной теме */
 [data-theme="dark"] .workout-card,
 [data-theme="dark"] .stat-metric-card,

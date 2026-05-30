@@ -39,31 +39,26 @@ const getViewportMetrics = () => {
   const visibleHeight = Math.max(0, Math.min(layoutHeight, visualHeight + offsetTop));
 
   return {
-    viewportHeight: visibleHeight,
     visibleHeight,
     baselineHeight: Math.max(layoutHeight, visibleHeight, visualHeight),
   };
 };
 
+// Хук только ДЕТЕКТИРУЕТ открытие клавиатуры (boolean). Высоту вьюпорта он НЕ отдаёт:
+// размер чата держит CSS (100dvh), синхронно с анимацией клавиатуры. Раньше JS-замер высоты
+// приходил с задержкой и вызывал «прыжок» — теперь стейт меняется только при флипе boolean.
 const useMobileKeyboardState = ({ enabled = true, minKeyboardHeight = DEFAULT_KEYBOARD_HEIGHT } = {}) => {
   const baselineViewportHeightRef = useRef(0);
   const nativeKeyboardOpenRef = useRef(false);
   const nativeKeyboardHeightRef = useRef(0);
-  const [state, setState] = useState({
-    isKeyboardOpen: false,
-    viewportHeight: null,
-  });
+  const [state, setState] = useState({ isKeyboardOpen: false });
 
   useEffect(() => {
     if (!enabled) {
       baselineViewportHeightRef.current = 0;
       nativeKeyboardOpenRef.current = false;
       nativeKeyboardHeightRef.current = 0;
-      setState((prevState) => (
-        prevState.isKeyboardOpen || prevState.viewportHeight !== null
-          ? { isKeyboardOpen: false, viewportHeight: null }
-          : prevState
-      ));
+      setState((prevState) => (prevState.isKeyboardOpen ? { isKeyboardOpen: false } : prevState));
       return undefined;
     }
 
@@ -83,46 +78,29 @@ const useMobileKeyboardState = ({ enabled = true, minKeyboardHeight = DEFAULT_KE
         const activeElement = document.activeElement;
         const hasFocusedTextInput = isTextEntryElement(activeElement);
         const isSmallViewport = window.innerWidth <= MOBILE_BREAKPOINT;
-        const { viewportHeight, visibleHeight, baselineHeight } = getViewportMetrics();
+        const { visibleHeight, baselineHeight } = getViewportMetrics();
 
         if (!hasFocusedTextInput || !baselineViewportHeightRef.current) {
           baselineViewportHeightRef.current = baselineHeight;
         }
 
         const nativeKeyboardOpen = isNativeApp && nativeKeyboardOpenRef.current;
-        const nativeViewportHeight = nativeKeyboardOpen
-          ? Math.max(
-            0,
-            Math.min(
-              visibleHeight,
-              baselineViewportHeightRef.current - nativeKeyboardHeightRef.current,
-            ),
-          )
-          : visibleHeight;
         const coveredHeight = Math.max(
           0,
           baselineViewportHeightRef.current - visibleHeight,
           isNativeApp ? nativeKeyboardHeightRef.current : 0,
         );
 
-        const nextState = {
-          isKeyboardOpen: Boolean(
-            isSmallViewport
-            && (
-              nativeKeyboardOpen
-              || (hasFocusedTextInput && coveredHeight >= minKeyboardHeight)
-            )
-          ),
-          viewportHeight: isNativeApp
-            ? (nativeViewportHeight || viewportHeight || null)
-            : (viewportHeight || null),
-        };
+        const isKeyboardOpen = Boolean(
+          isSmallViewport
+          && (
+            nativeKeyboardOpen
+            || (hasFocusedTextInput && coveredHeight >= minKeyboardHeight)
+          )
+        );
 
         setState((prevState) => (
-          prevState.isKeyboardOpen === nextState.isKeyboardOpen
-          && prevState.viewportHeight === nextState.viewportHeight
-            ? prevState
-            : nextState
+          prevState.isKeyboardOpen === isKeyboardOpen ? prevState : { isKeyboardOpen }
         ));
       });
     };

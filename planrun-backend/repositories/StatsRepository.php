@@ -56,7 +56,10 @@ class StatsRepository extends BaseRepository {
      * Структура совместима с getWorkoutsSummary для слияния в StatsService
      */
     public function getWorkoutLogSummary($userId) {
-        $sql = "SELECT 
+        // Нормализуем кириллические имена activity_types в английские ключи,
+        // чтобы frontend (TYPE_NAMES) корректно подбирал лейбл и иконку.
+        // Бег → running, ОФП → other, СБУ → sbu, Отдых → rest и т.д.
+        $sql = "SELECT
                     wl.training_date as workout_date,
                     COUNT(*) as workout_count,
                     SUM(wl.distance_km) as total_distance,
@@ -65,7 +68,21 @@ class StatsRepository extends BaseRepository {
                     SUBSTRING_INDEX(GROUP_CONCAT(wl.pace ORDER BY wl.id ASC), ',', 1) as avg_pace,
                     AVG(wl.avg_heart_rate) as avg_hr,
                     MIN(wl.id) as first_workout_id,
-                    SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(NULLIF(TRIM(LOWER(at.name)), ''), 'running') ORDER BY wl.id ASC), ',', 1) as activity_type
+                    SUBSTRING_INDEX(GROUP_CONCAT(
+                        CASE LOWER(TRIM(COALESCE(at.name, '')))
+                            WHEN 'бег' THEN 'running'
+                            WHEN 'офп' THEN 'other'
+                            WHEN 'сбу' THEN 'sbu'
+                            WHEN 'отдых' THEN 'rest'
+                            WHEN 'силовая тренировка' THEN 'other'
+                            WHEN 'растяжка' THEN 'stretching'
+                            WHEN 'йога' THEN 'yoga'
+                            WHEN 'плавание' THEN 'swimming'
+                            WHEN 'велосипед' THEN 'cycling'
+                            WHEN '' THEN 'running'
+                            ELSE LOWER(TRIM(at.name))
+                        END
+                    ORDER BY wl.id ASC), ',', 1) as activity_type
                 FROM workout_log wl
                 LEFT JOIN activity_types at ON wl.activity_type_id = at.id
                 WHERE wl.user_id = ? AND wl.is_completed = 1

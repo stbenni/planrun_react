@@ -10,8 +10,12 @@ import useAuthStore from '../../stores/useAuthStore';
 import { isNativeCapacitor } from '../../services/TokenStorageService';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
-import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers } from './BottomNavIcons';
-import { UserIcon, RunningIcon, BellIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon, CloseIcon } from './Icons';
+import {
+  NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers,
+  NavIconUsers, NavIconChat, NavIconStream, NavIconAnalytics, NavIconLibrary,
+} from './BottomNavIcons';
+import useCoachStore from '../../stores/useCoachStore';
+import { UserIcon, RunningIcon, BellIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon } from './Icons';
 import './TopHeader.css';
 
 const initials = (user) => {
@@ -30,7 +34,7 @@ const isNarrowViewport = () => typeof window !== 'undefined' && window.innerWidt
 const TopHeader = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, api, setShowOnboardingModal, drawerOpen, setDrawerOpen } = useAuthStore();
+  const { user, logout, api, setShowOnboardingModal } = useAuthStore();
   const needsOnboarding = !!(user && !user.onboarding_completed);
   const [menuOpen, setMenuOpen] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -64,15 +68,51 @@ const TopHeader = () => {
     setAvatarError(false);
   }, [user?.avatar_path]);
 
-  const navItems = [
+  const isCoach = user?.role === 'coach' || user?.role === 'admin';
+
+  // Подписка на coach-store для badge'а «Поток» (риски + вопросы) — только если coach
+  const coachAthletes = useCoachStore((s) => s.athletes);
+  const coachEvents = useCoachStore((s) => s.events);
+  const streamBadge = isCoach ? (() => {
+    const events = Array.isArray(coachEvents) ? coachEvents : [];
+    const risk = events.filter((e) => e.kind === 'risk').length;
+    const question = events.filter((e) => e.kind === 'question').length;
+    const total = risk + question;
+    return total > 0 ? total : null;
+  })() : null;
+  const teamBadge = isCoach && Array.isArray(coachAthletes) ? coachAthletes.length || null : null;
+
+  const navItemsUser = [
     { id: 'home', path: '/', Icon: NavIconHome, label: 'Дэшборд' },
     { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
     { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
-    { id: 'trainers', path: '/trainers', Icon: NavIconTrainers, label: 'Тренеры' }
+    { id: 'trainers', path: '/trainers', Icon: NavIconTrainers, label: 'Тренеры' },
   ];
 
-  const isActive = (path) => {
-    if (path === '/') return location.pathname === '/' || location.pathname === '/dashboard';
+  const navItemsCoach = [
+    { id: 'team', path: '/', search: '', Icon: NavIconUsers, label: 'Команда', badge: teamBadge },
+    { id: 'stream', path: '/', search: '?view=stream', Icon: NavIconStream, label: 'Поток', badge: streamBadge },
+    { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
+    { id: 'chat', path: '/chat', Icon: NavIconChat, label: 'Чат' },
+    { id: 'analytics', path: '/stats', Icon: NavIconAnalytics, label: 'Аналитика' },
+    { id: 'library', path: '/library', Icon: NavIconLibrary, label: 'Шаблоны' },
+  ];
+
+  const navItems = isCoach ? navItemsCoach : navItemsUser;
+
+  const isActive = (item) => {
+    const path = item.path;
+    const itemView = item.search ? new URLSearchParams(item.search).get('view') : null;
+    const currentView = new URLSearchParams(location.search).get('view');
+    if (path === '/') {
+      if (!(location.pathname === '/' || location.pathname === '/dashboard')) return false;
+      // Для coach «Команда» и «Поток» различаются по ?view=
+      if (isCoach) {
+        if (item.id === 'stream') return currentView === 'stream';
+        if (item.id === 'team') return !currentView || currentView === 'table' || currentView === 'grid';
+      }
+      return true;
+    }
     return location.pathname.startsWith(path);
   };
 
@@ -99,7 +139,7 @@ const TopHeader = () => {
 
   useLayoutEffect(() => {
     updateNavPill();
-  }, [location.pathname, isMobile]);
+  }, [location.pathname, location.search, isMobile]);
 
   useLayoutEffect(() => {
     if (isMobile) return undefined;
@@ -130,7 +170,7 @@ const TopHeader = () => {
       window.removeEventListener('resize', scheduleUpdate);
       resizeObserver?.disconnect();
     };
-  }, [isMobile, location.pathname]);
+  }, [isMobile, location.pathname, location.search]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -148,18 +188,6 @@ const TopHeader = () => {
     };
   }, [menuOpen]);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const handleEscape = (e) => { if (e.key === 'Escape') setDrawerOpen(false); };
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.body.style.overflow = prev;
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [drawerOpen]);
-
   const navigateToSettingsTab = (tab) => {
     navigate({
       pathname: '/settings',
@@ -169,7 +197,6 @@ const TopHeader = () => {
 
   const handleMenuAction = async (action) => {
     setMenuOpen(false);
-    setDrawerOpen(false);
     if (action === 'profile') return navigateToSettingsTab('profile');
     if (action === 'training') return navigateToSettingsTab('training');
     if (action === 'notifications') return navigateToSettingsTab('notifications');
@@ -185,15 +212,15 @@ const TopHeader = () => {
     }
   };
 
-  const closeDrawer = () => setDrawerOpen(false);
-  const onAvatarClick = () => {
-    if (isMobile) setDrawerOpen((o) => !o);
-    else setMenuOpen((o) => !o);
-  };
+  const onAvatarClick = () => setMenuOpen((o) => !o);
+
+  // На мобильных хедер не рендерится — навигация полностью через BottomNav,
+  // а профильное меню (drawer) рендерится отдельно через UserDrawer.
+  if (isMobile) return null;
 
   return (
     <>
-      <header className={`top-header ${isMobile ? 'top-header-mobile' : ''}`}>
+      <header className="top-header">
       <div className="top-header-container">
         <div className="top-header-logo" onClick={() => navigate('/')}>
           <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
@@ -210,15 +237,19 @@ const TopHeader = () => {
           <span className="top-nav-pill" aria-hidden="true" />
           {navItems.map(item => {
             const Icon = item.Icon;
+            const target = item.path + (item.search || '');
             return (
               <button
                 key={item.id}
-                className={`top-nav-item ${isActive(item.path) ? 'active' : ''}`}
-                onClick={() => navigate(item.path)}
+                className={`top-nav-item ${isActive(item) ? 'active' : ''}`}
+                onClick={() => navigate(target)}
                 aria-label={item.label}
               >
                 <span className="top-nav-icon">{Icon ? <Icon /> : null}</span>
                 <span className="top-nav-label">{item.label}</span>
+                {item.badge != null && (
+                  <span className="top-nav-badge">{item.badge}</span>
+                )}
               </button>
             );
           })}
@@ -226,7 +257,7 @@ const TopHeader = () => {
 
         {user && (
         <div className="top-header-actions">
-            {needsOnboarding && !isMobile && (
+            {needsOnboarding && (
               <button type="button" className="btn btn-primary btn--sm" onClick={() => setShowOnboardingModal(true)}>
                 Настроить план
               </button>
@@ -239,7 +270,7 @@ const TopHeader = () => {
                 type="button"
                 className="header-avatar-btn"
                 onClick={onAvatarClick}
-                aria-expanded={isMobile ? drawerOpen : menuOpen}
+                aria-expanded={menuOpen}
                 aria-haspopup="true"
                 aria-label="Меню профиля"
               >
@@ -255,7 +286,7 @@ const TopHeader = () => {
                   <span className="header-avatar-initials">{initials(user)}</span>
                 )}
               </button>
-              {!isMobile && menuOpen && (
+              {menuOpen && (
                 <div className="header-avatar-dropdown" ref={menuRef} role="menu">
                   <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('profile')}>
                     <span className="header-dropdown-icon" aria-hidden><UserIcon size={18} /></span>
@@ -296,62 +327,6 @@ const TopHeader = () => {
       </div>
     </header>
 
-      {isMobile && (
-        <>
-          <div
-            className={`app-drawer-backdrop ${drawerOpen ? 'app-drawer-backdrop-open' : ''}`}
-            onClick={closeDrawer}
-            aria-hidden="true"
-          />
-          <aside className={`app-drawer ${drawerOpen ? 'app-drawer-open' : ''}`} role="dialog" aria-label="Меню">
-            <div className="app-drawer-inner">
-              <div className="app-drawer-header">
-                <div className="top-header-logo" onClick={() => { closeDrawer(); navigate('/'); }}>
-                  <span className="logo-text"><span className="logo-plan">plan</span><span className="logo-run">RUN</span></span>
-                </div>
-                <button type="button" className="app-drawer-close" onClick={closeDrawer} aria-label="Закрыть меню">
-                  <CloseIcon className="modal-close-icon" />
-                </button>
-              </div>
-              {user && (
-                <div className="app-drawer-nav">
-                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('profile')}>
-                      <span className="app-drawer-icon" aria-hidden><UserIcon size={20} /></span>
-                      <span className="app-drawer-label">Профиль</span>
-                    </button>
-                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('training')}>
-                      <span className="app-drawer-icon" aria-hidden><RunningIcon size={20} /></span>
-                      <span className="app-drawer-label">Настройки тренировок</span>
-                    </button>
-                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('notifications')}>
-                      <span className="app-drawer-icon" aria-hidden><BellIcon size={20} /></span>
-                      <span className="app-drawer-label">Уведомления</span>
-                    </button>
-                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('privacy')}>
-                      <span className="app-drawer-icon" aria-hidden><LockIcon size={20} /></span>
-                      <span className="app-drawer-label">Конфиденциальность</span>
-                    </button>
-                    <button type="button" className="app-drawer-item" onClick={() => handleMenuAction('integrations')}>
-                      <span className="app-drawer-icon" aria-hidden><LinkIcon size={20} /></span>
-                      <span className="app-drawer-label">Интеграции</span>
-                    </button>
-                    {user?.role === 'admin' && (
-                      <button type="button" className="app-drawer-item" onClick={() => { closeDrawer(); navigate('/admin'); }}>
-                        <span className="app-drawer-icon" aria-hidden><SettingsIcon size={20} /></span>
-                        <span className="app-drawer-label">Админка</span>
-                      </button>
-                    )}
-                    <div className="app-drawer-divider" />
-                    <button type="button" className="app-drawer-item app-drawer-item-danger" onClick={() => handleMenuAction('logout')}>
-                      <span className="app-drawer-icon" aria-hidden><LogOutIcon size={20} /></span>
-                      <span className="app-drawer-label">Выйти</span>
-                    </button>
-                </div>
-              )}
-            </div>
-          </aside>
-        </>
-      )}
     </>
   );
 };

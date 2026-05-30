@@ -191,8 +191,8 @@ function buildWeeklyReviewPromptData(array $analysis, ?array $enrichment = null)
     // Goal progress
     $lines[] = "";
     $goalType = $user['goal_type'] ?? '';
-    $raceDate = $user['race_date'] ?? $user['target_marathon_date'] ?? '';
-    $raceTime = $user['race_target_time'] ?? $user['target_marathon_time'] ?? '';
+    $raceDate = $user['race_date'] ?? '';
+    $raceTime = $user['race_target_time'] ?? '';
     $raceDist = $user['race_distance'] ?? '';
     if ($goalType === 'race' && $raceDate) {
         $lines[] = "Цель: забег {$raceDist}, дата {$raceDate}, целевое время {$raceTime}";

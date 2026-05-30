@@ -33,3 +33,24 @@ Webhook URL: `https://tg.planrun.ru:8443/webhook-proxy/{bot}`
 ## 4. Проверка
 
 Отправить `/start` каждому боту — ответ без задержки.
+
+## 5. Telegram Mini App (вход внутри Telegram)
+
+PlanRun открывается как Mini App — тот же React SPA внутри Telegram. Вход бесшовный:
+фронт шлёт подписанный `initData` на `?action=telegram_miniapp_auth`, бэкенд проверяет
+HMAC по токену бота и находит/создаёт пользователя по `telegram_id` (новый — в онбординг).
+
+### Настройка
+
+1. `.env`: задать `TELEGRAM_BOT_TOKEN` (или иметь `planrun-bot/bot/config.php`).
+   Опционально `TELEGRAM_MINIAPP_URL` (по умолчанию `https://planrun.ru/`).
+2. Поставить кнопку меню бота на Mini App:
+
+   ```bash
+   php planrun-backend/telegram/set-miniapp-menu-button.php
+   ```
+
+   Либо вручную в @BotFather → Bot Settings → Menu Button → ввести URL `https://planrun.ru/`.
+3. Открыть бота в Telegram → кнопка слева от поля ввода открывает PlanRun.
+
+Требования: HTTPS (есть), `telegram-web-app.js` подключён в `index.html`.

@@ -1,0 +1,117 @@
+/**
+ * ChatEmojiPicker — кнопка + панель emoji-mart.
+ * Десктоп: поповер над кнопкой. Мобайл: нижняя панель на всю ширину (как в Telegram).
+ */
+
+.chat-emoji {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.chat-emoji__btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.chat-emoji__btn:hover,
+.chat-emoji__btn.is-active {
+  color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 9%, transparent);
+}
+
+.chat-emoji__btn:active { transform: scale(0.92); }
+
+/* ── Desktop popover ────────────────────────────────────── */
+/* Якорим по правому краю кнопки — панель раскрывается влево, внутрь экрана,
+   чтобы не обрезалась правым краем вьюпорта (кнопка стоит у правого края composer'а). */
+/* Поповер открывается НАД композером (и на десктопе, и на мобилке) —
+   строка ввода остаётся видна. Якорь по правому краю кнопки. */
+.chat-emoji__panel {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.24);
+  animation: chatEmojiPop 0.16s ease;
+}
+
+[data-theme="dark"] .chat-emoji__panel {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes chatEmojiPop {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-emoji__loading {
+  width: 300px;
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg, #fff);
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+[data-theme="dark"] .chat-emoji__loading {
+  background: var(--bg-secondary, #14181f);
+}
+
+/* Ограничиваем высоту пикера ~5 рядов — emoji-mart скроллит грид внутри */
+.chat-emoji__panel em-emoji-picker {
+  --border-radius: 14px;
+  --shadow: none;
+  height: 300px;
+}
+
+/* Мобайл: во всю ширину, над композером.
+   На мобилке .chat-emoji делаем static → панель позиционируется относительно
+   формы (.chat-input-form: position:relative), а не кнопки. Никакого fixed —
+   значит не ломается из-за transform у предков (page-transition). */
+.chat-emoji--mobile {
+  position: static;
+}
+
+.chat-emoji--mobile .chat-emoji__panel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  top: auto;
+  width: auto;
+  border-radius: 16px;
+  z-index: 60;
+  animation: chatEmojiSheetUp 0.2s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@keyframes chatEmojiSheetUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-emoji--mobile .chat-emoji__panel em-emoji-picker {
+  width: 100%;
+  --border-radius: 16px;
+  height: 260px;
+}
+
+.chat-emoji--mobile .chat-emoji__loading {
+  width: 100%;
+  height: 280px;
+}

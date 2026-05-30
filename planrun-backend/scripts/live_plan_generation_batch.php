@@ -439,7 +439,7 @@ function liveBatchExpectedWeeks(array $user): ?int
         return 12;
     }
 
-    $end = $user['weight_goal_date'] ?? $user['race_date'] ?? $user['target_marathon_date'] ?? null;
+    $end = $user['weight_goal_date'] ?? $user['race_date'] ?? null;
     if (!empty($end) && strtotime((string) $end) > $start) {
         return (int) ceil((strtotime((string) $end) - $start) / (7 * 86400));
     }

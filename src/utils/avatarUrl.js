@@ -24,6 +24,22 @@ export function getAvatarSrc(avatarPath, baseUrl = '/api', variant = 'full') {
   }
   apiRoot = apiRoot.replace(/\/$/, '');
 
+  // На Capacitor (Android/iOS) WebView origin может быть capacitor://, file:// или
+  // https://localhost (зависит от androidScheme/iosScheme). Относительный /api ведёт в никуда.
+  // Перепишем на абсолютный backend URL из VITE_API_BASE_URL или fallback на planrun.ru.
+  if (apiRoot.startsWith('/')) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const isNativeOrigin = /^(capacitor|file):\/\//i.test(origin) || /^https?:\/\/localhost(?::\d+)?$/i.test(origin);
+    const isNativePlatform = typeof window !== 'undefined'
+      && typeof window.Capacitor?.isNativePlatform === 'function'
+      && window.Capacitor.isNativePlatform();
+    if (isNativeOrigin || isNativePlatform) {
+      const envBase = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL;
+      const backend = (envBase && envBase.trim()) ? envBase.replace(/\/$/, '') : 'https://planrun.ru';
+      apiRoot = backend.endsWith('/api') ? backend : `${backend}/api`;
+    }
+  }
+
   const params = new URLSearchParams({
     action: 'get_avatar',
     file: name,

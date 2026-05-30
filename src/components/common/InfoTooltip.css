@@ -1,0 +1,141 @@
+/* InfoTooltip — иконка «i» в кружке + popover через portal. */
+
+.info-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.info-tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.55));
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.info-tooltip-trigger:hover,
+.info-tooltip-trigger:focus-visible {
+  color: var(--primary-500, #FC4C02);
+  background: rgba(252, 76, 2, 0.08);
+  outline: none;
+}
+
+[data-theme="dark"] .info-tooltip-trigger {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+[data-theme="dark"] .info-tooltip-trigger:hover,
+[data-theme="dark"] .info-tooltip-trigger:focus-visible {
+  color: var(--primary-400, #FF6F30);
+  background: rgba(255, 111, 48, 0.12);
+}
+
+/* Popover рендерится через portal в body, позиционируется JS через top/left.
+   --info-tooltip-arrow-left приходит из JS — координата стрелки в пикселях
+   от левого края popover (указывает на центр иконки). */
+.info-tooltip-popover {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #0F172A;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  pointer-events: auto;
+}
+
+/* Стрелка — два слоя: контур и заливка. Указывает на иконку через --info-tooltip-arrow-left.
+   Если popover снизу триггера (data-placement="bottom"), стрелка указывает вверх. */
+.info-tooltip-popover::before,
+.info-tooltip-popover::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  left: var(--info-tooltip-arrow-left, 50%);
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+}
+
+.info-tooltip-popover[data-placement="top"]::before {
+  top: 100%;
+  border-top-color: rgba(148, 163, 184, 0.25);
+}
+
+.info-tooltip-popover[data-placement="top"]::after {
+  top: calc(100% - 1px);
+  border-top-color: #ffffff;
+}
+
+.info-tooltip-popover[data-placement="bottom"]::before {
+  bottom: 100%;
+  border-bottom-color: rgba(148, 163, 184, 0.25);
+}
+
+.info-tooltip-popover[data-placement="bottom"]::after {
+  bottom: calc(100% - 1px);
+  border-bottom-color: #ffffff;
+}
+
+.info-tooltip-title {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #0F172A;
+}
+
+.info-tooltip-content {
+  color: rgba(15, 23, 42, 0.72);
+}
+
+[data-theme="dark"] .info-tooltip-popover {
+  background: #1E293B;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .info-tooltip-popover[data-placement="top"]::before {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .info-tooltip-popover[data-placement="top"]::after {
+  border-top-color: #1E293B;
+}
+
+[data-theme="dark"] .info-tooltip-popover[data-placement="bottom"]::before {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .info-tooltip-popover[data-placement="bottom"]::after {
+  border-bottom-color: #1E293B;
+}
+
+[data-theme="dark"] .info-tooltip-title {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="dark"] .info-tooltip-content {
+  color: rgba(255, 255, 255, 0.78);
+}

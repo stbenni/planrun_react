@@ -25,6 +25,8 @@ import { useSwipeableTabs } from '../../hooks/useSwipeableTabs';
 import {
   getActivityTypeLabel, getWorkoutDisplayType, getSourceLabel,
 } from '../../utils/workoutFormUtils';
+import { groupExercisesByCategory } from '../../utils/structuredExercises';
+import '../Calendar/WorkoutCard.css';
 import './WorkoutDetailsModal.css';
 
 const LeafletRouteMap = lazy(() => import('./LeafletRouteMap'));
@@ -265,6 +267,35 @@ const TABS = [
   { key: 'laps', label: 'Круги' },
   { key: 'charts', label: 'Графики' },
 ];
+
+/* ────── Структурированный список ОФП/СБУ-упражнений ──────
+   Использует те же классы, что и плановая карточка (WorkoutCard.css),
+   чтобы выполненная и запланированная ОФП выглядели одинаково. */
+const ExerciseList = ({ items }) => (
+  <ul className="workout-card-exercise-list">
+    {items.map((ex, idx) => (
+      <li key={idx} className="workout-card-exercise-row">
+        <span className="workout-card-exercise-name">{ex.name}</span>
+        {(ex.sets || ex.reps || ex.weight || ex.duration || ex.distance) && (
+          <span className="workout-card-exercise-meta">
+            {ex.sets && ex.reps && (
+              <span className="workout-card-chip">{ex.sets}×{ex.reps}</span>
+            )}
+            {ex.sets && !ex.reps && (ex.duration || ex.distance) && (
+              <span className="workout-card-chip">{ex.sets}×{ex.duration || ex.distance}</span>
+            )}
+            {ex.weight && (
+              <span className="workout-card-chip workout-card-chip--accent">{ex.weight}</span>
+            )}
+            {!ex.sets && ex.duration && (
+              <span className="workout-card-chip">{ex.duration}</span>
+            )}
+          </span>
+        )}
+      </li>
+    ))}
+  </ul>
+);
 
 /* ────── Main component ────── */
 const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, onDelete, selectedWorkoutId }) => {
@@ -864,6 +895,13 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
   const workoutDate = workout?.start_time ? new Date(workout.start_time) : (date ? new Date(date + 'T12:00:00') : null);
   const activityLabel = getWorkoutDisplayType(workout) ? getActivityTypeLabel(getWorkoutDisplayType(workout)) : null;
 
+  // ОФП/СБУ: парсим notes в структурированные упражнения (как в плановой карточке).
+  const structuredExercises = useMemo(() => {
+    if (!workout?.notes) return { ofp: [], sbu: [], other: '' };
+    return groupExercisesByCategory(workout.notes);
+  }, [workout?.notes]);
+  const hasStructuredExercises = structuredExercises.ofp.length > 0 || structuredExercises.sbu.length > 0;
+
   // Available tabs
   const availableTabs = useMemo(() => {
     if (!workout) return [];
@@ -1060,9 +1098,26 @@ const WorkoutDetailsModal = ({ isOpen, onClose, date, dayData, loading, onEdit, 
                   )}
                 </div>
 
-                {workout.notes && (
+                {hasStructuredExercises && (
+                  <div className="wd-exercises">
+                    {structuredExercises.ofp.length > 0 && (
+                      <div className="wd-exercises-section wd-exercises-section--ofp">
+                        <div className="wd-exercises-title">ОФП</div>
+                        <ExerciseList items={structuredExercises.ofp} />
+                      </div>
+                    )}
+                    {structuredExercises.sbu.length > 0 && (
+                      <div className="wd-exercises-section wd-exercises-section--sbu">
+                        <div className="wd-exercises-title">СБУ</div>
+                        <ExerciseList items={structuredExercises.sbu} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {workout.notes && (!hasStructuredExercises || structuredExercises.other) && (
                   <div className="wd-notes">
-                    <div className="wd-notes-text">{workout.notes}</div>
+                    <div className="wd-notes-text">{hasStructuredExercises ? structuredExercises.other : workout.notes}</div>
                   </div>
                 )}
 

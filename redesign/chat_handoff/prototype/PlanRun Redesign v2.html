@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>PlanRun · редизайн v2</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 400; src: url('fonts/montserrat-400.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 500; src: url('fonts/montserrat-500.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 600; src: url('fonts/montserrat-600.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 700; src: url('fonts/montserrat-700.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 800; src: url('fonts/montserrat-800.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Jost'; font-style: normal; font-weight: 400; src: url('fonts/jost-latin.woff2') format('woff2'), url('fonts/jost-cyrillic.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Jost'; font-style: normal; font-weight: 600; src: url('fonts/jost-latin.woff2') format('woff2'), url('fonts/jost-cyrillic.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Jost'; font-style: normal; font-weight: 700; src: url('fonts/jost-latin.woff2') format('woff2'), url('fonts/jost-cyrillic.woff2') format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Jost'; font-style: normal; font-weight: 800; src: url('fonts/jost-latin.woff2') format('woff2'), url('fonts/jost-cyrillic.woff2') format('woff2'); font-display: swap; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: 'Montserrat', -apple-system, system-ui, sans-serif; }
+  body { background: #f0eee9; }
+  #root { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="src/v2-shared.jsx"></script>
+<script type="text/babel" src="src/v2-coach-desktop.jsx"></script>
+<script type="text/babel" src="src/v2-athlete-mobile.jsx"></script>
+<script type="text/babel" src="src/v2-coach-mobile.jsx"></script>
+<script type="text/babel" src="src/v3-onboarding.jsx"></script>
+<script type="text/babel" src="src/v3-chats-settings.jsx"></script>
+<script type="text/babel" src="src/v3-dashboard.jsx"></script>
+<script type="text/babel" src="src/v3-navbar.jsx"></script>
+<script type="text/babel" src="src/v3-calendar.jsx"></script>
+<script type="text/babel" src="src/v3-notifications.jsx"></script>
+<script type="text/babel" src="src/v3-chat.jsx"></script>
+<script type="text/babel" src="src/v3-dark-theme.jsx"></script>
+<script type="text/babel" src="src/v3-dark-layer.jsx"></script>
+<script type="text/babel" src="src/v3-dashboard-dark.jsx"></script>
+<script type="text/babel" src="src/tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/design-canvas.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "dark": false
+}/*EDITMODE-END*/;
+
+// Wrap any screen with DarkLayer when dark mode is on (cards/text/borders).
+// For dashboards we swap to native dark variant. The shell-bg gradient needs
+// extra patching for desktop — handled via the .pr-shell-dark CSS overrides.
+function Themed({ children, dark, mode }) {
+  if (!dark) return children;
+  return <DarkLayer>{children}</DarkLayer>;
+}
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const dark = !!t.dark;
+
+  return (
+    <>
+      {/* Global overrides for shell gradients */}
+      {dark && (
+        <style>{`
+          [data-prdark="1"] [style*="#FAF7F3"] {
+            background-image: linear-gradient(180deg, #0F151D 0%, #0B1015 100%) !important;
+          }
+          [data-prdark="1"] [style*="rgba(255,255,255,0.72)"],
+          [data-prdark="1"] [style*="rgba(255, 255, 255, 0.72)"] {
+            background-color: rgba(28,34,43,0.72) !important;
+          }
+          [data-prdark="1"] [style*="rgba(255,255,255,0.78)"],
+          [data-prdark="1"] [style*="rgba(255, 255, 255, 0.78)"] {
+            background-color: rgba(33,41,52,0.82) !important;
+          }
+          [data-prdark="1"] [style*="rgba(255,255,255,0.92)"],
+          [data-prdark="1"] [style*="rgba(255, 255, 255, 0.92)"] {
+            background-color: rgba(28,34,43,0.85) !important;
+          }
+        `}</style>
+      )}
+
+      <TweaksPanel title="Тема">
+        <TweakSection label="Тема оформления" />
+        <TweakToggle label="Тёмная тема" value={dark} onChange={(v) => setTweak('dark', v)} />
+      </TweaksPanel>
+
+      {/* Visible theme toggle (Tweaks panel is hidden until host activates edit mode) */}
+      <button
+        onClick={() => setTweak('dark', !dark)}
+        style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 2147483645,
+          padding: '10px 14px',
+          background: dark ? '#1C222B' : 'white',
+          color: dark ? '#F1F5F9' : '#0F172A',
+          border: `1px solid ${dark ? '#2A323D' : '#E2E8F0'}`,
+          borderRadius: 999,
+          fontWeight: 600, fontSize: 13, cursor: 'pointer',
+          fontFamily: 'Montserrat, sans-serif',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+        <span style={{ fontSize: 16 }}>{dark ? '🌙' : '☀'}</span>
+        <span>{dark ? 'Тёмная' : 'Светлая'}</span>
+      </button>
+
+      <DesignCanvas
+      title="PlanRun · редизайн v2 (один цельный)"
+      subtitle="Тренер в фокусе · 3 режима работы (таблица/сетка/поток) · drill-in без потери контекста · bulk-операции · бегун получает чёткий «сегодня»-экран. Все артборды интерактивны."
+    >
+      <DCSection
+        id="coach-desktop"
+        title="Тренер · десктоп"
+        subtitle="Главный экран. Кликни вкладки «Таблица / Сетка / Поток» наверху, фильтр групп, чекбоксы для bulk-select, клик по атлету — открывает drill-in оверлей. Кнопка «+ Назначить тренировку» — мастер из 3 шагов."
+      >
+        <DCArtboard id="cd-main" label="Главный · Таблица + фильтры + KPI" width={1440} height={900}>
+          <Themed dark={dark}><CoachShell initialView="table" /></Themed>
+        </DCArtboard>
+
+        <DCArtboard id="cd-drillin" label="Drill-in оверлей · Алексей Петров" width={1440} height={900}>
+          <Themed dark={dark}><CoachShell initialView="table" initialOverlayId={1} /></Themed>
+        </DCArtboard>
+
+        <DCArtboard id="cd-grid" label="Сетка · тепловая карта compliance" width={1440} height={900}>
+          <Themed dark={dark}><CoachShell initialView="grid" /></Themed>
+        </DCArtboard>
+
+        <DCArtboard id="cd-stream" label="Поток · события команды" width={1440} height={900}>
+          <Themed dark={dark}><CoachShell initialView="stream" /></Themed>
+        </DCArtboard>
+
+        <DCArtboard id="cd-bulk" label="Мастер «Назначить тренировку»" width={1440} height={900}>
+          <Themed dark={dark}><CoachShell initialView="table" initialBulkOpen={true} /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="coach-mobile"
+        title="Тренер · мобильный"
+        subtitle="На ходу. Открывается на «Потоке». Тап по событию → bottom-sheet с быстрыми ответами и действиями, не уходя из ленты."
+      >
+        <DCArtboard id="cm-app" label="Поток · события + быстрые ответы" width={390} height={844}>
+          <Themed dark={dark}><CoachMobile /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="athlete-onboarding"
+        title="Бегун · онбординг и выбор режима"
+        subtitle="3 шага: цель → выбор между AI и тренером → старт. Режим эксклюзивный — либо AI, либо тренер. После онбординга бегун может в любой момент переключиться через настройки."
+      >
+        <DCArtboard id="ob-1" label="Шаг 1 · цель и уровень" width={390} height={844}>
+          <Themed dark={dark}><OnboardingFlow initialStep={1} /></Themed>
+        </DCArtboard>
+        <DCArtboard id="ob-2" label="Шаг 2 · AI или тренер" width={390} height={844}>
+          <Themed dark={dark}><OnboardingFlow initialStep={2} /></Themed>
+        </DCArtboard>
+        <DCArtboard id="ob-3" label="Шаг 3 · подтверждение" width={390} height={844}>
+          <Themed dark={dark}><OnboardingFlow initialStep={3} /></Themed>
+        </DCArtboard>
+        <DCArtboard id="find-trainer" label="Выбор тренера · карточки с online" width={390} height={844}>
+          <Themed dark={dark}><FindTrainer /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="athlete-chats"
+        title="Бегун · чаты"
+        subtitle="AI всегда онлайн и показывает что умеет (tools). Тренер с индикатором online/offline и средним временем ответа. Контекст «сегодняшней тренировки» прикреплён к чату."
+      >
+        <DCArtboard id="ai-chat" label="AI-чат (режим AI)" width={390} height={844}>
+          <Themed dark={dark}><AIChat /></Themed>
+        </DCArtboard>
+        <DCArtboard id="trainer-chat" label="Чат с тренером (режим тренер)" width={390} height={844}>
+          <Themed dark={dark}><TrainerChat /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="mode-settings"
+        title="Бегун · настройки режима"
+        subtitle="Текущий активный режим + кнопка переключения. Предупреждение про эксклюзивность. История тренировок и прогресс остаются при смене."
+      >
+        <DCArtboard id="mode-ai" label="Сейчас на AI · переключить на тренера" width={390} height={844}>
+          <Themed dark={dark}><ModeSettings mode="ai" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="mode-trainer" label="Сейчас с тренером · переключить на AI" width={390} height={844}>
+          <Themed dark={dark}><ModeSettings mode="trainer" /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="chat-v3"
+        title="Бегун · Чат (v3 — полный редизайн)"
+        subtitle="Tool-calling индикаторы (AI правит план прямо в чате) + result-карточки, список чатов на десктопе, suggested prompts в пустом чате, контекстные quick-replies, композер с фото/голосом. Свет/тёмная — общим тогглом."
+      >
+        <DCArtboard id="chat-desk-ai" label="Десктоп · AI-тренер (список + диалог)" width={1440} height={900}>
+          <Themed dark={dark}><ChatDesktop activeKind="ai" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="chat-desk-coach" label="Десктоп · чат с тренером" width={1440} height={900}>
+          <Themed dark={dark}><ChatDesktop activeKind="coach" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="chat-mob-ai" label="Мобайл · AI-чат + tool-result" width={390} height={844}>
+          <Themed dark={dark}><ChatMobileAI state="normal" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="chat-mob-empty" label="Мобайл · пустой AI-чат (prompts)" width={390} height={844}>
+          <Themed dark={dark}><ChatMobileAI state="empty" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="chat-mob-tool" label="Мобайл · AI вызывает инструмент (live)" width={390} height={844}>
+          <Themed dark={dark}><ChatMobileAI state="tool-calling" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="chat-mob-coach" label="Мобайл · чат с тренером + контекст" width={390} height={844}>
+          <Themed dark={dark}><ChatMobileTrainer /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="notifications"
+        title="Бегун · Уведомления (колокольчик)"
+        subtitle="Что открывается по клику на 🔔. На мобайле — полный экран со списком. На десктопе — dropdown-панель прямо из шапки. Типы: AI-брифинг, PR, загрузка тренировки, сообщение тренера, milestone цели, пропуск, готовность плана. Свет/тёмная — общим тогглом."
+      >
+        <DCArtboard id="notif-mob" label="Мобайл · полный экран" width={390} height={844}>
+          <Themed dark={dark}><NotificationsMobile /></Themed>
+        </DCArtboard>
+        <DCArtboard id="notif-desk" label="Десктоп · dropdown из колокольчика" width={1440} height={900}>
+          <Themed dark={dark}><NotificationsDesktopDropdown /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="calendar-v3"
+        title="Бегун · Календарь (v3)"
+        subtitle="Решает 3 боли: фаза плана видна всегда (macro-cycle ribbon), splat объёма по неделям (sparkline bars), DayModal чище. Свет/тёмная — общим тогглом."
+      >
+        <DCArtboard id="cal-week-mob" label="Неделя · мобайл" width={390} height={844}>
+          <Themed dark={dark}><CalWeekMobile /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-week-desk" label="Неделя · десктоп" width={1440} height={900}>
+          <Themed dark={dark}><CalWeekDesktop /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-month-mob" label="Месяц · мобайл" width={390} height={844}>
+          <Themed dark={dark}><CalMonthMobile /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-month-desk" label="Месяц · десктоп" width={1440} height={900}>
+          <Themed dark={dark}><CalMonthDesktop /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-day-sheet" label="DayModal · bottom-sheet (мобайл)" width={390} height={844}>
+          <Themed dark={dark}><CalDayDetailsMobile /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-empty-no" label="Empty · нет плана" width={390} height={844}>
+          <Themed dark={dark}><CalEmpty state="no-plan" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="cal-empty-gen" label="Empty · генерируется" width={390} height={844}>
+          <Themed dark={dark}><CalEmpty state="generating" /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="athlete-dashboard-v3"
+        title="Бегун · новый дэшборд (v3)"
+        subtitle="Применены 6 предложений из Dashboard Suggestions: фиксированная структура из 5 секций, AI интегрирован в «Сегодня» (quote-блок под метриками), героическая карточка дня, режим в шапке, объединённая «Цель», десктоп — 2 колонки."
+      >
+        <DCArtboard id="dash-mob-ai" label="Мобайл · режим AI" width={390} height={844}>
+          <Themed dark={dark}><MobileDashV3 mode="ai" aiStyle="quote" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="dash-mob-trainer" label="Мобайл · режим тренер" width={390} height={844}>
+          <Themed dark={dark}><MobileDashV3 mode="trainer" aiStyle="quote" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="dash-desk" label="Десктоп · 2 колонки (1440×900)" width={1440} height={900}>
+          <Themed dark={dark}><DesktopDashV3 mode="ai" /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="athlete-dashboard-empty"
+        title="Бегун · empty-states"
+        subtitle="Три ключевых состояния: нет плана (первый запуск), план генерируется (3-5 мин), день отдыха. Каждое — не пустота, а полезный экран."
+      >
+        <DCArtboard id="empty-no-plan" label="Нет плана · онбординг" width={390} height={844}>
+          <Themed dark={dark}><EmptyStates state="no-plan" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="empty-gen" label="План генерируется" width={390} height={844}>
+          <Themed dark={dark}><EmptyStates state="generating" /></Themed>
+        </DCArtboard>
+        <DCArtboard id="empty-rest" label="День восстановления" width={390} height={844}>
+          <Themed dark={dark}><EmptyStates state="rest-day" /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection
+        id="dashboard-customizer"
+        title="Бегун · настройка дэшборда (виджеты)"
+        subtitle="Возвращена кастомизация — но без сложного drag-and-drop. Тумблеры включить/выключить + 3 пресета сверху (Простой / Средний / Профи). Виджет «Сегодняшняя тренировка» всегда включён (зафиксирован). Порядок — фиксированный по приоритету, есть отдельный режим «Расставить вручную»."
+      >
+        <DCArtboard id="dash-custom" label="Управление виджетами · тумблеры + пресеты" width={390} height={844}>
+          <Themed dark={dark}><DashCustomizer /></Themed>
+        </DCArtboard>
+      </DCSection>
+
+      <DCPostIt x={32} y={32} w={240}>
+        Один cohesive редизайн, не выбор из трёх.
+        {'\n\n'}Слева → вправо: рабочий стол тренера в 3 режимах, drill-in оверлей, мастер назначения.
+        {'\n\n'}Дальше — мобильный бегуна и мобильный тренера.
+        {'\n\n'}Все нажимные элементы работают: вкладки, фильтры, чекбоксы, expand/collapse.
+      </DCPostIt>
+    </DesignCanvas>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

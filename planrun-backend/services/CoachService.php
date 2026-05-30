@@ -465,10 +465,339 @@ class CoachService extends BaseService {
                 $a['groups'] = $groupsByUser[$a['id']] ?? [];
             }
             unset($a);
+
+            $this->enrichAthletesWithPlanAndVolume($athletes, $athleteIds, $today);
+            $this->enrichAthletesWithVdot($athletes);
         }
 
         return $athletes;
     }
+
+    /**
+     * Детали атлета для drill-in: недельный план + графики (8 недель объёма + история VDOT) + последние заметки.
+     */
+    public function getAthleteDetails(int $coachId, int $athleteId, ?string $weekStart = null): array {
+        // Проверка прав: атлет должен быть подопечным этого тренера
+        $stmt = $this->db->prepare("SELECT 1 FROM user_coaches WHERE coach_id = ? AND user_id = ? LIMIT 1");
+        $stmt->bind_param('ii', $coachId, $athleteId);
+        $stmt->execute();
+        $ok = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$ok) {
+            $this->throwException('Атлет не найден среди ваших подопечных', 404);
+        }
+
+        $weekStart = $weekStart ?: date('Y-m-d', strtotime('monday this week'));
+        $weekEnd = date('Y-m-d', strtotime('+6 days', strtotime($weekStart)));
+
+        return [
+            'athlete_id' => $athleteId,
+            'week_start' => $weekStart,
+            'week_plan' => $this->getAthleteWeekPlan($athleteId, $weekStart, $weekEnd),
+            'volume_weeks' => $this->getAthleteVolumeWeeks($athleteId, 8),
+            'vdot_history' => $this->getAthleteVdotHistory($athleteId, 8),
+            'recent_notes' => $this->getAthleteRecentNotes($athleteId, $coachId, 10),
+        ];
+    }
+
+    /** 7-дневный план для атлета: type/description/completed/distance_done. */
+    private function getAthleteWeekPlan(int $athleteId, string $weekStart, string $weekEnd): array {
+        $TYPE_LABELS = [
+            'rest' => 'Отдых', 'tempo' => 'Темповая', 'interval' => 'Интервалы',
+            'long' => 'Длительная', 'race' => 'Гонка', 'other' => 'ОФП',
+            'free' => 'Свободно', 'easy' => 'Лёгкая', 'sbu' => 'СБУ',
+            'fartlek' => 'Фартлек', 'control' => 'Контрольная', 'walking' => 'Ходьба',
+        ];
+
+        // Плановые дни
+        $stmt = $this->db->prepare("
+            SELECT date, type, description, is_key_workout
+              FROM training_plan_days
+             WHERE user_id = ? AND date BETWEEN ? AND ?
+        ");
+        $stmt->bind_param('iss', $athleteId, $weekStart, $weekEnd);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $planByDate = [];
+        while ($row = $result->fetch_assoc()) {
+            $planByDate[$row['date']] = $row;
+        }
+        $stmt->close();
+
+        // Фактические — суммируем по дате (COLLATE приводит pace к одной коллации)
+        $stmt = $this->db->prepare("
+            SELECT day, SUM(km) AS km, MAX(pace) AS pace
+              FROM (
+                SELECT DATE(start_time) AS day, COALESCE(distance_km, 0) AS km,
+                       CONVERT(avg_pace USING utf8mb4) COLLATE utf8mb4_unicode_ci AS pace
+                  FROM workouts WHERE user_id = ? AND DATE(start_time) BETWEEN ? AND ?
+                UNION ALL
+                SELECT training_date AS day, COALESCE(distance_km, 0) AS km,
+                       CONVERT(pace USING utf8mb4) COLLATE utf8mb4_unicode_ci AS pace
+                  FROM workout_log WHERE user_id = ? AND is_completed = 1
+                    AND training_date BETWEEN ? AND ?
+              ) x
+             GROUP BY day
+        ");
+        $stmt->bind_param('ississ', $athleteId, $weekStart, $weekEnd, $athleteId, $weekStart, $weekEnd);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $doneByDate = [];
+        while ($row = $result->fetch_assoc()) {
+            $doneByDate[$row['day']] = [
+                'km' => (float)$row['km'],
+                'pace' => $row['pace'],
+            ];
+        }
+        $stmt->close();
+
+        $days = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = date('Y-m-d', strtotime("+$i days", strtotime($weekStart)));
+            $plan = $planByDate[$d] ?? null;
+            $done = $doneByDate[$d] ?? null;
+            $type = $plan['type'] ?? null;
+            $days[] = [
+                'date' => $d,
+                'day_of_week' => (int)date('N', strtotime($d)), // 1..7
+                'type' => $type,
+                'label' => $type ? ($TYPE_LABELS[$type] ?? $type) : null,
+                'description' => $plan['description'] ?? null,
+                'is_key' => !empty($plan['is_key_workout']),
+                'completed' => $done !== null,
+                'distance_done' => $done ? round($done['km'], 1) : null,
+                'pace_done' => $done['pace'] ?? null,
+            ];
+        }
+        return $days;
+    }
+
+    /** Сумма км по календарным неделям (понедельник—воскресенье), последние N недель. */
+    private function getAthleteVolumeWeeks(int $athleteId, int $weeks): array {
+        $end = date('Y-m-d', strtotime('sunday this week'));
+        $start = date('Y-m-d', strtotime("-" . ($weeks * 7 - 1) . " days", strtotime($end)));
+
+        $stmt = $this->db->prepare("
+            SELECT day, SUM(km) AS km FROM (
+                SELECT DATE(start_time) AS day, COALESCE(distance_km, 0) AS km
+                  FROM workouts WHERE user_id = ? AND DATE(start_time) BETWEEN ? AND ?
+                UNION ALL
+                SELECT training_date AS day, COALESCE(distance_km, 0) AS km
+                  FROM workout_log WHERE user_id = ? AND is_completed = 1
+                    AND training_date BETWEEN ? AND ?
+            ) x GROUP BY day
+        ");
+        $stmt->bind_param('ississ', $athleteId, $start, $end, $athleteId, $start, $end);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $byDay = [];
+        while ($row = $result->fetch_assoc()) {
+            $byDay[$row['day']] = (float)$row['km'];
+        }
+        $stmt->close();
+
+        // Группировка в недели начиная с $start (этот день — понедельник самой ранней недели)
+        $startMonday = date('Y-m-d', strtotime('monday', strtotime("-1 day", strtotime($start))));
+        $out = [];
+        for ($w = 0; $w < $weeks; $w++) {
+            $weekStart = date('Y-m-d', strtotime("+" . ($w * 7) . " days", strtotime($startMonday)));
+            $sum = 0;
+            for ($d = 0; $d < 7; $d++) {
+                $day = date('Y-m-d', strtotime("+$d days", strtotime($weekStart)));
+                $sum += $byDay[$day] ?? 0;
+            }
+            $out[] = ['week_start' => $weekStart, 'km' => round($sum, 1)];
+        }
+        return $out;
+    }
+
+    /** История VDOT по последним результатам — вычисляется из забегов в workout_log. */
+    private function getAthleteVdotHistory(int $athleteId, int $limit): array {
+        require_once __DIR__ . '/MetricsService.php';
+        $metrics = new MetricsService($this->db);
+
+        $stmt = $this->db->prepare("
+            SELECT wl.training_date, wl.distance_km, wl.result_time
+              FROM workout_log wl
+             WHERE wl.user_id = ?
+               AND wl.is_completed = 1
+               AND wl.distance_km IS NOT NULL AND wl.distance_km > 0
+               AND wl.result_time IS NOT NULL AND wl.result_time != ''
+               AND wl.training_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+             ORDER BY wl.training_date DESC
+             LIMIT ?
+        ");
+        $stmt->bind_param('ii', $athleteId, $limit);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $time = $this->parseTimeToSeconds($row['result_time']);
+            $dist = (float)$row['distance_km'];
+            if ($time <= 0 || $dist <= 0) continue;
+            try {
+                $vdot = $metrics->estimateVdot($dist, $time);
+                if ($vdot > 0) {
+                    $rows[] = ['date' => $row['training_date'], 'vdot' => round($vdot, 1)];
+                }
+            } catch (\Throwable $e) {
+                // skip
+            }
+        }
+        $stmt->close();
+
+        // В хронологическом порядке (старое → новое)
+        usort($rows, fn($a, $b) => strcmp($a['date'], $b['date']));
+        return $rows;
+    }
+
+    private function parseTimeToSeconds(string $t): int {
+        $parts = explode(':', trim($t));
+        if (count($parts) === 3) return (int)$parts[0] * 3600 + (int)$parts[1] * 60 + (int)$parts[2];
+        if (count($parts) === 2) return (int)$parts[0] * 60 + (int)$parts[1];
+        return (int)$t;
+    }
+
+    /** Последние заметки тренера и атлета по дням плана. */
+    private function getAthleteRecentNotes(int $athleteId, int $coachId, int $limit): array {
+        $stmt = $this->db->prepare("
+            SELECT n.id, n.date, n.content, n.created_at, n.author_id,
+                   u.username AS author_username, u.role AS author_role
+              FROM plan_day_notes n
+              JOIN users u ON n.author_id = u.id
+             WHERE n.user_id = ?
+               AND n.author_id IN (?, ?)
+             ORDER BY n.created_at DESC
+             LIMIT ?
+        ");
+        $stmt->bind_param('iiii', $athleteId, $coachId, $athleteId, $limit);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = [
+                'id' => (int)$row['id'],
+                'date' => $row['date'],
+                'content' => $row['content'],
+                'created_at' => $row['created_at'],
+                'author_id' => (int)$row['author_id'],
+                'author_username' => $row['author_username'],
+                'author_is_coach' => $row['author_id'] === $coachId || $row['author_role'] === 'coach',
+            ];
+        }
+        $stmt->close();
+        return $rows;
+    }
+
+    /**
+     * Дополняет атлетов: today_plan, volume_spark (массив объёма за 7 дней), volume_7d (сумма).
+     * Один запрос на today_plan, один — на 7d volume для всех атлетов сразу.
+     */
+    private function enrichAthletesWithPlanAndVolume(array &$athletes, array $athleteIds, string $today): void {
+        if (count($athleteIds) === 0) return;
+
+        $placeholders = implode(',', array_fill(0, count($athleteIds), '?'));
+        $types = str_repeat('i', count($athleteIds));
+
+        // today_plan: тип + описание из training_plan_days
+        $TYPE_LABELS = [
+            'rest' => 'Отдых', 'tempo' => 'Темповая', 'interval' => 'Интервалы',
+            'long' => 'Длительная', 'race' => 'Гонка', 'other' => 'ОФП',
+            'free' => 'Свободно', 'easy' => 'Лёгкая', 'sbu' => 'СБУ',
+            'fartlek' => 'Фартлек', 'control' => 'Контрольная', 'walking' => 'Ходьба',
+        ];
+
+        $stmt = $this->db->prepare("
+            SELECT user_id, type, description
+              FROM training_plan_days
+             WHERE user_id IN ($placeholders) AND date = ?
+        ");
+        $params = array_merge($athleteIds, [$today]);
+        $stmt->bind_param($types . 's', ...$params);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $planByUser = [];
+        while ($row = $result->fetch_assoc()) {
+            $uid = (int)$row['user_id'];
+            $type = $row['type'];
+            $planByUser[$uid] = [
+                'type' => $type,
+                'label' => $TYPE_LABELS[$type] ?? $type,
+                'description' => $row['description'],
+            ];
+        }
+        $stmt->close();
+
+        // Last 7 дней объёма (включая сегодня): UNION workouts + workout_log,
+        // SUM(distance_km) по дате. Возвращаем массив из 7 чисел в хронологии (старое→новое).
+        $stmt = $this->db->prepare("
+            SELECT user_id, day, SUM(km) AS km
+              FROM (
+                SELECT user_id, DATE(start_time) AS day, COALESCE(distance_km, 0) AS km
+                  FROM workouts
+                 WHERE user_id IN ($placeholders) AND DATE(start_time) BETWEEN ? AND ?
+                UNION ALL
+                SELECT user_id, training_date AS day, COALESCE(distance_km, 0) AS km
+                  FROM workout_log
+                 WHERE user_id IN ($placeholders) AND is_completed = 1
+                   AND training_date BETWEEN ? AND ?
+              ) x
+             GROUP BY user_id, day
+        ");
+        $start7 = date('Y-m-d', strtotime('-6 days', strtotime($today)));
+        $params2 = array_merge(
+            $athleteIds, [$start7, $today],
+            $athleteIds, [$start7, $today]
+        );
+        $stmt->bind_param(str_repeat('i', count($athleteIds)) . 'ss' . str_repeat('i', count($athleteIds)) . 'ss', ...$params2);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $volByUserDay = [];
+        while ($row = $result->fetch_assoc()) {
+            $uid = (int)$row['user_id'];
+            $volByUserDay[$uid][$row['day']] = (float)$row['km'];
+        }
+        $stmt->close();
+
+        // Сборка spark + сумма
+        foreach ($athletes as &$a) {
+            $uid = $a['id'];
+            if (isset($planByUser[$uid])) {
+                $a['today_plan'] = $planByUser[$uid];
+            }
+            $spark = [];
+            $sum = 0.0;
+            for ($i = 6; $i >= 0; $i--) {
+                $d = date('Y-m-d', strtotime("-$i days", strtotime($today)));
+                $v = $volByUserDay[$uid][$d] ?? 0;
+                $spark[] = round($v, 1);
+                $sum += $v;
+            }
+            $a['volume_spark'] = $spark;
+            $a['volume_7d'] = round($sum, 1);
+        }
+        unset($a);
+    }
+
+    /**
+     * Дополняет атлетов VDOT через MetricsService. Кэшируется в self::$vdotCache.
+     */
+    private function enrichAthletesWithVdot(array &$athletes): void {
+        require_once __DIR__ . '/MetricsService.php';
+        $metrics = new MetricsService($this->db);
+        foreach ($athletes as &$a) {
+            try {
+                $v = $metrics->getVdot((int)$a['id']);
+                if (!empty($v['vdot'])) {
+                    $a['vdot'] = round((float)$v['vdot'], 1);
+                }
+            } catch (\Throwable $e) {
+                // Молча скипаем — отсутствие vdot не критично для UI
+            }
+        }
+        unset($a);
+    }
+
 
     // ==================== ЦЕНООБРАЗОВАНИЕ ====================
 

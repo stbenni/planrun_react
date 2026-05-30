@@ -11,7 +11,7 @@ import usePlanStore from '../../stores/usePlanStore';
 import { BotIcon, MessageCircleIcon, BellIcon, CloseIcon } from './Icons';
 import './Notifications.css';
 
-const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
+const Notifications = ({ api, isAdmin, onWorkoutPress, user, onCountChange }) => {
   const navigate = useNavigate();
   const [upcomingWorkouts, setUpcomingWorkouts] = useState([]);
   const [adminMessages, setAdminMessages] = useState([]);
@@ -208,6 +208,13 @@ const Notifications = ({ api, isAdmin, onWorkoutPress, user }) => {
     .filter((n) => !dismissed.has(n.id))
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   const allItems = [...planNotifItems, ...chatItems, ...aiChatItems, ...workoutItems];
+
+  // Сообщаем актуальное число видимых уведомлений наружу (для бейджа на колокольчике).
+  // Хук объявлен до раннего return, чтобы порядок хуков был стабилен.
+  useEffect(() => {
+    if (!dismissedLoaded) return;
+    onCountChange?.(allItems.length);
+  }, [dismissedLoaded, allItems.length, onCountChange]);
 
   if (!dismissedLoaded || allItems.length === 0) {
     return null;

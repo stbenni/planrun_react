@@ -8,16 +8,50 @@ import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } fr
 import LogoLoading from '../common/LogoLoading';
 import useWorkoutRefreshStore from '../../stores/useWorkoutRefreshStore';
 import { TrendingUpIcon, TrendingDownIcon, TargetIcon, ZapIcon, CompletedIcon, AlertTriangleIcon } from '../common/Icons';
+import InfoTooltip from '../common/InfoTooltip';
 import './TrainingLoadWidget.css';
+
+/* ── Объяснения терминов для тултипов ── */
+const TERM_TIPS = {
+  tsb: {
+    title: 'TSB — Training Stress Balance',
+    content: 'Баланс между текущей формой (CTL) и острой усталостью (ATL). TSB = CTL − ATL. Положительный — свежий, готов к гонке. Отрицательный — идёт продуктивная нагрузка (или перегруз).',
+  },
+  atl: {
+    title: 'ATL — острая усталость',
+    content: 'Acute Training Load. Скользящее среднее TRIMP за 7 дней. Растёт быстро при тяжёлых тренировках, быстро падает на отдыхе. Это «накопленная за неделю усталость».',
+  },
+  ctl: {
+    title: 'CTL — форма',
+    content: 'Chronic Training Load. Скользящее среднее TRIMP за 42 дня. Меняется медленно — отражает накопленную фитнес-базу. Растёт от регулярных тренировок, теряется за 1.5 мес. без нагрузки.',
+  },
+  acwr: {
+    title: 'ACWR — соотношение нагрузок',
+    content: 'Acute:Chronic Workload Ratio. Сравнивает последнюю неделю с 4-недельным средним. Сладкое пятно 0.8–1.3 (Gabbett, 2016): прогрессируешь без риска. Выше 1.5 — резкий спайк, риск травмы. Ниже 0.8 — теряешь форму.',
+  },
+};
 
 /* ── TSB status helpers ── */
 
+// Пороги TSB — стандарт TrainingPeaks Performance Management Chart:
+// +25..+5 «Свежий» (race-ready в верхней части), -10..+5 «Готовность»,
+// -30..-10 «Нагрузка» (продуктивная зона тренировок), ниже -30 «Перегрузка».
 const TSB_STATES = [
-  { min: 15, key: 'recovered', label: 'Восстановлен', cssmod: 'recovered' },
+  { min: 25, key: 'recovered', label: 'Восстановлен', cssmod: 'recovered' },
   { min: 5, key: 'fresh', label: 'Свежий', cssmod: 'fresh' },
-  { min: -10, key: 'loaded', label: 'Нагрузка', cssmod: 'loaded' },
+  { min: -10, key: 'neutral', label: 'Готовность', cssmod: 'fresh' },
+  { min: -30, key: 'loaded', label: 'Нагрузка', cssmod: 'loaded' },
   { min: -Infinity, key: 'overloaded', label: 'Перегрузка', cssmod: 'overloaded' },
 ];
+
+// ACWR — Acute:Chronic Workload Ratio. Сладкое пятно 0.8–1.3.
+const ACWR_LABELS = {
+  insufficient: { label: 'мало данных', cssmod: 'neutral' },
+  detrained: { label: 'детрениров.', cssmod: 'neutral' },
+  optimal: { label: 'оптимально', cssmod: 'fresh' },
+  caution: { label: 'осторожно', cssmod: 'loaded' },
+  risk: { label: 'риск травмы', cssmod: 'overloaded' },
+};
 
 function getTsbState(tsb) {
   return TSB_STATES.find((s) => tsb >= s.min) || TSB_STATES[TSB_STATES.length - 1];
@@ -39,7 +73,7 @@ function getRecommendations(atl, ctl, tsb) {
   const optHigh = Math.round(ctl * 1.3);
   const items = [];
 
-  if (tsb >= 15) {
+  if (tsb >= 25) {
     items.push({ Icon: TrendingUpIcon, tone: 'positive', text: 'Можно увеличить нагрузку' });
     items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
     items.push({ Icon: ZapIcon, tone: 'accent', text: 'Хорошее время для интенсивных тренировок' });
@@ -48,12 +82,16 @@ function getRecommendations(atl, ctl, tsb) {
     items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
     items.push({ Icon: ZapIcon, tone: 'accent', text: 'Поддерживайте текущий уровень нагрузки' });
   } else if (tsb >= -10) {
-    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Идёт адаптация к нагрузке' });
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Готов к работе' });
+    items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Поддерживайте текущий уровень' });
+  } else if (tsb >= -30) {
+    items.push({ Icon: ZapIcon, tone: 'accent', text: 'Продуктивная зона нагрузки' });
     items.push({ Icon: TargetIcon, tone: 'neutral', text: `Целевой TRIMP: ${optLow}–${optHigh}` });
     if (atl > ctl * 1.4) {
       items.push({ Icon: AlertTriangleIcon, tone: 'warning', text: 'ATL сильно выше формы — запланируйте отдых' });
     } else {
-      items.push({ Icon: ZapIcon, tone: 'accent', text: 'Включите лёгкие тренировки для восстановления' });
+      items.push({ Icon: ZapIcon, tone: 'accent', text: 'Идёт адаптация — ловите супер-компенсацию' });
     }
   } else {
     items.push({ Icon: TrendingDownIcon, tone: 'warning', text: 'Снизьте нагрузку для восстановления' });
@@ -254,6 +292,9 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
   const currentATL = lastPoint?.atl ?? 0;
   const currentCTL = lastPoint?.ctl ?? 0;
   const tsbState = getTsbState(currentTSB);
+  const currentAcwr = data?.current?.acwr ?? null;
+  const currentAcwrStatus = data?.current?.acwr_status ?? 'insufficient';
+  const acwrInfo = ACWR_LABELS[currentAcwrStatus] || ACWR_LABELS.insufficient;
   const recommendations = getRecommendations(currentATL, currentCTL, currentTSB);
 
   /* ── Tooltip data ── */
@@ -364,16 +405,34 @@ const TrainingLoadWidget = ({ api, viewContext = null, compact = false }) => {
       <div className="training-load__header">
         <span className={`training-load__tsb-badge training-load__tsb-badge--${tsbState.cssmod}`}>
           {tsbState.label}
-          <span className="training-load__tsb-value">TSB {Math.round(currentTSB)}</span>
+          <span className="training-load__tsb-value">
+            TSB {Math.round(currentTSB)}
+            <InfoTooltip {...TERM_TIPS.tsb} />
+          </span>
         </span>
+        {currentAcwr !== null && (
+          <span className={`training-load__tsb-badge training-load__tsb-badge--${acwrInfo.cssmod}`}>
+            {acwrInfo.label}
+            <span className="training-load__tsb-value">
+              ACWR {currentAcwr.toFixed(2)}
+              <InfoTooltip {...TERM_TIPS.acwr} />
+            </span>
+          </span>
+        )}
         <div className="training-load__metrics">
           <div className="training-load__metric">
             <span className="training-load__metric-value">{Math.round(currentATL)}</span>
-            <span className="training-load__metric-label">Усталость</span>
+            <span className="training-load__metric-label">
+              Усталость
+              <InfoTooltip {...TERM_TIPS.atl} />
+            </span>
           </div>
           <div className="training-load__metric">
             <span className="training-load__metric-value">{Math.round(currentCTL)}</span>
-            <span className="training-load__metric-label">Форма</span>
+            <span className="training-load__metric-label">
+              Форма
+              <InfoTooltip {...TERM_TIPS.ctl} />
+            </span>
           </div>
         </div>
       </div>

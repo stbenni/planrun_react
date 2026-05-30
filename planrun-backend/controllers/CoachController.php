@@ -6,16 +6,34 @@
  */
 
 require_once __DIR__ . '/../services/CoachService.php';
+require_once __DIR__ . '/../services/CoachTemplateService.php';
+require_once __DIR__ . '/../services/CoachEventsService.php';
 
 class CoachController extends BaseController {
 
     private ?CoachService $service = null;
+    private ?CoachTemplateService $templateService = null;
+    private ?CoachEventsService $eventsService = null;
 
     private function coachService(): CoachService {
         if (!$this->service) {
             $this->service = new CoachService($this->db);
         }
         return $this->service;
+    }
+
+    private function coachTemplateService(): CoachTemplateService {
+        if (!$this->templateService) {
+            $this->templateService = new CoachTemplateService($this->db);
+        }
+        return $this->templateService;
+    }
+
+    private function coachEventsService(): CoachEventsService {
+        if (!$this->eventsService) {
+            $this->eventsService = new CoachEventsService($this->db);
+        }
+        return $this->eventsService;
     }
 
     private function requireCoachOrAdmin(): bool {
@@ -172,6 +190,30 @@ class CoachController extends BaseController {
     }
 
     /**
+     * GET get_athlete_details — недельный план + графики + последние заметки для атлета.
+     * Параметры: athlete_id (int, обязательно), week_start (Y-m-d, опционально — по умолчанию текущая ISO-неделя).
+     */
+    public function getAthleteDetails() {
+        if (!$this->requireCoachOrAdmin()) return;
+        try {
+            $athleteId = (int)$this->getParam('athlete_id', 0);
+            if ($athleteId <= 0) {
+                $this->returnError('athlete_id required', 400);
+                return;
+            }
+            $weekStart = $this->getParam('week_start', null);
+            $details = $this->coachService()->getAthleteDetails(
+                $this->currentUserId,
+                $athleteId,
+                $weekStart ? (string)$weekStart : null
+            );
+            $this->returnSuccess($details);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * GET get_coach_pricing — цены тренера
      */
     public function getCoachPricing() {
@@ -317,6 +359,111 @@ class CoachController extends BaseController {
 
             $groups = $this->coachService()->getAthleteGroups($this->currentUserId, $userId);
             $this->returnSuccess(['groups' => $groups]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * GET list_workout_templates — шаблоны тренировок тренера (с упражнениями).
+     */
+    public function listWorkoutTemplates() {
+        if (!$this->requireCoachOrAdmin()) return;
+        try {
+            $result = $this->coachTemplateService()->getTemplates($this->currentUserId);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST save_workout_template — создать шаблон тренировки.
+     * Body: { name, type, distance?, emoji?, description?, is_key_workout?, exercises?: [...] }
+     */
+    public function saveWorkoutTemplate() {
+        if (!$this->requireCoachOrAdmin()) return;
+        $this->checkCsrfToken();
+        try {
+            $data = $this->getJsonBody();
+            $result = $this->coachTemplateService()->createTemplate($this->currentUserId, $data);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST delete_workout_template — удалить шаблон.
+     * Body: { template_id }
+     */
+    public function deleteWorkoutTemplate() {
+        if (!$this->requireCoachOrAdmin()) return;
+        $this->checkCsrfToken();
+        try {
+            $data = $this->getJsonBody();
+            $templateId = (int)($data['template_id'] ?? 0);
+            if ($templateId <= 0) {
+                $this->returnError('template_id обязателен', 400);
+                return;
+            }
+            $this->coachTemplateService()->deleteTemplate($this->currentUserId, $templateId);
+            $this->returnSuccess(['success' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST bulk_assign_training — массовое назначение тренировки по шаблону.
+     * Body: { template_id, athlete_ids: [...], date: 'Y-m-d', overwrite?: bool }
+     *
+     * Preflight (overwrite=false): возвращает conflicts[] если у кого-то уже есть план на эту дату.
+     * Apply (overwrite=true или нет конфликтов): применяет шаблон.
+     */
+    /**
+     * GET coach_events — лента событий тренера.
+     * Параметры: hours_back (опц., по умолчанию 48).
+     */
+    public function getCoachEvents() {
+        if (!$this->requireCoachOrAdmin()) return;
+        try {
+            $hoursBack = (int) $this->getParam('hours_back', 48);
+            if ($hoursBack < 1) $hoursBack = 48;
+            if ($hoursBack > 240) $hoursBack = 240;
+            $result = $this->coachEventsService()->getEvents($this->currentUserId, $hoursBack);
+            $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    public function bulkAssignTraining() {
+        if (!$this->requireCoachOrAdmin()) return;
+        $this->checkCsrfToken();
+        try {
+            $data = $this->getJsonBody();
+            $templateId = (int)($data['template_id'] ?? 0);
+            $athleteIds = $data['athlete_ids'] ?? [];
+            $date = (string)($data['date'] ?? '');
+            $overwrite = !empty($data['overwrite']);
+
+            if ($templateId <= 0) {
+                $this->returnError('template_id обязателен', 400);
+                return;
+            }
+            if (!is_array($athleteIds) || count($athleteIds) === 0) {
+                $this->returnError('athlete_ids обязателен', 400);
+                return;
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                $this->returnError('date должен быть в формате Y-m-d', 400);
+                return;
+            }
+
+            $result = $this->coachTemplateService()
+                ->bulkAssign($this->currentUserId, $templateId, $athleteIds, $date, $overwrite);
+            $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
         }

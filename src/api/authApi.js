@@ -168,6 +168,61 @@ async function loginWithJwt(client, username, password) {
   }
 }
 
+async function telegramMiniAppAuth(client, initData, timezone = null) {
+  const url = getAuthWrapperUrl(client.baseUrl, 'telegram_miniapp_auth');
+
+  let deviceId = null;
+  try {
+    deviceId = await Promise.race([
+      client.getOrCreateDeviceId(),
+      new Promise((resolve) => setTimeout(() => resolve(null), DEVICE_ID_TIMEOUT_MS)),
+    ]);
+  } catch {
+    deviceId = null;
+  }
+
+  const body = { init_data: initData };
+  if (deviceId) body.device_id = deviceId;
+  if (timezone) body.timezone = timezone;
+
+  try {
+    const { response, data } = await fetchJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok || !data.success || !data.data) {
+      throw new ApiError({
+        code: 'TELEGRAM_AUTH_FAILED',
+        message: data.error || data.message || 'Не удалось войти через Telegram',
+        status: response.status,
+      });
+    }
+
+    const { access_token, refresh_token, user_id, username, is_new, onboarding_completed } = data.data;
+    await applySessionTokens(client, access_token, refresh_token);
+
+    return {
+      success: true,
+      user: {
+        id: user_id,
+        user_id,
+        username,
+        authenticated: true,
+        onboarding_completed,
+      },
+      access_token,
+      refresh_token,
+      is_new: Boolean(is_new),
+    };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError({ code: 'TELEGRAM_AUTH_FAILED', message: error.message });
+  }
+}
+
 async function logout(client) {
   try {
     const refreshToken = await client.getRefreshToken();
@@ -458,6 +513,7 @@ async function validateField(client, field, value) {
 export {
   login,
   loginWithJwt,
+  telegramMiniAppAuth,
   logout,
   requestResetPassword,
   confirmResetPassword,

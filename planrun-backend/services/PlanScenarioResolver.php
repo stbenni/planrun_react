@@ -16,7 +16,7 @@ class PlanScenarioResolver
     {
         $goalType = (string) ($state['goal_type'] ?? $user['goal_type'] ?? 'health');
         $raceDistance = (string) ($state['race_distance'] ?? $user['race_distance'] ?? '');
-        $raceDate = (string) ($state['race_date'] ?? $user['race_date'] ?? $user['target_marathon_date'] ?? '');
+        $raceDate = (string) ($state['race_date'] ?? $user['race_date'] ?? '');
         $specialFlags = array_values(array_unique(array_map(
             'strval',
             is_array($state['special_population_flags'] ?? null) ? $state['special_population_flags'] : []

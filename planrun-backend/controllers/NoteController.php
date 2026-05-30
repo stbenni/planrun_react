@@ -244,7 +244,13 @@ class NoteController extends BaseController {
     public function getPlanNotifications() {
         if (!$this->requireAuth()) return;
         try {
-            $notifications = $this->notifService->getUnread($this->currentUserId);
+            $includeRead = !empty($_GET['include_read']);
+            if ($includeRead) {
+                $limit = isset($_GET['limit']) ? max(1, min(100, (int) $_GET['limit'])) : 50;
+                $notifications = $this->notifService->getRecent($this->currentUserId, $limit);
+            } else {
+                $notifications = $this->notifService->getUnread($this->currentUserId);
+            }
             $this->returnSuccess(['notifications' => $notifications]);
         } catch (Exception $e) {
             $this->handleException($e);

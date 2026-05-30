@@ -75,10 +75,14 @@ class BiometricService {
       const options = {
         reason,
         cancelTitle: 'Отмена',
-        allowDeviceCredential: true,
+        // allowDeviceCredential=false: на ряде Android (особенно API 28-30) комбинация
+        // weak + DEVICE_CREDENTIAL вызывает два подряд диалога. Фолбэк на PIN устройства
+        // нам не нужен — есть свой PIN/пароль в приложении.
+        allowDeviceCredential: false,
         iosFallbackTitle: 'Использовать пароль',
-        androidTitle: 'Биометрическая аутентификация',
-        androidSubtitle: reason,
+        // Заголовок — бренд. androidSubtitle НЕ задаём: иначе текст reason дублируется
+        // (он же идёт в описание промпта). Остаётся «planRUN» + одна строка reason.
+        androidTitle: 'planRUN',
         androidConfirmationRequired: false,
         androidBiometryStrength: 'weak'
       };

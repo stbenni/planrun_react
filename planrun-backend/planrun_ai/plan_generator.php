@@ -42,7 +42,7 @@ function generatePlanViaPlanRunAI($userId) {
     $stmt = $db->prepare("
         SELECT 
             id, username, goal_type, race_distance, race_date, race_target_time,
-            target_marathon_date, target_marathon_time, training_start_date,
+            training_start_date,
             gender, birth_year, height_cm, weight_kg, experience_level,
             weekly_base_km, sessions_per_week, preferred_days, preferred_ofp_days,
             has_treadmill, ofp_preference, training_time_pref, health_notes,
@@ -360,7 +360,7 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     $stmt = $db->prepare("
         SELECT 
             id, username, goal_type, race_distance, race_date, race_target_time,
-            target_marathon_date, target_marathon_time, training_start_date,
+            training_start_date,
             gender, birth_year, height_cm, weight_kg, experience_level,
             weekly_base_km, sessions_per_week, preferred_days, preferred_ofp_days,
             has_treadmill, ofp_preference, training_time_pref, health_notes,
@@ -404,7 +404,7 @@ function recalculatePlanViaPlanRunAI($userId, $userReason = null) {
     $weeksToGenerate = max(1, $totalPlanWeeks - $keptWeeks);
 
     // Если есть дата цели — уточняем по ней
-    $goalDate = $user['race_date'] ?? $user['target_marathon_date'] ?? $user['weight_goal_date'] ?? null;
+    $goalDate = $user['race_date'] ?? $user['weight_goal_date'] ?? null;
     if ($goalDate) {
         $goalTs = strtotime($goalDate);
         $cutoffTs = strtotime($cutoffDate);
@@ -717,7 +717,7 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
     $stmt = $db->prepare("
         SELECT 
             id, username, goal_type, race_distance, race_date, race_target_time,
-            target_marathon_date, target_marathon_time, training_start_date,
+            training_start_date,
             gender, birth_year, height_cm, weight_kg, experience_level,
             weekly_base_km, sessions_per_week, preferred_days, preferred_ofp_days,
             has_treadmill, ofp_preference, training_time_pref, health_notes,
@@ -889,7 +889,7 @@ function generateNextPlanViaPlanRunAI($userId, $userGoals = null) {
 
     // Кол-во недель нового плана
     $newPlanWeeks = getSuggestedPlanWeeks($user, $goalType) ?? 12;
-    $goalDate = $user['race_date'] ?? $user['target_marathon_date'] ?? $user['weight_goal_date'] ?? null;
+    $goalDate = $user['race_date'] ?? $user['weight_goal_date'] ?? null;
     if ($goalDate) {
         $goalTs = strtotime($goalDate);
         $nowTs = strtotime($newStartDate);

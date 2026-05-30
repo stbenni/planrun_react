@@ -25,7 +25,7 @@ class PlanSkeletonBuilder {
         $longDayKey = $this->resolveLongDayKey($userData, $runDays);
         $longDayIndex = $longDayKey !== null ? (getPromptWeekdayOrder()[$longDayKey] - 1) : null;
         $hasRace = in_array($goalType, ['race', 'time_improvement'], true);
-        $raceDate = $hasRace ? ($userData['race_date'] ?? $userData['target_marathon_date'] ?? null) : null;
+        $raceDate = $hasRace ? ($userData['race_date'] ?? null) : null;
         $racePosition = $raceDate ? computeRaceDayPosition($startDate, $raceDate) : null;
 
         $phasePlan = $this->resolvePhasePlan($userData, $goalType, $weeks, $options);

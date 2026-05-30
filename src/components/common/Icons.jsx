@@ -4,7 +4,6 @@
  * Стиль: line/stroke, 24×24 viewBox, strokeWidth 1.8
  */
 
-import React from 'react';
 import {
   Footprints,
   Mountain,
@@ -55,6 +54,23 @@ import {
   XCircle,
   Settings,
   SkipForward,
+  Info,
+  ArrowLeftRight,
+  ChevronUp,
+  ChevronDown,
+  HelpCircle,
+  Plus,
+  Repeat,
+  Feather,
+  Shuffle,
+  PersonStanding,
+  Timer,
+  Activity,
+  Smile,
+  Paperclip,
+  Mic,
+  Play,
+  Pause,
 } from 'lucide-react';
 
 const ICON_SIZE = 20;
@@ -110,6 +126,12 @@ export function OtherIcon(props) {
 }
 export function SbuIcon(props) {
   return <Zap {...iconProps} {...props} />;
+}
+export function FootprintsIcon(props) {
+  return <Footprints {...iconProps} {...props} />;
+}
+export function MoonIcon(props) {
+  return <Moon {...iconProps} {...props} />;
 }
 export function RestIcon(props) {
   return <Moon {...iconProps} {...props} />;
@@ -201,6 +223,41 @@ export function MessageCircleIcon(props) {
 export function BellIcon(props) {
   return <Bell {...iconProps} {...props} />;
 }
+
+export function SendIcon({ size = ICON_SIZE, ...props }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M22 2 15 22 11 13 2 9z" />
+    </svg>
+  );
+}
+
+export function SmileIcon(props) {
+  return <Smile {...iconProps} {...props} />;
+}
+
+export function PaperclipIcon(props) {
+  return <Paperclip {...iconProps} {...props} />;
+}
+
+export function MicIcon(props) {
+  return <Mic {...iconProps} {...props} />;
+}
+
+export function PlayIcon(props) {
+  return <Play {...iconProps} {...props} />;
+}
+
+export function PauseIcon(props) {
+  return <Pause {...iconProps} {...props} />;
+}
 export function SmartphoneIcon(props) {
   return <Smartphone {...iconProps} {...props} />;
 }
@@ -257,6 +314,48 @@ export function SettingsIcon(props) {
 }
 export function SkipForwardIcon(props) {
   return <SkipForward {...iconProps} {...props} />;
+}
+export function InfoIcon(props) {
+  return <Info {...iconProps} {...props} />;
+}
+export function ArrowLeftRightIcon(props) {
+  return <ArrowLeftRight {...iconProps} {...props} />;
+}
+export function ChevronUpIcon(props) {
+  return <ChevronUp {...iconProps} {...props} />;
+}
+export function ChevronDownIcon(props) {
+  return <ChevronDown {...iconProps} {...props} />;
+}
+export function PlusIcon(props) {
+  return <Plus {...iconProps} {...props} />;
+}
+export function RepeatIcon(props) {
+  return <Repeat {...iconProps} {...props} />;
+}
+export function FeatherIcon(props) {
+  return <Feather {...iconProps} {...props} />;
+}
+export function RouteIcon(props) {
+  return <Route {...iconProps} {...props} />;
+}
+export function ShuffleIcon(props) {
+  return <Shuffle {...iconProps} {...props} />;
+}
+export function PersonStandingIcon(props) {
+  return <PersonStanding {...iconProps} {...props} />;
+}
+export function TimerIcon(props) {
+  return <Timer {...iconProps} {...props} />;
+}
+export function ActivityIcon(props) {
+  return <Activity {...iconProps} {...props} />;
+}
+export function DumbbellIcon(props) {
+  return <Dumbbell {...iconProps} {...props} />;
+}
+export function HelpCircleIcon(props) {
+  return <HelpCircle {...iconProps} {...props} />;
 }
 
 // --- Activity type mapping (для RecentWorkoutsList и др.) ---

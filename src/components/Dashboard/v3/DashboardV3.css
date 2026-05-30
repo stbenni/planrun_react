@@ -1,0 +1,211 @@
+/**
+ * DashboardV3 — layout стили основного контейнера и общих секций.
+ * Глобальные стили карточек (.card) живут в /styles/cards.css.
+ * v3-секции добавляют свой компонентный CSS поверх.
+ */
+
+.dashboard-v3 {
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+  min-height: 100vh;
+  /* Верхний отступ на мобилках убран (padding-top: 0); горизонтальный сохранён.
+     Десктоп (min-width:1024) задаёт свой padding ниже. */
+  padding: 0 var(--page-padding-x, 16px);
+  padding-bottom: calc(var(--mobile-shell-bottom-clearance, 100px) + 24px);
+  box-sizing: border-box;
+}
+
+.dashboard-v3__header {
+  margin-bottom: 4px;
+}
+
+/* На мобиле колонки складываются в один поток */
+.dashboard-v3__columns {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dashboard-v3__col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.dashboard-v3__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+  scroll-margin-top: 100px;
+}
+
+.dashboard-v3__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* Empty / Rest states */
+.dashboard-v3__rest,
+.dashboard-v3__empty {
+  text-align: center;
+  padding: 30px 24px;
+}
+
+.dashboard-v3__rest-emoji,
+.dashboard-v3__empty-emoji {
+  font-size: 44px;
+  line-height: 1;
+}
+
+.dashboard-v3__rest-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 12px 0 6px;
+  color: var(--text-primary);
+}
+
+.dashboard-v3__rest-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.dashboard-v3__empty p {
+  margin: 12px 0 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* Desktop: 2-column layout (main 1.6fr + side 1fr) — flex-колонки текут независимо */
+@media (min-width: 1024px) {
+  .dashboard-v3 {
+    max-width: var(--page-max-width, 1440px);
+    margin: 0 auto;
+    padding: 24px 32px;
+    padding-bottom: 32px;
+  }
+
+  .dashboard-v3__columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  .dashboard-v3__col--main,
+  .dashboard-v3__col--side {
+    align-self: start;
+  }
+}
+
+/* Bottom hint — настройка дэшборда */
+.dashboard-v3__customize-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 14px 16px;
+  background: var(--card-bg, #fff);
+  border: 1px dashed var(--card-border);
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dashboard-v3__customize-hint:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 30%, var(--card-border));
+  background: color-mix(in srgb, var(--primary-500) 4%, var(--card-bg, #fff));
+}
+
+[data-theme="dark"] .dashboard-v3__customize-hint {
+  background: var(--glass-card-bg, rgba(28, 34, 43, 0.62));
+  backdrop-filter: var(--glass-card-blur, blur(18px) saturate(1.16));
+  -webkit-backdrop-filter: var(--glass-card-blur, blur(18px) saturate(1.16));
+  border-color: var(--glass-card-border, rgba(252, 76, 2, 0.14));
+}
+
+[data-theme="dark"] .dashboard-v3__customize-hint:hover {
+  background: color-mix(in srgb, var(--primary-500) 12%, var(--glass-card-bg, rgba(28, 34, 43, 0.62)));
+  border-color: color-mix(in srgb, var(--primary-500) 40%, var(--glass-card-border, rgba(252, 76, 2, 0.14)));
+}
+
+.dashboard-v3__customize-hint svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.dashboard-v3__customize-hint-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-v3__customize-hint-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.dashboard-v3__customize-hint-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.dashboard-v3__customize-hint-arrow {
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* На десктопе кнопка занимает всю ширину под обеими колонками */
+@media (min-width: 1024px) {
+  .dashboard-v3__customize-hint {
+    max-width: 480px;
+    margin: 16px auto 0;
+  }
+}
+
+/* ── Виджет-контейнеры в тёмной теме (v2-spec) ─────────────────────
+   Прототип: rgba(28,34,43,0.62) flat + blur(18px) saturate(1.16)
+   + warm orange border (252,76,2,0.14) + multilayer shadow.
+   Перебиваем `.card` только в скоупе дашборда. */
+[data-theme="dark"] .dashboard-v3 .card {
+  background: var(--glass-card-bg, rgba(28, 34, 43, 0.62));
+  background-image: none;
+  border: 1px solid var(--glass-card-border, rgba(252, 76, 2, 0.14));
+  backdrop-filter: var(--glass-card-blur, blur(18px) saturate(1.16));
+  -webkit-backdrop-filter: var(--glass-card-blur, blur(18px) saturate(1.16));
+  box-shadow: var(--glass-card-shadow);
+}
+
+[data-theme="dark"] .dashboard-v3 .card::before {
+  display: none;
+}
+
+/* Hero-карточка дня — усиленное стекло (78% opacity, blur 22px) */
+[data-theme="dark"] .dashboard-v3 .today-v3 {
+  background: var(--glass-card-bg-strong, rgba(33, 41, 52, 0.78));
+  border-color: var(--glass-card-border-strong, rgba(252, 76, 2, 0.18));
+  backdrop-filter: var(--glass-card-blur-strong, blur(22px) saturate(1.2));
+  -webkit-backdrop-filter: var(--glass-card-blur-strong, blur(22px) saturate(1.2));
+  box-shadow: var(--glass-card-shadow-strong);
+}
+
+/* Empty-state поверх обычной обёртки */
+.dashboard-v3.dashboard-empty-onboarding,
+.dashboard-v3.dashboard-empty-no-plan {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

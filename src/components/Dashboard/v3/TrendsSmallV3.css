@@ -1,0 +1,61 @@
+.trends-v3 { font-family: 'Montserrat', sans-serif; }
+
+.trends-v3__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.trends-v3__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.trends-v3__num {
+  font-family: var(--font-stats), 'Jost', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.trends-v3__unit {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.trends-v3__spacer { flex: 1; }
+
+.trends-v3__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.trends-v3__delta--up { color: var(--success-500); }
+.trends-v3__delta--down { color: var(--warning-500); }
+
+.trends-v3__chart {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.trends-v3__chart > span {
+  display: block !important;
+  width: 100%;
+}
+
+.trends-v3__chart svg {
+  display: block;
+  width: 100%;
+}

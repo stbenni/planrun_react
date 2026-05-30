@@ -6,7 +6,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
-import Dashboard from '../components/Dashboard/Dashboard';
+import Dashboard from '../components/Dashboard/v3/DashboardV3';
 import '../components/Dashboard/Dashboard.css';
 
 const DashboardScreen = () => {

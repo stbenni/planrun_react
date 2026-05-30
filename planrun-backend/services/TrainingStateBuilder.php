@@ -27,7 +27,7 @@ class TrainingStateBuilder {
         $stmt = $this->db->prepare("
             SELECT
                 id, goal_type, race_distance, race_date, race_target_time,
-                target_marathon_date, target_marathon_time, training_start_date,
+                training_start_date,
                 experience_level, weekly_base_km, easy_pace_sec,
                 last_race_distance, last_race_distance_km, last_race_time, last_race_date
             FROM users
@@ -69,7 +69,7 @@ class TrainingStateBuilder {
         $preferredDays = sortPromptWeekdayKeys($preferredDays);
         $preferredOfpDays = sortPromptWeekdayKeys($preferredOfpDays);
         $targetDistKm = $this->parseDistanceKm($user['race_distance'] ?? null, null);
-        $targetTimeSec = $this->parseTimeSec($user['race_target_time'] ?? $user['target_marathon_time'] ?? null);
+        $targetTimeSec = $this->parseTimeSec($user['race_target_time'] ?? null);
         $goalPaceSec = ($targetDistKm > 0 && $targetTimeSec > 0)
             ? (int) round($targetTimeSec / $targetDistKm)
             : null;
@@ -183,7 +183,7 @@ class TrainingStateBuilder {
             ];
         }
 
-        $mainRaceDate = $user['race_date'] ?? ($user['target_marathon_date'] ?? null);
+        $mainRaceDate = $user['race_date'] ?? null;
         $intermediateRaces = $userId > 0 ? $this->getIntermediateRaces($userId, $mainRaceDate) : [];
 
         $daysSinceLastWorkout = $userId > 0 ? $this->getDaysSinceLastWorkout($userId) : null;
@@ -211,8 +211,8 @@ class TrainingStateBuilder {
         $state = [
             'goal_type' => $goalType,
             'race_distance' => $user['race_distance'] ?? null,
-            'race_date' => $user['race_date'] ?? ($user['target_marathon_date'] ?? null),
-            'race_target_time' => $user['race_target_time'] ?? ($user['target_marathon_time'] ?? null),
+            'race_date' => $user['race_date'] ?? null,
+            'race_target_time' => $user['race_target_time'] ?? null,
             'goal_pace_sec' => $goalPaceSec,
             'goal_pace' => $goalPaceSec ? formatPaceSec($goalPaceSec) : null,
             'experience_level' => $user['experience_level'] ?? null,
@@ -1085,7 +1085,7 @@ class TrainingStateBuilder {
     private function computeWeeksToGoal(array $user, string $goalType): ?int {
         $goalDate = null;
         if (in_array($goalType, ['race', 'time_improvement'], true)) {
-            $goalDate = $user['race_date'] ?? $user['target_marathon_date'] ?? null;
+            $goalDate = $user['race_date'] ?? null;
         } elseif ($goalType === 'weight_loss') {
             $goalDate = $user['weight_goal_date'] ?? null;
         }
@@ -1759,7 +1759,7 @@ class TrainingStateBuilder {
 
     private function computeGoalPaceSec(array $user): ?int {
         $targetDistKm = $this->parseDistanceKm($user['race_distance'] ?? null, null);
-        $targetTimeSec = $this->parseTimeSec($user['race_target_time'] ?? $user['target_marathon_time'] ?? null);
+        $targetTimeSec = $this->parseTimeSec($user['race_target_time'] ?? null);
         if ($targetDistKm > 0 && $targetTimeSec > 0) {
             return (int) round($targetTimeSec / $targetDistKm);
         }
@@ -1788,9 +1788,7 @@ class TrainingStateBuilder {
             return null;
         }
 
-        $goalTimeSec = $this->parseTimeSec(
-            $user['race_target_time'] ?? $user['target_marathon_time'] ?? null
-        );
+        $goalTimeSec = $this->parseTimeSec($user['race_target_time'] ?? null);
         $goalPaceSec = $goalTimeSec > 0 ? (int) round($goalTimeSec / $targetDistKm) : null;
 
         $currentVdot = isset($state['vdot']) ? (float) $state['vdot'] : 0.0;

@@ -1264,6 +1264,7 @@ SYSTEM;
         $imported = 0;
         $skipped = 0;
         $shareQueueJobs = 0;
+        $importedDetails = [];
         $insertStmt = $this->db->prepare("
             INSERT INTO workouts (user_id, session_id, source, external_id, activity_type, start_time, end_time, duration_minutes, duration_seconds, distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain)
             VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1319,6 +1320,7 @@ SYSTEM;
                     $workoutDateStr = (string) date('Y-m-d', strtotime($endTime ?: $startTime));
                     $this->handlePostWorkoutCoachFlow((int) $userId, $workoutDateStr, 'workout', (int) $existing['id']);
                     $this->maybeUpdateLastRaceFromImport((int) $userId, $workoutDateStr, $distanceKm, $durationSeconds, $durationMinutes, $avgPace);
+                    $importedDetails[] = ['type' => $activityType, 'distance' => $distanceKm, 'duration' => $durationSeconds, 'minutes' => $durationMinutes, 'pace' => $avgPace, 'date' => $workoutDateStr, 'new' => false];
                 } else {
                     $skipped++;
                 }
@@ -1385,6 +1387,7 @@ SYSTEM;
                 $workoutDateStr = (string) date('Y-m-d', strtotime($endTime ?: $startTime));
                 $this->handlePostWorkoutCoachFlow((int) $userId, $workoutDateStr, 'workout', $workoutId);
                 $this->maybeUpdateLastRaceFromImport((int) $userId, $workoutDateStr, $distanceKm, $durationSeconds, $durationMinutes, $avgPace);
+                $importedDetails[] = ['type' => $activityType, 'distance' => $distanceKm, 'duration' => $durationSeconds, 'minutes' => $durationMinutes, 'pace' => $avgPace, 'date' => $workoutDateStr, 'new' => true];
             } else {
                 $skipped++;
             }
@@ -1404,7 +1407,103 @@ SYSTEM;
             $this->launchWorkoutShareWorkerAsync();
         }
 
+        // In-app уведомления: загрузка из Strava + личные рекорды. Никогда не ломаем импорт.
+        try {
+            $this->emitImportNotifications((int) $userId, (string) $source, $importedDetails);
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         return ['imported' => $imported, 'skipped' => $skipped];
+    }
+
+    /** Бакеты дистанций для детекта личных рекордов (синхронно со StatsService). */
+    private const PR_BUCKETS = [
+        ['min' => 4.5,  'max' => 5.5,  'label' => '5 км'],
+        ['min' => 8.5,  'max' => 11.5, 'label' => '10 км'],
+        ['min' => 19.5, 'max' => 22.5, 'label' => 'полумарафон'],
+        ['min' => 40.0, 'max' => 44.0, 'label' => 'марафон'],
+    ];
+
+    private function formatSeconds(int $sec): string {
+        $h = intdiv($sec, 3600);
+        $m = intdiv($sec % 3600, 60);
+        $s = $sec % 60;
+        return $h > 0 ? sprintf('%d:%02d:%02d', $h, $m, $s) : sprintf('%d:%02d', $m, $s);
+    }
+
+    /**
+     * Создаёт in-app уведомления по итогам импорта:
+     *  - workout_uploaded (если source=strava и что-то залилось)
+     *  - personal_record (если новый забег побил исторический PR в своём бакете)
+     */
+    private function emitImportNotifications(int $userId, string $source, array $details): void {
+        if (empty($details)) return;
+        require_once __DIR__ . '/PlanNotificationService.php';
+        $svc = new PlanNotificationService($this->db);
+
+        $runs = array_values(array_filter($details, function ($d) {
+            $t = strtolower((string) ($d['type'] ?? ''));
+            return ($t === 'running' || $t === 'run' || $t === '') && (float) ($d['distance'] ?? 0) > 0;
+        }));
+
+        // 1) Strava upload — одно сводное уведомление про последнюю тренировку.
+        if (strtolower($source) === 'strava' && !empty($runs)) {
+            $last = $runs[count($runs) - 1];
+            $dist = round((float) $last['distance'], 1);
+            $pace = !empty($last['pace']) ? " · {$last['pace']} /км" : '';
+            $svc->notify($userId, 'workout_uploaded', 'Загружена тренировка', [
+                'title' => 'Загружена тренировка',
+                'body' => "Strava · {$dist} км{$pace}",
+                'date' => $last['date'] ?? null,
+                'link' => !empty($last['date']) ? '/calendar?date=' . rawurlencode($last['date']) : '/calendar',
+                'action_label' => 'Открыть →',
+            ]);
+        }
+
+        // 2) Личные рекорды — по лучшему новому забегу в каждом бакете.
+        $bestByBucket = [];
+        foreach ($runs as $d) {
+            if (empty($d['new'])) continue; // только новые записи
+            $dur = (int) ($d['duration'] ?? 0);
+            if ($dur <= 0 && !empty($d['minutes'])) $dur = (int) $d['minutes'] * 60;
+            if ($dur <= 0) continue;
+            $km = (float) $d['distance'];
+            foreach (self::PR_BUCKETS as $i => $b) {
+                if ($km >= $b['min'] && $km <= $b['max']) {
+                    if (!isset($bestByBucket[$i]) || $dur < $bestByBucket[$i]['dur']) {
+                        $bestByBucket[$i] = ['dur' => $dur, 'date' => $d['date'] ?? null];
+                    }
+                    break;
+                }
+            }
+        }
+        foreach ($bestByBucket as $i => $cand) {
+            $b = self::PR_BUCKETS[$i];
+            // Прошлый лучший результат в этом бакете (без учёта сегодняшнего дня).
+            $stmt = $this->db->prepare(
+                "SELECT MIN(duration_seconds) AS best FROM workouts
+                 WHERE user_id = ? AND duration_seconds > 0
+                   AND distance_km BETWEEN ? AND ?
+                   AND DATE(start_time) < ?"
+            );
+            $stmt->bind_param('iddss', $userId, $b['min'], $b['max'], $cand['date']);
+            $stmt->execute();
+            $prev = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            $prevBest = isset($prev['best']) ? (int) $prev['best'] : 0;
+            if ($prevBest > 0 && $cand['dur'] < $prevBest) {
+                $newStr = $this->formatSeconds($cand['dur']);
+                $oldStr = $this->formatSeconds($prevBest);
+                $svc->notify($userId, 'personal_record', "Личный рекорд на {$b['label']}", [
+                    'title' => "Личный рекорд на {$b['label']}",
+                    'body' => "Новое время: {$newStr}. Прошлое — {$oldStr}.",
+                    'date' => $cand['date'],
+                    'link' => !empty($cand['date']) ? '/calendar?date=' . rawurlencode($cand['date']) : '/calendar',
+                    'action_label' => 'Посмотреть →',
+                ]);
+            }
+        }
     }
     
     /**

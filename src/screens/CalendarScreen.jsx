@@ -18,6 +18,7 @@ import ResultModal from '../components/Calendar/ResultModal';
 import AddTrainingModal from '../components/Calendar/AddTrainingModal';
 import { WorkoutDetailsModal } from '../components/Stats';
 import SkeletonScreen from '../components/common/SkeletonScreen';
+import AthleteSelect from '../components/common/AthleteSelect';
 import '../assets/css/calendar_v2.css';
 import '../assets/css/short-desc.css';
 import './CalendarScreen.css';
@@ -547,19 +548,12 @@ const CalendarScreen = ({ targetUserId = null, viewContext: externalViewContext 
       <div className="content">
         {isCoach && coachAthletes.length > 0 && (
           <div className="coach-athlete-selector">
-            <select
-              className="coach-athlete-selector__select"
-              value={athleteSlug || ''}
-              onChange={e => {
-                const slug = e.target.value;
-                navigate(slug ? `/calendar?athlete=${slug}` : '/calendar', { replace: true });
-              }}
-            >
-              <option value="">Мой календарь</option>
-              {coachAthletes.map(a => (
-                <option key={a.id} value={a.username_slug}>{a.username}</option>
-              ))}
-            </select>
+            <AthleteSelect
+              value={athleteSlug}
+              ownLabel="Мой календарь"
+              athletes={coachAthletes}
+              onChange={(slug) => navigate(slug ? `/calendar?athlete=${slug}` : '/calendar', { replace: true })}
+            />
           </div>
         )}
         {athleteSlug && athleteData?.user && (

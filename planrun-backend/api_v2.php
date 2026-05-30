@@ -22,6 +22,18 @@ if ($action === 'get_avatar' && $method === 'GET') {
     exit;
 }
 
+// Публичная раздача вложений чата (фото) — до заголовков, как get_avatar.
+if ($action === 'get_chat_media' && $method === 'GET') {
+    require_once __DIR__ . '/services/ChatMediaService.php';
+    if (ChatMediaService::serveRequested($_GET['file'] ?? '')) {
+        exit;
+    }
+    http_response_code(404);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'error' => 'Not found'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 // CORS: при вызове через api_wrapper CORS уже отправлен (cors.php)
@@ -163,7 +175,7 @@ try {
             ErrorHandler::returnJsonError('Параметр slug обязателен', 400);
         }
 
-        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, target_marathon_date, target_marathon_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts, role, coach_bio, coach_specialization, coach_accepts, coach_prices_on_request, coach_experience_years, coach_philosophy FROM users WHERE username_slug = ?");
+        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts, role, coach_bio, coach_specialization, coach_accepts, coach_prices_on_request, coach_experience_years, coach_philosophy FROM users WHERE username_slug = ?");
         $stmt->bind_param("s", $slug);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
@@ -187,6 +199,12 @@ try {
             $canEdit = true;
         } elseif ($privacyLevel === 'public') {
             $canView = true;
+            // Тренер этого атлета — расширенный доступ (включая редактирование плана)
+            if ($currentUserId && isUserCoach($db, $targetUserId, $currentUserId)) {
+                $coachAccess = getUserCoachAccess($db, $targetUserId, $currentUserId);
+                $canEdit = $coachAccess['can_edit'] ?? false;
+                $isCoach = true;
+            }
         } elseif ($privacyLevel === 'private') {
             if ($currentUserId && isUserCoach($db, $targetUserId, $currentUserId)) {
                 $coachAccess = getUserCoachAccess($db, $targetUserId, $currentUserId);
@@ -248,8 +266,6 @@ try {
             $user['race_date'] = $row['race_date'] ?? null;
             $user['race_distance'] = $row['race_distance'] ?? null;
             $user['race_target_time'] = $row['race_target_time'] ?? null;
-            $user['target_marathon_date'] = $row['target_marathon_date'] ?? null;
-            $user['target_marathon_time'] = $row['target_marathon_time'] ?? null;
             $user['training_mode'] = $row['training_mode'] ?? 'ai';
             $user['privacy_show_email'] = (int)($row['privacy_show_email'] ?? 1);
             $user['privacy_show_trainer'] = (int)($row['privacy_show_trainer'] ?? 1);
@@ -653,6 +669,10 @@ try {
         case 'login':
             planrunRouteControllerAction($db, AuthController::class, 'login', $method, 'POST');
             break;
+
+        case 'telegram_miniapp_auth':
+            planrunRouteControllerAction($db, AuthController::class, 'telegramMiniAppAuth', $method, 'POST');
+            break;
             
         case 'logout':
             planrunRouteControllerAction($db, AuthController::class, 'logout', $method, 'POST');
@@ -729,12 +749,20 @@ try {
             planrunRouteControllerAction($db, ChatController::class, 'sendMessage', $method, 'POST');
             break;
 
+        case 'chat_upload_media':
+            planrunRouteControllerAction($db, ChatController::class, 'uploadChatMedia', $method, 'POST');
+            break;
+
         case 'chat_send_message_stream':
             planrunRouteControllerAction($db, ChatController::class, 'sendMessageStream', $method, 'POST');
             break;
 
         case 'chat_clear_ai':
             planrunRouteControllerAction($db, ChatController::class, 'clearAiChat', $method, 'POST');
+            break;
+
+        case 'chat_clear_admin':
+            planrunRouteControllerAction($db, ChatController::class, 'clearAdminChat', $method, 'POST');
             break;
 
         case 'chat_mark_all_read':
@@ -865,6 +893,31 @@ try {
 
         case 'get_athlete_groups':
             planrunRouteControllerAction($db, CoachController::class, 'getAthleteGroups', $method, 'GET');
+            break;
+
+        // CoachController — шаблоны тренировок и массовое назначение
+        case 'list_workout_templates':
+            planrunRouteControllerAction($db, CoachController::class, 'listWorkoutTemplates', $method, 'GET');
+            break;
+
+        case 'save_workout_template':
+            planrunRouteControllerAction($db, CoachController::class, 'saveWorkoutTemplate', $method, 'POST');
+            break;
+
+        case 'delete_workout_template':
+            planrunRouteControllerAction($db, CoachController::class, 'deleteWorkoutTemplate', $method, 'POST');
+            break;
+
+        case 'bulk_assign_training':
+            planrunRouteControllerAction($db, CoachController::class, 'bulkAssignTraining', $method, 'POST');
+            break;
+
+        case 'coach_events':
+            planrunRouteControllerAction($db, CoachController::class, 'getCoachEvents', $method, 'GET');
+            break;
+
+        case 'get_athlete_details':
+            planrunRouteControllerAction($db, CoachController::class, 'getAthleteDetails', $method, 'GET');
             break;
 
         // AdminController — заявки тренеров

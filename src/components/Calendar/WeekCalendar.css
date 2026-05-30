@@ -206,9 +206,49 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+  gap: 6px;
   position: relative;
   box-shadow: none;
   overflow: visible;
+}
+
+/* Подпись типа тренировки под датой (в виджете дашборда на full-width) */
+.week-day-type-label {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  letter-spacing: -0.05px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: none;
+}
+
+.dashboard-week-strip .week-day-type-label {
+  display: block;
+}
+
+.week-day-cell.today .week-day-type-label {
+  color: var(--primary-600);
+  font-weight: 700;
+}
+
+[data-theme="dark"] .week-day-cell.today .week-day-type-label {
+  color: var(--primary-400);
+}
+
+/* В double-row места мало — скрываем подпись */
+.dashboard-row-two .week-day-type-label {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .week-day-type-label {
+    display: none !important;
+  }
 }
 
 .week-day-cell::before {

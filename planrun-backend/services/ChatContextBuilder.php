@@ -181,9 +181,10 @@ class ChatContextBuilder {
                 break;
             case 'time_improvement':
                 $lines[] = "Цель: Улучшение времени";
-                if (!empty($user['target_marathon_date'])) $lines[] = "Дата марафона: {$user['target_marathon_date']}";
-                if (!empty($user['target_marathon_time'])) {
-                    $lines[] = "Целевое время: " . $this->formatTimeForPrompt($user['target_marathon_time']);
+                if (!empty($user['race_date'])) $lines[] = "Дата забега: {$user['race_date']}";
+                if (!empty($user['race_distance'])) $lines[] = "Дистанция: {$user['race_distance']}";
+                if (!empty($user['race_target_time'])) {
+                    $lines[] = "Целевое время: " . $this->formatTimeForPrompt($user['race_target_time']);
                 }
                 break;
             case 'weight_loss':

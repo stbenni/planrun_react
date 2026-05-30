@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { ADMIN_CHAT, dialogId, MessageCircle, SYSTEM_CHATS, TAB_ADMIN, TAB_ADMIN_MODE, TAB_AI, TAB_USER_DIALOG } from './chatConstants';
+import { formatListTime } from './chatTime';
 
 export function useChatNavigation({
   api,
@@ -155,8 +156,10 @@ export function useChatNavigation({
     ? {
       id: contactUser ? dialogId(contactUser.id) : TAB_USER_DIALOG,
       label: `Диалог с ${contactUser?.username || 'пользователем'}`,
+      name: contactUser?.username || 'Пользователь',
       Icon: MessageCircle,
-      description: 'Персональное сообщение',
+      description: 'Личный диалог',
+      time: '',
       user: contactUser,
       unreadCount: contactUnreadCount,
     }
@@ -165,16 +168,10 @@ export function useChatNavigation({
   const directDialogChats = directDialogs.map((dialog) => ({
     id: dialogId(dialog.user_id),
     label: `Диалог с ${dialog.username || 'пользователем'}`,
+    name: dialog.username || 'Пользователь',
     Icon: MessageCircle,
-    description: dialog.last_message_at
-      ? `Последнее: ${new Date(dialog.last_message_at).toLocaleString('ru-RU', {
-        timeZone: userTimezone,
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      })}`
-      : '',
+    description: 'Личный диалог',
+    time: formatListTime(dialog.last_message_at, userTimezone),
     user: {
       id: dialog.user_id,
       username: dialog.username,

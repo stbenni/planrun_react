@@ -1,0 +1,571 @@
+/**
+ * CoachWorkspace — главный экран тренера.
+ * Hero + Tabs row + Table.
+ * Использует токены sports-colors.css (--primary-*, --gray-*, --text-*).
+ */
+
+.coach-workspace {
+  width: 100%;
+  min-height: 100vh;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+  background: var(--app-background-base, #F4F7FB);
+  display: flex;
+  flex-direction: column;
+  /* Десктоп: отступ под fixed TopHeader (64px + gap). На мобиле header скрыт — отступ обнуляется ниже. */
+  padding-top: var(--page-top-desktop, 88px);
+}
+
+@media (max-width: 1023px) {
+  .coach-workspace {
+    padding-top: 0;
+  }
+}
+
+/* ── Hero ─────────────────────────────────────────────── */
+.coach-workspace__hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 28px;
+  background: var(--card-bg, #fff);
+  border-bottom: 1px solid var(--card-border);
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .coach-workspace__hero {
+  background: var(--gray-50);
+}
+
+.coach-workspace__hero-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.coach-workspace__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.coach-workspace__h1 {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 6px 0 0;
+  color: var(--text-primary);
+}
+
+.coach-workspace__h1-accent {
+  color: var(--primary-500);
+}
+
+.coach-workspace__kpi-row {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.coach-workspace__kpi {
+  background: var(--card-bg, #fff);
+  border: 1.5px solid var(--card-border);
+  border-radius: 14px;
+  padding: 14px;
+  width: 158px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-theme="dark"] .coach-workspace__kpi {
+  background: var(--gray-100);
+  border-color: var(--gray-300);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.coach-workspace__kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coach-workspace__kpi-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.coach-workspace__kpi-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.coach-workspace__kpi-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.coach-workspace__kpi-num {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+/* ── Tabs row ─────────────────────────────────────────── */
+.coach-workspace__tabs-row {
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--card-bg, #fff);
+  border-bottom: 1px solid var(--card-border);
+  flex-wrap: wrap;
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.coach-workspace__view-tabs {
+  display: flex;
+  background: var(--gray-100);
+  border-radius: 10px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.coach-workspace__view-tab {
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.coach-workspace__view-tab--active {
+  background: var(--card-bg, #fff);
+  color: var(--text-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .coach-workspace__view-tab--active {
+  background: var(--gray-300);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-500) 40%, transparent);
+}
+
+.coach-workspace__view-tab-label {
+  font-size: 13px;
+}
+
+.coach-workspace__view-tab-hint {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.coach-workspace__chips {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.coach-workspace__chip {
+  padding: 6px 10px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.coach-workspace__chip:hover {
+  background: var(--gray-50);
+}
+
+.coach-workspace__chip--active {
+  background: var(--text-primary);
+  color: var(--card-bg, #fff);
+  border-color: var(--text-primary);
+}
+
+[data-theme="dark"] .coach-workspace__chip--active {
+  background: var(--primary-500);
+  color: #fff;
+  border-color: var(--primary-500);
+}
+
+.coach-workspace__chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.coach-workspace__chips-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--card-border);
+  margin: 0 4px;
+}
+
+.coach-workspace__cta {
+  padding: 10px 18px;
+  background: var(--primary-500);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+  transition: background 0.15s ease, transform 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.coach-workspace__cta svg { flex-shrink: 0; }
+
+.coach-workspace__cta:hover:not(:disabled) {
+  background: var(--primary-400);
+  transform: translateY(-1px);
+}
+
+.coach-workspace__cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.coach-workspace__cta-ghost {
+  padding: 9px 14px;
+  background: var(--card-bg, #fff);
+  color: var(--text-primary);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.coach-workspace__cta-ghost:hover {
+  background: var(--gray-50);
+  border-color: color-mix(in srgb, var(--primary-500) 25%, var(--card-border));
+}
+
+/* ── Main ────────────────────────────────────────────── */
+.coach-workspace__main {
+  flex: 1;
+  padding: 16px 0;
+  overflow-x: auto;
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.coach-workspace__placeholder {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 60px 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.coach-workspace__placeholder--error {
+  border-color: color-mix(in srgb, var(--danger-500) 30%, var(--card-border));
+  background: color-mix(in srgb, var(--danger-500) 4%, var(--card-bg, #fff));
+  color: var(--danger-500);
+}
+
+/* ── Athletes table ──────────────────────────────────── */
+.coach-table {
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  overflow: hidden;
+}
+
+.coach-table-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.coach-table__head,
+.coach-table__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.coach-table__head {
+  padding: 12px 14px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--card-border);
+  background: var(--gray-50, #F8FAFC);
+}
+
+.coach-table__row {
+  padding: 12px 11px;
+  border-bottom: 1px solid var(--card-border);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.12s ease;
+  background: var(--card-bg, #fff);
+}
+
+.coach-table__row:hover {
+  background: color-mix(in srgb, var(--primary-500) 3%, var(--card-bg, #fff));
+}
+
+.coach-table__row--active {
+  background: var(--primary-50, #FFF4F0);
+  border-left-color: var(--primary-500);
+}
+
+.coach-table__row--selected {
+  background: color-mix(in srgb, var(--primary-500) 5%, var(--card-bg, #fff));
+  border-left-color: var(--primary-400, #FF6B3D);
+}
+
+.coach-table__row--selected.coach-table__row--active {
+  background: var(--primary-50, #FFF4F0);
+  border-left-color: var(--primary-500);
+}
+
+.coach-table__row:last-child {
+  border-bottom: none;
+}
+
+.coach-table__cell {
+  min-width: 0;
+}
+
+.coach-table__cell--check    { flex: 0 0 28px; display: grid; place-items: center; }
+.coach-table__cell--athlete  { flex: 2.4 1 200px; display: flex; align-items: center; gap: 10px; }
+.coach-table__cell--goal     { flex: 1.2 1 120px; font-size: 13px; }
+.coach-table__cell--race     { flex: 0.9 1 80px; font-family: var(--font-stats), sans-serif; }
+.coach-table__cell--week     { flex: 1.1 1 110px; display: flex; align-items: center; gap: 8px; }
+.coach-table__cell--volume   { flex: 1.3 1 110px; display: flex; align-items: center; gap: 8px; }
+.coach-table__cell--today    { flex: 1.4 1 130px; font-size: 13px; }
+.coach-table__cell--activity { flex: 1 1 95px; font-size: 12px; }
+.coach-table__cell--vdot     { flex: 0.8 1 70px; text-align: right; font-family: var(--font-stats), sans-serif; }
+
+.coach-table__cell--check input { width: 15px; height: 15px; accent-color: var(--primary-500); cursor: pointer; }
+
+.coach-table__athlete-info { min-width: 0; }
+
+.coach-table__athlete-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coach-table__athlete-group { margin-top: 3px; }
+
+.coach-table__unread {
+  background: var(--primary-500);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 1px 6px;
+  font-weight: 700;
+  font-family: var(--font-stats), sans-serif;
+}
+
+.coach-table__goal-name { color: var(--text-primary); font-weight: 500; }
+.coach-table__goal-target { color: var(--text-tertiary); font-family: var(--font-stats), sans-serif; font-size: 12px; }
+
+.coach-table__race-days {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+.coach-table__race-days--soon { color: var(--primary-500); }
+.coach-table__race-days-unit { font-size: 11px; color: var(--text-tertiary); }
+.coach-table__race-date { font-size: 11px; color: var(--text-tertiary); }
+
+.coach-table__week-text {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.coach-table__volume-sum {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.coach-table__today-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.coach-table__today-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.coach-table__today-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-stats), sans-serif;
+}
+
+.coach-table__today-desc {
+  font-family: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.coach-table__activity {
+  color: var(--text-primary);
+}
+
+.coach-table__activity--risk {
+  color: var(--danger-500);
+  font-weight: 600;
+}
+
+.coach-table__fresh-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #DCFCE7;
+  color: #166534;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+.coach-table__fresh-tag svg {
+  flex-shrink: 0;
+}
+
+.coach-table__vdot-value {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.coach-table__vdot-trend {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+}
+
+.coach-table__vdot-trend--up { color: var(--success-500); }
+.coach-table__vdot-trend--down { color: var(--danger-500); }
+
+.coach-table__muted {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* ── Tighter at narrower viewports (still desktop) ───── */
+@media (max-width: 1280px) {
+  .coach-workspace__hero,
+  .coach-workspace__tabs-row {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .coach-workspace__main { padding: 14px 18px; }
+  .coach-workspace__kpi { width: 140px; padding: 12px; }
+  .coach-workspace__kpi-num { font-size: 36px; }
+  .coach-workspace__h1 { font-size: 28px; }
+}
+
+/* ── Mobile: упрощённая компоновка (Фаза 1 — read-only список) ─ */
+@media (max-width: 768px) {
+  .coach-workspace__hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px 16px;
+    gap: 14px;
+  }
+  .coach-workspace__h1 { font-size: 24px; }
+  .coach-workspace__kpi-row { width: 100%; overflow-x: auto; }
+  .coach-workspace__kpi { width: 140px; flex-shrink: 0; }
+
+  .coach-workspace__tabs-row {
+    padding: 12px 18px;
+    gap: 10px;
+  }
+  .coach-workspace__chips { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .coach-workspace__cta { width: 100%; }
+
+  .coach-workspace__main {
+    padding: 12px;
+    padding-bottom: var(--mobile-shell-bottom-clearance, 100px);
+  }
+
+  /* На мобилке таблица скроллится горизонтально как fallback;
+     полноценная мобильная раскладка — Фаза 3. */
+  .coach-table { min-width: 940px; }
+}

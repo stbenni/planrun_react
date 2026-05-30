@@ -24,6 +24,50 @@ class TrainingLoadService extends BaseService {
     }
 
     /**
+     * Парсит темп "MM:SS" в секунды/км. Возвращает null если формат невалидный
+     * или результат вне реалистичного диапазона (2:00–15:00 мин/км).
+     */
+    private function parsePaceSec(?string $pace): ?int {
+        if (!$pace || trim($pace) === '') return null;
+        $parts = explode(':', trim($pace));
+        if (count($parts) !== 2) return null;
+        $m = (int) $parts[0];
+        $s = (int) $parts[1];
+        if ($m < 0 || $s < 0 || $s >= 60) return null;
+        $sec = $m * 60 + $s;
+        return ($sec >= 120 && $sec <= 900) ? $sec : null;
+    }
+
+    /**
+     * Running TSS (rTSS) — индустриальный стандарт TrainingPeaks для бегунов без HR.
+     * Формула: rTSS = (duration_hours) × IF³ × 100, где IF = threshold_pace / actual_pace.
+     * Кубическая функция автоматически "наказывает" гоночные усилия (race-effort
+     * не требует отдельной надбавки).
+     *
+     * Приводим к Banister-шкале коэффициентом 1.6 — чтобы числа были согласованы
+     * с тренировками, где TRIMP считается по реальному пульсу (1 час threshold ≈ 160 TRIMP
+     * для типичного юзера с max_hr≈190, rest_hr≈60).
+     *
+     * Threshold pace оцениваем как easy_pace × 0.82 (Daniels: marathon-threshold ratio).
+     */
+    public function estimateTrimpFromPace(
+        float $durationMin,
+        int $paceSec,
+        int $easyPaceSec
+    ): ?float {
+        if ($durationMin <= 0 || $paceSec <= 0 || $easyPaceSec <= 0) {
+            return null;
+        }
+        $thresholdPaceSec = $easyPaceSec * 0.82;
+        $intensityFactor = $thresholdPaceSec / $paceSec;
+        // Cap IF: даже race-pace 5к редко превышает ~1.15 IF; защищает от выбросов при ошибках ввода.
+        $intensityFactor = min($intensityFactor, 1.30);
+        $rtss = ($durationMin / 60.0) * pow($intensityFactor, 3) * 100;
+        // Приведение к Banister-шкале для согласованности с HR-based TRIMP.
+        return round($rtss * 1.6, 2);
+    }
+
+    /**
      * Get user's HR parameters. Uses DB values, falls back to age-based estimation.
      * max_hr: user value or 220 - age
      * rest_hr: user value or 60
@@ -143,17 +187,24 @@ class TrainingLoadService extends BaseService {
      */
     public function getTrainingLoad(int $userId, int $days = 90): array {
         $hrParams = $this->getUserHrParams($userId);
+        $easyPaceSec = $this->userRepo()->getEasyPaceSec($userId);
 
         // Need extra history to seed CTL (42-day window)
         $totalDays = $days + 42;
         $cutoff = date('Y-m-d', strtotime("-{$totalDays} days"));
 
-        // Collect daily TRIMP from workouts table
+        // Collect daily TRIMP from workouts table.
+        // Для дедупликации: если на одной дате уже есть auto-запись с близкой дистанцией,
+        // пропускаем manual (Strava точнее: есть HR + GPS).
         $dailyTrimp = [];
+        $autoDayDistances = [];  // [date => [dist1, dist2, ...]]
 
-        // Auto-imported workouts — only running activities (walking inflates TRIMP unrealistically)
+        // Auto-imported workouts — only running activities (walking inflates TRIMP unrealistically).
+        // TRIMP считается по реальному пульсу (Banister) — race-effort уже учтён через высокий HR,
+        // надбавки не нужны.
         $stmt = $this->db->prepare("
-            SELECT DATE(start_time) as d, avg_heart_rate, duration_seconds, duration_minutes, trimp
+            SELECT DATE(start_time) as d, avg_heart_rate, duration_seconds, duration_minutes,
+                   distance_km, trimp
             FROM workouts
             WHERE user_id = ? AND DATE(start_time) >= ? AND avg_heart_rate IS NOT NULL AND avg_heart_rate > 0
               AND LOWER(TRIM(COALESCE(activity_type, ''))) IN ('running', 'trail running', 'treadmill')
@@ -178,16 +229,21 @@ class TrainingLoadService extends BaseService {
 
             if ($trimp !== null) {
                 $dailyTrimp[$date] = ($dailyTrimp[$date] ?? 0) + $trimp;
+                if (!empty($row['distance_km'])) {
+                    $autoDayDistances[$date][] = (float) $row['distance_km'];
+                }
             }
         }
         $stmt->close();
 
-        // Manual workout_log entries
+        // Manual workout_log entries — учитываем только беговые (activity_type_id=1=Бег).
+        // Если пульса нет — оцениваем TRIMP по темпу через easy_pace_sec атлета.
         $stmt2 = $this->db->prepare("
-            SELECT wl.training_date as d, wl.avg_heart_rate, wl.duration_minutes
+            SELECT wl.training_date as d, wl.avg_heart_rate, wl.duration_minutes,
+                   wl.distance_km, wl.pace, wl.result_time, wl.activity_type_id
             FROM workout_log wl
             WHERE wl.user_id = ? AND wl.is_completed = 1 AND wl.training_date >= ?
-              AND wl.avg_heart_rate IS NOT NULL AND wl.avg_heart_rate > 0
+              AND (wl.activity_type_id IS NULL OR wl.activity_type_id = 1)
             ORDER BY wl.training_date
         ");
         $stmt2->bind_param('is', $userId, $cutoff);
@@ -196,18 +252,47 @@ class TrainingLoadService extends BaseService {
         while ($row = $result2->fetch_assoc()) {
             $date = $row['d'];
             $durationMin = !empty($row['duration_minutes']) ? (int)$row['duration_minutes'] : 0;
+
+            // Если duration не задан, попробуем вывести из distance × pace.
+            $paceSec = $this->parsePaceSec($row['pace'] ?? null);
+            $distKm = !empty($row['distance_km']) ? (float)$row['distance_km'] : 0;
+            if ($durationMin <= 0 && $paceSec !== null && $distKm > 0) {
+                $durationMin = (int) round($distKm * $paceSec / 60);
+            }
             if ($durationMin <= 0) continue;
 
-            $trimp = $this->computeTrimp($durationMin, (float)$row['avg_heart_rate'], (float)$hrParams['rest_hr'], (float)$hrParams['max_hr']);
+            // Дедупликация: если на эту дату уже есть auto-запись с близкой дистанцией
+            // (Strava-импорт того же бега) — пропускаем manual во избежание двойного счёта.
+            if ($distKm > 0 && !empty($autoDayDistances[$date])) {
+                foreach ($autoDayDistances[$date] as $autoDist) {
+                    if (abs($autoDist - $distKm) / max($autoDist, $distKm) < 0.15) {
+                        continue 2;  // skip this manual entry
+                    }
+                }
+            }
+
+            $avgHr = !empty($row['avg_heart_rate']) ? (float)$row['avg_heart_rate'] : 0;
+            $trimp = null;
+            if ($avgHr > 0) {
+                // Реальный пульс → Banister TRIMP.
+                $trimp = $this->computeTrimp($durationMin, $avgHr, (float)$hrParams['rest_hr'], (float)$hrParams['max_hr']);
+            } elseif ($paceSec !== null && $easyPaceSec !== null) {
+                // Пульса нет → rTSS (running TSS) по темпу. Кубическая курва уже
+                // отражает race-effort, отдельная надбавка не нужна.
+                $trimp = $this->estimateTrimpFromPace($durationMin, $paceSec, $easyPaceSec);
+            }
+
             if ($trimp !== null) {
                 $dailyTrimp[$date] = ($dailyTrimp[$date] ?? 0) + $trimp;
             }
         }
         $stmt2->close();
 
-        // Build continuous date range and compute ATL/CTL/TSB using EMA
-        $kAtl = 2.0 / (7 + 1);    // 7-day EMA constant
-        $kCtl = 2.0 / (42 + 1);   // 42-day EMA constant
+        // EMA constants — индустриальный стандарт TrainingPeaks Performance Manager:
+        // ATL = 7-day, CTL = 42-day. Для "острой" усталости после гонок используется
+        // отдельная метрика ACWR (ниже), а не подкрутка ATL.
+        $kAtl = 2.0 / (7 + 1);    // 7-day EMA
+        $kCtl = 2.0 / (42 + 1);   // 42-day EMA
 
         $atl = 0.0;
         $ctl = 0.0;
@@ -275,17 +360,62 @@ class TrainingLoadService extends BaseService {
         // Count days with TRIMP data
         $daysWithData = count(array_filter($chartData, fn($d) => $d['trimp'] > 0));
 
+        // ACWR (Acute:Chronic Workload Ratio) — детектор острой усталости/спайков нагрузки.
+        // Дополняет TSB: TSB про среднесрочную "форму", ACWR про резкие скачки за последнюю неделю.
+        // Сладкое пятно 0.8–1.3, риск 1.3–1.5, опасно >1.5 (мета-анализ Springer 2024).
+        $acwr = $this->computeAcwr($dailyTrimp);
+
         return [
             'available' => $daysWithData >= 7,
             'current' => [
                 'atl' => $current['atl'],
                 'ctl' => $current['ctl'],
                 'tsb' => $current['tsb'],
+                'acwr' => $acwr['ratio'],
+                'acwr_status' => $acwr['status'],
             ],
             'hr_params' => $hrParams,
             'daily' => $chartData,
             'recent_workouts' => $recentWorkouts,
             'days_with_data' => $daysWithData,
         ];
+    }
+
+    /**
+     * ACWR = acute (7-day rolling sum) / chronic (28-day rolling avg-per-week).
+     * Возвращает ratio и status: 'detrained' (<0.8), 'optimal' (0.8–1.3),
+     * 'caution' (1.3–1.5), 'risk' (>1.5), 'insufficient' если мало данных.
+     *
+     * @param array $dailyTrimp [date => trimp_sum]
+     */
+    private function computeAcwr(array $dailyTrimp): array {
+        $today = time();
+        $acuteSum = 0.0;
+        $chronicSum = 0.0;
+
+        // Acute: последние 7 дней (включая сегодня).
+        for ($i = 0; $i < 7; $i++) {
+            $d = date('Y-m-d', $today - $i * 86400);
+            $acuteSum += $dailyTrimp[$d] ?? 0;
+        }
+        // Chronic: последние 28 дней, делим на 4 для week-equivalent среднего.
+        for ($i = 0; $i < 28; $i++) {
+            $d = date('Y-m-d', $today - $i * 86400);
+            $chronicSum += $dailyTrimp[$d] ?? 0;
+        }
+        $chronicWeeklyAvg = $chronicSum / 4.0;
+
+        if ($chronicWeeklyAvg < 30) {
+            // Нет базы для сравнения — недостаточно данных
+            return ['ratio' => null, 'status' => 'insufficient'];
+        }
+
+        $ratio = $acuteSum / $chronicWeeklyAvg;
+        $status = 'optimal';
+        if ($ratio < 0.8) $status = 'detrained';
+        elseif ($ratio > 1.5) $status = 'risk';
+        elseif ($ratio > 1.3) $status = 'caution';
+
+        return ['ratio' => round($ratio, 2), 'status' => $status];
     }
 }

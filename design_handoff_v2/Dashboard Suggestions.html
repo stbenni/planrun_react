@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Dashboard · аудит и предложения</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --primary: #FC4C02; --ink: #0F172A; --ink2: #475569; --ink3: #64748B;
+    --line: #E2E8F0; --bg: #F4F7FB; --surf: #FFFFFF;
+    --success: #22C55E; --warn: #EAB308; --danger: #EF4444; --info: #3B82F6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Montserrat', -apple-system, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.55; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 32px 96px; }
+  h1 { font-size: 36px; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 4px; }
+  .sub { color: var(--ink3); font-size: 14px; margin-bottom: 28px; }
+  h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 48px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+  h2 .num { font-family: 'Jost', sans-serif; font-size: 16px; font-weight: 700; color: var(--primary); margin-right: 8px; }
+  h3 { font-size: 17px; font-weight: 700; margin: 24px 0 6px; letter-spacing: -0.01em; }
+  h4 { font-size: 13px; font-weight: 700; margin: 14px 0 4px; color: var(--ink2); letter-spacing: 0.04em; text-transform: uppercase; }
+  p, li { font-size: 14.5px; }
+  ul { padding-left: 20px; }
+  code { background: #F1F5F9; padding: 1px 6px; border-radius: 4px; font-size: 12.5px; font-family: 'JetBrains Mono', monospace; color: #334155; }
+
+  .obs { background: var(--surf); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 10px 0; }
+  .obs h3 { margin: 0 0 4px; display: flex; align-items: baseline; gap: 8px; }
+  .obs .tag { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 4px; }
+  .tag-good { background: #DCFCE7; color: #166534; }
+  .tag-issue { background: #FEE2E2; color: #991B1B; }
+  .tag-think { background: #FEF9C3; color: #854D0E; }
+
+  .priority-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+  .priority { background: var(--surf); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .priority .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .priority .num { font-family: 'Jost', sans-serif; font-size: 22px; font-weight: 800; color: var(--primary); letter-spacing: -0.02em; }
+  .priority h4 { margin: 0; text-transform: none; letter-spacing: -0.01em; font-size: 15px; color: var(--ink); }
+  .priority p { font-size: 13px; color: var(--ink2); margin: 4px 0 0; }
+
+  .layout-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .layout-mock { background: var(--surf); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .layout-mock h4 { margin: 0 0 10px; font-size: 11px; }
+  .stack { display: flex; flex-direction: column; gap: 6px; }
+  .box { background: #F1F5F9; border-radius: 6px; padding: 8px 10px; font-size: 11.5px; color: var(--ink2); border-left: 3px solid transparent; }
+  .box-ai { border-left-color: var(--primary); background: #FFF4F0; color: #7C2D12; }
+  .box-today { border-left-color: var(--warn); background: #FEF9C3; color: #854D0E; font-weight: 600; }
+  .box-week { border-left-color: var(--info); background: #DBEAFE; color: #1E40AF; }
+  .box-goal { border-left-color: var(--success); background: #DCFCE7; color: #166534; }
+  .box-pr { border-left-color: var(--danger); background: #FEE2E2; color: #991B1B; }
+  .box-load { border-left-color: #8B5CF6; background: #EDE9FE; color: #5B21B6; }
+  .box.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .box.row2 > span { background: rgba(255,255,255,0.5); padding: 4px 6px; border-radius: 4px; }
+  .small { font-size: 10px; color: var(--ink3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Dashboard учеников: что я вижу</h1>
+<div class="sub">Аудит существующего + предложения. Без воды.</div>
+
+<h2><span class="num">01</span> Что хорошо</h2>
+
+<div class="obs">
+<h3><span class="tag tag-good">+ KEEP</span> AI-брифинг сверху — отличный паттерн</h3>
+<p>Cron-job утром генерирует <code>coach.proactive_daily_briefing</code>, и DailyBriefingHero показывает его как кликабельную карточку. <b>Это редкая фича</b>: AI говорит первым, а не ждёт вопроса.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-good">+ KEEP</span> AthleteMobileTabs со sticky-навигацией</h3>
+<p>4 таба (Сегодня / Неделя / Цель / Прогресс), скроллят к секциям через IntersectionObserver. Грамотное решение для длинной мобильной страницы.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-good">+ KEEP</span> TrainingLoadWidget = TrainingPeaks-уровень</h3>
+<p>TRIMP / ATL / CTL / TSB / ACWR с тултипами и рекомендациями. Это серьёзная аналитика, которой нет у Strava и нет в Garmin Connect. <b>Это конкурентное преимущество</b>, не убирайте.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-good">+ KEEP</span> Цветовая система типов тренировок</h3>
+<p>WeekStrip + WorkoutCard используют одни и те же цвета (easy=зелёный, tempo=жёлтый, interval=красный, long=синий). Это узнаваемая визуальная ДНК.</p>
+</div>
+
+<h2><span class="num">02</span> Что мешает</h2>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> Нет фокуса — 9 виджетов одинаковой важности</h3>
+<p>Открыл дашборд — что главное? AI-брифинг сверху? Сегодня тренировка? Цель? Сейчас все 9 виджетов кричат одинаково громко. Глаз не за что зацепиться.</p>
+<p><b>Когнитивная плата:</b> новичок не понимает что важнее. Опытный — листает в свою «привычную» секцию.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> AI-брифинг не интегрирован в день</h3>
+<p>Сейчас это <b>отдельный баннер</b> сверху, дальше идут параллельные нарративы:</p>
+<ul>
+<li>AI говорит (брифинг) →</li>
+<li>План показывает (WorkoutCard сегодня) →</li>
+<li>Цель напоминает (GoalCountdown) →</li>
+<li>Форма (TrainingLoad)…</li>
+</ul>
+<p>Это 4 разных «голоса». Лучше — <b>один поток</b>: AI говорит про сегодняшнюю тренировку, она показана рядом с его словами.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> Конструктор виджетов слишком сложный</h3>
+<p>Drag-and-drop, merge-zones, «+ в одну строку», KeyboardSensor. Это <b>power-user функция, выставленная как default</b>. Новичок не знает что такое «Тренд месяца» vs «Прогноз на забег» — и должен решить какие включать.</p>
+<p><b>Свежие данные:</b> в коде есть <code>DASHBOARD_MODULE_IDS</code> массив на 9 штук, и каждый юзер хранит свой layout в localStorage. Cтатистики использования нет, но я ставлю на то, что <b>≥80% юзеров никогда не меняли layout</b>.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> 3 виджета об одном — «Где я в плане»</h3>
+<p>GoalCountdown + RacePrediction + TrendComparison — это разные срезы одного вопроса «как я иду к гонке?». Сейчас они идут как 3 независимые карточки. Это <b>раздувание UI</b>.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> Empty-states слабые</h3>
+<p>«У вас нет плана. Создайте» → одна кнопка. Когда план генерируется (3-5 минут) — баннер «Это займёт 3-5 минут». А что делать пока? Можно было бы показать onboarding-шаги, примеры тренировок, видео-знакомство.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> Режим (AI / тренер) скрыт</h3>
+<p>Сейчас AI и тренер сосуществуют как <code>training_mode = both</code>. Мы договорились — <b>режим эксклюзивный</b>. На дашборде это нужно <b>отчётливо показать</b>: кто сейчас «ведёт» — AI или Михаил. Аватар в header, бейдж, что-то.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-issue">! ПРОБЛЕМА</span> Десктоп — тот же длинный скролл</h3>
+<p>На большом экране 9 виджетов идут одной колонкой (с возможностью пары в строке через конструктор). Но <b>десктоп — это место для 2-3 колонок</b>: главное слева, контекст справа. Сейчас правый половинка экрана пустует.</p>
+</div>
+
+<div class="obs">
+<h3><span class="tag tag-think">~ ДУМАЮ</span> Календарь дублируется</h3>
+<p>DashboardWeekStrip + полный Calendar в отдельной вкладке — нужны оба? Если оба, то WeekStrip должен быть <b>иной интенсивности</b>: не просто превью, а <i>«где я в неделе сейчас»</i>.</p>
+</div>
+
+<h2><span class="num">03</span> 6 главных предложений (по приоритету)</h2>
+
+<div class="priority-grid">
+<div class="priority">
+<div class="head"><span class="num">1</span><h4>Зафиксировать дефолт-структуру, убрать конструктор</h4></div>
+<p>5-6 секций в фиксированном порядке: Сегодня → Неделя → Цель → Форма → Рекорды. Конструктор — спрятать в Настройки как «Продвинутый режим».</p>
+<p class="small"><b>Зачем:</b> убирает когнитивную нагрузку для 80% юзеров.</p>
+</div>
+
+<div class="priority">
+<div class="head"><span class="num">2</span><h4>Слить AI-брифинг с «Сегодня»</h4></div>
+<p>Не баннер сверху, а реплика тренера прикреплена к карточке сегодняшней тренировки. Один блок, один нарратив.</p>
+<p class="small"><b>Зачем:</b> один голос. AI становится частью дня, а не «ещё одной вещью».</p>
+</div>
+
+<div class="priority">
+<div class="head"><span class="num">3</span><h4>Сделать «Сегодня» героем</h4></div>
+<p>Большой hero с цветом типа тренировки, большие цифры (дистанция / темп / время), CTA «Начать». Всё остальное — мельче и поддерживающее.</p>
+<p class="small"><b>Зачем:</b> 1 ясный фокус = ясное действие.</p>
+</div>
+
+<div class="priority">
+<div class="head"><span class="num">4</span><h4>Десктоп → 2 колонки</h4></div>
+<p>Слева — Сегодня (большое) + Неделя. Справа — sticky-sidebar с Целью (countdown + prediction в одной карточке) + Форма + Рекорды.</p>
+<p class="small"><b>Зачем:</b> на 1440px виджеты не должны болтаться в одной колонке.</p>
+</div>
+
+<div class="priority">
+<div class="head"><span class="num">5</span><h4>Показать режим в шапке</h4></div>
+<p>Под именем пользователя — маленький бейдж «🤖 AI-тренер» или аватар Михаила с зелёной точкой «онлайн». Клик → текущий чат.</p>
+<p class="small"><b>Зачем:</b> ясность кто сейчас рулит. Один клик до общения.</p>
+</div>
+
+<div class="priority">
+<div class="head"><span class="num">6</span><h4>Объединить «Цель»</h4></div>
+<p>Один виджет: countdown слева (28 дней до Москвы) + предикшен справа (1:36:42 / цель 1:35) + тренд −42 сек/нед. 1 карточка вместо 3.</p>
+<p class="small"><b>Зачем:</b> снижает количество карточек, повышает плотность смысла.</p>
+</div>
+</div>
+
+<h2><span class="num">04</span> Структура «до» и «после»</h2>
+
+<h3>Мобайл</h3>
+<div class="layout-compare">
+<div class="layout-mock">
+<h4>СЕЙЧАС</h4>
+<div class="stack">
+  <div class="box box-ai">AI Briefing (если есть)</div>
+  <div class="box box-goal">Goal Countdown</div>
+  <div class="box box-today">Today Workout</div>
+  <div class="box box-today">Next Workout</div>
+  <div class="box box-load">Trend Compare</div>
+  <div class="box box-week">Calendar Week Strip</div>
+  <div class="box box-pr">Personal Records</div>
+  <div class="box box-load">Training Load</div>
+  <div class="box box-week">Stats Widget</div>
+  <div class="small">+ Race Prediction где-то</div>
+</div>
+</div>
+
+<div class="layout-mock">
+<h4>ПРЕДЛАГАЮ</h4>
+<div class="stack">
+  <div class="box box-today"><b>СЕГОДНЯ</b> · workout + AI-реплика про эту тренировку в одной карточке + CTA «Начать»</div>
+  <div class="box box-week"><b>НЕДЕЛЯ</b> · 7 дней цветными иконками + объём + прогресс «5/5 ключевых»</div>
+  <div class="box box-goal"><b>ЦЕЛЬ</b> · countdown + прогноз vs цель + тренд (3-в-1)</div>
+  <div class="box box-load"><b>ФОРМА</b> · TSB + рекомендация на сегодня. Тултипы остаются.</div>
+  <div class="box box-pr"><b>РЕКОРДЫ</b> · 4 карточки PR</div>
+  <div class="small">Sticky-tabs остаются, но 5 секций вместо 9</div>
+</div>
+</div>
+</div>
+
+<h3>Десктоп</h3>
+<div class="layout-compare">
+<div class="layout-mock">
+<h4>СЕЙЧАС</h4>
+<div class="stack">
+  <div class="box box-ai">AI Briefing — full width</div>
+  <div class="box box-goal">Goal Countdown</div>
+  <div class="box row2 box-today">
+    <span>Today Workout</span>
+    <span>Next Workout</span>
+  </div>
+  <div class="box box-load">Trend Compare</div>
+  <div class="box box-week">Calendar</div>
+  <div class="box box-pr">Personal Records</div>
+  <div class="box box-week">Stats</div>
+  <div class="small">Юзер может перемешать через drag-and-drop</div>
+</div>
+</div>
+
+<div class="layout-mock">
+<h4>ПРЕДЛАГАЮ — 2 колонки</h4>
+<div class="box" style="display:grid; grid-template-columns: 1.6fr 1fr; gap: 6px; background: transparent; padding: 0; border: none;">
+  <div class="stack">
+    <div class="box box-today"><b>СЕГОДНЯ</b> hero (≈ 380px высота)</div>
+    <div class="box box-week"><b>НЕДЕЛЯ</b> · все 7 дней с детализацией</div>
+    <div class="box box-load"><b>ФОРМА</b> · полный график TSB/ATL/CTL</div>
+  </div>
+  <div class="stack">
+    <div class="box box-ai">🤖 AI · бейдж режима + быстрый чат</div>
+    <div class="box box-goal"><b>ЦЕЛЬ</b> sticky (countdown + прогноз)</div>
+    <div class="box box-pr">Рекорды (4 PR)</div>
+    <div class="box box-week">Объём этой нед vs прошлой (тренд)</div>
+  </div>
+</div>
+</div>
+</div>
+
+<h2><span class="num">05</span> Конкретные изменения по компонентам</h2>
+
+<div class="obs">
+<h3>Dashboard.jsx</h3>
+<ul>
+<li>Убрать <code>customizerOpen</code>, drag-and-drop UI из дашборда. Оставить layout-config в <code>SettingsScreen</code> → «Продвинутый режим».</li>
+<li>Заменить <code>displayLayout</code> на фиксированный массив из 5-6 секций для дефолта.</li>
+<li>На десктопе — добавить <code>dashboard-grid</code> с CSS Grid 2 колонки (1.6fr / 1fr).</li>
+</ul>
+</div>
+
+<div class="obs">
+<h3>DailyBriefingHero.jsx</h3>
+<ul>
+<li>Не рендерить отдельно. Вместо этого — пропс <code>aiBriefing</code> на <code>TodayWorkoutCard</code>, который монтирует реплику AI в шапке карточки сегодняшней тренировки.</li>
+<li>Если брифинга нет — показать placeholder «Спроси AI про эту тренировку →» с иконкой ✨.</li>
+</ul>
+</div>
+
+<div class="obs">
+<h3>GoalCountdownWidget + RacePredictionWidget</h3>
+<ul>
+<li>Слить в один <code>GoalWidget</code>: countdown слева, прогноз vs цель справа, под ним — мини-sparkline VDOT за 12 нед.</li>
+<li>RacePrediction для других дистанций (не главной гонки) — спрятать в детальный экран «Прогнозы».</li>
+</ul>
+</div>
+
+<div class="obs">
+<h3>TrainingLoadWidget</h3>
+<ul>
+<li>Compact-режим (один бейдж TSB + цвет + одна рекомендация) — на дашборде.</li>
+<li>Полный график + тултипы + ACWR — открывается в overlay/modal по клику.</li>
+</ul>
+</div>
+
+<div class="obs">
+<h3>Header (внутри Dashboard или AppLayout)</h3>
+<ul>
+<li>Добавить блок «Режим»: бейдж AI (оранжевый) или аватар тренера с online-точкой.</li>
+<li>Под ним — одна строка-резюме: «5/5 ключевых на этой неделе · форма растёт».</li>
+</ul>
+</div>
+
+<h2><span class="num">06</span> Что я НЕ предлагаю менять</h2>
+
+<ul>
+<li>WorkoutCard.jsx — переиспользуется везде, оставить как есть</li>
+<li>useDashboardData.js — логика расчёта compliance / progressDataMap правильная, не трогать</li>
+<li>Pull-to-refresh + auto-refresh — оставить</li>
+<li>Цветовые токены и шрифты — оставить</li>
+<li>WeekStrip компонент — оставить, просто переименовать секцию в «Неделя»</li>
+<li>VDOT / TRIMP логика — оставить, это уникальная сила приложения</li>
+</ul>
+
+<h2><span class="num">07</span> Что предлагаю дальше</h2>
+
+<div class="obs" style="background: linear-gradient(135deg, #FFE5D9 0%, #FFFFFF 100%); border-color: #FFD4BF;">
+<h3>Готов прототипировать редизайн дэшборда?</h3>
+<p>Могу собрать в <code>PlanRun Redesign v2.html</code> ещё 2-3 артборда:</p>
+<ol>
+<li><b>Мобайл · новый дашборд</b> — 5 секций с интегрированным AI</li>
+<li><b>Десктоп · новый дашборд</b> — 2-колоночный layout с sidebar</li>
+<li><b>Empty-states</b> — как выглядит «нет плана» / «план генерируется» / «день отдыха»</li>
+</ol>
+<p>Скажи — делаю.</p>
+</div>
+
+</div>
+</body>
+</html>

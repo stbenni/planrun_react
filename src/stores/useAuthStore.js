@@ -57,7 +57,22 @@ const useAuthStore = create(
       setDrawerOpen: (open) => set({ drawerOpen: typeof open === 'function' ? open(get().drawerOpen) : open }),
       /** Требуется разблокировка (PIN или биометрия) перед показом приложения */
       isLocked: false,
-      setLocked: (value) => set({ isLocked: value }),
+      setLocked: (value) => set({
+        isLocked: value,
+        // Сбрасываем флаг авто-биометрии при каждом переходе в locked, чтобы
+        // следующее открытие LockScreen смогло выстрелить ровно один раз.
+        _biometricAutoTriggered: value ? false : get()._biometricAutoTriggered,
+      }),
+      /**
+       * Атомарная проверка: можно ли запустить авто-биометрию сейчас?
+       * Если да — выставляем флаг и возвращаем true (вызывающий может запустить).
+       * Если уже запускали в этой сессии блокировки — возвращаем false (guard).
+       */
+      tryAutoTriggerBiometric: () => {
+        if (get()._biometricAutoTriggered) return false;
+        set({ _biometricAutoTriggered: true });
+        return true;
+      },
       /** Время ухода в фон (для блокировки через 15 мин) */
       lastActiveAt: 0,
       /** Идёт разблокировка (pinLogin/biometricLogin) — onTokenExpired не должен вмешиваться */
@@ -66,6 +81,12 @@ const useAuthStore = create(
       _credentialRecoveryInProgress: false,
       /** Включена ли блокировка при уходе в фон (true только при PIN/биометрии) */
       _lockEnabled: false,
+      /**
+       * Уже запускали авто-биометрию для текущей сессии блокировки.
+       * Глобальный guard — переживает ремаунт LockScreen. Сбрасывается на false
+       * при каждом новом переходе isLocked → true (см. setLocked).
+       */
+      _biometricAutoTriggered: false,
 
       // Инициализация
       initialize: async () => {
@@ -134,12 +155,32 @@ const useAuthStore = create(
             }
 
             if ((pinEnabled || biometricEnabled) && !passwordReauthBypass) {
-              set({ isLocked: true, _lockEnabled: true, loading: false });
+              set({ isLocked: true, _lockEnabled: true, _biometricAutoTriggered: false, loading: false });
               get().setupBackgroundLock?.();
               clearTimeout(safetyTimeout);
               return;
             }
             // Нет раннего return — всегда пробуем getCurrentUser (может сработать recovery)
+          }
+
+          // Telegram Mini App: бесшовный вход по подписанному initData до обычной проверки сессии.
+          try {
+            const { isTelegramContext, initTelegramMiniApp, getInitData } = await import('../services/telegramMiniApp');
+            if (isTelegramContext()) {
+              await initTelegramMiniApp();
+              const initData = getInitData();
+              if (initData) {
+                let tz = null;
+                try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { tz = null; }
+                await apiClient.telegramMiniAppAuth(initData, tz).catch((e) => {
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn('[Auth] Telegram Mini App auth failed:', e?.message);
+                  }
+                });
+              }
+            }
+          } catch (_) {
+            // Mini App best-effort: при сбое продолжаем обычной проверкой сессии.
           }
 
           // Проверяем авторизацию через PHP сессию (cookies) или JWT
@@ -188,7 +229,7 @@ const useAuthStore = create(
           const { isLocked, lastActiveAt, _lockEnabled } = get();
           if (!_lockEnabled || isLocked) return;
           if (lastActiveAt && Date.now() - lastActiveAt > LOCK_AFTER_MS) {
-            set({ isLocked: true });
+            set({ isLocked: true, _biometricAutoTriggered: false });
           }
         };
         const onBackground = () => set({ lastActiveAt: Date.now() });
@@ -438,7 +479,7 @@ const useAuthStore = create(
         set({ _unlocking: true });
         try {
           const result = await BiometricService.authenticateAndGetTokens(
-            'Используйте биометрию для входа в PlanRun'
+            'Используйте биометрию для входа'
           );
 
           if (!result.success) {

@@ -153,7 +153,6 @@ function getSuggestedPlanWeeks($userData, $goalType) {
     // Для всех целей: если есть конечная дата — считаем недели из разницы дат
     $endStr = $userData['weight_goal_date']
         ?? $userData['race_date']
-        ?? $userData['target_marathon_date']
         ?? null;
     if (!empty($endStr)) {
         $end = strtotime($endStr);
@@ -1753,7 +1752,7 @@ function buildGoalBlock($userData, $goalType) {
                 $distance = $distanceMap[$userData['race_distance']] ?? $userData['race_distance'];
                 $block .= "Дистанция: {$distance}\n";
             }
-            $targetTime = $userData['race_target_time'] ?? $userData['target_marathon_time'] ?? null;
+            $targetTime = $userData['race_target_time'] ?? null;
             if (!empty($targetTime)) {
                 $block .= "Целевое время: {$targetTime}\n";
                 // Рассчитываем целевой темп
@@ -1773,7 +1772,7 @@ function buildGoalBlock($userData, $goalType) {
                     }
                 }
             }
-            $targetDate = $userData['race_date'] ?? $userData['target_marathon_date'] ?? null;
+            $targetDate = $userData['race_date'] ?? null;
             if (!empty($targetDate)) {
                 $block .= "Дата целевого забега: {$targetDate}\n";
                 $racePos = computeRaceDayPosition($userData['training_start_date'] ?? null, $targetDate);

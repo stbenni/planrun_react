@@ -23,10 +23,19 @@ class ChatConfirmationHandler {
         $s = mb_strtolower(trim($text));
         if (mb_strlen($s) > 50) return false;
         $short = preg_replace('/[\s\p{P}]+/u', '', $s);
-        return in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'погнали', 'достаточно', 'этогодостаточно', 'правильно'])
+        if (in_array($short, ['да', 'давай', 'ок', 'окей', 'супер', 'хорошо', 'отлично', 'погнали', 'достаточно', 'этогодостаточно', 'правильно', 'конечно', 'ага', 'угу'])
             || preg_match('/^(да|давай|ок|супер|отлично|хорошо|правильно)[\s\p{P}]*$/ui', $s)
             || preg_match('/^(этого\s+)?достаточно\??$/ui', $s)
-            || preg_match('/^(да,?\s+)?правильно\??$/ui', $s);
+            || preg_match('/^(да,?\s+)?правильно\??$/ui', $s)) {
+            return true;
+        }
+        // Составное подтверждение: «да, убери», «да, давай», «ок, убери», «давай удаляй» —
+        // начинается со слова-согласия, но НЕ отрицание («да нет», «да не надо»).
+        if (preg_match('/^(да|давай|ага|угу|ок|окей|конечно|подтверждаю|подтверди|валяй|жми|вперёд|поехали)\b/ui', $s)
+            && !preg_match('/\b(нет|не|нельзя|отставить|погоди|стоп|отмена|потом|позже)\b/ui', $s)) {
+            return true;
+        }
+        return false;
     }
 
     public function tryHandleSwapConfirmation(string $content, array $history, int $userId, array &$messages, array &$toolsUsed): bool {
@@ -37,7 +46,7 @@ class ChatConfirmationHandler {
         $lastAssistant = $this->getLastAssistantMessage($history);
         if ($lastAssistant === '') return false;
         if (preg_match('/\b(1\.\s.*\n.*2\.)/us', $lastAssistant)) return false;
-        if (!preg_match('/(поменять\s+местами|поменял\s+местами|swap|меняем\s+местами)/ui', $lastAssistant)) return false;
+        if (!preg_match('/(поменя[а-яё]*\s+местами|меня[а-яё]*\s+местами|перестав[а-яё]*\s+местами|местами\s+(?:поменя|меня|перестав|свап)|swap)/ui', $lastAssistant)) return false;
 
         $swapDates = $this->extractSwapDatesFromText($lastAssistant, $userId);
         if ($swapDates === null) return false;
@@ -99,7 +108,7 @@ class ChatConfirmationHandler {
 
         $lastAssistant = $this->getLastAssistantMessage($history);
         if ($lastAssistant === '' || mb_strlen($lastAssistant) < 20) return false;
-        if (!preg_match('/(обновлю|скорректирую|изменю|заменю|сократим|сокращу|поменяю|заменим|скорректируем|записываю|зафиксирую|обновлённый|удалю|уберу|отменю|перенесу|переставлю|добавлю|скопирую|повтор[юяю]|пересчита[юю]|запущу|сгенериру[юю]|создам|подтверди|правильно\s*\?|подходит\s*\?|верно\s*\?)/ui', $lastAssistant)) return false;
+        if (!preg_match('/(обнов[а-яё]*|скоррект[а-яё]*|измен[а-яё]*|замен[а-яё]*|сократ[а-яё]*|сокращ[а-яё]*|помен[а-яё]*|записыва[а-яё]*|зафиксир[а-яё]*|фиксир[а-яё]*|удал[а-яё]*|убер[а-яё]*|убра[а-яё]*|убир[а-яё]*|отмен[а-яё]*|снят[а-яё]*|сним[а-яё]*|выкин[а-яё]*|исключ[а-яё]*|перенес[а-яё]*|перенёс[а-яё]*|перенос[а-яё]*|перестав[а-яё]*|передвин[а-яё]*|сдвин[а-яё]*|перемест[а-яё]*|перемещ[а-яё]*|добав[а-яё]*|постав[а-яё]*|заплан[а-яё]*|внес[а-яё]*|внёс[а-яё]*|запиш[а-яё]*|скопир[а-яё]*|копир[а-яё]*|дублир[а-яё]*|повтор[а-яё]*|пересчита[а-яё]*|пересч[её]т|адаптир[а-яё]*|сгенерир[а-яё]*|созда[а-яё]*|генерац[а-яё]*|подтверд[а-яё]*|правильно\s*\?|подходит\s*\?|верно\s*\?|годится\s*\?|ок\s*\?)/ui', $lastAssistant)) return false;
 
         if ($this->tryExecuteRecalculateFromProposal($lastAssistant, $userId, $messages, $toolsUsed)) return true;
         if ($this->tryExecuteGenerateNextPlanFromProposal($lastAssistant, $userId, $messages, $toolsUsed)) return true;
@@ -188,6 +197,14 @@ class ChatConfirmationHandler {
         return null;
     }
 
+    private function extractCancelDateFromText(string $text, int $userId): ?string {
+        // Подстрока от глагола-отмены и далее — ищем дату уже там (не цепляем «сегодня» в начале фразы).
+        if (preg_match('/(удал|убер|убра|убир|отмен|снят|сним|выкин|исключ|скин)[а-яё]*([\s\S]{0,80})/ui', $text, $m)) {
+            return $this->extractSingleDateFromText($m[2], $userId);
+        }
+        return null;
+    }
+
     private function extractSingleDateFromText(string $text, int $userId): ?string {
         $tz = $this->getUserTz($userId);
         $now = new DateTime('now', $tz);
@@ -220,8 +237,12 @@ class ChatConfirmationHandler {
     // ── Proposal parsers (private) ──
 
     private function tryExecuteDeleteFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(удал[яюю]|убер[у|ём]|отмен[яюю]|удалить|убрать|отменить)\s*(тренировку|день|запись)/ui', $text)) return false;
-        $date = $this->extractSingleDateFromText($text, $userId);
+        // Намерение удалить/отменить — допускаем слова между глаголом и существительным
+        // («отменить ВОСКРЕСНУЮ тренировку», «удалить ЭТУ СИЛОВУЮ тренировку»).
+        if (!preg_match('/(удал[а-яё]*|убер[а-яё]*|убра[а-яё]*|убир[а-яё]*|отмен[а-яё]*|снят[а-яё]*|сним[а-яё]*|выкин[а-яё]*|исключ[а-яё]*|скин[а-яё]*|вычерк[а-яё]*|вычёрк[а-яё]*)[\s\S]{0,40}?(тренировк|день|запис|бег|офп|сбу|силов|пробежк|интервал|фартлек|темпов|длительн|занятие|нагрузк)/ui', $text)) return false;
+        // Дату берём из ОКРЕСТНОСТИ глагола-отмены, а не первое «сегодня» в тексте:
+        // предложение может содержать несколько дат ("Сегодня 29 мая ... отменить тренировку 31 мая").
+        $date = $this->extractCancelDateFromText($text, $userId) ?? $this->extractSingleDateFromText($text, $userId);
         if (!$date) return false;
         $output = $this->toolRegistry->executeTool('delete_training_day', json_encode(['date' => $date]), $userId);
         if (isset(json_decode($output, true)['error'])) return false;
@@ -230,7 +251,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteMoveFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(перенес[уём]|перестав[люю]|перемещ[уаю]|перенести|переставить)/ui', $text)) return false;
+        if (!preg_match('/(перенес[а-яё]*|перенёс[а-яё]*|перенос[а-яё]*|перестав[а-яё]*|передвин[а-яё]*|сдвин[а-яё]*|сдвиг[а-яё]*|перемест[а-яё]*|перемещ[а-яё]*)/ui', $text)) return false;
         $dates = $this->extractSwapDatesFromText($text, $userId);
         if ($dates === null) return false;
         $args = ['source_date' => $dates[0], 'target_date' => $dates[1]];
@@ -241,7 +262,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteAddFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(добавл[яюю]|поставл[яюю]|добавить|поставить)\s*(тренировку|день|на)/ui', $text)) return false;
+        if (!preg_match('/(добав[а-яё]*|постав[а-яё]*|запланир[а-яё]*|внес[а-яё]*|внёс[а-яё]*|запиш[а-яё]*)[\s\S]{0,40}?(тренировк|день|занятие|бег|офп|сбу|силов|интервал|темпов|длительн|фартлек|пробежк|на\s+\d|на\s+(?:пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес))/ui', $text)) return false;
         $data = $this->parseGenericUpdateProposal($text, $userId);
         if ($data === null) return false;
         $args = ['date' => $data['date'], 'type' => $data['type'], 'description' => $data['description']];
@@ -252,7 +273,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteLogWorkoutFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(записываю|запишу|фиксирую|зафиксирую)[:\s]/ui', $text)) return false;
+        if (!preg_match('/(записыва[а-яё]*|запиш[а-яё]*|зафиксир[а-яё]*|фиксир[а-яё]*|залог[а-яё]*|отмеч[а-яё]*\s+как\s+выполн)[:\s]/ui', $text)) return false;
         $date = $this->extractSingleDateFromText($text, $userId);
         if (!$date) {
             $tz = $this->getUserTz($userId);
@@ -295,7 +316,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteRecalculateFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(пересчита[юем]|запущу\s+пересч[её]т|пересчитать\s+план|адаптирую\s+план)/ui', $text)) return false;
+        if (!preg_match('/(пересчита[а-яё]*|пересч[её]т|перестро[а-яё]*\s+план|адаптир[а-яё]*\s+план|адаптир[а-яё]*\s+нагрузк|переплан[а-яё]*)/ui', $text)) return false;
         $reason = '';
         if (preg_match('/(?:потому что|из-за|причина|так как|учитывая)\s+([^.!?]+)/ui', $text, $rm)) $reason = trim($rm[1]);
         $args = $reason ? ['reason' => $reason] : [];
@@ -306,7 +327,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteGenerateNextPlanFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(создам\s+(?:новый\s+)?план|сгенериру[юем]\s+(?:новый\s+)?план|запущу\s+генерацию|новый\s+(?:тренировочный\s+)?план)/ui', $text)) return false;
+        if (!preg_match('/(созда[а-яё]*\s+(?:новый\s+)?план|сгенерир[а-яё]*\s+(?:новый\s+)?план|сгенерир[а-яё]*\s+план|запущу?\s+генерац|генерац[а-яё]*\s+(?:нового\s+)?план|новый\s+(?:тренировочный\s+)?план|следующий\s+(?:тренировочный\s+)?план)/ui', $text)) return false;
         $output = $this->toolRegistry->executeTool('generate_next_plan', json_encode([]), $userId);
         if (isset(json_decode($output, true)['error'])) return false;
         $this->addToolCallToMessages('generate_next_plan', [], $output, $messages, $toolsUsed);
@@ -314,7 +335,7 @@ class ChatConfirmationHandler {
     }
 
     private function tryExecuteCopyFromProposal(string $text, int $userId, array &$messages, array &$toolsUsed): bool {
-        if (!preg_match('/(скопиру[юем]|повтор[яюю]|копирую|дублирую)\s*(тренировку|день|на)/ui', $text)) return false;
+        if (!preg_match('/(скопир[а-яё]*|копир[а-яё]*|дублир[а-яё]*|продублир[а-яё]*|повтор[а-яё]*)[\s\S]{0,40}?(тренировк|день|занятие)/ui', $text)) return false;
         $dates = $this->extractSwapDatesFromText($text, $userId);
         if ($dates === null) return false;
         $args = ['source_date' => $dates[0], 'target_date' => $dates[1]];

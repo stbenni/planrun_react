@@ -10,12 +10,35 @@ require_once __DIR__ . '/../prepare_weekly_analysis.php';
 require_once __DIR__ . '/../repositories/StatsRepository.php';
 
 class StatsService extends BaseService {
-    
+
     protected $repository;
-    
+
     public function __construct($db) {
         parent::__construct($db);
         $this->repository = new StatsRepository($db);
+    }
+
+    /**
+     * Нормализуем имя activity_type в английский ключ для frontend (TYPE_NAMES).
+     * Кириллические значения из таблицы activity_types ('Бег', 'ОФП', 'СБУ' и т.д.)
+     * переводятся в стабильные английские ключи, совместимые с workouts.activity_type.
+     */
+    private static function normalizeActivityType(?string $raw): string {
+        // mb_strtolower обязателен для кириллицы — strtolower() работает только с ASCII.
+        $name = mb_strtolower(trim((string)($raw ?? '')), 'UTF-8');
+        $map = [
+            'бег' => 'running',
+            'офп' => 'other',
+            'сбу' => 'sbu',
+            'отдых' => 'rest',
+            'силовая тренировка' => 'other',
+            'растяжка' => 'stretching',
+            'йога' => 'yoga',
+            'плавание' => 'swimming',
+            'велосипед' => 'cycling',
+        ];
+        if ($name === '') return 'running';
+        return $map[$name] ?? $name;
     }
     
     /**
@@ -166,7 +189,7 @@ class StatsService extends BaseService {
                 'duration_minutes' => $row['duration_minutes'] ? (int)$row['duration_minutes'] : null,
                 'duration_seconds' => null,
                 'avg_pace' => $row['pace'],
-                'activity_type' => strtolower(trim($row['activity_type_name'] ?? 'running')),
+                'activity_type' => self::normalizeActivityType($row['activity_type_name']),
                 'is_manual' => true,
             ];
         }

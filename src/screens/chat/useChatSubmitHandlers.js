@@ -50,8 +50,8 @@ export function useChatSubmitHandlers({
    * Ядро отправки — принимает текст напрямую.
    * Используется и handleSubmit, и sendDirect.
    */
-  const sendContent = useCallback(async (content) => {
-    if (!content || !api || sendingRef.current) return;
+  const sendContent = useCallback(async (content, attachment = null) => {
+    if ((!content && !attachment) || !api || sendingRef.current) return;
 
     onBeforeSend?.();
     sendingRef.current = true;
@@ -65,6 +65,7 @@ export function useChatSubmitHandlers({
       sender_id: user?.user_id ?? user?.id,
       content,
       created_at: new Date().toISOString(),
+      ...(attachment ? { metadata: { attachment } } : {}),
     };
 
     if (selectedChat !== TAB_USER_DIALOG && !selectedChat?.startsWith?.('dialog_')) {
@@ -73,7 +74,7 @@ export function useChatSubmitHandlers({
 
     if (selectedChat === TAB_ADMIN) {
       try {
-        const res = await api.chatSendMessageToAdmin(content);
+        const res = await api.chatSendMessageToAdmin(content, attachment);
         setMessages((prev) => prev.map((message) => (
           message.id === userMsg.id ? { ...message, id: res?.message_id ?? message.id } : message
         )));
@@ -96,7 +97,7 @@ export function useChatSubmitHandlers({
       }
       setUserDialogMessages((prev) => [...prev, userMsg]);
       try {
-        const res = await api.chatSendMessageToUser(contactUserForDialog.id, content);
+        const res = await api.chatSendMessageToUser(contactUserForDialog.id, content, attachment);
         setUserDialogMessages((prev) => prev.map((message) => (
           message.id === userMsg.id ? { ...message, id: res?.message_id ?? message.id } : message
         )));
@@ -105,6 +106,39 @@ export function useChatSubmitHandlers({
         setError(error.message || 'Ошибка отправки');
         setUserDialogMessages((prev) => prev.filter((message) => message.id !== userMsg.id));
       } finally {
+        setSending(false);
+        sendingRef.current = false;
+      }
+      return;
+    }
+
+    // AI-чат с вложением (фото/голос): не стримим — сохраняем медиа-сообщение и
+    // получаем ответ AI одним запросом (AI отвечает на текст, медиа просто хранится).
+    if (attachment) {
+      const aiPlaceholder = {
+        id: `temp-ai-${Date.now()}`,
+        sender_type: 'ai',
+        content: '',
+        created_at: null,
+      };
+      setMessages((prev) => [...prev, aiPlaceholder]);
+      setAiPendingResponse?.(true);
+      try {
+        const result = await api.chatSendMessage(content, attachment);
+        const reply = result?.content ?? '';
+        if (reply) {
+          setMessages((prev) => prev.map((m) => (
+            m.id === aiPlaceholder.id ? { ...m, sender_type: 'ai', content: reply } : m
+          )));
+        } else {
+          // attachment_only (без ответа AI) — убираем плейсхолдер
+          setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
+        }
+      } catch (error) {
+        setError(error?.message || 'Ошибка отправки');
+        setMessages((prev) => prev.filter((m) => m.id !== aiPlaceholder.id));
+      } finally {
+        setAiPendingResponse?.(false);
         setSending(false);
         sendingRef.current = false;
       }
@@ -128,6 +162,7 @@ export function useChatSubmitHandlers({
 
     let accumulated = '';
     let flushScheduled = false;
+    const streamToolsUsed = [];
     const flushToState = () => {
       if (!isMountedRef.current || abortController.signal.aborted) return;
       const text = accumulated;
@@ -159,6 +194,7 @@ export function useChatSubmitHandlers({
         signal: abortController.signal,
         onFirstChunk: () => !abortController.signal.aborted && setStreamPhase('streaming'),
         onToolExecuting: (toolName) => {
+          if (toolName) streamToolsUsed.push(toolName);
           if (!abortController.signal.aborted) setStreamPhase(`tool:${toolName}`);
         },
         onPlanUpdated: () => usePlanStore.getState().loadPlan(),
@@ -188,16 +224,41 @@ export function useChatSubmitHandlers({
       .then((fullContent) => {
         if (!isMountedRef.current || abortController.signal.aborted) return;
         setAiPendingResponse?.(false);
+        const toolsMeta = [...new Set(streamToolsUsed)];
         setMessages((prev) => prev.map((message) => (
-          message.id === aiPlaceholder.id ? { ...message, sender_type: 'ai', content: fullContent } : message
+          message.id === aiPlaceholder.id
+            ? {
+                ...message,
+                sender_type: 'ai',
+                content: fullContent,
+                ...(toolsMeta.length ? { metadata: { ...(message.metadata || {}), tools_used: toolsMeta } } : {}),
+              }
+            : message
         )));
         if (!fullContent) setError('AI не вернул ответ. Попробуйте ещё раз.');
       })
-      .catch((error) => {
+      .catch(async (error) => {
         if (error?.name === 'AbortError') return;
-        if (isMountedRef.current) {
+        if (!isMountedRef.current) return;
+        // Сбой стрима (частый на первом запросе: холодное соединение/протухший токен) —
+        // пробуем не-стрим chatSendMessage: он идёт через request() с авто-рефрешем токена и ретраями.
+        try {
+          const result = await api.chatSendMessage(content);
+          if (!isMountedRef.current) return;
+          const reply = result?.content ?? '';
           setAiPendingResponse?.(false);
-          setError(error?.message || 'Ошибка отправки');
+          if (reply) {
+            setMessages((prev) => prev.map((message) => (
+              message.id === aiPlaceholder.id ? { ...message, sender_type: 'ai', content: reply } : message
+            )));
+          } else {
+            setMessages((prev) => prev.filter((message) => message.id !== aiPlaceholder.id));
+            setError('AI не вернул ответ. Попробуйте ещё раз.');
+          }
+        } catch (fallbackError) {
+          if (!isMountedRef.current) return;
+          setAiPendingResponse?.(false);
+          setError(fallbackError?.message || error?.message || 'Ошибка отправки');
           setMessages((prev) => prev.filter((message) => message.id !== aiPlaceholder.id));
         }
       })
@@ -284,6 +345,17 @@ export function useChatSubmitHandlers({
     }
   }, [api, setAiPendingResponse, setError, setMessages]);
 
+  const handleClearAdminChat = useCallback(async () => {
+    if (!api || !window.confirm('Очистить чат с администрацией? Это действие нельзя отменить.')) return;
+    try {
+      await api.chatClearAdmin();
+      setMessages([]);
+      setError(null);
+    } catch (error) {
+      setError(error.message || 'Не удалось очистить чат');
+    }
+  }, [api, setError, setMessages]);
+
   const handleClearDirectDialog = useCallback(async () => {
     if (!api || !contactUserForDialog?.id) return;
     if (!window.confirm(`Очистить диалог с ${contactUserForDialog.username || 'пользователем'}? Это действие нельзя отменить.`)) return;
@@ -313,9 +385,11 @@ export function useChatSubmitHandlers({
 
   return {
     handleSubmit,
+    sendContent,
     sendDirect,
     handleAdminChatSend,
     handleClearAiChat,
+    handleClearAdminChat,
     handleClearDirectDialog,
     handleMarkAllRead,
   };

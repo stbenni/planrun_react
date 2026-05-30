@@ -101,8 +101,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'validate_field') {
 // Матрица обязательных полей (conditional required):
 // - self: только username, password, email, gender; experience_level = NULL; дата начала опциональна (дефолт сегодня).
 // - ai/both + health: goal_type, training_start_date, health_program; при custom — health_plan_weeks.
-// - ai/both + race: goal_type, training_start_date, (race_date ИЛИ target_marathon_date).
-// - ai/both + time_improvement: goal_type, training_start_date, (target_marathon_date ИЛИ race_date).
+// - ai/both + race | time_improvement: goal_type, training_start_date, race_date.
 // - ai/both + weight_loss: goal_type, training_start_date, weight_goal_kg, weight_goal_date.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -151,15 +150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $goalType = 'health';
     }
     
-    // Для забега
+    // Для забега / улучшения времени
     $raceDate = !empty($input['race_date']) ? $input['race_date'] : null;
     $raceDistance = !empty($input['race_distance']) ? $input['race_distance'] : null;
     $raceTargetTime = !empty($input['race_target_time']) ? $input['race_target_time'] : null;
-    
-    // Для марафона/цели
-    $targetMarathonDate = !empty($input['target_marathon_date']) ? $input['target_marathon_date'] : null;
-    $targetMarathonTime = !empty($input['target_marathon_time']) ? $input['target_marathon_time'] : null;
-    
+
     // Дата начала тренировок
     $trainingStartDate = !empty($input['training_start_date']) ? $input['training_start_date'] : null;
     
@@ -415,8 +410,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'race_distance' => !empty($raceDistance) ? $raceDistance : null,
         'race_date' => !empty($raceDate) ? $raceDate : null,
         'race_target_time' => !empty($raceTargetTime) ? $raceTargetTime : null,
-        'target_marathon_date' => !empty($targetMarathonDate) ? $targetMarathonDate : null,
-        'target_marathon_time' => !empty($targetMarathonTime) ? $targetMarathonTime : null,
         'training_start_date' => !empty($trainingStartDate) ? $trainingStartDate : null,
         'gender' => $gender,
         'birth_year' => $birthYear,

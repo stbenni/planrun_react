@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>PlanRun · аудит существующего</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --primary: #FC4C02;
+    --ink: #0F172A;
+    --ink2: #475569;
+    --ink3: #64748B;
+    --line: #E2E8F0;
+    --bg: #F4F7FB;
+    --surf: #FFFFFF;
+    --easy: #22C55E;
+    --tempo: #EAB308;
+    --interval: #EF4444;
+    --long: #3B82F6;
+    --control: #8B5CF6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Montserrat', -apple-system, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 32px 96px; }
+  h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 4px; }
+  .sub { color: var(--ink3); font-size: 14px; margin-bottom: 32px; }
+  h2 {
+    font-size: 24px; font-weight: 800; letter-spacing: -0.02em;
+    margin: 56px 0 14px; padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .num {
+    font-family: 'Jost', 'Montserrat', sans-serif;
+    font-size: 18px; font-weight: 700; color: var(--primary);
+    letter-spacing: 0;
+  }
+  h3 { font-size: 17px; font-weight: 700; margin: 24px 0 8px; letter-spacing: -0.01em; }
+  h4 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; color: var(--ink2); letter-spacing: 0.02em; text-transform: uppercase; }
+  p { margin: 8px 0; font-size: 14.5px; }
+  ul { margin: 8px 0; padding-left: 22px; font-size: 14.5px; }
+  li { margin: 4px 0; }
+  code { background: #F1F5F9; padding: 1px 6px; border-radius: 4px; font-size: 12.5px; font-family: 'JetBrains Mono', SF Mono, monospace; color: #334155; }
+  .file { color: var(--primary); font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+  .role-tag {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 2px 8px; border-radius: 4px; margin-right: 6px; vertical-align: middle;
+  }
+  .role-tag.user { background: #DBEAFE; color: #1E40AF; }
+  .role-tag.coach { background: #FCE7F3; color: #9D174D; }
+  .role-tag.both { background: #FEF3C7; color: #92400E; }
+  .role-tag.admin { background: #E0E7FF; color: #3730A3; }
+
+  .card {
+    background: var(--surf); border: 1px solid var(--line); border-radius: 16px;
+    padding: 18px 20px; margin: 14px 0;
+  }
+  .card-title {
+    display: flex; align-items: baseline; gap: 8px;
+    font-weight: 700; font-size: 16px; margin-bottom: 4px;
+  }
+  .card-sub { color: var(--ink3); font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .col { background: #F8FAFC; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+  .col h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.08em; font-weight: 700; color: var(--ink3); text-transform: uppercase; }
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; margin: 2px 4px 2px 0;
+    background: #F1F5F9; color: var(--ink2);
+  }
+  .pill-easy { background: #DCFCE7; color: #166534; }
+  .pill-tempo { background: #FEF9C3; color: #854D0E; }
+  .pill-interval { background: #FEE2E2; color: #991B1B; }
+  .pill-long { background: #DBEAFE; color: #1E40AF; }
+  .pill-control { background: #E9D5FF; color: #6B21A8; }
+
+  .pain {
+    background: #FEF2F2; border-left: 3px solid var(--interval);
+    padding: 12px 14px; border-radius: 8px; font-size: 13.5px;
+    color: #7F1D1D; margin: 10px 0;
+  }
+  .pain b { color: #991B1B; }
+
+  .flow {
+    background: #F8FAFC; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; color: var(--ink2); font-family: 'JetBrains Mono', monospace;
+    margin: 8px 0;
+  }
+  .flow span { color: var(--primary); }
+
+  .tldr {
+    background: linear-gradient(135deg, #FFE5D9 0%, #FFC7B3 30%, #FFFFFF 100%);
+    border: 1px solid #FFD4BF; padding: 20px 24px; border-radius: 16px;
+    margin: 24px 0; font-size: 14.5px;
+  }
+  .tldr h4 { margin: 0 0 8px; color: var(--primary); font-size: 12px; letter-spacing: 0.1em; }
+
+  .matrix {
+    display: grid; grid-template-columns: 140px 1fr 1fr; gap: 0;
+    background: var(--surf); border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; margin: 14px 0;
+    font-size: 13px;
+  }
+  .matrix > div { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .matrix > div:nth-last-child(-n+3) { border-bottom: none; }
+  .matrix > div:nth-child(3n+1) { background: #F8FAFC; font-weight: 600; color: var(--ink2); font-size: 12px; }
+  .matrix .head { background: var(--ink) !important; color: white !important; font-weight: 700; font-size: 11px; letter-spacing: 0.06em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>PlanRun · аудит существующего</h1>
+<div class="sub">Что есть сейчас, как это работает, что мешает тренерам. База для редизайна.</div>
+
+<div class="tldr">
+<h4>TL;DR</h4>
+PlanRun — приложение для бегунов и тренеров на React + Capacitor (Android-APK). Ядро — <b>план тренировок</b>: AI-generated или ручной, разбит на недели → дни → planDays (один день = массив тренировок: бег + ОФП + СБУ). Бегун видит дашборд с виджетами, календарь, статистику и чат с AI. Тренер видит список учеников с метриками compliance + переключается в режим просмотра конкретного ученика через URL <code>?athlete=slug</code>. Главная проблема UX тренера — <b>работа с одним учеником за раз</b> через тот же UI, что и у бегуна; масс-операции (bulk-edit, групповые тренировки) отсутствуют. Дизайн-система — Strava-orange + Apple Liquid Glass.
+</div>
+
+<h2><span class="num">01</span> Архитектура и навигация</h2>
+
+<div class="card">
+<div class="card-title">AppLayout + BottomNav</div>
+<div class="card-sub"><span class="file">components/AppLayout.jsx, components/common/BottomNav.jsx</span></div>
+<p>Все авторизованные экраны живут под одним лейаутом: TopHeader + BottomNav + Outlet. Один и тот же layout для обеих ролей — меняются только лейблы вкладок.</p>
+
+<div class="grid2">
+<div class="col">
+<h5><span class="role-tag user">USER</span> бегун</h5>
+🏠 Дэшборд · 📅 Календарь · 💬 Чат · 📊 Статистика · ⚙ Настройки (drawer)
+</div>
+<div class="col">
+<h5><span class="role-tag coach">COACH</span> тренер</h5>
+👥 Атлеты · 📅 Календарь · 💬 Чат · 📊 Статистика · ⚙ Настройки
+</div>
+</div>
+
+<p style="margin-top: 12px;">«Настройки» — не маршрут, а триггер UserDrawer (sliding panel). BottomNav имеет анимированную «таблетку» под активным табом (Telegram-стиль).</p>
+</div>
+
+<div class="card">
+<div class="card-title">Маршрутизация</div>
+<div class="card-sub"><span class="file">App.jsx</span></div>
+<ul>
+<li><code>/</code> — главная (Dashboard для user, AthletesOverview для coach)</li>
+<li><code>/calendar</code>, <code>/stats</code>, <code>/chat</code> — общие для обеих ролей, но coach может добавить <code>?athlete=slug</code> чтобы смотреть данные ученика</li>
+<li><code>/trainers/*</code> — заявки и группы (только coach)</li>
+<li><code>/:username</code> — публичный профиль (все)</li>
+<li><code>/admin</code>, <code>/design-system</code> — только admin</li>
+</ul>
+<div class="flow">coach → /calendar?athlete=ivanov → <span>useAuthStore</span> + <span>viewContext={slug}</span> → API запросы фильтруются по slug</div>
+</div>
+
+<h2><span class="num">02</span> Дэшборд бегуна <span class="role-tag user">USER</span></h2>
+
+<div class="card">
+<div class="card-title">Dashboard.jsx — конструктор виджетов</div>
+<div class="card-sub"><span class="file">components/Dashboard/Dashboard.jsx</span> (784 строки) + 7 виджетов</div>
+
+<p>Главный экран ученика. Самое необычное — <b>пользователь сам собирает себе дашборд</b>: drag-and-drop виджеты в одну или две колонки. Layout сохраняется в localStorage.</p>
+
+<h4>9 виджетов (можно включать/выключать, переупорядочивать)</h4>
+<ul>
+<li><b>goal_countdown</b> — обратный отсчёт до главной гонки + фаза макроцикла (база/build/peak/taper) <span class="file">GoalCountdownWidget.jsx</span></li>
+<li><b>today_workout</b> — карточка сегодняшней тренировки (WorkoutCard)</li>
+<li><b>next_workout</b> — следующая запланированная тренировка</li>
+<li><b>trend_compare</b> — тренд этой недели vs прошлой</li>
+<li><b>personal_records</b> — личные рекорды по дистанциям</li>
+<li><b>race_prediction</b> — VDOT-прогноз + темповые зоны (Riegel) <span class="file">RacePredictionWidget.jsx</span></li>
+<li><b>training_load</b> — TRIMP / ATL / CTL / TSB / ACWR (TrainingPeaks-style) <span class="file">TrainingLoadWidget.jsx</span></li>
+<li><b>calendar</b> — DashboardWeekStrip (компактная неделя)</li>
+<li><b>stats</b> — DashboardStatsWidget (суммы за неделю)</li>
+</ul>
+
+<h4>Скрытое: DailyBriefingHero</h4>
+<p>Над виджетами рендерится hero с <b>проактивным брифингом от AI-тренера</b>. Cron генерит сообщение утром (event_key = <code>coach.proactive_daily_briefing</code>), кликом открывается чат. Если брифинга нет — карточка не показывается.</p>
+
+<h4>Pull-to-refresh + auto-refresh</h4>
+<p>На мобильном — pull-to-refresh; в фоне — <code>useWorkoutRefreshStore.startAutoRefresh()</code> опрашивает API каждые 30 сек (на webе) или ловит resume (на native). Это нужно, чтобы Strava-webhook долетел до UI без перезагрузки.</p>
+
+<h4>Empty-states</h4>
+<ol>
+<li>Onboarding не пройден → «Добро пожаловать» + кнопка SpecializationModal</li>
+<li>Plan не существует и AI-режим → «Создайте план» + кнопка regenerate</li>
+<li>Plan генерится → баннер «Это займёт 3-5 минут»</li>
+<li>Plan-error → красный notice + retry</li>
+<li>Сегодня нет тренировки → «День отдыха»</li>
+</ol>
+
+<h4 style="color: var(--ink3)">Layout-конструктор</h4>
+<p>Через @dnd-kit. Десктоп: можно собрать 2 виджета в одну строку (merge-zone), мобайл: всегда по одному. <span class="file">dashboardLayout.js</span> хранит layout как <code>[[id], [id1, id2], [id]...]</code>.</p>
+</div>
+
+<div class="pain">
+<b>UX-проблема:</b> 9 виджетов + конструктор — это здорово, но это <b>дизайн под продвинутого пользователя</b>. Новичок не знает, какие виджеты ему нужны и в каком порядке. И главное — <b>тренер этим же экраном пользоваться не может</b>; у него <code>/</code> — это AthletesOverview, совсем другой экран. То есть Dashboard сделан только под бегуна.
+</div>
+
+<h2><span class="num">03</span> Экран тренера <span class="role-tag coach">COACH</span></h2>
+
+<div class="card">
+<div class="card-title">AthletesOverviewScreen — главный экран тренера</div>
+<div class="card-sub"><span class="file">screens/AthletesOverviewScreen.jsx</span> (598 строк)</div>
+
+<h4>Что показывается</h4>
+<ol>
+<li><b>Фильтр по группам</b> (chips сверху) — Все / [группы тренера] / Создать группу</li>
+<li><b>Секция «Требуют внимания»</b> — атлеты с одним из триггеров:
+<ul style="margin-top: 4px;">
+<li>Нет ни одной отмеченной тренировки</li>
+<li>≥7 дней без активности</li>
+<li>Compliance &lt; 50% от запланированного <i>«к сегодняшнему дню»</i></li>
+</ul>
+</li>
+<li><b>Секция «Остальные»</b> — все остальные ученики, сортируемые: по активности / по имени / по compliance</li>
+</ol>
+
+<h4>Карточка ученика (AthleteCard)</h4>
+<p>Аватар · имя · бейдж «Новое» (если есть свежая активность) · дата последней активности · цель (тип забега + целевое время) · дата гонки с countdown · полоска compliance · теги групп · 3 кнопки действий: <b>Календарь / Профиль / Написать</b>.</p>
+
+<h4>Группы (GroupsModal)</h4>
+<p>Тренер может создавать группы (имя + цвет из 8 палитр), управлять участниками через чекбоксы. Используются для фильтрации списка атлетов. <b>Но самих групповых действий через UI нет</b> — нельзя «назначить тренировку группе» в один клик.</p>
+
+<h4>Как тренер реально работает</h4>
+<div class="flow">AthletesOverview → click «Календарь» на карточке → /calendar?athlete=ivanov → <span>работает с планом ученика</span> через те же UI-компоненты, что и сам ученик</div>
+<p>То есть тренер использует <b>UI бегуна с подменой viewContext</b>. У него нет своего «тренерского» представления плана.</p>
+</div>
+
+<div class="pain">
+<b>Главная боль тренера (по словам пользователя):</b> «не удобно пользоваться всем функционалом». Что конкретно мешает:
+<ul style="margin-top: 6px; color: #7F1D1D;">
+<li><b>Нет bulk-операций:</b> чтобы назначить интервалы 5 атлетам — нужно открыть каждого по очереди.</li>
+<li><b>Нет одной точки для реакции:</b> чтобы понять «кто загрузил тренировку», «кто пропустил», «кто задал вопрос» — нужно переходить между списком атлетов, чатом, календарями.</li>
+<li><b>Контекст теряется при drill-in:</b> открыл календарь ученика → ушёл из списка → нельзя сравнить с другими.</li>
+<li><b>Сравнение атлетов отсутствует:</b> compliance видно только в карточке, нельзя поставить 3-4 человек рядом и увидеть разницу.</li>
+<li><b>Календарь тренера = тот же календарь, что у ученика,</b> но с возможностью править. UI оптимизирован под просмотр одной недели одного человека, а не под групповое планирование.</li>
+</ul>
+</div>
+
+<h2><span class="num">04</span> Календарь и тренировки</h2>
+
+<div class="card">
+<div class="card-title">Структура данных плана</div>
+<div class="card-sub"><span class="file">components/Calendar/Calendar.jsx, Week.jsx, Day.jsx, WorkoutCard.jsx</span></div>
+
+<div class="flow">plan.weeks_data[] → week.days{ mon, tue, wed, thu, fri, sat, sun } → день = [planDay, planDay...] (массив!)</div>
+
+<p>Один день — это <b>массив planDays</b>. Может быть несколько тренировок (например, утро = СБУ, вечер = темповый бег).</p>
+
+<h4>Типы тренировок (TYPE_NAMES в WorkoutCard.jsx)</h4>
+<div>
+  <span class="pill pill-easy">easy · лёгкий бег</span>
+  <span class="pill pill-tempo">tempo · темповый</span>
+  <span class="pill pill-interval">interval · интервалы</span>
+  <span class="pill pill-long">long · длительный</span>
+  <span class="pill pill-control">control · контрольный</span>
+  <span class="pill">fartlek · фартлек</span>
+  <span class="pill">race · соревнование</span>
+  <span class="pill">sbu · СБУ</span>
+  <span class="pill">other · ОФП</span>
+  <span class="pill">rest · отдых</span>
+  <span class="pill">walking / hiking / cycling / swimming</span>
+</div>
+
+<h4>Структурированные упражнения</h4>
+<p>Для ОФП и СБУ описание парсится в массив: <code>{name, sets, reps, weight, duration, distance}</code> → отображается списком с чипами «3×12», «20 кг», etc. <span class="file">utils/structuredExercises.js + parseStructuredExercises()</span></p>
+
+<h4>Status workout: planned / completed / missed / rest</h4>
+<p>«Completed» проверяется кросс-источникно: <code>buildProgressDataMap</code> сверяет план с реальными workout-логами (Strava/Polar/Coros/manual), result-ами и executedExercises для ОФП. Workout считается выполненным, если категория плана совпала с категорией факта на ту же дату.</p>
+</div>
+
+<div class="card">
+<div class="card-title">WorkoutCard.jsx — сердце UI</div>
+<div class="card-sub">471 строка — самый сложный компонент</div>
+
+<p>Эта одна карточка переиспользуется <b>везде</b>: дэшборд, календарь, статистика, профиль. Поэтому у неё мегамного пропсов: <code>workout, status, isToday, compact, planDays, workoutMetrics, results, canEdit, extraActions, maxDescriptionItems...</code></p>
+
+<h4>Что внутри</h4>
+<ul>
+<li>Заголовок: тип тренировки + дата + бейдж «Сегодня»</li>
+<li>Цветная полоска слева (по типу: бег=оранжевый, ходьба=зелёный, СБУ=violet, ОФП=красный)</li>
+<li>Список planDays с кнопками «Изменить» и «Удалить» (если canEdit)</li>
+<li>Описание — либо HTML (для бега), либо структурированный список упражнений (для ОФП/СБУ)</li>
+<li>Метрики: дистанция + время + темп (из workoutMetrics или results или регулярка по тексту)</li>
+<li>extraActions слот — куда дашборд кидает кнопки «Отметить выполнение» / «Развернуть»</li>
+</ul>
+</div>
+
+<div class="card">
+<div class="card-title">DayModal.jsx — детальный просмотр дня</div>
+<div class="card-sub">602 строки</div>
+<p>Открывается по клику на день в календаре. Показывает: план дня + фактически загруженные тренировки + результаты + заметки (могут писать ученик и тренер). Внутри встроен <b>AddTrainingModal</b> для добавления/правки тренировки и <b>WorkoutDetailsModal</b> для анализа конкретной тренировки с графиками.</p>
+</div>
+
+<div class="card">
+<div class="card-title">AddTrainingModal.jsx — конструктор тренировки</div>
+<div class="card-sub">1188 строк — самый большой компонент</div>
+<p>Два шага: выбор категории (Бег / ОФП / СБУ) → форма. Для бега есть <b>калькулятор</b>: вводишь любые две из трёх метрик (дистанция, время, темп) — третья считается автоматически. Для ОФП/СБУ — конструктор упражнений с sets×reps×weight.</p>
+</div>
+
+<h2><span class="num">05</span> Статистика и графики</h2>
+
+<div class="card">
+<div class="card-title">StatsScreen.jsx — Strava-style аналитика</div>
+<div class="card-sub">551 строка, 3 таба</div>
+
+<ul>
+<li><b>Overview</b> — суммы за период (неделя/месяц/год/всё время), heatmap активностей по дням, distance chart, weekly progress, недавние тренировки</li>
+<li><b>Progress</b> — графики прогресса по метрикам</li>
+<li><b>Achievements</b> — личные рекорды + достижения (badges)</li>
+</ul>
+
+<h4>Компоненты</h4>
+<div class="grid2">
+<div class="col">
+ActivityHeatmap (GitHub-style контрибушн)<br>
+DistanceChart (line, неделя/месяц)<br>
+WeeklyProgressChart<br>
+PaceChart<br>
+HeartRateChart<br>
+CombinedWorkoutChart
+</div>
+<div class="col">
+RecentWorkoutsList<br>
+AchievementCard<br>
+WorkoutDetailsModal (модалка анализа: GPX-карта, splits, ЧСС)<br>
+LeafletRouteMap (карта маршрута)<br>
+WorkoutShareCard (генерация PNG для соцсетей)
+</div>
+</div>
+
+<h4>Coach-режим</h4>
+<p>Тренер открывает <code>/stats?athlete=ivanov</code> — видит ту же страницу, но данные ученика. Селектор атлета — через URL-param, не через UI dropdown (это уже неудобно для частых переключений).</p>
+</div>
+
+<h2><span class="num">06</span> Чат и AI</h2>
+
+<div class="card">
+<div class="card-title">ChatScreen.jsx — двухколоночный чат</div>
+<div class="card-sub">1056 строк</div>
+
+<h4>3 типа чатов</h4>
+<ul>
+<li><b>AI-тренер</b> — главный «звёздный» чат. SSE-стрим из <code>api/chat_sse.php</code>. AI может вызывать tools: <code>get_training_day, update_training_day, swap_training_days, log_workout, recalculate_plan, get_stats_summary</code>... Показывает индикаторы «Смотрю план…», «Обновляю тренировку…».</li>
+<li><b>От администрации</b> — broadcast от админов</li>
+<li><b>Личные диалоги</b> — direct messages (тренер ↔ ученик; пользователь ↔ пользователь). Если ты coach, у тебя тут все ученики.</li>
+</ul>
+
+<h4>Quick replies</h4>
+<p>Подсказки внизу: «Как мне сегодня тренироваться?», «Поменяй темп завтра». <span class="file">chatQuickReplies.js</span> + <code>SUGGESTED_PROMPTS</code>.</p>
+
+<h4>UX</h4>
+<p>Mobile: список чатов → выбор → разговор (один экран). Desktop: список слева, диалог справа. Pin-to-bottom, keyboard-aware (chat-keyboard-open класс). Стриминг с фазами: connecting → streaming → tool:... → done.</p>
+</div>
+
+<h2><span class="num">07</span> Настройки и интеграции</h2>
+
+<div class="card">
+<div class="card-title">SettingsScreen.jsx + Drawer + Modal</div>
+<div class="card-sub"><span class="file">screens/SettingsScreen.jsx, screens/settings/*, components/common/UserDrawer.jsx</span></div>
+
+<h4>Содержит</h4>
+<ul>
+<li><b>Профиль</b> — имя, аватар, био, цели</li>
+<li><b>Тренировочные настройки</b> — режим (AI / ручной / both), специализация, целевая дистанция, target_time, race_date</li>
+<li><b>Интеграции</b> — OAuth для Strava / Polar / Coros / Suunto / Huawei + Telegram-логин + webhook-приём</li>
+<li><b>Уведомления</b> — push, email, частота брифингов</li>
+<li><b>Безопасность</b> — PIN, биометрия (Capacitor secure storage), credential backup</li>
+<li><b>Тема</b> — light / dark / system</li>
+</ul>
+</div>
+
+<h2><span class="num">08</span> Дизайн-система · что есть</h2>
+
+<div class="card">
+<div class="card-title">sports-colors.css + buttons.css + cards.css</div>
+<div class="card-sub"><span class="file">src/styles/*</span></div>
+
+<h4>Цвета</h4>
+<ul>
+<li><b>Primary:</b> Strava Orange <code>#FC4C02</code> со шкалой 50–900</li>
+<li><b>Success</b> #22C55E (выполнено), <b>warning</b> #EAB308 (темп), <b>danger</b> #EF4444 (риск/интервалы)</li>
+<li><b>Workout colors</b> — отдельные семантические токены для типов тренировок</li>
+<li><b>Workout strips</b> — цветные полоски на карточках для категорий (бег/ходьба/поход/СБУ/ОФП)</li>
+</ul>
+
+<h4>Типографика</h4>
+<p>Montserrat (UI, 300–800) + <b>Jost</b> для цифр и статистики. Спортивная пара, считывается мгновенно.</p>
+
+<h4>Поверхности — Apple Liquid Glass</h4>
+<p>Карточки имеют <code>backdrop-filter: blur(20px) saturate(1.16)</code>, многослойные тени с оранжевым tint, radial-gradient overlays. Это даёт «премиальный» вид, но <b>стоит производительности на mid-range Android</b> — в коде есть <code>html.native-app</code> с уменьшенным blur.</p>
+
+<h4>Темы</h4>
+<p>Light (F4F7FB фон с радиальными оранжевыми пятнами) + Dark (Nike-стиль, #0B1015). Полный <code>/design-system</code> экран для админов как living-doc.</p>
+
+<h4>Bottom-nav — floating pill</h4>
+<p>Парящий навбар <code>position: fixed; bottom: 12px</code> с blur + анимированная таблетка под активным табом.</p>
+</div>
+
+<h2><span class="num">09</span> Матрица фич: бегун vs тренер</h2>
+
+<div class="matrix">
+<div class="head">Фича</div>
+<div class="head" style="background: #1E40AF !important;">Бегун</div>
+<div class="head" style="background: #9D174D !important;">Тренер</div>
+
+<div>Главный экран</div>
+<div>Dashboard (9 виджетов на выбор)</div>
+<div>AthletesOverview (список карточек)</div>
+
+<div>Календарь</div>
+<div>Свой план, read-only/edit</div>
+<div>Тот же UI + <code>?athlete=slug</code></div>
+
+<div>Статистика</div>
+<div>Свои графики, 3 таба</div>
+<div>Тот же UI + <code>?athlete=slug</code></div>
+
+<div>Чат</div>
+<div>AI + от админов + (с тренером, если есть)</div>
+<div>AI + от админов + диалоги с учениками</div>
+
+<div>Группы</div>
+<div>—</div>
+<div>Создание + управление участниками</div>
+
+<div>Bulk-операции</div>
+<div>—</div>
+<div style="color: #991B1B; font-weight: 600;">— (отсутствуют)</div>
+
+<div>Лента событий</div>
+<div>—</div>
+<div style="color: #991B1B; font-weight: 600;">— (отсутствует)</div>
+
+<div>Сравнение атлетов</div>
+<div>—</div>
+<div style="color: #991B1B; font-weight: 600;">— (отсутствует)</div>
+
+<div>Применение шаблонов</div>
+<div>—</div>
+<div style="color: #991B1B; font-weight: 600;">— (отсутствует)</div>
+
+<div>Notifications</div>
+<div>Push о тренировках, чате, обновлениях</div>
+<div>То же + новые загрузки учеников</div>
+</div>
+
+<h2><span class="num">10</span> Что я предлагаю менять</h2>
+
+<div class="card">
+<h4>Главное</h4>
+<p>Тренер сейчас работает в «гостевом режиме» — переиспользует UI бегуна. Это нужно <b>принципиально разделить</b>: у тренера должны быть свои first-class экраны для:</p>
+<ol>
+<li><b>Реакции в потоке</b> — лента событий «кто что загрузил / пропустил / спросил»</li>
+<li><b>Команды как целого</b> — heatmap compliance всей группы, сравнение N атлетов</li>
+<li><b>Bulk-действий</b> — назначить тренировку 5 атлетам, применить шаблон, написать в группу</li>
+<li><b>Drill-in без потери контекста</b> — детали ученика как панель/overlay, а не как смена страницы</li>
+</ol>
+
+<p>А у бегуна — упростить дашборд: <b>не 9 виджетов на выбор, а 1 фокусный экран «что у меня сегодня»</b> с возможностью свайпнуть к графикам. 9 виджетов хороши для power-users, но обычный бегун теряется.</p>
+
+<h4>Что точно сохранить</h4>
+<ul>
+<li>Strava-orange как primary</li>
+<li>Семантические цвета типов тренировок (это уникальная сила)</li>
+<li>Jost для цифр</li>
+<li>AI-чат с tool-calling (это киллер-фича — единственное приложение, где AI может реально править план)</li>
+<li>VDOT / TRIMP / ATL / CTL — серьёзная аналитика, нельзя выкидывать</li>
+<li>Многоисточниковая выгрузка (Strava + Polar + Coros + Suunto + Telegram)</li>
+</ul>
+
+<h4>Что переделать</h4>
+<ul>
+<li>UI тренера → новые first-class экраны (см. редизайн A/B/C)</li>
+<li>Liquid Glass → оставить как опцию, но дать «density mode» (тренеру нужна плотность данных)</li>
+<li>Bottom-nav для тренера → переосмыслить: возможно, «Поток / Команда / Календарь / Чат / Аналитика»</li>
+<li>Дашборд бегуна → дать «простой» и «продвинутый» режимы</li>
+</ul>
+</div>
+
+</div>
+</body>
+</html>

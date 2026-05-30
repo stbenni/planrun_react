@@ -22,7 +22,7 @@ export function getDefaultLayout() {
   return [
     ['goal_countdown'],
     ['today_workout', 'next_workout'],
-    ['coach_insights', 'trend_compare'],
+    ['trend_compare'],
     ['calendar'],
     ['personal_records'],
     ['stats'],

@@ -1,87 +1,79 @@
 /**
- * Bottom Navigation - Мобильная навигация (Главная, Чат, Календарь, Статистика).
- * Анимация как в Telegram: плавно перемещающаяся «таблетка» под активной вкладкой.
+ * Bottom Navigation — мобильная навигация в стиле v3 (Variant C minimal).
+ * Неактивные вкладки — только иконка. Активная вкладка превращается в оранжевую
+ * pill-кнопку с белым лейблом, который плавно вытесняет соседей.
  */
 
-import { useRef, useLayoutEffect, useState, useMemo } from 'react';
+import { useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers, NavIconUsers, NavIconMail } from './BottomNavIcons';
+import {
+  NavIconHome, NavIconCalendar, NavIconChat, NavIconStats,
+  NavIconUsers, NavIconSettings, NavIconStream,
+} from './BottomNavIcons';
 import useAuthStore from '../../stores/useAuthStore';
 import './BottomNav.css';
 
 const userTabs = [
-  { id: 'home', path: '/', Icon: NavIconHome, label: 'Дэшборд' },
-  { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
-  { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
-  { id: 'trainers', path: '/trainers', Icon: NavIconTrainers, label: 'Тренеры' }
+  { id: 'home', path: '/', Icon: NavIconHome, label: 'Главная' },
+  { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'План' },
+  { id: 'chat', path: '/chat', Icon: NavIconChat, label: 'Чат' },
+  { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Прогресс' },
+  { id: 'settings', action: 'drawer', Icon: NavIconSettings, label: 'Меню' },
 ];
 
 const coachTabs = [
-  { id: 'home', path: '/', Icon: NavIconUsers, label: 'Атлеты' },
+  { id: 'team', path: '/', Icon: NavIconUsers, label: 'Команда' },
+  { id: 'stream', path: '/?view=stream', Icon: NavIconStream, label: 'Поток' },
   { id: 'calendar', path: '/calendar', Icon: NavIconCalendar, label: 'Календарь' },
-  { id: 'stats', path: '/stats', Icon: NavIconStats, label: 'Статистика' },
-  { id: 'trainers', path: '/trainers', Icon: NavIconMail, label: 'Запросы' }
+  { id: 'chat', path: '/chat', Icon: NavIconChat, label: 'Чат' },
+  { id: 'settings', action: 'drawer', Icon: NavIconSettings, label: 'Меню' },
 ];
 
 const BottomNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, drawerOpen, setDrawerOpen } = useAuthStore();
   const role = user?.role || 'user';
   const isCoach = role === 'coach';
   const tabs = useMemo(() => isCoach ? coachTabs : userTabs, [isCoach]);
-  const navRef = useRef(null);
-  const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, visible: false });
 
-  const isActive = (path) => {
-    if (path === '/') {
-      return location.pathname === '/' || location.pathname === '/dashboard';
+  const isActive = (tab) => {
+    if (tab.action === 'drawer') return drawerOpen;
+    const [tabPath, tabQuery] = (tab.path || '/').split('?');
+    const currentView = new URLSearchParams(location.search).get('view');
+    if (tabPath === '/' || tabPath === '') {
+      const onHome = location.pathname === '/' || location.pathname === '/dashboard';
+      if (!onHome) return false;
+      if (tabQuery) {
+        const tabView = new URLSearchParams(`?${tabQuery}`).get('view');
+        return currentView === tabView;
+      }
+      if (tab.id === 'team') return !currentView || currentView === 'table' || currentView === 'grid';
+      return !currentView;
     }
-    return path && location.pathname.startsWith(path);
+    return location.pathname.startsWith(tabPath);
   };
 
-  const MIN_PILL_WIDTH = 64;
-
-  const updatePill = () => {
-    const nav = navRef.current;
-    if (!nav) {
-      setPillStyle({ left: 0, width: 0, visible: false });
+  const handleTabClick = (tab) => {
+    if (tab.action === 'drawer') {
+      setDrawerOpen(!drawerOpen);
       return;
     }
-    const active = nav.querySelector('.nav-item.active');
-    if (!active) {
-      setPillStyle({ left: 0, width: 0, visible: false });
-      return;
-    }
-    const navRect = nav.getBoundingClientRect();
-    const itemRect = active.getBoundingClientRect();
-    const w = Math.max(MIN_PILL_WIDTH, itemRect.width);
-    setPillStyle({
-      left: itemRect.left - navRect.left + ((itemRect.width - w) / 2),
-      width: w,
-      visible: true
-    });
+    navigate(tab.path);
   };
 
-  useLayoutEffect(() => {
-    updatePill();
-  }, [location.pathname, tabs.length]);
-
-  useLayoutEffect(() => {
-    window.addEventListener('resize', updatePill);
-    return () => window.removeEventListener('resize', updatePill);
-  }, []);
-
-  return (
-    <nav ref={navRef} className="bottom-nav" style={{ '--pill-left': `${pillStyle.left}px`, '--pill-width': `${pillStyle.width}px` }}>
-      <span className={`nav-pill ${pillStyle.visible ? '' : 'nav-pill--hidden'}`.trim()} aria-hidden="true" />
-      {tabs.map(tab => {
+  const nav = (
+    <nav className="bottom-nav">
+      {tabs.map((tab) => {
         const Icon = tab.Icon;
+        const active = isActive(tab);
         return (
           <button
             key={tab.id}
-            className={`nav-item ${isActive(tab.path) ? 'active' : ''}`}
-            onClick={() => navigate(tab.path)}
+            type="button"
+            className={`nav-item ${active ? 'active' : ''}`}
+            onClick={() => handleTabClick(tab)}
             aria-label={tab.label}
           >
             <span className="nav-icon">{Icon ? <Icon /> : null}</span>
@@ -91,6 +83,10 @@ const BottomNav = () => {
       })}
     </nav>
   );
+
+  if (typeof document === 'undefined') return nav;
+  const portalTarget = document.getElementById('modal-root') || document.body;
+  return createPortal(nav, portalTarget);
 };
 
 export default BottomNav;

@@ -92,6 +92,75 @@ class AuthController extends BaseController {
     }
     
     /**
+     * Вход/регистрация через Telegram Mini App по initData.
+     * POST /api_v2.php?action=telegram_miniapp_auth
+     * Body: { init_data, device_id?, timezone? }
+     */
+    public function telegramMiniAppAuth() {
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method !== 'POST') {
+            $this->returnError('Метод не поддерживается', 405);
+            return;
+        }
+
+        try {
+            $data = $this->getJsonBody();
+            $initData = isset($data['init_data']) ? (string) $data['init_data'] : '';
+            $deviceId = isset($data['device_id']) ? (string) $data['device_id'] : null;
+            $timezone = isset($data['timezone']) && is_string($data['timezone']) ? $data['timezone'] : null;
+
+            if ($initData === '') {
+                $this->returnError('init_data обязателен', 400);
+                return;
+            }
+
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            try {
+                RateLimiter::check("tg_miniapp_ip_{$ip}", 30, 300);
+            } catch (Exception $e) {
+                $this->returnError($e->getMessage(), 429);
+                return;
+            }
+
+            require_once __DIR__ . '/../services/TelegramMiniAppService.php';
+            $service = new TelegramMiniAppService($this->db);
+            if (!$service->isConfigured()) {
+                $this->returnError('Telegram Mini App не настроен на сервере', 503);
+                return;
+            }
+
+            $tgUser = $service->validateInitData($initData);
+            $resolved = $service->resolveOrCreateUser($tgUser, $timezone);
+
+            $tokens = $this->authService->issueTokens(
+                $resolved['user_id'],
+                $resolved['username'],
+                $deviceId
+            );
+
+            $_SESSION['authenticated'] = true;
+            $_SESSION['user_id'] = $resolved['user_id'];
+            $_SESSION['username'] = $resolved['username'];
+
+            $this->returnSuccess([
+                'user_id' => $resolved['user_id'],
+                'username' => $resolved['username'],
+                'is_new' => $resolved['is_new'],
+                'onboarding_completed' => $resolved['onboarding_completed'],
+                'access_token' => $tokens['access_token'],
+                'refresh_token' => $tokens['refresh_token'],
+                'expires_in' => $tokens['expires_in'],
+            ]);
+        } catch (Exception $e) {
+            $code = (int) $e->getCode();
+            if ($code < 400 || $code > 599) {
+                $code = 401;
+            }
+            $this->returnError($e->getMessage(), $code);
+        }
+    }
+
+    /**
      * Выход из системы
      * POST /api_v2.php?action=logout
      */
@@ -262,7 +331,7 @@ class AuthController extends BaseController {
                 $role = 'user';
                 $onboardingCompleted = 1;
                 $row = null;
-                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone, training_mode FROM users WHERE id = ? LIMIT 1');
+                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone, training_mode, goal_type, race_date, race_distance, race_target_time FROM users WHERE id = ? LIMIT 1');
                 if ($stmt) {
                     $stmt->bind_param('i', $userId);
                     $stmt->execute();
@@ -282,7 +351,7 @@ class AuthController extends BaseController {
                 }
                 $timezone = (isset($row) && !empty($row['timezone'])) ? $row['timezone'] : 'Europe/Moscow';
                 $trainingMode = (isset($row['training_mode']) && $row['training_mode'] !== '' && $row['training_mode'] !== null) ? $row['training_mode'] : 'ai';
-                $this->returnSuccess([
+                $payload = [
                     'authenticated' => true,
                     'user_id' => $userId,
                     'username' => $username,
@@ -291,8 +360,13 @@ class AuthController extends BaseController {
                     'auth_method' => $authMethod,
                     'onboarding_completed' => $onboardingCompleted,
                     'timezone' => $timezone,
-                    'training_mode' => $trainingMode
-                ]);
+                    'training_mode' => $trainingMode,
+                    'goal_type' => $row['goal_type'] ?? null,
+                    'race_date' => $row['race_date'] ?? null,
+                    'race_distance' => $row['race_distance'] ?? null,
+                    'race_target_time' => $row['race_target_time'] ?? null,
+                ];
+                $this->returnSuccess($payload);
                 return;
             }
 

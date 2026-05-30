@@ -218,12 +218,25 @@ class ChatService extends BaseService {
 
     // ═══ AI messaging (non-streaming) ═══
 
-    public function sendMessageAndGetResponse(int $userId, string $content): array {
+    public function sendMessageAndGetResponse(int $userId, string $content, ?array $attachment = null): array {
         $conversation = $this->repository->getOrCreateConversation($userId, 'ai');
         $history = $this->repository->getMessagesAscending($conversation['id'], $this->historyLimit);
 
-        $userMessageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
+        $userMeta = $attachment ? ['attachment' => $attachment] : null;
+        $userMessageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content, $userMeta);
         $this->repository->touchConversation($conversation['id']);
+
+        $isImage = $attachment && ($attachment['kind'] ?? '') === 'image';
+        // Vision (приём картинок в LLM) — за флагом: текущая текстовая модель отвергает image_url (HTTP 400).
+        // Включить только при vision-совместимой модели в LLM_CHAT_MODEL: CHAT_VISION_ENABLED=1
+        $visionEnabled = $isImage && ((int) env('CHAT_VISION_ENABLED', 0) === 1);
+
+        // Любое вложение без текста и без vision-анализа — просто сохраняем, LLM не дёргаем.
+        if ($attachment && $content === '' && !$visionEnabled) {
+            return ['content' => '', 'message_id' => $userMessageId, 'attachment_only' => true];
+        }
+        // Фото без подписи (с включённым vision) — мягкая инструкция, чтобы реплика юзера не была пустой.
+        $llmContent = ($visionEnabled && $content === '') ? 'Пользователь прислал фото. Посмотри и ответь по делу.' : $content;
 
         $followupReply = $this->tryHandlePostWorkoutFollowupReply($userId, (int) $conversation['id'], $userMessageId, $content);
         if ($followupReply !== null) {
@@ -236,7 +249,10 @@ class ChatService extends BaseService {
         $context = $this->contextBuilder->buildContextForUser($userId);
         $context = $this->promptBuilder->appendChatSearchSnippet($context, $conversation['id'], $content);
         $context = $this->promptBuilder->appendRagSnippet($context, $content);
-        $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $content);
+        $messages = $this->promptBuilder->buildChatMessages($userId, $context, $history, $llmContent);
+        if ($visionEnabled) {
+            $messages = $this->attachImageToLastUserMessage($messages, $attachment);
+        }
 
         // #2: health-check parity со streamResponse. Confirmation handlers сюда
         // НАМЕРЕННО НЕ добавлены: non-stream — это fallback после неудачного стрима;
@@ -399,7 +415,12 @@ class ChatService extends BaseService {
             flush();
         }
         if ($fullContent !== '') {
-            $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, ['model' => $this->llmModel]);
+            $aiMeta = ['model' => $this->llmModel];
+            $toolsUsedUnique = array_values(array_unique($toolsUsed));
+            if (!empty($toolsUsedUnique)) {
+                $aiMeta['tools_used'] = $toolsUsedUnique;
+            }
+            $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, $aiMeta);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
                 $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
@@ -472,6 +493,37 @@ class ChatService extends BaseService {
     }
 
     // ═══ LLM calling ═══
+
+    /**
+     * Прицепляет картинку к последнему user-сообщению в формате OpenAI-multimodal
+     * (content становится массивом [text, image_url]). Картинка — base64 data-URL
+     * (надёжнее публичного URL: не зависит от доступности planrun.ru для LLM-провайдера).
+     */
+    private function attachImageToLastUserMessage(array $messages, array $attachment): array {
+        require_once __DIR__ . '/ChatMediaService.php';
+        $file = $attachment['file'] ?? '';
+        if (!ChatMediaService::isValidFileName($file)) return $messages;
+        $path = ChatMediaService::dir() . $file;
+        if (!is_file($path)) return $messages;
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') return $messages;
+
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $mimeByExt = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+        $mime = $mimeByExt[$ext] ?? 'image/jpeg';
+        $dataUrl = 'data:' . $mime . ';base64,' . base64_encode($bytes);
+
+        for ($i = count($messages) - 1; $i >= 0; $i--) {
+            if (($messages[$i]['role'] ?? '') !== 'user') continue;
+            $text = is_string($messages[$i]['content'] ?? '') ? $messages[$i]['content'] : '';
+            $parts = [];
+            if ($text !== '') $parts[] = ['type' => 'text', 'text' => $text];
+            $parts[] = ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]];
+            $messages[$i]['content'] = $parts;
+            break;
+        }
+        return $messages;
+    }
 
     private function callLlm(array $messages, ?int $userId = null): array {
         if ((int) env('CHAT_USE_PLANRUN_AI', 0) === 1) {
@@ -804,27 +856,36 @@ class ChatService extends BaseService {
         $this->contextBuilder->setHistorySummary($userId, '');
     }
 
+    public function clearAdminChat(int $userId): void {
+        $conversation = $this->repository->getOrCreateConversation($userId, 'admin');
+        $this->repository->deleteMessagesByConversation($conversation['id']);
+    }
+
     public function markAsRead(int $userId, int $conversationId): void {
         $conv = $this->repository->getConversationById($conversationId, $userId);
         if ($conv) $this->repository->markMessagesRead($conversationId);
     }
 
-    public function sendUserMessageToAdmin(int $userId, string $content): array {
+    public function sendUserMessageToAdmin(int $userId, string $content, ?array $attachment = null): array {
         $conversation = $this->repository->getOrCreateConversation($userId, 'admin');
-        $messageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content);
+        $meta = $attachment ? ['attachment' => $attachment] : null;
+        $messageId = $this->repository->addMessage($conversation['id'], 'user', $userId, $content, $meta);
         $this->repository->touchConversation($conversation['id']);
         $senderUsername = $this->getUsernameById($userId);
-        $this->notifyAdminsAboutUserMessage($userId, $senderUsername ?: 'пользователь', $content);
+        $preview = $content !== '' ? $content : '📷 Фото';
+        $this->notifyAdminsAboutUserMessage($userId, $senderUsername ?: 'пользователь', $preview);
         return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
-    public function sendUserMessageToUser(int $senderUserId, int $targetUserId, string $content): array {
+    public function sendUserMessageToUser(int $senderUserId, int $targetUserId, string $content, ?array $attachment = null): array {
         if ($senderUserId === $targetUserId) throw new InvalidArgumentException('Нельзя отправить сообщение самому себе');
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
-        $messageId = $this->repository->addMessage($conversation['id'], 'user', $senderUserId, $content);
+        $meta = $attachment ? ['attachment' => $attachment] : null;
+        $messageId = $this->repository->addMessage($conversation['id'], 'user', $senderUserId, $content, $meta);
         $this->repository->touchConversation($conversation['id']);
         $senderUsername = $this->getUsernameById($senderUserId);
-        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $content, 'direct', ['sender_name' => $senderUsername ?: 'пользователя']);
+        $preview = $content !== '' ? $content : '📷 Фото';
+        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $preview, 'direct', ['sender_name' => $senderUsername ?: 'пользователя']);
         return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 

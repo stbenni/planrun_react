@@ -62,8 +62,22 @@ class AuthService extends BaseService {
     }
     
     /**
+     * Выдать JWT-токены для уже проверенного пользователя (без пароля).
+     * Используется для входа через внешнюю проверку личности (Telegram Mini App).
+     *
+     * @return array{access_token:string,refresh_token:string,expires_in:int}
+     */
+    public function issueTokens(int $userId, string $username, ?string $deviceId = null): array {
+        return [
+            'access_token' => $this->jwtService->createAccessToken($userId, $username),
+            'refresh_token' => $this->jwtService->createRefreshToken($userId, $deviceId),
+            'expires_in' => $this->jwtService->getAccessTokenExpiration(),
+        ];
+    }
+
+    /**
      * Выход из системы
-     * 
+     *
      * @param string|null $refreshToken Refresh token для отзыва (опционально)
      * @return array
      */

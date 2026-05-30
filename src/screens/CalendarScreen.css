@@ -954,6 +954,7 @@
 }
 
 [data-theme="dark"] .coach-athlete-selector__select {
+  color-scheme: dark;
   background-image: var(--select-arrow), var(--card-surface-compact-bg);
   background-repeat: no-repeat, no-repeat;
   background-position: right var(--space-4) center, 0 0;

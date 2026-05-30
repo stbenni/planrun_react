@@ -4,8 +4,11 @@
  * Для админов: + вкладка «Администраторский» — ответы пользователям
  */
 
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, Fragment } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
+import usePlanStore from '../stores/usePlanStore';
+import { getPlanDayForDate } from '../utils/calendarHelpers';
 import { useChatUnread } from '../hooks/useChatUnread';
 import { useIsTabActive } from '../hooks/useIsTabActive';
 import { ChatSSE } from '../services/ChatSSE';
@@ -15,9 +18,17 @@ import { useChatMessageLists } from './chat/useChatMessageLists';
 import { useChatSubmitHandlers } from './chat/useChatSubmitHandlers';
 import { useChatNavigation } from './chat/useChatNavigation';
 import { formatChatTime } from './chat/chatTime';
-import { BotIcon, MailIcon, TAB_ADMIN, TAB_ADMIN_MODE, TAB_AI, UsersIcon } from './chat/chatConstants';
-import { CloseIcon } from '../components/common/Icons';
+import { MailIcon, TAB_ADMIN, TAB_ADMIN_MODE, TAB_AI, UsersIcon } from './chat/chatConstants';
+import { CloseIcon, SendIcon, ImageIcon, MicIcon } from '../components/common/Icons';
+import ChatEmojiPicker from '../components/common/ChatEmojiPicker';
+import ChatComposerInput from '../components/common/ChatComposerInput';
+import EmojiText from '../components/common/EmojiText';
+import VoiceMessage from '../components/common/VoiceMessage';
+import { useVoiceRecorder } from './chat/useVoiceRecorder';
 import { getQuickReplies, SUGGESTED_PROMPTS } from './chat/chatQuickReplies';
+import ToolResultCard from '../components/chat/ToolResultCard';
+import CapabilitiesBanner from '../components/chat/CapabilitiesBanner';
+import ChatHeaderMenu from '../components/chat/ChatHeaderMenu';
 import './ChatScreen.css';
 
 const TOOL_LABELS = {
@@ -73,9 +84,112 @@ const ChatAiStatus = ({ phase }) => {
   );
 };
 
+// Парсит вложение-картинку из metadata сообщения (приходит строкой JSON с сервера или объектом для оптимистичных).
+function getMessageAttachment(msg) {
+  let meta = msg?.metadata;
+  if (!meta) return null;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { return null; }
+  }
+  const a = meta?.attachment;
+  return a && (a.kind === 'image' || a.kind === 'audio') && a.file ? a : null;
+}
+
+// Список сработавших инструментов из metadata сообщения (персистится бэкендом
+// либо прицепляется во время стрима) — для зелёной карточки-результата.
+function getMessageToolsUsed(msg) {
+  let meta = msg?.metadata;
+  if (!meta) return null;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { return null; }
+  }
+  const t = meta?.tools_used;
+  return Array.isArray(t) && t.length ? t : null;
+}
+
+function deriveChatKind(chat) {
+  if (!chat) return 'dialog';
+  if (chat.id === TAB_AI) return 'ai';
+  if (chat.id === TAB_ADMIN) return 'admin';
+  if (chat.id === TAB_ADMIN_MODE) return 'admin_mode';
+  return 'dialog';
+}
+
+// Аватар сущности чата: AI-градиент, иконка администрации/пользователей, фото/инициалы юзера.
+function ChatEntityAvatar({ chat, size = 44, avatarBase = '/api', withOnline = false }) {
+  const kind = deriveChatKind(chat);
+  const dim = { width: size, height: size };
+  if (kind === 'ai') {
+    return (
+      <span className="chat-entity-avatar chat-entity-avatar--ai" style={dim} aria-hidden="true">
+        AI
+        {withOnline && <span className="chat-online-dot" />}
+      </span>
+    );
+  }
+  if (kind === 'admin' || kind === 'admin_mode') {
+    return (
+      <span className="chat-entity-avatar chat-entity-avatar--system" style={dim} aria-hidden="true">
+        {kind === 'admin_mode' ? <UsersIcon size={Math.round(size * 0.46)} /> : <MailIcon size={Math.round(size * 0.46)} />}
+      </span>
+    );
+  }
+  const user = chat?.user;
+  return (
+    <span className="chat-entity-avatar chat-entity-avatar--user" style={dim} aria-hidden="true">
+      {user?.avatar_path ? (
+        <img src={getAvatarSrc(user.avatar_path, avatarBase, 'sm')} alt="" className="chat-entity-avatar__img" />
+      ) : (
+        <span className="chat-entity-avatar__initials">{user?.username ? user.username.slice(0, 2).toUpperCase() : '?'}</span>
+      )}
+    </span>
+  );
+}
+
+function dayKeyOf(createdAt, tz) {
+  if (!createdAt) return null;
+  return new Date(createdAt).toLocaleDateString('en-CA', { timeZone: tz });
+}
+
+function formatDateSeparator(createdAt, tz) {
+  if (!createdAt) return '';
+  const d = new Date(createdAt);
+  const now = new Date();
+  const key = dayKeyOf(createdAt, tz);
+  const todayKey = dayKeyOf(now.toISOString(), tz);
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
+  const yestKey = dayKeyOf(yest.toISOString(), tz);
+  if (key === todayKey) return 'СЕГОДНЯ';
+  if (key === yestKey) return 'ВЧЕРА';
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: tz }).toUpperCase();
+}
+
+const WORKOUT_TYPE_LABEL = {
+  easy: 'Лёгкий бег',
+  run: 'Бег',
+  running: 'Бег',
+  long: 'Длительный бег',
+  'long-run': 'Длительный бег',
+  tempo: 'Темповая тренировка',
+  interval: 'Интервалы',
+  fartlek: 'Фартлек',
+  control: 'Контрольная тренировка',
+  race: 'Забег',
+  sbu: 'СБУ',
+  strength: 'ОФП',
+  ofp: 'ОФП',
+  cross: 'Кросс-тренинг',
+  cycling: 'Велотренировка',
+  swimming: 'Плавание',
+  walking: 'Ходьба',
+  hiking: 'Поход',
+};
+
 const ChatScreen = () => {
   const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
   const isTabActive = useIsTabActive('/chat');
+  const navigate = useNavigate();
   const { api, user } = useAuthStore();
   const userTimezone = user?.timezone || (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions?.().timeZone) || 'Europe/Moscow';
   const { total: unreadTotal = 0, by_type: unreadByType = {} } = useChatUnread();
@@ -144,6 +258,22 @@ const ChatScreen = () => {
     userTimezone,
   });
   const prevMobileListVisibleRef = useRef(mobileListVisible);
+
+  // План для контекст-стрипа в личных диалогах (сегодняшняя тренировка по плану)
+  const plan = usePlanStore((s) => s.plan);
+  const loadPlan = usePlanStore((s) => s.loadPlan);
+  useEffect(() => {
+    if (isUserDialog && !plan) loadPlan?.();
+  }, [isUserDialog, plan, loadPlan]);
+  const todayWorkout = useMemo(() => {
+    if (!plan) return null;
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: userTimezone });
+    const day = getPlanDayForDate(todayStr, plan);
+    const type = day?.type ? String(day.type).toLowerCase() : null;
+    if (!type || type === 'rest') return null;
+    return { label: WORKOUT_TYPE_LABEL[type] || 'Тренировка' };
+  }, [plan, userTimezone]);
+
   const {
     messages,
     setMessages,
@@ -168,16 +298,33 @@ const ChatScreen = () => {
     : isUserDialog
       ? userDialogMessages
       : messages;
+
+  // Контекстные quick-replies (AI) — пин-бар над композером
+  const aiQuickReplies = useMemo(() => {
+    if (!isAiChat || streamPhase || aiPendingResponse || sending || messages.length === 0) return [];
+    const last = messages[messages.length - 1];
+    if (last?.sender_type !== 'ai' || !last?.content) return [];
+    return getQuickReplies(last.content);
+  }, [isAiChat, streamPhase, aiPendingResponse, sending, messages]);
+
+  // На мобиле в открытом диалоге прячем BottomNav, композер занимает низ (как в Telegram).
+  // Класс снимается при выходе из списка/со вкладки чата — чтобы навбар вернулся на других экранах.
+  useEffect(() => {
+    document.body.classList.toggle('chat-conversation-open', isTabActive && !mobileListVisible);
+    return () => document.body.classList.remove('chat-conversation-open');
+  }, [isTabActive, mobileListVisible]);
+
   const handleBeforeSend = useCallback(() => {
     forceScrollOnNextChangeRef.current = true;
     shouldStickToBottomRef.current = true;
     setIsPinnedToBottom(true);
   }, []);
   const {
-    handleSubmit,
+    sendContent,
     sendDirect,
     handleAdminChatSend,
     handleClearAiChat,
+    handleClearAdminChat,
     handleClearDirectDialog,
     handleMarkAllRead: performMarkAllRead,
   } = useChatSubmitHandlers({
@@ -478,9 +625,149 @@ const ChatScreen = () => {
     }
   }, [api, isAdmin, performMarkAllRead]);
 
-  const handleInputSync = useCallback((event) => {
-    setInput(event.currentTarget.value);
+  // Вставка эмодзи: rich-инпут сам вставит <img> Apple-эмодзи в позицию курсора.
+  const insertEmoji = useCallback((emoji) => {
+    inputRef.current?.insertEmoji?.(emoji);
   }, []);
+
+  // ── Фото-вложения (для человеческих чатов: поддержка + личный диалог) ──
+  const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl }
+  const [imageUploading, setImageUploading] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const chatMediaUrl = useCallback((file) => {
+    if (!file) return '';
+    const base = api?.baseUrl || '/api';
+    return `${base}/api_wrapper.php?action=get_chat_media&file=${encodeURIComponent(file)}`;
+  }, [api]);
+
+  const onPickImageFile = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('Можно прикрепить только изображение'); return; }
+    if (file.size > 8 * 1024 * 1024) { setError('Файл больше 8 МБ'); return; }
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return { file, previewUrl: URL.createObjectURL(file) };
+    });
+  }, [setError]);
+
+  const removePendingImage = useCallback(() => {
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }, []);
+
+  const handleComposerSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    const text = (inputRef.current?.value || '').trim();
+    if (!pendingImage && !text) return;
+    let attachment = null;
+    if (pendingImage) {
+      setImageUploading(true);
+      try {
+        attachment = await api.uploadChatMedia(pendingImage.file);
+      } catch (err) {
+        setError(err?.message || 'Ошибка загрузки фото');
+        setImageUploading(false);
+        return;
+      }
+      setImageUploading(false);
+      removePendingImage();
+    }
+    sendContent(text, attachment);
+  }, [pendingImage, api, sendContent, setError, removePendingImage]);
+
+  // Превью + кнопка вложения + скрытый file-input (для человеческих чатов)
+  const composerAttach = (
+    <>
+      {pendingImage && (
+        <div className="chat-attach-preview">
+          <img src={pendingImage.previewUrl} alt="" className="chat-attach-preview__img" />
+          {imageUploading && <span className="chat-attach-preview__uploading">Загрузка…</span>}
+          <button type="button" className="chat-attach-preview__remove" onClick={removePendingImage} aria-label="Убрать фото">
+            <CloseIcon size={14} />
+          </button>
+        </div>
+      )}
+      <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onPickImageFile} />
+      <button
+        type="button"
+        className="chat-attach-btn"
+        onClick={() => fileInputRef.current?.click()}
+        aria-label="Прикрепить фото"
+        disabled={imageUploading}
+      >
+        <ImageIcon size={20} />
+      </button>
+    </>
+  );
+
+  // ── Голосовые сообщения ──────────────────────────────────
+  const voice = useVoiceRecorder();
+  const [voiceUploading, setVoiceUploading] = useState(false);
+
+  const handleStartVoice = useCallback(async () => {
+    try {
+      await voice.start();
+    } catch (err) {
+      setError(err?.message || 'Не удалось получить доступ к микрофону');
+    }
+  }, [voice, setError]);
+
+  const handleCancelVoice = useCallback(() => voice.cancel(), [voice]);
+
+  const handleSendVoice = useCallback(async () => {
+    const res = await voice.stop();
+    if (!res) return;
+    setVoiceUploading(true);
+    try {
+      const uploaded = await api.uploadChatMedia(res.file);
+      setVoiceUploading(false);
+      sendContent('', { kind: 'audio', file: uploaded.file, duration: res.duration });
+    } catch (err) {
+      setError(err?.message || 'Ошибка отправки голосового');
+      setVoiceUploading(false);
+    }
+  }, [voice, api, sendContent, setError]);
+
+  const renderAttachment = useCallback((att) => {
+    if (!att) return null;
+    const url = chatMediaUrl(att.file);
+    if (att.kind === 'audio') {
+      return <VoiceMessage src={url} duration={att.duration || 0} />;
+    }
+    return (
+      <img
+        className="chat-message-image"
+        src={url}
+        alt=""
+        loading="lazy"
+        onClick={() => setLightboxUrl(url)}
+      />
+    );
+  }, [chatMediaUrl]);
+
+  const fmtRec = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  // Полоса записи голосового (заменяет содержимое композера во время записи)
+  const composerRecordingBar = (
+    <div className="chat-recording">
+      <button type="button" className="chat-recording__cancel" onClick={handleCancelVoice} aria-label="Отменить запись">
+        <CloseIcon size={20} />
+      </button>
+      <span className="chat-recording__dot" aria-hidden />
+      <span className="chat-recording__time">{fmtRec(voice.seconds)}</span>
+      <span className="chat-recording__hint">Идёт запись…</span>
+      <span className="chat-recording__spacer" />
+      <button type="button" className="chat-send-btn" onClick={handleSendVoice} disabled={voiceUploading} aria-label="Отправить голосовое">
+        {voiceUploading ? '…' : <SendIcon size={20} />}
+      </button>
+    </div>
+  );
 
   // Для админов: вкладки Личный | Администраторский в header
   const adminSectionTabs = isAdmin && (
@@ -580,7 +867,13 @@ const ChatScreen = () => {
         )}
       </div>
       <nav className="chat-list">
-        {(isAdmin && adminSection === 'personal' ? personalChats : chats).map((chat) => (
+        {(isAdmin && adminSection === 'personal' ? personalChats : chats).map((chat) => {
+          const badgeCount = chat.id === TAB_ADMIN
+            ? adminTabUnreadCount
+            : chat.id === TAB_ADMIN_MODE
+              ? adminUnreadCount
+              : (chat.unreadCount || 0);
+          return (
           <button
             key={chat.id}
             type="button"
@@ -588,38 +881,22 @@ const ChatScreen = () => {
             onClick={() => handleSelectChat(chat.id)}
             aria-pressed={selectedChat === chat.id}
           >
-            <span className="chat-list-item-icon" aria-hidden="true">
-              {chat.user ? (
-                chat.user.avatar_path ? (
-                  <img src={getAvatarSrc(chat.user.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-list-item-avatar-img" />
-                ) : (
-                  <span className="chat-list-item-avatar-initials">{chat.user.username ? chat.user.username.slice(0, 2).toUpperCase() : '?'}</span>
-                )
-              ) : (
-                chat.Icon && <chat.Icon size={20} />
-              )}
-            </span>
+            <ChatEntityAvatar chat={chat} size={44} avatarBase={api?.baseUrl || '/api'} withOnline={chat.id === TAB_AI} />
             <div className="chat-list-item-content">
-              <span className="chat-list-item-label">{chat.label}</span>
-              <span className="chat-list-item-desc">{chat.description}</span>
+              <div className="chat-list-item-row">
+                <span className="chat-list-item-label">{chat.name || chat.label}</span>
+                {chat.time && <span className="chat-list-item-time">{chat.time}</span>}
+              </div>
+              <div className="chat-list-item-row">
+                <span className={`chat-list-item-desc${chat.id === TAB_AI ? ' chat-list-item-desc--ai' : ''}`}>{chat.description}</span>
+                {badgeCount > 0 && (
+                  <span className="chat-list-item-badge" aria-hidden="true">{badgeCount > 99 ? '99+' : badgeCount}</span>
+                )}
+              </div>
             </div>
-            {chat.id === TAB_ADMIN && adminTabUnreadCount > 0 && (
-              <span className="chat-list-item-badge" aria-hidden="true">
-                {adminTabUnreadCount > 99 ? '99+' : adminTabUnreadCount}
-              </span>
-            )}
-            {chat.id === TAB_ADMIN_MODE && adminUnreadCount > 0 && (
-              <span className="chat-list-item-badge" aria-hidden="true">
-                {adminUnreadCount > 99 ? '99+' : adminUnreadCount}
-              </span>
-            )}
-            {chat.unreadCount > 0 && (
-              <span className="chat-list-item-badge" aria-hidden="true">
-                {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-              </span>
-            )}
           </button>
-        ))}
+          );
+        })}
       </nav>
     </>
   );
@@ -661,28 +938,24 @@ const ChatScreen = () => {
             <div className="chat-empty">Сообщений пока нет. Напишите первым.</div>
           ) : (
             <>
-              {chatAdminMessages.map((msg) => (
-                <div key={msg.id} className={`chat-message chat-message--${msg.sender_type} chat-admin-message`}>
-                  {msg.sender_type === 'user' && (
-                    <div className="chat-message-avatar chat-message-avatar--other">
-                      {selectedChatUser?.avatar_path ? (
-                        <img src={getAvatarSrc(selectedChatUser.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-avatar-img" />
-                      ) : (
-                        <span className="chat-avatar-initials">{selectedChatUser?.username?.slice(0, 2).toUpperCase() || '?'}</span>
-                      )}
+              {chatAdminMessages.map((msg, idx) => {
+                const prevMsg = chatAdminMessages[idx - 1];
+                const showDate = msg.created_at && dayKeyOf(msg.created_at, userTimezone) !== dayKeyOf(prevMsg?.created_at, userTimezone);
+                return (
+                <Fragment key={msg.id}>
+                  {showDate && <div className="chat-date-label">{formatDateSeparator(msg.created_at, userTimezone)}</div>}
+                  <div className={`chat-message chat-message--${msg.sender_type} chat-admin-message`}>
+                    <div className="chat-message-bubble">
+                      <div className="chat-message-content">
+                        {renderAttachment(getMessageAttachment(msg))}
+                        {msg.content && <EmojiText text={msg.content} />}
+                      </div>
+                      {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                     </div>
-                  )}
-                  <div className="chat-message-bubble">
-                    <div className="chat-message-content">{msg.content || ''}</div>
-                    {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                   </div>
-                  {msg.sender_type === 'admin' && (
-                    <div className="chat-message-avatar chat-message-avatar--user">
-                      <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
-                    </div>
-                  )}
-                </div>
-              ))}
+                </Fragment>
+              );
+              })}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -697,19 +970,15 @@ const ChatScreen = () => {
           </div>
         )}
         <form className="chat-input-form" onSubmit={handleAdminChatSend}>
-          <input
+          <ChatComposerInput
             ref={inputRef}
-            type="text"
-            className="chat-input"
             placeholder="Напишите сообщение..."
-            onInput={handleInputSync}
+            onChange={setInput}
             disabled={chatAdminSending || chatAdminLoading}
-            maxLength={4000}
-            autoComplete="off"
-            spellCheck={false}
           />
+          <ChatEmojiPicker onPick={insertEmoji} />
           <button type="submit" className="chat-send-btn" disabled={chatAdminSending || chatAdminLoading || !input.trim()}>
-            {chatAdminSending ? '…' : '➤'}
+            {chatAdminSending ? '…' : <SendIcon size={20} />}
           </button>
         </form>
       </>
@@ -736,24 +1005,30 @@ const ChatScreen = () => {
         <div className="chat-main-header">
           <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
           <div className="chat-main-header-info">
-            <span className="chat-main-header-avatar" aria-hidden="true">
-              {contactUserForDialog?.avatar_path ? (
-                <img src={getAvatarSrc(contactUserForDialog.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-header-avatar-img" />
-              ) : (
-                <span className="chat-header-avatar-initials">{contactUserForDialog?.username ? contactUserForDialog.username.slice(0, 2).toUpperCase() : '?'}</span>
-              )}
-            </span>
-            <div>
-              <h3 className="chat-main-header-title">Диалог с {contactUserForDialog?.username || 'пользователем'}</h3>
-              <p className="chat-main-header-subtitle">Личное сообщение</p>
+            <ChatEntityAvatar chat={{ user: contactUserForDialog }} size={40} avatarBase={api?.baseUrl || '/api'} />
+            <div className="chat-main-header-text">
+              <h3 className="chat-main-header-title">{contactUserForDialog?.username || 'Пользователь'}</h3>
+              <p className="chat-main-header-subtitle">Личный диалог</p>
             </div>
           </div>
-          {userDialogMessages.length > 0 && (
-            <button type="button" className="chat-clear-btn" onClick={handleClearDirectDialog} disabled={sending || userDialogLoading} title="Очистить диалог">
-              Очистить
-            </button>
-          )}
+          <ChatHeaderMenu items={[{
+            key: 'clear',
+            label: 'Очистить чат',
+            tone: 'danger',
+            disabled: sending || userDialogLoading || userDialogMessages.length === 0,
+            onClick: handleClearDirectDialog,
+          }]} />
         </div>
+        {todayWorkout && (
+          <div className="chat-context-strip">
+            <span className="chat-context-strip__bar" aria-hidden="true" />
+            <div className="chat-context-strip__body">
+              <div className="chat-context-strip__label">СЕГОДНЯ ПО ПЛАНУ</div>
+              <div className="chat-context-strip__workout">{todayWorkout.label}</div>
+            </div>
+            <button type="button" className="chat-context-strip__btn" onClick={() => navigate('/calendar')}>Открыть →</button>
+          </div>
+        )}
         <div ref={messagesContainerRef} className="chat-messages">
         {userDialogLoading ? (
           <div className="chat-loading">
@@ -767,42 +1042,30 @@ const ChatScreen = () => {
           </div>
         ) : (
           <>
-            {userDialogMessages.map((msg) => {
+            {userDialogMessages.map((msg, idx) => {
               const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
               const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
+              const prevMsg = userDialogMessages[idx - 1];
+              const showDate = msg.created_at && dayKeyOf(msg.created_at, userTimezone) !== dayKeyOf(prevMsg?.created_at, userTimezone);
               return (
-                <div key={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
-                  {!isFromMe && (
-                    <div className="chat-message-avatar chat-message-avatar--other">
-                      {msg.sender_type === 'admin' ? (
-                        <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
-                      ) : msg.sender_avatar_path ? (
-                        <img src={getAvatarSrc(msg.sender_avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-avatar-img" />
-                      ) : (
-                        <span className="chat-avatar-initials">{msg.sender_username ? msg.sender_username.slice(0, 2).toUpperCase() : '?'}</span>
+                <Fragment key={msg.id}>
+                  {showDate && <div className="chat-date-label">{formatDateSeparator(msg.created_at, userTimezone)}</div>}
+                  <div className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
+                    <div className="chat-message-bubble">
+                      {isFromOtherUser && msg.sender_username && (
+                        <div className="chat-message-sender-name">{msg.sender_username}</div>
                       )}
+                      {msg.sender_type === 'admin' && (
+                        <div className="chat-message-sender-name">Администрация</div>
+                      )}
+                      <div className="chat-message-content">
+                        {renderAttachment(getMessageAttachment(msg))}
+                        {msg.content && <EmojiText text={msg.content} />}
+                      </div>
+                      {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                     </div>
-                  )}
-                  <div className="chat-message-bubble">
-                    {isFromOtherUser && msg.sender_username && (
-                      <div className="chat-message-sender-name">{msg.sender_username}</div>
-                    )}
-                    {msg.sender_type === 'admin' && (
-                      <div className="chat-message-sender-name">Администрация</div>
-                    )}
-                    <div className="chat-message-content">{msg.content || ''}</div>
-                    {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                   </div>
-                  {isFromMe && (
-                    <div className="chat-message-avatar chat-message-avatar--user">
-                      {user?.avatar_path ? (
-                        <img src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-avatar-img" />
-                      ) : (
-                        <span className="chat-avatar-initials">{user?.username ? user.username.slice(0, 2).toUpperCase() : '?'}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                </Fragment>
               );
             })}
             <div ref={messagesEndRef} />
@@ -820,21 +1083,28 @@ const ChatScreen = () => {
         </div>
       )}
       {!contactUserLoading && (
-      <form className="chat-input-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          className="chat-input"
-          placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
-          onInput={handleInputSync}
-          disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
-          maxLength={4000}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button type="submit" className="chat-send-btn" disabled={sending || userDialogLoading || !input.trim() || Number(contactUserForDialog?.id) === myUserId} title={sending ? 'Отправка…' : 'Отправить'}>
-          {sending ? '…' : '➤'}
-        </button>
+      <form className="chat-input-form" onSubmit={handleComposerSubmit}>
+        {voice.recording || voiceUploading ? composerRecordingBar : (
+          <>
+            {composerAttach}
+            <ChatComposerInput
+              ref={inputRef}
+              placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
+              onChange={setInput}
+              disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
+            />
+            <ChatEmojiPicker onPick={insertEmoji} />
+            {(input.trim() || pendingImage || Number(contactUserForDialog?.id) === myUserId) ? (
+              <button type="submit" className="chat-send-btn" disabled={sending || imageUploading || userDialogLoading || (!input.trim() && !pendingImage) || Number(contactUserForDialog?.id) === myUserId} title={sending ? 'Отправка…' : 'Отправить'}>
+                {sending || imageUploading ? '…' : <SendIcon size={20} />}
+              </button>
+            ) : (
+              <button type="button" className="chat-mic-btn" onClick={handleStartVoice} aria-label="Записать голосовое">
+                <MicIcon size={20} />
+              </button>
+            )}
+          </>
+        )}
       </form>
       )}
     </>
@@ -844,21 +1114,27 @@ const ChatScreen = () => {
         <div className="chat-main-header">
           <button type="button" className="chat-back-btn" onClick={handleBackToList} aria-label="Назад к списку чатов">←</button>
           <div className="chat-main-header-info">
-            <span className="chat-main-header-icon" aria-hidden="true">{currentChat?.Icon && <currentChat.Icon size={20} />}</span>
-            <div>
+            <ChatEntityAvatar chat={currentChat} size={40} avatarBase={api?.baseUrl || '/api'} withOnline={isAiChat} />
+            <div className="chat-main-header-text">
               <h3 className="chat-main-header-title">{currentChat?.label}</h3>
-              <p className="chat-main-header-subtitle">{currentChat?.description}</p>
+              {isAiChat ? (
+                <p className="chat-main-header-status">
+                  <span className="chat-online-dot chat-online-dot--inline" aria-hidden="true" />
+                  Всегда онлайн · отвечает мгновенно
+                </p>
+              ) : (
+                <p className="chat-main-header-subtitle">{currentChat?.description}</p>
+              )}
             </div>
           </div>
-          {isAiChat && (
-            <button type="button" className="chat-clear-btn" onClick={handleClearAiChat} disabled={sending} title="Очистить чат">
-              Очистить
-            </button>
-          )}
-          {isAdminChat && (
-            <button type="button" className="chat-refresh-btn" onClick={loadMessages} disabled={loading} title="Обновить">
-              {loading ? '…' : '↻'}
-            </button>
+          {(isAiChat || isAdminChat) && (
+            <ChatHeaderMenu items={[{
+              key: 'clear',
+              label: 'Очистить чат',
+              tone: 'danger',
+              disabled: sending || loading || messages.length === 0,
+              onClick: isAiChat ? handleClearAiChat : handleClearAdminChat,
+            }]} />
           )}
         </div>
         <div ref={messagesContainerRef} className="chat-messages">
@@ -878,84 +1154,70 @@ const ChatScreen = () => {
                 )}
               </>
             ) : (
-              <>
-                <div className="chat-empty-icon"><BotIcon size={40} /></div>
-                <p className="chat-empty-title">AI-тренер</p>
-                <p className="chat-empty-hint">Спросите о плане, тренировках или попросите скорректировать расписание</p>
-                <div className="chat-suggested-prompts">
+              <div className="chat-ai-empty">
+                <div className="chat-ai-empty__badge" aria-hidden="true">AI</div>
+                <h2 className="chat-ai-empty__title">AI-тренер на связи</h2>
+                <p className="chat-ai-empty__subtitle">Спрашивай про тренировки, проси перенести или пересчитать план — отвечу мгновенно.</p>
+                <div className="chat-suggested-cards">
                   {SUGGESTED_PROMPTS.map((prompt) => (
                     <button
                       key={prompt.text}
                       type="button"
-                      className="chat-suggested-btn"
+                      className="chat-suggested-card"
                       onClick={() => sendDirect(prompt.text)}
                     >
-                      {prompt.text}
+                      {prompt.icon && <span className="chat-suggested-card__icon" aria-hidden="true">{prompt.icon}</span>}
+                      <span className="chat-suggested-card__text">{prompt.text}</span>
+                      <span className="chat-suggested-card__arrow" aria-hidden="true">→</span>
                     </button>
                   ))}
                 </div>
-              </>
+              </div>
             )}
           </div>
         ) : (
           <>
-            {messages.map((msg) => {
+            {isAiChat && <CapabilitiesBanner />}
+            {messages.map((msg, idx) => {
               const isFromMe = msg.sender_type === 'user' && Number(msg.sender_id) === myUserId;
               const isFromOtherUser = msg.sender_type === 'user' && Number(msg.sender_id) !== myUserId;
               const msgMeta = typeof msg.metadata === 'string' ? (() => { try { return JSON.parse(msg.metadata); } catch { return null; } })() : msg.metadata;
               const isProactive = msgMeta?.proactive_type;
+              const showingTool = !!streamPhase && streamPhase.startsWith('tool:') && msg.id?.startsWith?.('temp-ai-');
+              const prevMsg = messages[idx - 1];
+              const showDate = msg.created_at && dayKeyOf(msg.created_at, userTimezone) !== dayKeyOf(prevMsg?.created_at, userTimezone);
               return (
-              <div key={msg.id} data-message-id={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}${isProactive ? ' chat-message--proactive' : ''}`}>
-                {!isFromMe && (
-                  <div className="chat-message-avatar chat-message-avatar--other">
-                    {msg.sender_type === 'ai' ? (
-                      <span className="chat-avatar-icon" aria-hidden><BotIcon size={20} /></span>
-                    ) : isFromOtherUser && (msg.sender_avatar_path || msg.sender_username) ? (
-                      msg.sender_avatar_path ? (
-                        <img src={getAvatarSrc(msg.sender_avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-avatar-img" />
+              <Fragment key={msg.id}>
+                {showDate && <div className="chat-date-label">{formatDateSeparator(msg.created_at, userTimezone)}</div>}
+                <div data-message-id={msg.id} className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}${isProactive ? ' chat-message--proactive' : ''}`}>
+                  <div className={`chat-message-bubble${showingTool ? ' chat-message-bubble--tool' : ''}`}>
+                    {isProactive && (
+                      <div className="chat-proactive-label">Тренер обратил внимание</div>
+                    )}
+                    {isFromOtherUser && msg.sender_username && (
+                      <div className="chat-message-sender-name">{msg.sender_username}</div>
+                    )}
+                    <div className="chat-message-content">
+                      {renderAttachment(getMessageAttachment(msg))}
+                      {msg.content ? (
+                        <EmojiText text={msg.content} />
+                      ) : getMessageAttachment(msg) ? null : streamPhase && msg.id?.startsWith('temp-ai-') ? (
+                        <ChatAiStatus phase={streamPhase} />
                       ) : (
-                        <span className="chat-avatar-initials">{msg.sender_username ? msg.sender_username.slice(0, 2).toUpperCase() : '?'}</span>
-                      )
-                    ) : (
-                      <span className="chat-avatar-icon" aria-hidden><MailIcon size={20} /></span>
+                        '…'
+                      )}
+                    </div>
+                    {getMessageToolsUsed(msg) && (
+                      <ToolResultCard tools={getMessageToolsUsed(msg)} onOpen={() => navigate('/calendar')} />
                     )}
+                    {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                   </div>
-                )}
-                <div className="chat-message-bubble">
-                  {isProactive && (
-                    <div className="chat-proactive-label">Тренер обратил внимание</div>
-                  )}
-                  {isFromOtherUser && msg.sender_username && (
-                    <div className="chat-message-sender-name">{msg.sender_username}</div>
-                  )}
-                  <div className="chat-message-content">
-                    {msg.content ? (
-                      msg.content
-                    ) : streamPhase && msg.id?.startsWith('temp-ai-') ? (
-                      <ChatAiStatus phase={streamPhase} />
-                    ) : (
-                      '…'
-                    )}
-                  </div>
-                  {msg.created_at && <div className="chat-message-time">{formatChatTime(msg.created_at, userTimezone)}</div>}
                 </div>
-                {isFromMe && (
-                  <div className="chat-message-avatar chat-message-avatar--user">
-                    {user?.avatar_path ? (
-                      <img src={getAvatarSrc(user.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-avatar-img" />
-                    ) : (
-                      <span className="chat-avatar-initials">{user?.username ? user.username.slice(0, 2).toUpperCase() : '?'}</span>
-                    )}
-                  </div>
-                )}
-              </div>
+              </Fragment>
             );
             })}
             {isAiChat && aiPendingResponse && !streamPhase && (
               <div data-message-id="pending-ai-response" className="chat-message chat-message--ai chat-message--pending">
-                <div className="chat-message-avatar chat-message-avatar--other">
-                  <span className="chat-avatar-icon" aria-hidden><BotIcon size={20} /></span>
-                </div>
                 <div className="chat-message-bubble">
                   <div className="chat-message-content">
                     <ChatAiStatus phase="pending" />
@@ -963,26 +1225,6 @@ const ChatScreen = () => {
                 </div>
               </div>
             )}
-            {isAiChat && !streamPhase && !aiPendingResponse && !sending && messages.length > 0 && (() => {
-              const lastMsg = messages[messages.length - 1];
-              if (lastMsg?.sender_type !== 'ai' || !lastMsg?.content) return null;
-              const replies = getQuickReplies(lastMsg.content);
-              if (!replies.length) return null;
-              return (
-                <div className="chat-quick-replies">
-                  {replies.map((text) => (
-                    <button
-                      key={text}
-                      type="button"
-                      className="chat-quick-reply-btn"
-                      onClick={() => sendDirect(text)}
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </div>
-              );
-            })()}
             <div ref={messagesEndRef} />
           </>
         )}
@@ -1004,21 +1246,37 @@ const ChatScreen = () => {
           </button>
         </div>
       )}
-      <form className="chat-input-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          className="chat-input"
-          placeholder="Напишите сообщение..."
-          onInput={handleInputSync}
-          disabled={sending || loading || !!streamPhase || aiPendingResponse}
-          maxLength={4000}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || aiPendingResponse || !input.trim()} title={sending || streamPhase || aiPendingResponse ? 'Отправка…' : 'Отправить'}>
-          {sending || streamPhase || aiPendingResponse ? '…' : '➤'}
-        </button>
+      {aiQuickReplies.length > 0 && (
+        <div className="chat-quick-replies chat-quick-replies--bar">
+          {aiQuickReplies.map((text) => (
+            <button key={text} type="button" className="chat-quick-reply-btn" onClick={() => sendDirect(text)}>
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
+      <form className="chat-input-form" onSubmit={handleComposerSubmit}>
+        {(voice.recording || voiceUploading) && !isAiChat ? composerRecordingBar : (
+          <>
+            {composerAttach}
+            <ChatComposerInput
+              ref={inputRef}
+              placeholder={isAiChat ? 'Спроси что угодно про тренировки…' : 'Напишите сообщение...'}
+              onChange={setInput}
+              disabled={sending || loading || !!streamPhase || aiPendingResponse}
+            />
+            <ChatEmojiPicker onPick={insertEmoji} />
+            {(isAiChat || input.trim() || pendingImage) ? (
+              <button type="submit" className="chat-send-btn" disabled={sending || loading || !!streamPhase || aiPendingResponse || (!input.trim() && !pendingImage)} title={sending || streamPhase || aiPendingResponse ? 'Отправка…' : 'Отправить'}>
+                {sending || streamPhase || aiPendingResponse || imageUploading ? '…' : <SendIcon size={20} />}
+              </button>
+            ) : (
+              <button type="button" className="chat-mic-btn" onClick={handleStartVoice} aria-label="Записать голосовое">
+                <MicIcon size={20} />
+              </button>
+            )}
+          </>
+        )}
       </form>
     </>
   ) : (
@@ -1048,6 +1306,14 @@ const ChatScreen = () => {
           )}
         </main>
       </div>
+      {lightboxUrl && (
+        <div className="chat-lightbox" onClick={() => setLightboxUrl(null)} role="dialog" aria-label="Просмотр фото">
+          <button type="button" className="chat-lightbox__close" onClick={() => setLightboxUrl(null)} aria-label="Закрыть">
+            <CloseIcon size={22} />
+          </button>
+          <img className="chat-lightbox__img" src={lightboxUrl} alt="" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 };

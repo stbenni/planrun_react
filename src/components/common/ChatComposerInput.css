@@ -1,0 +1,34 @@
+/* Contenteditable composer — наследует вид .chat-input, добавляет многострочность и плейсхолдер */
+.chat-composer-input {
+  min-height: 1.4em;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+  cursor: text;
+  -webkit-user-modify: read-write-plaintext-only;
+}
+
+.chat-composer-input:empty,
+.chat-composer-input.is-empty {
+  /* плейсхолдер */
+}
+
+.chat-composer-input.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.chat-composer-input .emoji-img {
+  width: 1.3em;
+  height: 1.3em;
+  vertical-align: -0.25em;
+  margin: 0 0.02em;
+}
+
+.chat-composer-input[contenteditable="false"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

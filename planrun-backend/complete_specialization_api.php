@@ -101,8 +101,6 @@ try {
     $raceDate = !empty($input['race_date']) ? $input['race_date'] : null;
     $raceDistance = !empty($input['race_distance']) ? $input['race_distance'] : null;
     $raceTargetTime = !empty($input['race_target_time']) ? $input['race_target_time'] : null;
-    $targetMarathonDate = !empty($input['target_marathon_date']) ? $input['target_marathon_date'] : null;
-    $targetMarathonTime = !empty($input['target_marathon_time']) ? $input['target_marathon_time'] : null;
     $trainingStartDate = !empty($input['training_start_date']) ? $input['training_start_date'] : null;
 
     $allowedGenders = ['male', 'female'];
@@ -274,8 +272,6 @@ try {
         'race_distance' => ['value' => $raceDistance, 'type' => 's'],
         'race_date' => ['value' => $raceDate, 'type' => 's'],
         'race_target_time' => ['value' => $raceTargetTime, 'type' => 's'],
-        'target_marathon_date' => ['value' => $targetMarathonDate, 'type' => 's'],
-        'target_marathon_time' => ['value' => $targetMarathonTime, 'type' => 's'],
         'training_start_date' => ['value' => $trainingStartDate, 'type' => 's'],
         'gender' => ['value' => $gender, 'type' => 's'],
         'birth_year' => ['value' => $birthYear, 'type' => 'i'],

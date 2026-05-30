@@ -115,7 +115,7 @@
 
 .training-load__metrics {
   display: flex;
-  gap: var(--space-4);
+  gap: var(--space-3);
   margin-left: auto;
 }
 
@@ -123,14 +123,22 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 4px;
+  padding: 8px 16px;
+  min-width: 88px;
+  border-radius: var(--card-surface-radius-compact);
+  background: var(--card-surface-compact-bg);
+  border: 1px solid var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
 }
 
 .training-load__metric-value {
   font-family: var(--font-stats);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.4px;
   color: var(--text-primary);
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -142,16 +150,19 @@
 }
 
 .training-load__metric-label {
+  font-family: var(--font-stats);
   font-size: 11px;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-weight: var(--font-medium);
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .training-load--compact .training-load__metric-value {
-  font-size: 22px;
+  font-size: 20px;
 }
 
 /* ── Body: chart + workouts side by side on desktop ── */

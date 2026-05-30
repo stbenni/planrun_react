@@ -1,0 +1,256 @@
+/**
+ * TemplatesScreen — стили списка шаблонов тренировок.
+ * Использует те же токены что CoachWorkspace.
+ */
+
+.templates-screen {
+  width: 100%;
+  min-height: 100vh;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+  background: var(--app-background-base, #F4F7FB);
+  padding-top: var(--page-top-desktop, 88px);
+  box-sizing: border-box;
+}
+
+@media (max-width: 1023px) {
+  .templates-screen {
+    padding-top: 0;
+  }
+}
+
+.templates-screen__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 28px;
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+}
+
+.templates-screen__title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.templates-screen__subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
+
+.templates-screen__cta {
+  padding: 10px 18px;
+  background: var(--primary-500);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+  transition: background 0.15s ease, transform 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.templates-screen__cta svg {
+  flex-shrink: 0;
+}
+
+.templates-screen__cta:hover:not(:disabled) {
+  background: var(--primary-400);
+  transform: translateY(-1px);
+}
+
+.templates-screen__cta--small {
+  padding: 8px 14px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.templates-screen__empty {
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  padding: 60px 28px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.templates-screen__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  padding: 8px 28px 60px;
+  max-width: var(--page-max-width, 1440px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.templates-screen__card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.templates-screen__card:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 25%, var(--card-border));
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.templates-screen__card-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.templates-screen__emoji {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary-500) 10%, var(--gray-100));
+  color: var(--primary-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.templates-screen__emoji svg {
+  width: 22px;
+  height: 22px;
+}
+
+.templates-screen__card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.templates-screen__card-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.templates-screen__card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.templates-screen__type-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.templates-screen__uses {
+  font-family: var(--font-stats), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  background: var(--gray-100);
+  padding: 4px 8px;
+  border-radius: 6px;
+  align-self: flex-start;
+  flex-shrink: 0;
+}
+
+.templates-screen__card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.templates-screen__card-exercises {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  padding-top: 8px;
+  border-top: 1px dashed var(--card-border);
+}
+
+.templates-screen__exercises-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.templates-screen__card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.templates-screen__card-btn {
+  padding: 7px 12px;
+  background: var(--gray-100);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  flex: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.templates-screen__card-btn svg {
+  flex-shrink: 0;
+}
+
+.templates-screen__card-btn:hover:not(:disabled) {
+  background: var(--gray-200);
+}
+
+.templates-screen__card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.templates-screen__card-btn--danger {
+  color: var(--danger-500);
+}
+
+.templates-screen__card-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-500) 10%, var(--gray-100));
+}
+
+@media (max-width: 640px) {
+  .templates-screen__header {
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px 16px;
+  }
+  .templates-screen__title { font-size: 22px; }
+  .templates-screen__cta { width: 100%; }
+  .templates-screen__grid {
+    grid-template-columns: 1fr;
+    padding: 8px 18px var(--mobile-shell-bottom-clearance, 100px);
+  }
+}

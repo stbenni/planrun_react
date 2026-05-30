@@ -1360,6 +1360,7 @@
 }
 
 [data-theme="dark"] .coach-athlete-selector__select {
+  color-scheme: dark;
   background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 4%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
   border-color: color-mix(in srgb, var(--primary-500) 12%, var(--surface-glass-border));
   box-shadow: var(--surface-glass-inset), 0 10px 24px rgba(0, 0, 0, 0.22), 0 8px 20px rgba(255, 107, 61, 0.08);

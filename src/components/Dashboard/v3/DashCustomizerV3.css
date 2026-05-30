@@ -1,0 +1,377 @@
+/**
+ * DashCustomizerV3 — модалка настройки виджетов.
+ */
+
+.dash-cust-v3__scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 12300;
+  animation: dash-cust-fade 0.2s ease-out;
+}
+
+@keyframes dash-cust-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dash-cust-v3 {
+  position: fixed;
+  top: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 540px;
+  max-width: calc(100vw - 24px);
+  max-height: 90vh;
+  background: var(--card-bg, #fff);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  z-index: 12400;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+  overflow: hidden;
+  animation: dash-cust-pop 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+[data-theme="dark"] .dash-cust-v3 {
+  background: var(--gray-100);
+  border: 1px solid var(--gray-300);
+}
+
+[data-theme="dark"] .dash-cust-v3__preset {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+}
+
+[data-theme="dark"] .dash-cust-v3__preset:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 40%, var(--gray-300));
+}
+
+[data-theme="dark"] .dash-cust-v3__row {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+  color: #F3F4F6;
+}
+
+[data-theme="dark"] .dash-cust-v3__row--fixed {
+  background: color-mix(in srgb, var(--primary-500) 14%, var(--gray-200));
+  border-color: color-mix(in srgb, var(--primary-500) 40%, var(--gray-300));
+}
+
+[data-theme="dark"] .dash-cust-v3__row--on {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+}
+
+[data-theme="dark"] .dash-cust-v3__close {
+  background: var(--gray-200);
+}
+
+[data-theme="dark"] .dash-cust-v3__switch {
+  background: var(--gray-300);
+}
+
+@keyframes dash-cust-pop {
+  from { transform: translate(-50%, calc(-50% + 8px)) scale(0.96); opacity: 0; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+.dash-cust-v3__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.dash-cust-v3__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.dash-cust-v3__close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: var(--gray-100);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-cust-v3__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.dash-cust-v3__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.dash-cust-v3__eyebrow--mt { margin-top: 22px; }
+
+.dash-cust-v3__presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.dash-cust-v3__preset {
+  padding: 12px;
+  background: var(--card-bg, #fff);
+  border: 1.5px solid var(--card-border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dash-cust-v3__preset:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 30%, var(--card-border));
+}
+
+.dash-cust-v3__preset--active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+}
+
+.dash-cust-v3__preset-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: inherit;
+}
+
+.dash-cust-v3__preset-desc {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.dash-cust-v3__preset--active .dash-cust-v3__preset-desc {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.dash-cust-v3__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dash-cust-v3__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 14px 14px 16px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+/* Полоска слева — зелёная для on, primary для fixed, прозрачная для off */
+.dash-cust-v3__row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.dash-cust-v3__row:hover[aria-disabled="false"],
+.dash-cust-v3__row:not([aria-disabled="true"]):hover {
+  border-color: color-mix(in srgb, var(--primary-500) 24%, var(--card-border));
+  transform: translateY(-1px);
+}
+
+/* .dash-cust-v3__row--on — без визуальных отличий: состояние видно по тоглу */
+
+.dash-cust-v3__row--fixed::before {
+  background: var(--primary-500);
+}
+
+.dash-cust-v3__row--fixed {
+  background: color-mix(in srgb, var(--primary-500) 6%, var(--card-bg, #fff));
+  border-color: color-mix(in srgb, var(--primary-500) 30%, var(--card-border));
+  cursor: default;
+}
+
+.dash-cust-v3__row:disabled {
+  color: var(--text-primary);
+}
+
+.dash-cust-v3__row:disabled .dash-cust-v3__row-name,
+.dash-cust-v3__row:disabled .dash-cust-v3__row-desc {
+  color: inherit;
+}
+
+.dash-cust-v3__row-emoji {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dash-cust-v3__row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-cust-v3__row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+[data-theme="dark"] .dash-cust-v3__row-name {
+  color: #fff;
+}
+
+[data-theme="dark"] .dash-cust-v3__row-desc {
+  color: #CBD5E1;
+}
+
+[data-theme="dark"] .dash-cust-v3__row {
+  color: #fff;
+}
+
+[data-theme="dark"] .dash-cust-v3__row:disabled {
+  opacity: 1;
+}
+
+[data-theme="dark"] .dash-cust-v3__preset {
+  color: #fff;
+}
+
+[data-theme="dark"] .dash-cust-v3__preset-name {
+  color: #fff;
+}
+
+[data-theme="dark"] .dash-cust-v3__preset-desc {
+  color: #CBD5E1;
+}
+
+[data-theme="dark"] .dash-cust-v3__title {
+  color: #fff;
+}
+
+.dash-cust-v3__row-lock {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--primary-500);
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+
+.dash-cust-v3__row-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+.dash-cust-v3__switch {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--gray-300);
+  flex-shrink: 0;
+  padding: 2px;
+  display: inline-flex;
+  transition: background 0.2s ease;
+}
+
+.dash-cust-v3__switch--on {
+  background: var(--success-500);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
+}
+
+.dash-cust-v3__switch-knob {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.dash-cust-v3__switch--on .dash-cust-v3__switch-knob {
+  transform: translateX(18px);
+}
+
+.dash-cust-v3__foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--card-border);
+  background: var(--gray-50);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .dash-cust-v3__foot {
+  background: var(--gray-100);
+}
+
+.dash-cust-v3__save {
+  width: 100%;
+  padding: 14px;
+  background: var(--primary-500);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+}
+
+.dash-cust-v3__save:hover {
+  background: var(--primary-400);
+}
+
+@media (max-width: 640px) {
+  .dash-cust-v3 {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    transform: none;
+    border-radius: 18px 18px 0 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 88vh;
+    animation: dash-cust-slide 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  @keyframes dash-cust-slide {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .dash-cust-v3__presets { grid-template-columns: 1fr; }
+}

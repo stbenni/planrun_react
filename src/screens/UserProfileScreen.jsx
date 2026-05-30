@@ -57,15 +57,11 @@ const RACE_DISTANCE_LABELS = {
 function formatGoalText(user) {
   if (!user?.goal_type) return null;
   const goalLabel = GOAL_TYPE_LABELS[user.goal_type] || user.goal_type;
-  if (user.goal_type === 'race' && user.race_distance) {
-    const distLabel = RACE_DISTANCE_LABELS[user.race_distance] || user.race_distance;
-    const dateStr = user.race_date ? new Date(user.race_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  if ((user.goal_type === 'race' || user.goal_type === 'time_improvement') && user.race_date) {
+    const distLabel = user.race_distance ? (RACE_DISTANCE_LABELS[user.race_distance] || user.race_distance) : '';
+    const dateStr = new Date(user.race_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
     const timeStr = user.race_target_time ? `, ${user.race_target_time}` : '';
-    return `${goalLabel}: ${distLabel}${dateStr ? `, ${dateStr}` : ''}${timeStr}`;
-  }
-  if (user.goal_type === 'time_improvement' && (user.target_marathon_date || user.race_date)) {
-    const dateStr = (user.target_marathon_date || user.race_date) ? new Date((user.target_marathon_date || user.race_date) + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    return `${goalLabel}${dateStr ? `, ${dateStr}` : ''}`;
+    return `${goalLabel}${distLabel ? `: ${distLabel}` : ''}, ${dateStr}${timeStr}`;
   }
   return goalLabel;
 }

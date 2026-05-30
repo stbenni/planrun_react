@@ -85,7 +85,7 @@ class StatsController extends BaseController {
             $userId = $this->calendarUserId;
             $user = getUserData($userId, 'id, goal_type, race_date, race_distance, race_target_time, '
                 . 'last_race_distance, last_race_distance_km, last_race_time, last_race_date, '
-                . 'easy_pace_sec, weekly_base_km, experience_level');
+                . 'easy_pace_sec, weekly_base_km, experience_level, training_mode');
 
             if (!$user) {
                 $this->returnError('Пользователь не найден', 404);
@@ -126,9 +126,10 @@ class StatsController extends BaseController {
                 $riegelPredictions = $this->riegelPredictAll($lastDistKm, $lastTimeSec);
             }
 
-            // Цель пользователя
+            // Цель пользователя: показываем, если задан целевой забег (race_date),
+            // независимо от goal_type — поведение race и time_improvement одинаково.
             $goal = null;
-            if ($user['goal_type'] === 'race' && !empty($user['race_date'])) {
+            if (!empty($user['race_date'])) {
                 $daysToRace = (int)((strtotime($user['race_date']) - time()) / 86400);
                 $goal = [
                     'race_date' => $user['race_date'],

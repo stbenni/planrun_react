@@ -117,7 +117,7 @@ export function useSettingsActions({
       }
 
       const authResult = await Promise.race([
-        BiometricService.authenticate('Подтвердите отпечаток для входа в PlanRun'),
+        BiometricService.authenticate('Подтвердите отпечаток для входа'),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Таймаут')), 15000)),
       ]);
 

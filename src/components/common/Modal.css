@@ -959,7 +959,7 @@
   }
 
   .app-modal--modern:not(.app-modal--mobile-fullscreen) {
-    top: var(--mobile-header-height);
+    top: env(safe-area-inset-top, 0px);
     bottom: var(--mobile-shell-bottom-clearance, var(--mobile-content-padding-bottom));
     left: 0;
     right: 0;
@@ -1059,9 +1059,12 @@
   }
 
   .app-modal--mobile-fullscreen {
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--mobile-shell-bottom-clearance, var(--mobile-content-padding-bottom));
     width: 100%;
-    height: 100dvh;
+    height: auto;
     padding: 0;
     box-sizing: border-box;
     overflow: hidden;

@@ -57,6 +57,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Голосовые сообщения в чате: запись с микрофона (Capacitor WebView запрашивает оба) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Android 13+: push-уведомления -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Биометрия: вход по отпечатку пальца / Face Unlock -->

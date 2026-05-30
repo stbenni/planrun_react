@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { CompletedIcon, CalendarIcon, RestIcon, RunningIcon, TimeIcon, MapPinIcon, OtherIcon, BarChartIcon, DistanceIcon, PaceIcon, XCircleIcon, PenLineIcon, TrashIcon } from '../common/Icons';
+import { parseStructuredExercises } from '../../utils/structuredExercises';
 import './WorkoutCard.css';
 
 const TYPE_NAMES = {
@@ -63,54 +64,6 @@ function stripRedundantTypePrefix(description, type) {
   if (!upper.startsWith(typeUpper)) return description;
   const rest = trimmed.slice(typeName.length).replace(/^[\s:\-]+/, '').trim();
   return rest || description;
-}
-
-/**
- * Распарсить плоский описательный текст ОФП/СБУ в структуру упражнений.
- * Ожидаемый формат строк (генерируется WorkoutBuilderService::buildOfpDescription):
- *   "Приседания со штангой — 4×12, 60 кг"
- *   "Планка — 3× по 60 сек"
- *   "Подъемы на носки — 3×20"
- *   "СБУ: бег с захлёстом — 4×30 м"
- * Возвращает массив { name, sets, reps, weight, duration, distance } или null если ни одной строки не распарсилось.
- */
-function parseStructuredExercises(text) {
-  if (!text || typeof text !== 'string') return null;
-  const stripped = text.replace(/<\/p\s*>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
-  const lines = stripped.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (lines.length === 0) return null;
-  const result = [];
-  for (const raw of lines) {
-    const parts = raw.split(/\s+—\s+|\s+-\s+/);
-    if (parts.length < 2) {
-      result.push({ name: raw, raw });
-      continue;
-    }
-    const name = parts[0].trim();
-    const tail = parts.slice(1).join(' — ');
-    const item = { name, raw };
-    const setsReps = tail.match(/(\d+)\s*[×x*]\s*(\d+)(?!\s*(?:м|m|сек|с\b))/i);
-    if (setsReps) {
-      item.sets = setsReps[1];
-      item.reps = setsReps[2];
-    }
-    const setsDuration = tail.match(/(\d+)\s*[×x*]\s*по\s*(\d+)\s*сек/i);
-    if (setsDuration) {
-      item.sets = setsDuration[1];
-      item.duration = setsDuration[2] + ' сек';
-    }
-    const setsDist = tail.match(/(\d+)\s*[×x*]\s*(\d+)\s*м\b/i);
-    if (setsDist) {
-      item.sets = setsDist[1];
-      item.distance = setsDist[2] + ' м';
-    }
-    const weight = tail.match(/(\d+(?:[.,]\d+)?)\s*кг/i);
-    if (weight) item.weight = weight[1].replace(',', '.') + ' кг';
-    const standaloneDuration = tail.match(/(?<!по\s)(\d+)\s*сек(?!\s*[×x*])/i);
-    if (standaloneDuration && !item.duration) item.duration = standaloneDuration[1] + ' сек';
-    result.push(item);
-  }
-  return result.length > 0 ? result : null;
 }
 
 /** Ограничить описание до maxItems пунктов (по <li> или по строкам), вернуть { html, hasMore } */

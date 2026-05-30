@@ -65,20 +65,13 @@ class MetricsService {
      */
     public function getVdot(int $userId): array {
         require_once __DIR__ . '/TrainingStateBuilder.php';
-        require_once __DIR__ . '/StatsService.php';
 
-        $statsService = new StatsService($this->db);
-        $builder = new TrainingStateBuilder($this->db, $statsService);
+        $builder = new TrainingStateBuilder($this->db);
+        $state = $builder->buildForUserId($userId);
 
-        // Получаем user данные
-        require_once __DIR__ . '/../repositories/UserRepository.php';
-        $userRepo = new \UserRepository($this->db);
-        $user = $userRepo->getForPlanning($userId);
-        if (!$user) {
+        if (empty($state)) {
             return ['vdot' => null, 'source' => null, 'detail' => null];
         }
-
-        $state = $builder->build($user, $userId);
 
         return [
             'vdot' => $state['vdot'] ?? null,

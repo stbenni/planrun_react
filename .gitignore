@@ -19,7 +19,10 @@ build/
 .env.backup
 .env.backup.*
 .env.backup_*
+.env.bak
+.env.bak*
 *.env.bak
+*.env.bak*
 *.env.backup
 *.php.bak
 *.js.bak

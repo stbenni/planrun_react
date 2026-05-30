@@ -29,27 +29,68 @@
 
 .trend-comparison__grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 360px));
+  justify-content: start;
   gap: var(--space-3);
+}
+
+/* В double-row виджет уже — две карточки сверху, третья на всю ширину снизу.
+   Карточки делаем компактнее, чтобы высота совпадала с соседним виджетом. */
+.dashboard-row-two .trend-comparison__grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.dashboard-row-two .trend-comparison__grid > .trend-card:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.dashboard-row-two .trend-comparison__grid {
+  flex: 1;
+  align-items: stretch;
+}
+
+.dashboard-row-two .trend-card {
+  padding: 12px 14px;
+  min-height: 0;
+  gap: 4px;
+  justify-content: space-between;
+}
+
+.dashboard-row-two .trend-card__number {
+  font-size: 20px;
 }
 
 .trend-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: var(--space-3) var(--space-3);
-  border-radius: var(--radius-lg);
+  gap: 6px;
+  padding: 18px 16px;
+  min-height: 88px;
+  border-radius: var(--card-surface-radius-compact);
   background: var(--card-surface-compact-bg);
   border: 1px solid var(--card-surface-compact-border);
+  box-shadow: var(--card-surface-compact-shadow);
+  backdrop-filter: var(--card-surface-compact-backdrop);
+  -webkit-backdrop-filter: var(--card-surface-compact-backdrop-webkit);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.trend-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--card-surface-compact-shadow-hover);
+}
+
+.trend-card:active {
+  transform: translateY(-1px);
 }
 
 .trend-card__label {
   font-family: var(--font-stats);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .trend-card__value {
@@ -107,7 +148,7 @@
 }
 
 .trend-card__prev {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -122,5 +163,9 @@
   }
   .trend-card__number {
     font-size: 20px;
+  }
+  .trend-card {
+    padding: 10px 12px;
+    min-height: 64px;
   }
 }

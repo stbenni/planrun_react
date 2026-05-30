@@ -1,0 +1,365 @@
+/**
+ * TodayHeroV3 — hero-карточка «Сегодня» в стиле v2.
+ * Самый сильный glass: 78% opacity + blur 24px + warm orange 12% border + multilayer shadow.
+ */
+
+.today-v3 {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-card-bg-strong, rgba(255, 255, 255, 0.78));
+  backdrop-filter: var(--glass-card-blur-strong, blur(24px) saturate(1.2));
+  -webkit-backdrop-filter: var(--glass-card-blur-strong, blur(24px) saturate(1.2));
+  border: 1px solid var(--glass-card-border-strong, rgba(252, 76, 2, 0.12));
+  border-radius: 18px;
+  padding: 20px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: var(--glass-card-shadow-strong);
+  font-family: 'Montserrat', sans-serif;
+  color: var(--text-primary);
+}
+
+.today-v3--lg { padding: 28px; }
+
+/* Diagonal radial accent в правом верхнем углу — цвет = тип тренировки */
+.today-v3__accent {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 160px;
+  height: 160px;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    circle at top right,
+    color-mix(in srgb, var(--accent-color, var(--primary-500)) 25%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+[data-theme="dark"] .today-v3__accent {
+  background: radial-gradient(
+    circle at top right,
+    color-mix(in srgb, var(--accent-color, var(--primary-500)) 40%, transparent) 0%,
+    transparent 65%
+  );
+}
+
+.today-v3--lg .today-v3__accent {
+  width: 240px;
+  height: 240px;
+}
+
+/* Type ribbon */
+.today-v3__ribbon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-v3__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Glow вокруг type-индикатора в тёмной теме (через CSS var --dot-color) */
+[data-theme="dark"] .today-v3__dot {
+  box-shadow: 0 0 12px var(--dot-color, var(--primary-500));
+}
+
+.today-v3__type-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+}
+
+/* Title */
+.today-v3__title {
+  position: relative;
+  z-index: 1;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: var(--text-primary);
+  margin: 10px 0 0;
+}
+
+.today-v3--lg .today-v3__title { font-size: 56px; }
+
+/* Metrics row */
+.today-v3__metrics {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--card-border);
+}
+
+.today-v3__metric { flex: 1; min-width: 0; }
+
+.today-v3__metric-n {
+  font-family: var(--font-stats), 'Jost', sans-serif;
+  font-weight: 800;
+  font-size: 36px;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.today-v3__metric-n--accent { color: var(--primary-500); }
+
+.today-v3__metric-l {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Description list (для не-беговых типов: ОФП/СБУ) */
+.today-v3__description {
+  position: relative;
+  z-index: 1;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.today-v3__description-line {
+  font-size: 13.5px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.today-v3__description-more {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Interval bar */
+.today-v3__interval-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 18px;
+  gap: 1px;
+  background: var(--bg-tertiary);
+}
+
+.today-v3__interval-labels {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* AI quote */
+.today-v3__quote {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  padding: 14px;
+  margin-top: 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-500) 7%, transparent), color-mix(in srgb, var(--primary-500) 2%, transparent));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 25%, transparent);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text-primary);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.today-v3__quote:hover {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-500) 10%, transparent), color-mix(in srgb, var(--primary-500) 3%, transparent));
+  border-color: color-mix(in srgb, var(--primary-500) 35%, transparent);
+}
+
+/* В тёмной теме AI quote более saturated (15% → 4%) и glow на кнопке */
+[data-theme="dark"] .today-v3__quote {
+  background: linear-gradient(135deg, rgba(252, 76, 2, 0.15) 0%, rgba(252, 76, 2, 0.04) 100%);
+  border-color: rgba(252, 76, 2, 0.22);
+}
+
+[data-theme="dark"] .today-v3__quote-cta {
+  box-shadow: 0 4px 10px rgba(252, 76, 2, 0.4);
+}
+
+[data-theme="dark"] .today-v3__quote-avatar {
+  box-shadow: 0 0 12px rgba(252, 76, 2, 0.4);
+}
+
+.today-v3__quote-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.today-v3__quote-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-400) 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: 'Jost', sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.today-v3__quote-speaker {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-v3__quote-time {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.today-v3__quote-cta {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  background: var(--primary-500);
+  color: #fff;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 10px rgba(252, 76, 2, 0.25);
+}
+
+[data-theme="dark"] .today-v3__quote-cta {
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.4);
+}
+
+.today-v3__quote-text {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .today-v3__quote { padding: 12px; }
+  .today-v3__quote-avatar { width: 26px; height: 26px; font-size: 9.5px; }
+  .today-v3__quote-cta { padding: 5px 9px; font-size: 10.5px; }
+  .today-v3__quote-text { font-size: 13px; line-height: 1.45; }
+}
+
+/* CTAs */
+.today-v3__actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.today-v3__cta-main {
+  flex: 1;
+  padding: 15px 20px;
+  border-radius: 14px;
+  background: var(--primary-500);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 8px 20px rgba(252, 76, 2, 0.3);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.today-v3__cta-main:hover {
+  background: var(--primary-400);
+  transform: translateY(-1px);
+}
+
+[data-theme="dark"] .today-v3__cta-main {
+  box-shadow: 0 8px 20px rgba(252, 76, 2, 0.4);
+}
+
+.today-v3__cta-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.today-v3__cta-icon:hover { background: var(--gray-200); }
+
+[data-theme="dark"] .today-v3__cta-icon:hover { background: var(--gray-300); }
+
+@media (max-width: 640px) {
+  .today-v3 { padding: 18px; border-radius: 18px; }
+  .today-v3__title { font-size: 42px; }
+  .today-v3__metrics {
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 12px;
+  }
+  .today-v3__metric { position: relative; padding-left: 12px; }
+  .today-v3__metric:first-child { padding-left: 0; }
+  .today-v3__metric:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--card-border);
+    opacity: 0.6;
+  }
+  .today-v3__metric-n { font-size: 44px; letter-spacing: -0.04em; }
+  .today-v3__metric-l { font-size: 11.5px; margin-top: 2px; }
+}
+
+/* Desktop hero: гигантский заголовок как в v2 */
+@media (min-width: 1024px) {
+  .today-v3 { padding: 28px; }
+  .today-v3__title { font-size: 56px; line-height: 1; }
+  .today-v3__metric-n { font-size: 44px; }
+  .today-v3__accent { width: 240px; height: 240px; }
+}

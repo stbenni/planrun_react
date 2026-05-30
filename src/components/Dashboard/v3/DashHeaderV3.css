@@ -1,0 +1,211 @@
+.dash-header-v3 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 16px;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.dash-header-v3__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-header-v3__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.dash-header-v3__eyebrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dash-header-v3__eyebrow--desktop { display: none; }
+.dash-header-v3__eyebrow--mobile { display: block; }
+
+@media (min-width: 1024px) {
+  .dash-header-v3__eyebrow--desktop { display: block; }
+  .dash-header-v3__eyebrow--mobile { display: none; }
+}
+
+.dash-header-v3__greeting {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-header-v3__greeting-emoji { display: none; }
+
+@media (min-width: 1024px) {
+  .dash-header-v3__greeting { font-size: 24px; }
+  .dash-header-v3__greeting-emoji { display: inline; }
+}
+
+.dash-header-v3__week-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .dash-header-v3__week-summary { display: block; }
+}
+
+.dash-header-v3__week-summary b {
+  color: var(--text-primary);
+}
+
+.dash-header-v3__mode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: var(--glass-card-bg, rgba(255, 255, 255, 0.78));
+  border: 1px solid var(--glass-card-border, rgba(252, 76, 2, 0.08));
+  border-radius: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: inherit;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+}
+
+.dash-header-v3__mode-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dash-header-v3__mode-text {
+  display: none;
+  text-align: left;
+}
+
+.dash-header-v3__mode-eyebrow {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.dash-header-v3__mode-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dash-header-v3__mode-status-inline {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--success-500);
+  flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .dash-header-v3__mode {
+    width: auto;
+    height: 48px;
+    padding: 0 14px 0 8px;
+    justify-content: flex-start;
+  }
+  .dash-header-v3__mode-text {
+    display: block;
+  }
+  .dash-header-v3__mode-status-inline {
+    display: inline-block;
+  }
+  .dash-header-v3__mode-status {
+    display: none;
+  }
+}
+
+.dash-header-v3__ai-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-400) 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(252, 76, 2, 0.25);
+  flex-shrink: 0;
+  font-family: 'Jost', sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+[data-theme="dark"] .dash-header-v3__ai-avatar {
+  box-shadow: 0 0 12px rgba(252, 76, 2, 0.4);
+}
+
+.dash-header-v3__coach-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #FFD9C9;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.dash-header-v3__mode-status {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--success-500);
+  border: 2px solid var(--glass-card-bg, #fff);
+}
+
+[data-theme="dark"] .dash-header-v3__mode-status {
+  box-shadow: 0 0 8px var(--success-500);
+}
+
+[data-theme="dark"] .dash-header-v3__mode {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] .dash-header-v3__mode-eyebrow {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+[data-theme="dark"] .dash-header-v3__mode-name {
+  color: #fff;
+}
+
+[data-theme="dark"] .dash-header-v3__mode-status-inline {
+  box-shadow: 0 0 8px var(--success-500);
+}

@@ -1,0 +1,334 @@
+/**
+ * NotificationCenter — контент панели уведомлений (хедер, табы, карточки, футер).
+ * Рендерится внутри .notif-panel (позиционирование/фон — в NotificationBell.css).
+ */
+
+.notif-center {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.notif-center__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  flex-shrink: 0;
+}
+
+.notif-center__eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+}
+
+.notif-center__summary {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-top: 3px;
+}
+
+.notif-center__summary-muted {
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.notif-center__readall {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--primary-500);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.notif-center__readall:hover { color: var(--primary-400); }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+.notif-center__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.notif-center__tabs::-webkit-scrollbar { display: none; }
+
+.notif-center__tab {
+  flex-shrink: 0;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notif-center__tab.is-active {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: #fff;
+}
+
+.notif-center__tab-count { opacity: 0.7; font-weight: 600; }
+.notif-center__tab.is-active .notif-center__tab-count { opacity: 0.9; }
+
+/* ── Body ───────────────────────────────────────────────── */
+.notif-center__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px 8px;
+}
+
+.notif-center__group { margin-bottom: 6px; }
+
+.notif-center__group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  padding: 10px 4px 6px;
+}
+
+/* ── Card ───────────────────────────────────────────────── */
+.notif-card-wrap {
+  position: relative;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  overflow: hidden;
+  max-height: 200px;
+  transition: max-height 0.2s ease, margin 0.2s ease, opacity 0.2s ease;
+}
+
+.notif-card-wrap.is-dismissing {
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+}
+
+.notif-card-wrap__bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 18px;
+  background: var(--accent-500);
+  color: #fff;
+  border-radius: 14px;
+}
+
+.notif-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: none;
+  border-radius: 14px;
+  background: var(--gray-50);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease, transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.notif-card.is-dragging { transition: background 0.15s ease; }
+.notif-card-wrap.is-dismissing .notif-card { transform: translateX(-110%); }
+
+.notif-card:hover { background: var(--gray-100); }
+
+.notif-card.is-unread { background: color-mix(in srgb, var(--primary-500) 6%, var(--gray-50)); }
+.notif-card.is-unread:hover { background: color-mix(in srgb, var(--primary-500) 10%, var(--gray-50)); }
+
+[data-theme="dark"] .notif-card { background: var(--bg-tertiary); }
+[data-theme="dark"] .notif-card:hover { background: var(--gray-200); }
+[data-theme="dark"] .notif-card.is-unread { background: color-mix(in srgb, var(--primary-500) 12%, var(--bg-tertiary)); }
+
+.notif-card__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: 'Jost', sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.notif-card__avatar--ai {
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-400) 100%);
+  color: #fff;
+}
+[data-theme="dark"] .notif-card__avatar--ai { box-shadow: 0 0 10px rgba(252, 76, 2, 0.4); }
+
+.notif-card__avatar--coach { background: color-mix(in srgb, var(--primary-500) 16%, transparent); color: var(--primary-600); }
+.notif-card__avatar--workout { background: color-mix(in srgb, var(--info-500) 16%, transparent); color: var(--info-500); }
+.notif-card__avatar--achievement { background: color-mix(in srgb, var(--success-500) 16%, transparent); color: var(--success-500); }
+.notif-card__avatar--race { background: color-mix(in srgb, var(--accent-500) 16%, transparent); color: var(--accent-500); }
+.notif-card__avatar--plan { background: color-mix(in srgb, #8B5CF6 16%, transparent); color: #8B5CF6; }
+.notif-card__avatar--system { background: var(--gray-200); color: var(--text-secondary); }
+[data-theme="dark"] .notif-card__avatar--system { background: var(--gray-300); }
+
+.notif-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.notif-card__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.notif-card__body {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notif-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.notif-card__time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.notif-card__action {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary-500);
+}
+
+.notif-card__dot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary-500);
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+[data-theme="dark"] .notif-card__dot { box-shadow: 0 0 8px var(--primary-500); }
+
+.notif-card__dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: var(--gray-200);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+/* Крестик — по ховеру на десктопе; на тач-устройствах остаётся свайп */
+@media (hover: hover) {
+  .notif-card:hover .notif-card__dismiss { opacity: 1; }
+  .notif-card:hover .notif-card__dot { opacity: 0; }
+}
+
+.notif-card__dismiss:hover { background: var(--gray-300); color: var(--text-primary); }
+[data-theme="dark"] .notif-card__dismiss { background: var(--gray-300); }
+
+/* ── Empty ──────────────────────────────────────────────── */
+.notif-center__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ── Footer ─────────────────────────────────────────────── */
+.notif-center__footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--card-border);
+}
+
+.notif-center__settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.notif-center__settings:hover { color: var(--text-primary); }
+
+.notif-center__clearall {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.notif-center__clearall:hover { color: var(--accent-500); }

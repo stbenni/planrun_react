@@ -25,6 +25,8 @@ import {
 import SkeletonScreen from '../components/common/SkeletonScreen';
 import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from '../components/Dashboard/DashboardMetricIcons';
 import { BarChartIcon, TrophyIcon, TargetIcon, FlameIcon, OtherIcon } from '../components/common/Icons';
+import AthleteSelect from '../components/common/AthleteSelect';
+import ResultModal from '../components/Calendar/ResultModal';
 import '../components/Dashboard/Dashboard.css';
 import './StatsScreen.css';
 
@@ -44,6 +46,7 @@ const StatsScreen = () => {
   const [timeRange, setTimeRange] = useState('month');
   const [activeTab, setActiveTab] = useState('overview');
   const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
+  const [editModal, setEditModal] = useState({ isOpen: false, date: null });
   const statsTabsRef = useRef(null);
   const statsPanelsRef = useRef(null);
   const [statsTabPillStyle, setStatsTabPillStyle] = useState({ left: 0, width: 0 });
@@ -200,6 +203,17 @@ const StatsScreen = () => {
     setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
   };
 
+  const handleEditWorkout = useCallback(() => {
+    if (!workoutModal.date) return;
+    const editDate = workoutModal.date;
+    setWorkoutModal((prev) => ({ ...prev, isOpen: false }));
+    setEditModal({ isOpen: true, date: editDate });
+  }, [workoutModal.date]);
+
+  const handleCloseEditModal = useCallback(() => {
+    setEditModal({ isOpen: false, date: null });
+  }, []);
+
   const updateStatsTabPill = useCallback(() => {
     const tabs = statsTabsRef.current;
     if (!tabs) return;
@@ -294,19 +308,12 @@ const StatsScreen = () => {
     <div className="stats-screen">
       {isCoach && coachAthletes.length > 0 && (
         <div className="coach-athlete-selector">
-          <select
-            className="coach-athlete-selector__select"
-            value={athleteSlug || ''}
-            onChange={e => {
-              const slug = e.target.value;
-              navigate(slug ? `/stats?athlete=${slug}` : '/stats', { replace: true });
-            }}
-          >
-            <option value="">Моя статистика</option>
-            {coachAthletes.map(a => (
-              <option key={a.id} value={a.username_slug}>{a.username}</option>
-            ))}
-          </select>
+          <AthleteSelect
+            value={athleteSlug}
+            ownLabel="Моя статистика"
+            athletes={coachAthletes}
+            onChange={(slug) => navigate(slug ? `/stats?athlete=${slug}` : '/stats', { replace: true })}
+          />
         </div>
       )}
       {athleteSlug && (
@@ -519,7 +526,16 @@ const StatsScreen = () => {
         dayData={workoutModal.dayData}
         loading={workoutModal.loading}
         selectedWorkoutId={workoutModal.selectedWorkoutId}
+        onEdit={handleEditWorkout}
         onDelete={() => { handleCloseWorkoutModal(); loadRawData({ silent: true }); }}
+      />
+
+      <ResultModal
+        isOpen={editModal.isOpen}
+        onClose={handleCloseEditModal}
+        date={editModal.date}
+        api={api}
+        onSave={() => { handleCloseEditModal(); loadRawData({ silent: true }); }}
       />
     </div>
   );

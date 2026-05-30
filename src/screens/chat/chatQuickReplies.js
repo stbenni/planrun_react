@@ -73,10 +73,10 @@ export function getQuickReplies(aiMessage) {
  * Каждый элемент: { text: 'текст кнопки', icon: 'emoji или null' }
  */
 export const SUGGESTED_PROMPTS = [
-  { text: 'Что на сегодня?', icon: null },
-  { text: 'Покажи план на неделю', icon: null },
-  { text: 'Как прошла последняя тренировка?', icon: null },
-  { text: 'Перенеси тренировку на завтра', icon: null },
-  { text: 'Поставь сегодня выходной', icon: null },
-  { text: 'Пересчитай план', icon: null },
+  { text: 'Что на сегодня?', icon: '📋' },
+  { text: 'Покажи план на неделю', icon: '📅' },
+  { text: 'Как прошла последняя тренировка?', icon: '📊' },
+  { text: 'Перенеси тренировку на завтра', icon: '↔️' },
+  { text: 'Поставь сегодня выходной', icon: '💤' },
+  { text: 'Пересчитай план', icon: '🔄' },
 ];

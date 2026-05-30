@@ -1,0 +1,135 @@
+/**
+ * AthleteSelect — кастомный dropdown, корректно работает в тёмной теме.
+ */
+
+.athlete-select {
+  position: relative;
+  width: 100%;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.athlete-select__btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.athlete-select__btn:hover {
+  border-color: color-mix(in srgb, var(--primary-500) 30%, var(--card-border));
+}
+
+.athlete-select__btn:focus-visible {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500) 15%, transparent);
+}
+
+.athlete-select__btn--open {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500) 15%, transparent);
+}
+
+.athlete-select__value {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.athlete-select__caret {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+}
+
+.athlete-select__caret--up {
+  transform: rotate(180deg);
+}
+
+.athlete-select__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  z-index: 100;
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+  animation: athlete-select-pop 0.15s ease-out;
+}
+
+[data-theme="dark"] .athlete-select__menu {
+  background: var(--gray-100);
+  border-color: var(--gray-300);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes athlete-select-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.athlete-select__option {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.athlete-select__option:hover,
+.athlete-select__option--active {
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
+  color: var(--text-primary);
+}
+
+.athlete-select__option--selected {
+  color: var(--primary-500);
+  font-weight: 700;
+}
+
+.athlete-select__option--own {
+  border-bottom: 1px solid var(--card-border);
+  border-radius: 8px 8px 0 0;
+  margin-bottom: 2px;
+  padding-bottom: 11px;
+}
+
+.athlete-select__option-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

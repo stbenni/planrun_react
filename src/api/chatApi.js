@@ -1,11 +1,41 @@
 import { ApiError } from './apiError';
+import { isNativeCapacitor } from '../services/TokenStorageService';
 
 export function chatGetMessages(client, type = 'ai', limit = 50, offset = 0) {
   return client.request('chat_get_messages', { type, limit, offset }, 'GET');
 }
 
-export function chatSendMessage(client, content) {
-  return client.request('chat_send_message', { content: (content || '').trim() }, 'POST');
+/**
+ * Загрузка фото-вложения чата (multipart). Возвращает дескриптор { kind, file, w, h }.
+ */
+export async function uploadChatMedia(client, file) {
+  const csrfRes = await client.request('get_csrf_token', {}, 'GET');
+  const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+  const formData = new FormData();
+  formData.append('media', file);
+  if (csrfToken) formData.append('csrf_token', csrfToken);
+  const token = await client.getToken();
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const url = `${client.baseUrl}/api_wrapper.php?action=chat_upload_media`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: isNativeCapacitor() ? 'omit' : 'include',
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) {
+    throw new ApiError({ code: 'UPLOAD_FAILED', message: data.error || 'Ошибка загрузки фото' });
+  }
+  const payload = data.data || data;
+  return payload.attachment || payload;
+}
+
+export function chatSendMessage(client, content, attachment = null) {
+  const body = { content: (content || '').trim() };
+  if (attachment) body.attachment = attachment;
+  return client.request('chat_send_message', body, 'POST');
 }
 
 export async function chatSendMessageStream(client, content, onChunk, opts = {}) {
@@ -122,8 +152,10 @@ export async function chatSendMessageStream(client, content, onChunk, opts = {})
   }
 }
 
-export function chatSendMessageToAdmin(client, content) {
-  return client.request('chat_send_message_to_admin', { content: (content || '').trim() }, 'POST');
+export function chatSendMessageToAdmin(client, content, attachment = null) {
+  const body = { content: (content || '').trim() };
+  if (attachment) body.attachment = attachment;
+  return client.request('chat_send_message_to_admin', body, 'POST');
 }
 
 export async function chatGetDirectDialogs(client) {
@@ -135,8 +167,10 @@ export function chatGetDirectMessages(client, targetUserId, limit = 50, offset =
   return client.request('chat_get_direct_messages', { target_user_id: targetUserId, limit, offset }, 'GET');
 }
 
-export function chatSendMessageToUser(client, targetUserId, content) {
-  return client.request('chat_send_message_to_user', { target_user_id: targetUserId, content: (content || '').trim() }, 'POST');
+export function chatSendMessageToUser(client, targetUserId, content, attachment = null) {
+  const body = { target_user_id: targetUserId, content: (content || '').trim() };
+  if (attachment) body.attachment = attachment;
+  return client.request('chat_send_message_to_user', body, 'POST');
 }
 
 export function chatClearDirectDialog(client, targetUserId) {
@@ -149,6 +183,10 @@ export function chatMarkRead(client, conversationId) {
 
 export function chatClearAi(client) {
   return client.request('chat_clear_ai', {}, 'POST');
+}
+
+export function chatClearAdmin(client) {
+  return client.request('chat_clear_admin', {}, 'POST');
 }
 
 export function chatMarkAllRead(client) {

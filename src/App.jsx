@@ -126,6 +126,14 @@ function App() {
   };
 
   return (
+    <>
+    {/* Telegram fullscreen: фикс-полоса в safe-area сверху с логотипом по центру.
+        Видна только при html.tg-fullscreen; контент скроллится под ней (padding-top на #root). */}
+    <div className="tg-topbar" aria-hidden="true">
+      <span className="tg-topbar__logo">
+        <span className="tg-topbar__p">plan</span><span className="tg-topbar__r">RUN</span>
+      </span>
+    </div>
     <Router>
       {loading || !api ? (
         <div className="loading-container">
@@ -230,6 +238,7 @@ function App() {
           <Route path="chat" element={null} />
           <Route path="trainers/*" element={null} />
           <Route path="settings" element={null} />
+          <Route path="library" element={null} />
           <Route path="admin" element={isAdmin ? null : <Navigate to="/" replace />} />
         </Route>
         {/* Публичный маршрут профиля: доступен и залогиненным, и гостям. Не разлогинивает при переходе. */}
@@ -258,6 +267,7 @@ function App() {
         <AppUpdateModal updateInfo={updateInfo} onDismiss={dismissUpdate} />
       )}
     </Router>
+    </>
   );
 }
 

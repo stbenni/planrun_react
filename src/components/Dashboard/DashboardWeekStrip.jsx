@@ -80,25 +80,28 @@ function getWeekDaysFromPlan(plan, progressDataMap) {
   return days;
 }
 
-function getDayTypeLabel(dayData, status) {
-  if (!dayData) return '—';
-  if (dayData.type === 'rest') return 'Отдых';
+const DAY_TYPE_LABELS = {
+  long: 'Длительный',
+  'long-run': 'Длительный',
+  easy: 'Лёгкий',
+  interval: 'Интервалы',
+  tempo: 'Темп',
+  fartlek: 'Фартлек',
+  race: 'Соревнование',
+  other: 'ОФП',
+  sbu: 'СБУ',
+  walking: 'Ходьба',
+  hiking: 'Поход',
+};
+
+function getCellShortLabel(activities, status) {
   if (status === 'completed') return 'Выполнено';
-  if (dayData.type === 'free') return '—';
-  const labels = {
-    long: 'Длительный',
-    'long-run': 'Длительный',
-    easy: 'Легкий',
-    interval: 'Интервалы',
-    tempo: 'Темп',
-    fartlek: 'Фартлек',
-    race: 'Соревнование',
-    other: 'ОФП',
-    sbu: 'СБУ',
-    walking: 'Ходьба',
-    hiking: 'Поход',
-  };
-  return labels[dayData.type] || dayData.text || 'Тренировка';
+  if (!activities || activities.length === 0) return '—';
+  const first = activities.find((a) => a.type !== 'rest' && a.type !== 'free');
+  if (!first) return 'Отдых';
+  const base = DAY_TYPE_LABELS[first.type] || 'Тренировка';
+  const extra = activities.length - 1;
+  return extra > 0 ? `${base} · +${extra}` : base;
 }
 
 /** Порядок и подписи для легенды типов тренировок (цвета из sports-colors.css / WeekCalendar.css) */
@@ -174,6 +177,10 @@ const DashboardWeekStrip = ({ plan, progressDataMap, onNavigate, onDayClick }) =
                 </span>
                 <span className="week-day-date-sep">/</span>
                 <span className="week-day-label">{day.dayLabel}</span>
+              </div>
+
+              <div className="week-day-type-label" aria-hidden>
+                {getCellShortLabel(day.dayActivities, day.status)}
               </div>
 
               <div className="week-day-icons-grid">

@@ -59,6 +59,8 @@ const importChat = () => import('../screens/ChatScreen');
 const importTrainers = () => import('../screens/TrainersScreen');
 const importSettings = () => import('../screens/SettingsScreen');
 const importAthletesOverview = () => import('../screens/AthletesOverviewScreen');
+const importCoachWorkspace = () => import('../screens/CoachWorkspace');
+const importTemplatesScreen = () => import('../screens/TemplatesScreen');
 const importAdmin = () => import('../screens/AdminScreen');
 const importApplyCoach = () => import('./Trainers/ApplyCoachForm');
 
@@ -70,7 +72,8 @@ Promise.all([
 const preloadSecondary = () => {
   Promise.all([
     importChat(), importSettings(), importTrainers(),
-    importAthletesOverview(), importAdmin(), importApplyCoach(),
+    importAthletesOverview(), importCoachWorkspace(),
+    importAdmin(), importApplyCoach(),
   ]).catch(() => {});
 };
 
@@ -87,6 +90,7 @@ const TAB_KEYS = {
   chat: 'chat',
   trainers: 'trainers',
   settings: 'settings',
+  library: 'library',
   admin: 'admin',
 };
 
@@ -106,6 +110,7 @@ const AppTabsContent = ({ onLogout }) => {
 
   const activeKey = useMemo(() => {
     if (isActive('/admin')) return TAB_KEYS.admin;
+    if (isActive('/library')) return TAB_KEYS.library;
     if (isActive('/settings')) return TAB_KEYS.settings;
     if (isActive('/trainers')) return TAB_KEYS.trainers;
     if (isActive('/chat')) return TAB_KEYS.chat;
@@ -128,6 +133,9 @@ const AppTabsContent = ({ onLogout }) => {
   if (pathname.startsWith('/admin') && !isAdmin) {
     return <Navigate to="/" replace />;
   }
+  if (pathname.startsWith('/library') && !isCoach) {
+    return <Navigate to="/" replace />;
+  }
 
   const renderPane = (tabKey, isPaneActive, content, extraClass = '') => {
     const shouldRender = mountedTabs.has(tabKey) || isPaneActive;
@@ -148,7 +156,7 @@ const AppTabsContent = ({ onLogout }) => {
         TAB_KEYS.dashboard,
         isActive('/'),
         isCoach
-          ? <LazyTab importFn={importAthletesOverview} moduleKey="AthletesOverviewScreen" />
+          ? <LazyTab importFn={importCoachWorkspace} moduleKey="CoachWorkspace" />
           : <LazyTab importFn={importDashboard} moduleKey="DashboardScreen" />
       )}
       {renderPane(TAB_KEYS.calendar, isActive('/calendar'),
@@ -170,6 +178,11 @@ const AppTabsContent = ({ onLogout }) => {
       )}
       {renderPane(TAB_KEYS.settings, isActive('/settings'),
         <LazyTab importFn={importSettings} moduleKey="SettingsScreen" props={{ onLogout }} />
+      )}
+      {isCoach && (
+        renderPane(TAB_KEYS.library, isActive('/library'),
+          <LazyTab importFn={importTemplatesScreen} moduleKey="TemplatesScreen" />
+        )
       )}
       {isAdmin && (
         renderPane(TAB_KEYS.admin, isActive('/admin'),

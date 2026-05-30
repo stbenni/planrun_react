@@ -75,7 +75,7 @@ $keptWeeks = $weekRepo->getMaxWeekNumberBefore($userId, $cutoffDate);
 $totalPlanWeeks = function_exists('getSuggestedPlanWeeks') ? (getSuggestedPlanWeeks($user, $goalType) ?? 12) : 12;
 $weeksToGenerate = max(1, $totalPlanWeeks - $keptWeeks);
 
-$goalDate = $user['race_date'] ?? $user['target_marathon_date'] ?? $user['weight_goal_date'] ?? null;
+$goalDate = $user['race_date'] ?? $user['weight_goal_date'] ?? null;
 if ($goalDate) {
     $goalTs = strtotime($goalDate);
     $cutoffTs = strtotime($cutoffDate);

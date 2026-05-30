@@ -2510,8 +2510,8 @@ const SettingsScreen = ({ onLogout }) => {
                       <label>Дата целевого забега</label>
                       <input
                         type="date"
-                        value={formData.target_marathon_date || ''}
-                        onChange={(e) => handleInputChange('target_marathon_date', e.target.value || null)}
+                        value={formData.race_date || ''}
+                        onChange={(e) => handleInputChange('race_date', e.target.value || null)}
                       />
                     </div>
                     <div className="form-group">
@@ -2519,8 +2519,8 @@ const SettingsScreen = ({ onLogout }) => {
                       <input
                         type="time"
                         step="1"
-                        value={formData.target_marathon_time || ''}
-                        onChange={(e) => handleInputChange('target_marathon_time', e.target.value || null)}
+                        value={formData.race_target_time || ''}
+                        onChange={(e) => handleInputChange('race_target_time', e.target.value || null)}
                       />
                     </div>
                   </div>

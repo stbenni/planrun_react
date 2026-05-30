@@ -716,7 +716,7 @@ class PlanGenerationProcessorService extends BaseService {
             $goalPaceSec = (int) $trainingState['training_paces']['marathon'];
         }
         $goalPace = $goalPaceSec !== null && $goalPaceSec > 0 ? formatPaceFromSec($goalPaceSec) : null;
-        $raceDate = (string) ($trainingState['race_date'] ?? ($user['race_date'] ?? ($user['target_marathon_date'] ?? '')));
+        $raceDate = (string) ($trainingState['race_date'] ?? ($user['race_date'] ?? ''));
         $intermediateRaceDates = array_column($trainingState['intermediate_races'] ?? [], 'date');
 
         if ($startDate !== null && $raceDate !== '') {
@@ -1951,25 +1951,19 @@ class PlanGenerationProcessorService extends BaseService {
         $goalType = (string) ($user['goal_type'] ?? 'health');
 
         if (in_array($goalType, ['race', 'time_improvement'], true)) {
-            $planDate = !empty($user['race_date'])
-                ? (string) $user['race_date']
-                : (!empty($user['target_marathon_date']) ? (string) $user['target_marathon_date'] : null);
+            $planDate = !empty($user['race_date']) ? (string) $user['race_date'] : null;
             $targetTime = !empty($user['race_target_time'])
                 ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['race_target_time'])
-                : (!empty($user['target_marathon_time']) ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['target_marathon_time']) : null);
+                : null;
             return [$planDate, $targetTime];
         }
 
         if ($goalType === 'weight_loss') {
-            $planDate = !empty($user['weight_goal_date'])
-                ? (string) $user['weight_goal_date']
-                : (!empty($user['target_marathon_date']) ? (string) $user['target_marathon_date'] : null);
+            $planDate = !empty($user['weight_goal_date']) ? (string) $user['weight_goal_date'] : null;
             return [$planDate, null];
         }
 
-        $planDate = !empty($user['target_marathon_date']) ? (string) $user['target_marathon_date'] : null;
-        $targetTime = !empty($user['target_marathon_time']) ? $this->formatTrainingPlanSnapshotTargetTime((string) $user['target_marathon_time']) : null;
-        return [$planDate, $targetTime];
+        return [null, null];
     }
 
     private function formatTrainingPlanSnapshotTargetTime(?string $rawTime): ?string {

@@ -79,8 +79,6 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
     race_distance: '',
     race_date: '',
     race_target_time: '',
-    target_marathon_date: '',
-    target_marathon_time: '',
     weight_goal_kg: '',
     weight_goal_date: '',
     health_program: '',
@@ -317,14 +315,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
             setError('Выберите цель');
             return;
           }
-          if (formData.goal_type === 'race') {
-            if (!formData.race_date && !formData.target_marathon_date) {
-              setError('Укажите дату забега или целевую дату');
-              return;
-            }
-          } else if (formData.goal_type === 'time_improvement') {
-            if (!formData.target_marathon_date && !formData.race_date) {
-              setError('Укажите дату марафона или дату забега');
+          if (formData.goal_type === 'race' || formData.goal_type === 'time_improvement') {
+            if (!formData.race_date) {
+              setError('Укажите дату забега');
               return;
             }
           } else if (formData.goal_type === 'weight_loss') {
@@ -415,14 +408,9 @@ const RegisterScreen = ({ onRegister, embedInModal, onSuccess, onClose, minimalO
         setError('Выберите цель');
         return;
       }
-      if (formData.goal_type === 'race') {
-        if (!formData.race_date && !formData.target_marathon_date) {
-          setError('Укажите дату забега или целевую дату');
-          return;
-        }
-      } else if (formData.goal_type === 'time_improvement') {
-        if (!formData.target_marathon_date && !formData.race_date) {
-          setError('Укажите дату марафона или дату забега');
+      if (formData.goal_type === 'race' || formData.goal_type === 'time_improvement') {
+        if (!formData.race_date) {
+          setError('Укажите дату забега');
           return;
         }
       } else if (formData.goal_type === 'weight_loss') {

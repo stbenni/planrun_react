@@ -10,9 +10,9 @@
   top: 0;
   z-index: 10;
   padding: var(--space-4) var(--page-padding-x);
-  background: var(--glass-bg, var(--bg-primary));
-  backdrop-filter: blur(var(--glass-blur, 12px));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 12px));
+  background: var(--glass-card-bg, var(--bg-primary));
+  backdrop-filter: var(--glass-card-blur, blur(12px) saturate(1.16));
+  -webkit-backdrop-filter: var(--glass-card-blur, blur(12px) saturate(1.16));
   border-bottom: 1px solid var(--card-border);
 }
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Развёртывание webhook-proxy на VPS (tg.planrun.ru)
 # Запуск: ./deploy-to-vps.sh [user@vps-host]
-# По умолчанию: root@45.148.117.13 (если доступен)
+# По умолчанию: root@185.28.175.39 (если доступен)
 
-VPS="${1:-root@45.148.117.13}"
+VPS="${1:-root@185.28.175.39}"
 REMOTE_DIR="/var/www/telegram-webhook-proxy"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

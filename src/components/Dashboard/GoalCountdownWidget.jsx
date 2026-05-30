@@ -17,6 +17,15 @@ const DISTANCE_LABELS = {
   '42.2k': 'Марафон',
 };
 
+const DISTANCE_KM = {
+  '5k': 5,
+  '10k': 10,
+  'half': 21.0975,
+  '21.1k': 21.0975,
+  'marathon': 42.195,
+  '42.2k': 42.195,
+};
+
 const PHASE_LABELS = {
   base: 'База',
   build: 'Строительная',
@@ -59,6 +68,41 @@ function formatTargetTime(time) {
 function formatPace(pace) {
   if (!pace) return '';
   return String(pace).trim();
+}
+
+function parseTimeToSec(time) {
+  if (!time) return null;
+  const parts = String(time).split(':').map((n) => Number(n) || 0);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return null;
+}
+
+function formatPaceFromSec(secPerKm) {
+  if (!secPerKm || secPerKm <= 0) return '';
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm - m * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Дельта прогноза от цели: отрицательная = быстрее (хорошо), положительная = медленнее. */
+function formatGoalDelta(predictionSec, targetSec) {
+  if (predictionSec == null || targetSec == null) return null;
+  const delta = predictionSec - targetSec;
+  if (Math.abs(delta) < 5) return { text: 'на уровне цели', tone: 'neutral' };
+  const sign = delta < 0 ? '−' : '+';
+  const abs = Math.abs(delta);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const s = abs % 60;
+  let formatted;
+  if (h > 0) formatted = `${h}ч ${String(m).padStart(2, '0')}м`;
+  else if (m > 0) formatted = `${m}м ${String(s).padStart(2, '0')}с`;
+  else formatted = `${s}с`;
+  return {
+    text: `${sign}${formatted} от цели`,
+    tone: delta < 0 ? 'up' : 'down',
+  };
 }
 
 function getCurrentWeekPhase(plan) {
@@ -117,12 +161,21 @@ const GoalCountdownWidget = ({ api, plan, onNavigate }) => {
   const predictionPace = data.predictions?.[goal.race_distance]?.pace_formatted;
   const phaseLabel = phase ? (PHASE_LABELS[phase] || phase) : null;
 
+  const distKm = DISTANCE_KM[goal.race_distance] || null;
+  const targetSec = parseTimeToSec(goal.race_target_time);
+  const targetPace = (targetSec && distKm) ? formatPaceFromSec(targetSec / distKm) : null;
+  const predictionSec = parseTimeToSec(data.predictions?.[goal.race_distance]?.formatted);
+  const delta = formatGoalDelta(predictionSec, targetSec);
+
   const days = goal.days_to_race;
   const weeks = goal.weeks_to_race ?? Math.ceil(days / 7);
 
   const handleClick = () => {
     if (onNavigate) onNavigate('calendar');
   };
+
+  const daysWord = days === 1 ? 'день до старта' : days < 5 ? 'дня до старта' : 'дней до старта';
+  const weeksWord = weeks === 1 ? 'неделя' : weeks < 5 ? 'недели' : 'недель';
 
   return (
     <button
@@ -144,52 +197,59 @@ const GoalCountdownWidget = ({ api, plan, onNavigate }) => {
       </div>
 
       <div className="goal-countdown__main">
-        <div className="goal-countdown__days">
-          <span className="goal-countdown__days-value">{days}</span>
-          <span className="goal-countdown__days-label">
-            {days === 1 ? 'день до старта' : days < 5 ? 'дня до старта' : 'дней до старта'}
-          </span>
-        </div>
-
-        <div className="goal-countdown__meta">
-          {dateLabel && (
-            <div className="goal-countdown__meta-row">
-              <span className="goal-countdown__meta-label">Дата</span>
-              <span className="goal-countdown__meta-value">{dateLabel}</span>
+        <div className="goal-countdown__hero">
+          <div className="goal-countdown__days">
+            <span className="goal-countdown__days-value">{days}</span>
+            <span className="goal-countdown__days-label">{daysWord}</span>
+          </div>
+          {(dateLabel || weeks > 0) && (
+            <div className="goal-countdown__hero-bottom">
+              {dateLabel && (
+                <div className="goal-countdown__date">{dateLabel}</div>
+              )}
+              {weeks > 0 && (
+                <div className="goal-countdown__weeks">~{weeks} {weeksWord} подготовки</div>
+              )}
             </div>
           )}
+        </div>
+
+        <div className="goal-countdown__grid">
           {targetTime && (
-            <div className="goal-countdown__meta-row">
-              <span className="goal-countdown__meta-label">
-                <TargetIcon size={14} /> Цель
+            <div className="goal-countdown__card goal-countdown__card--accent">
+              <span className="goal-countdown__card-label">
+                <TargetIcon size={12} /> Цель
               </span>
-              <span className="goal-countdown__meta-value goal-countdown__meta-value--accent">{targetTime}</span>
+              <span className="goal-countdown__card-value">{targetTime}</span>
+              {targetPace && (
+                <span className="goal-countdown__card-sub">темп {targetPace}/км</span>
+              )}
             </div>
           )}
           {predictionTime && (
-            <div className="goal-countdown__meta-row">
-              <span className="goal-countdown__meta-label">
-                <TimeIcon size={14} /> Прогноз
+            <div className="goal-countdown__card">
+              <span className="goal-countdown__card-label">
+                <TimeIcon size={12} /> Прогноз
               </span>
-              <span className="goal-countdown__meta-value">{predictionTime}</span>
+              <span className="goal-countdown__card-value">{predictionTime}</span>
+              {delta && (
+                <span className={`goal-countdown__card-sub goal-countdown__card-sub--${delta.tone}`}>
+                  {delta.text}
+                </span>
+              )}
             </div>
           )}
           {predictionPace && (
-            <div className="goal-countdown__meta-row">
-              <span className="goal-countdown__meta-label">
-                <PaceIcon size={14} /> Темп
+            <div className="goal-countdown__card">
+              <span className="goal-countdown__card-label">
+                <PaceIcon size={12} /> Темп
               </span>
-              <span className="goal-countdown__meta-value">{formatPace(predictionPace)}/км</span>
+              <span className="goal-countdown__card-value">{formatPace(predictionPace)}/км</span>
+              <span className="goal-countdown__card-sub">прогнозный</span>
             </div>
           )}
         </div>
       </div>
-
-      {weeks > 0 && (
-        <div className="goal-countdown__footer">
-          <span className="goal-countdown__weeks">~{weeks} {weeks === 1 ? 'неделя' : weeks < 5 ? 'недели' : 'недель'} подготовки осталось</span>
-        </div>
-      )}
     </button>
   );
 };

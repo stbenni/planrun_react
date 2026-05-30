@@ -126,8 +126,6 @@ export function useSettingsProfile({
         race_distance: normalizeValue(formData.race_distance),
         race_date: normalizeValue(formData.race_date),
         race_target_time: normalizeValue(formData.race_target_time),
-        target_marathon_date: normalizeValue(formData.target_marathon_date),
-        target_marathon_time: normalizeValue(formData.target_marathon_time),
         weight_goal_kg: normalizeValue(formData.weight_goal_kg),
         weight_goal_date: normalizeValue(formData.weight_goal_date),
         experience_level: formData.experience_level,

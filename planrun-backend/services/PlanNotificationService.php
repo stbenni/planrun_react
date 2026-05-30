@@ -142,6 +142,31 @@ class PlanNotificationService {
     }
 
     /**
+     * Последние уведомления (прочитанные + непрочитанные) за окно дней.
+     * Для notification center, где показываются и новые, и прочитанные.
+     */
+    public function getRecent($userId, $limit = 50, $sinceDays = 30) {
+        $sql = "SELECT id, type, message, metadata, read_at, created_at
+                FROM plan_notifications
+                WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                ORDER BY created_at DESC
+                LIMIT ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param('iii', $userId, $sinceDays, $limit);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            if ($row['metadata']) {
+                $row['metadata'] = json_decode($row['metadata'], true);
+            }
+            $rows[] = $row;
+        }
+        $stmt->close();
+        return $rows;
+    }
+
+    /**
      * Отметить уведомление прочитанным.
      */
     public function markRead($notificationId, $userId) {

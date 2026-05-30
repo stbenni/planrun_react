@@ -32,9 +32,11 @@ import SkeletonScreen from '../common/SkeletonScreen';
 import { RunningIcon, AlertTriangleIcon, CalendarIcon, RestIcon, SkipForwardIcon, CloseIcon, SettingsIcon } from '../common/Icons';
 import RacePredictionWidget from './RacePredictionWidget';
 import TrainingLoadWidget from './TrainingLoadWidget';
-import DailyBriefingHero from './DailyBriefingHero';
+import TodayHeroV3 from './v3/TodayHeroV3';
+import DashStickyTabsV3 from './v3/DashStickyTabsV3';
+import DashFabAi from './v3/DashFabAi';
+import AthleteMobileTabs from './AthleteMobileTabs';
 import GoalCountdownWidget from './GoalCountdownWidget';
-import CoachInsightsWidget from './CoachInsightsWidget';
 import PersonalRecordsWidget from './PersonalRecordsWidget';
 import TrendComparisonWidget from './TrendComparisonWidget';
 import './Dashboard.css';
@@ -136,6 +138,19 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
 function isAiPlanMode(trainingMode) {
   return trainingMode === 'ai' || trainingMode === 'both';
 }
+
+/** Маппинг моdules → группы для sticky-tabs (v3 dashboard). */
+const MODULE_TO_SECTION = {
+  today_workout: 'today',
+  next_workout: 'today',
+  calendar: 'week',
+  goal_countdown: 'goal',
+  training_load: 'form',
+  personal_records: 'pr',
+  race_prediction: 'more',
+  stats: 'more',
+  trend_compare: 'more',
+};
 
 const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMessage, isNewRegistration }) => {
   const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
@@ -267,7 +282,6 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     isAiTrainingMode,
     loadDashboardData,
     loading,
-    metrics,
     nextWorkout,
     noPlanChecked,
     plan,
@@ -275,11 +289,9 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
     planExists,
     planGenerating,
     progressDataMap,
-    progressPercentage,
     regenerating,
     showPlanMessage,
     todayWorkout,
-    weekProgress,
     workoutsByDate,
   } = useDashboardData({
     api,
@@ -313,27 +325,6 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
   );
 
   const moduleOrder = useMemo(() => layoutToOrder(layout), [layout]);
-  const todayCompleted = Boolean(todayWorkout?.date && progressDataMap?.[todayWorkout.date]);
-  const todayStatusLabel = !hasAnyPlannedWorkout
-    ? 'нет плана'
-    : todayWorkout
-      ? (todayCompleted ? 'выполнено' : 'по плану')
-      : 'отдых';
-  const todayStatusTone = !hasAnyPlannedWorkout
-    ? 'neutral'
-    : todayWorkout
-      ? (todayCompleted ? 'success' : 'primary')
-      : 'rest';
-  const weekStatusLabel = hasAnyPlannedWorkout ? `${weekProgress.completed}/${weekProgress.total}` : 'нет плана';
-  const weekStatusTone = progressPercentage >= 100 ? 'success' : progressPercentage > 0 ? 'primary' : 'neutral';
-  const planStatusLabel = planGenerating
-    ? 'генерация'
-    : planError
-      ? 'ошибка'
-      : planExists
-        ? 'активен'
-        : 'нет плана';
-  const planStatusTone = planGenerating ? 'primary' : planError ? 'danger' : planExists ? 'success' : 'neutral';
 
   if (needsOnboarding) {
     return (
@@ -482,49 +473,18 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           </div>
         </div>
 
-        <DailyBriefingHero
-          api={api}
-          onOpenChat={onNavigate ? () => onNavigate('chat') : undefined}
-        />
-
-        {hasAnyPlannedWorkout && (
-          <div className="dashboard-hero-kpi" aria-label="Сводка недели">
-            <div className="dashboard-hero-kpi__primary">
-              <span className="dashboard-hero-kpi__value">{metrics.distance}</span>
-              <span className="dashboard-hero-kpi__unit">км</span>
-            </div>
-            <div className="dashboard-hero-kpi__divider" aria-hidden />
-            <div className="dashboard-hero-kpi__secondary">
-              <div className="dashboard-hero-kpi__progress-text">
-                <span className="dashboard-hero-kpi__progress-current">{weekProgress.completed}</span>
-                <span className="dashboard-hero-kpi__progress-sep"> из </span>
-                <span className="dashboard-hero-kpi__progress-total">{weekProgress.total}</span>
-              </div>
-              <div className="dashboard-hero-kpi__progress-label">тренировок на неделе</div>
-              <div
-                className="dashboard-hero-kpi__bar"
-                role="progressbar"
-                aria-valuenow={progressPercentage}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                title={`${progressPercentage}%`}
-              >
-                <div
-                  className="dashboard-hero-kpi__bar-fill"
-                  style={{ width: `${progressPercentage}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
+        <AthleteMobileTabs />
       </div>
+
+      <DashStickyTabsV3 />
 
       {dashboardRows.map((row, rowIndex) => {
         const renderSection = (moduleId) => {
           const sectionClass = row.type === 'double' ? 'dashboard-section dashboard-section-inline' : 'dashboard-section';
+          const sectionGroup = MODULE_TO_SECTION[moduleId] || null;
           if (moduleId === 'today_workout') {
             return (
-              <div key="today_workout" className={sectionClass}>
+              <div key="today_workout" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Сегодняшняя тренировка</h2>
                 <div className={`dashboard-module-card ${todayWorkout ? 'dashboard-module-card--workout' : ''} ${todayWorkout && expandedWorkoutCard === 'today' ? 'dashboard-module-card--expanded' : ''}`}>
                   {!hasAnyPlannedWorkout ? (
@@ -544,60 +504,52 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                       )}
                     </div>
                   ) : todayWorkout ? (
-                    <div
-                      className="dashboard-workout-card-wrapper"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleWorkoutPress(todayWorkout)}
+                    <TodayHeroV3
+                      api={api}
+                      onOpenChat={onNavigate ? () => onNavigate('chat') : undefined}
+                      workout={todayWorkout}
+                      date={todayWorkout.date}
+                      status={progressDataMap[todayWorkout.date] ? 'completed' : 'planned'}
+                      isToday={true}
+                      planDays={row.type === 'single' ? (todayWorkout.planDays || []) : (expandedWorkoutCard === 'today' ? (todayWorkout.planDays || []) : ((todayWorkout.planDays?.length > 1) ? (todayWorkout.planDays.slice(0, 1)) : (todayWorkout.planDays || [])))}
+                      onPress={() => handleWorkoutPress(todayWorkout)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorkoutPress(todayWorkout); } }}
-                    >
-                      <div className="dashboard-top-card">
-                        <WorkoutCard
-                          workout={todayWorkout}
-                          date={todayWorkout.date}
-                          status={progressDataMap[todayWorkout.date] ? 'completed' : 'planned'}
-                          isToday={true}
-                          compact={row.type === 'double' ? (expandedWorkoutCard !== 'today') : false}
-                          planDays={row.type === 'single' ? (todayWorkout.planDays || []) : (expandedWorkoutCard === 'today' ? (todayWorkout.planDays || []) : ((todayWorkout.planDays?.length > 1) ? (todayWorkout.planDays.slice(0, 1)) : (todayWorkout.planDays || [])))}
-                          maxDescriptionItems={row.type === 'double' && expandedWorkoutCard !== 'today' ? 2 : null}
-                          extraActions={
-                            <>
-                              {!progressDataMap[todayWorkout.date] && (row.type === 'single' || expandedWorkoutCard !== 'today') && (
-                                <button
-                                  type="button"
-                                  className="btn btn-primary dashboard-workout-mark-done dashboard-workout-open-calendar"
-                                  onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
-                                >
-                                  Отметить выполнение
-                                </button>
+                      extraActions={
+                        <>
+                          {!progressDataMap[todayWorkout.date] && (row.type === 'single' || expandedWorkoutCard !== 'today') && (
+                            <button
+                              type="button"
+                              className="btn btn-primary dashboard-workout-mark-done dashboard-workout-open-calendar"
+                              onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
+                            >
+                              Отметить выполнение
+                            </button>
+                          )}
+                          {((row.type === 'single' && progressDataMap[todayWorkout.date]) || (row.type === 'double' && expandedWorkoutCard === 'today')) && (
+                            <button
+                              type="button"
+                              className="btn btn-primary dashboard-workout-open-calendar"
+                              onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
+                            >
+                              {progressDataMap[todayWorkout.date] ? 'Открыть в календаре' : 'Отметить выполнение'}
+                            </button>
+                          )}
+                          {row.type === 'double' && (todayWorkout.planDays?.length > 1 || expandedWorkoutCard === 'today') && (
+                            <button
+                              type="button"
+                              className="dashboard-workout-expand-arrow"
+                              onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); }}
+                              aria-label={expandedWorkoutCard === 'today' ? 'Свернуть' : 'Развернуть'}
+                            >
+                              <span className="dashboard-workout-expand-arrow-icon">▼</span>
+                              {(todayWorkout.planDays?.length > 1) && expandedWorkoutCard !== 'today' && (
+                                <span className="dashboard-workout-expand-hint">Ещё {todayWorkout.planDays.length - 1}</span>
                               )}
-                              {((row.type === 'single' && progressDataMap[todayWorkout.date]) || (row.type === 'double' && expandedWorkoutCard === 'today')) && (
-                                <button
-                                  type="button"
-                                  className="btn btn-primary dashboard-workout-open-calendar"
-                                  onClick={(e) => { e.stopPropagation(); handleWorkoutPress(todayWorkout); }}
-                                >
-                                  {progressDataMap[todayWorkout.date] ? 'Открыть в календаре' : 'Отметить выполнение'}
-                                </button>
-                              )}
-                              {row.type === 'double' && (todayWorkout.planDays?.length > 1 || expandedWorkoutCard === 'today') && (
-                                <button
-                                  type="button"
-                                  className="dashboard-workout-expand-arrow"
-                                  onClick={(e) => { e.stopPropagation(); setExpandedWorkoutCard((p) => (p === 'today' ? null : 'today')); }}
-                                  aria-label={expandedWorkoutCard === 'today' ? 'Свернуть' : 'Развернуть'}
-                                >
-                                  <span className="dashboard-workout-expand-arrow-icon">▼</span>
-                                  {(todayWorkout.planDays?.length > 1) && expandedWorkoutCard !== 'today' && (
-                                    <span className="dashboard-workout-expand-hint">Ещё {todayWorkout.planDays.length - 1}</span>
-                                  )}
-                                </button>
-                              )}
-                            </>
-                          }
-                        />
-                      </div>
-                    </div>
+                            </button>
+                          )}
+                        </>
+                      }
+                    />
                   ) : (
                     <div className="dashboard-top-card dashboard-empty">
                       <div className="empty-icon" aria-hidden><RestIcon size={48} /></div>
@@ -611,7 +563,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'trend_compare') {
             return (
-              <div key="trend_compare" className={sectionClass}>
+              <div key="trend_compare" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Тренд месяца</h2>
                 <div className="dashboard-module-card">
                   <TrendComparisonWidget workoutsByDate={workoutsByDate} />
@@ -621,7 +573,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'personal_records') {
             return (
-              <div key="personal_records" className={sectionClass}>
+              <div key="personal_records" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Личные рекорды</h2>
                 <div className="dashboard-module-card">
                   <PersonalRecordsWidget api={api} />
@@ -629,19 +581,9 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
               </div>
             );
           }
-          if (moduleId === 'coach_insights') {
-            return (
-              <div key="coach_insights" className={sectionClass}>
-                <h2 className="section-title">Разборы тренировок</h2>
-                <div className="dashboard-module-card">
-                  <CoachInsightsWidget api={api} limit={row.type === 'double' ? 4 : 6} onNavigate={onNavigate} />
-                </div>
-              </div>
-            );
-          }
           if (moduleId === 'goal_countdown') {
             return (
-              <div key="goal_countdown" className={sectionClass}>
+              <div key="goal_countdown" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Главная цель</h2>
                 <div className="dashboard-module-card">
                   <GoalCountdownWidget api={api} plan={plan} onNavigate={onNavigate} />
@@ -651,7 +593,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'next_workout') {
             return (
-              <div key="next_workout" className={sectionClass}>
+              <div key="next_workout" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Следующая тренировка</h2>
                 <div className={`dashboard-module-card ${nextWorkout ? 'dashboard-module-card--workout' : ''} ${nextWorkout && expandedWorkoutCard === 'next' ? 'dashboard-module-card--expanded' : ''}`}>
                 {nextWorkout ? (
@@ -712,7 +654,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'calendar') {
             return (
-              <div key="calendar" className={sectionClass}>
+              <div key="calendar" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Календарь</h2>
                 <div className="dashboard-module-card">
                 <DashboardWeekStrip
@@ -726,7 +668,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'race_prediction') {
             return (
-              <div key="race_prediction" className={sectionClass}>
+              <div key="race_prediction" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Прогноз на забег</h2>
                 <div className="dashboard-module-card">
                   <RacePredictionWidget api={api} compact={row.type === 'double'} />
@@ -736,7 +678,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'training_load') {
             return (
-              <div key="training_load" className={sectionClass}>
+              <div key="training_load" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Тренировочная нагрузка</h2>
                 <div className="dashboard-module-card">
                   <TrainingLoadWidget api={api} compact={row.type === 'double'} />
@@ -746,7 +688,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           }
           if (moduleId === 'stats') {
             return (
-              <div key="stats" className={sectionClass}>
+              <div key="stats" className={sectionClass} data-section={sectionGroup}>
                 <h2 className="section-title">Статистика</h2>
                 <div className="dashboard-module-card">
                 <DashboardStatsWidget api={api} onNavigate={onNavigate} />
@@ -757,16 +699,21 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           return null;
         };
 
+        const wrapId = (jsx, moduleId) =>
+          jsx && React.isValidElement(jsx)
+            ? React.cloneElement(jsx, { id: `dashboard-section-${moduleId}` })
+            : jsx;
+
         if (row.type === 'double') {
           return (
             <div key={`row-${rowIndex}`} className="dashboard-row-two">
-              {row.ids.map((id) => renderSection(id))}
+              {row.ids.map((id) => wrapId(renderSection(id), id))}
             </div>
           );
         }
         return (
           <React.Fragment key={`row-${rowIndex}`}>
-            {row.ids.map((id) => renderSection(id))}
+            {row.ids.map((id) => wrapId(renderSection(id), id))}
           </React.Fragment>
         );
       })}
@@ -842,6 +789,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
         </div>
       )}
 
+      <DashFabAi onOpen={() => onNavigate?.('chat')} />
     </div>
   );
 };

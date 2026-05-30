@@ -22,8 +22,7 @@ class UserRepository extends BaseRepository {
 
     /** Стандартный набор полей (всё кроме password). */
     private const PROFILE_FIELDS = 'id, username, username_slug, email, role, goal_type,
-        race_date, race_target_time, race_distance,
-        target_marathon_date, target_marathon_time, training_start_date,
+        race_date, race_target_time, race_distance, training_start_date,
         weekly_base_km, experience_level, gender, birth_year, height_cm, weight_kg,
         timezone, telegram_id, created_at, updated_at, training_mode,
         ofp_preference, preferred_days, preferred_ofp_days, sessions_per_week,
@@ -88,8 +87,7 @@ class UserRepository extends BaseRepository {
             'public_token','privacy_level','max_hr','rest_hr','birth_year',
             'push_workouts_enabled','push_chat_enabled','push_workout_hour','push_workout_minute',
             'training_start_date','preferred_days','preferred_ofp_days','onboarding_completed',
-            'goal_type','race_date','race_target_time','race_distance',
-            'target_marathon_date','target_marathon_time','training_mode',
+            'goal_type','race_date','race_target_time','race_distance','training_mode',
             'coach_accepts','coach_bio','coach_specialization','coach_philosophy',
             'coach_experience_years','coach_prices_on_request','last_activity','banned',
         ];
@@ -113,7 +111,7 @@ class UserRepository extends BaseRepository {
     public function getForPlanning(int $userId): ?array {
         return $this->fetchOne(
             "SELECT id, username, goal_type, race_date, race_target_time, race_distance,
-                    target_marathon_date, target_marathon_time, training_start_date,
+                    training_start_date,
                     weekly_base_km, experience_level, gender, birth_year, height_cm, weight_kg,
                     sessions_per_week, preferred_days, preferred_ofp_days,
                     has_treadmill, ofp_preference, training_time_pref,
@@ -151,7 +149,7 @@ class UserRepository extends BaseRepository {
         return $this->fetchOne(
             "SELECT id, username, username_slug, email, avatar_path,
                     privacy_level, public_token, goal_type, race_date, race_distance, race_target_time,
-                    target_marathon_date, target_marathon_time, training_mode,
+                    training_mode,
                     privacy_show_email, privacy_show_trainer, privacy_show_calendar,
                     privacy_show_metrics, privacy_show_workouts, role,
                     coach_bio, coach_specialization, coach_accepts,
@@ -170,6 +168,20 @@ class UserRepository extends BaseRepository {
             "SELECT id, max_hr, rest_hr, birth_year FROM users WHERE id = ? LIMIT 1",
             [$userId], 'i'
         );
+    }
+
+    /**
+     * Easy pace (сек/км) для оценки TRIMP по темпу при отсутствии пульса.
+     * Возвращает null если значение отсутствует или вне реалистичного диапазона.
+     */
+    public function getEasyPaceSec(int $userId): ?int {
+        $row = $this->fetchOne(
+            "SELECT easy_pace_sec FROM users WHERE id = ? LIMIT 1",
+            [$userId], 'i'
+        );
+        if (!$row || empty($row['easy_pace_sec'])) return null;
+        $v = (int) $row['easy_pace_sec'];
+        return ($v >= 180 && $v <= 720) ? $v : null;
     }
 
     /**
@@ -254,6 +266,19 @@ class UserRepository extends BaseRepository {
         $sql = "SELECT id FROM users WHERE username_slug = ?";
         $params = [$slug];
         $types = 's';
+        if ($excludeId) {
+            $sql .= " AND id != ?";
+            $params[] = $excludeId;
+            $types .= 'i';
+        }
+        $row = $this->fetchOne($sql . " LIMIT 1", $params, $types);
+        return $row ? (int) $row['id'] : null;
+    }
+
+    public function findIdByTelegramId(int $telegramId, ?int $excludeId = null): ?int {
+        $sql = "SELECT id FROM users WHERE telegram_id = ?";
+        $params = [$telegramId];
+        $types = 'i';
         if ($excludeId) {
             $sql .= " AND id != ?";
             $params[] = $excludeId;
@@ -414,8 +439,7 @@ class UserRepository extends BaseRepository {
             'public_token','privacy_level','max_hr','rest_hr','birth_year',
             'push_workouts_enabled','push_chat_enabled','push_workout_hour','push_workout_minute',
             'training_start_date','preferred_days','preferred_ofp_days','onboarding_completed',
-            'goal_type','race_date','race_target_time','race_distance',
-            'target_marathon_date','target_marathon_time','training_mode',
+            'goal_type','race_date','race_target_time','race_distance','training_mode',
             'coach_accepts','coach_bio','coach_specialization','coach_philosophy',
             'coach_experience_years','coach_prices_on_request',
             'last_activity','banned','password','weekly_base_km',

@@ -39,8 +39,8 @@ function getUserData($userId, $fields = null, $useCache = true) {
     
     // По умолчанию загружаем только часто используемые поля
     if ($fields === null) {
-        $fields = 'id, username, username_slug, email, role, goal_type, race_date, race_target_time, race_distance, 
-                   target_marathon_date, target_marathon_time, training_start_date, 
+        $fields = 'id, username, username_slug, email, role, goal_type, race_date, race_target_time, race_distance,
+                   training_start_date,
                    weekly_base_km, experience_level, gender, birth_year, birth_month, height_cm, weight_kg,
                    timezone, telegram_id, created_at, updated_at, training_mode, 
                    ofp_preference, preferred_days, preferred_ofp_days, sessions_per_week, 
@@ -145,9 +145,8 @@ function getCurrentUserId() {
  */
 function getUserByTelegramId($telegramId) {
     $db = getDBConnection();
-    $stmt = $db->prepare('SELECT id, username, email, goal_type, race_date, race_target_time, 
-                                 race_distance, target_marathon_date, target_marathon_time, 
-                                 training_start_date, weekly_base_km, experience_level, 
+    $stmt = $db->prepare('SELECT id, username, email, goal_type, race_date, race_target_time,
+                                 race_distance, training_start_date, weekly_base_km, experience_level,
                                  gender, birth_year, height_cm, weight_kg, timezone, 
                                  telegram_id, created_at, updated_at, training_mode, 
                                  ofp_preference, preferred_days, sessions_per_week, 

@@ -28,10 +28,10 @@ function prepareWeeklyAnalysis($userId, $weekNumber = null) {
     
     // Получаем данные пользователя
     $userStmt = $db->prepare("
-        SELECT id, username, target_marathon_date, target_marathon_time, 
+        SELECT id, username,
                birth_year, height_cm, weight_kg, experience_level, weekly_base_km,
                preferred_days, goal_type, race_date, race_target_time, race_distance
-        FROM users 
+        FROM users
         WHERE id = ?
     ");
     $userStmt->bind_param("i", $userId);
@@ -189,8 +189,6 @@ function prepareWeeklyAnalysis($userId, $weekNumber = null) {
         'user' => [
             'id' => $user['id'],
             'username' => $user['username'],
-            'target_marathon_date' => $user['target_marathon_date'],
-            'target_marathon_time' => $user['target_marathon_time'],
             'goal_type' => $user['goal_type'] ?? null,
             'race_date' => $user['race_date'] ?? null,
             'race_target_time' => $user['race_target_time'] ?? null,
@@ -317,7 +315,7 @@ function prepareFullPlanAnalysis($userId) {
     
     // Получаем ВСЕ данные пользователя для полного анализа используя getUserData()
     require_once __DIR__ . '/user_functions.php';
-    $fields = 'id, username, email, timezone, target_marathon_date, target_marathon_time, 
+    $fields = 'id, username, email, timezone,
                birth_year, height_cm, weight_kg, gender, experience_level, weekly_base_km,
                preferred_days, preferred_ofp_days, goal_type, race_date, race_target_time, race_distance,
                health_notes, training_start_date, training_mode, sessions_per_week,
@@ -622,8 +620,6 @@ function prepareFullPlanAnalysis($userId) {
             'username' => $user['username'],
             'email' => $user['email'] ?? null,
             'timezone' => $user['timezone'] ?? 'Europe/Moscow',
-            'target_marathon_date' => $user['target_marathon_date'] ?? null,
-            'target_marathon_time' => $user['target_marathon_time'] ?? null,
             'goal_type' => $user['goal_type'] ?? 'health',
             'race_date' => $user['race_date'] ?? null,
             'race_target_time' => $user['race_target_time'] ?? null,

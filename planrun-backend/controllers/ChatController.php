@@ -79,8 +79,10 @@ class ChatController extends BaseController {
 
         $data = $this->getJsonBody();
         $content = trim($data['content'] ?? $data['message'] ?? '');
+        require_once __DIR__ . '/../services/ChatMediaService.php';
+        $attachment = ChatMediaService::sanitizeAttachment($data['attachment'] ?? null);
 
-        if ($content === '') {
+        if ($content === '' && !$attachment) {
             $this->returnError('Сообщение не может быть пустым', 400);
             return;
         }
@@ -96,8 +98,31 @@ class ChatController extends BaseController {
 
         try {
             $this->releaseSessionLock();
-            $result = $this->chatService->sendMessageAndGetResponse($this->currentUserId, $content);
+            $result = $this->chatService->sendMessageAndGetResponse($this->currentUserId, $content, $attachment);
             $this->returnSuccess($result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Загрузка вложения чата (фото). POST multipart, поле media.
+     * Возвращает дескриптор { attachment: { kind, file, w, h } } для последующей отправки сообщения.
+     */
+    public function uploadChatMedia() {
+        if (!$this->requireAuth()) return;
+        $this->checkCsrfToken();
+        try {
+            require_once __DIR__ . '/../services/ChatMediaService.php';
+            $file = $_FILES['media'] ?? $_FILES['image'] ?? $_FILES['file'] ?? null;
+            if (!$file) {
+                $this->returnError('Файл не передан', 400);
+                return;
+            }
+            $descriptor = ChatMediaService::store($this->currentUserId, $file);
+            $this->returnSuccess(['attachment' => $descriptor]);
+        } catch (InvalidArgumentException $e) {
+            $this->returnError($e->getMessage(), 400);
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -198,6 +223,21 @@ class ChatController extends BaseController {
     }
 
     /**
+     * Очистить чат с администрацией (user-side)
+     * POST chat_clear_admin
+     */
+    public function clearAdminChat() {
+        if (!$this->requireAuth()) return;
+
+        try {
+            $this->chatService->clearAdminChat($this->currentUserId);
+            $this->returnSuccess(['ok' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * Пользователь: отправить сообщение администрации
      * POST chat_send_message_to_admin { "content": "..." }
      */
@@ -206,8 +246,10 @@ class ChatController extends BaseController {
 
         $data = $this->getJsonBody();
         $content = trim($data['content'] ?? $data['message'] ?? '');
+        require_once __DIR__ . '/../services/ChatMediaService.php';
+        $attachment = ChatMediaService::sanitizeAttachment($data['attachment'] ?? null);
 
-        if ($content === '') {
+        if ($content === '' && !$attachment) {
             $this->returnError('Сообщение не может быть пустым', 400);
             return;
         }
@@ -218,7 +260,7 @@ class ChatController extends BaseController {
         }
 
         try {
-            $result = $this->chatService->sendUserMessageToAdmin($this->currentUserId, $content);
+            $result = $this->chatService->sendUserMessageToAdmin($this->currentUserId, $content, $attachment);
             $this->returnSuccess($result);
         } catch (Exception $e) {
             $this->handleException($e);
@@ -264,12 +306,14 @@ class ChatController extends BaseController {
         $data = $this->getJsonBody();
         $targetUserId = (int)($data['target_user_id'] ?? $data['user_id'] ?? 0);
         $content = trim($data['content'] ?? $data['message'] ?? '');
+        require_once __DIR__ . '/../services/ChatMediaService.php';
+        $attachment = ChatMediaService::sanitizeAttachment($data['attachment'] ?? null);
 
         if ($targetUserId <= 0) {
             $this->returnError('Не указан ID получателя', 400);
             return;
         }
-        if ($content === '') {
+        if ($content === '' && !$attachment) {
             $this->returnError('Сообщение не может быть пустым', 400);
             return;
         }
@@ -279,7 +323,7 @@ class ChatController extends BaseController {
         }
 
         try {
-            $result = $this->chatService->sendUserMessageToUser($this->currentUserId, $targetUserId, $content);
+            $result = $this->chatService->sendUserMessageToUser($this->currentUserId, $targetUserId, $content, $attachment);
             $this->returnSuccess($result);
         } catch (InvalidArgumentException $e) {
             $this->returnError($e->getMessage(), 400);

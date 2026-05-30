@@ -1,0 +1,146 @@
+/**
+ * NotificationBell — кнопка-колокольчик + панель (поповер на десктопе, bottom-sheet на мобиле).
+ */
+
+/* ── Кнопка ─────────────────────────────────────────────── */
+.notif-bell {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--glass-card-bg, rgba(255, 255, 255, 0.78));
+  border: 1px solid var(--glass-card-border, rgba(252, 76, 2, 0.08));
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.notif-bell:active { transform: scale(0.94); }
+.notif-bell.is-active {
+  border-color: color-mix(in srgb, var(--primary-500) 40%, transparent);
+  color: var(--primary-500);
+}
+
+@media (min-width: 1024px) {
+  .notif-bell { width: 48px; height: 48px; }
+}
+
+[data-theme="dark"] .notif-bell {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] .notif-bell.is-active {
+  border-color: color-mix(in srgb, var(--primary-500) 50%, transparent);
+  color: var(--primary-400);
+}
+
+.notif-bell__badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-500);
+  color: #fff;
+  font-family: 'Jost', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  border-radius: 999px;
+  border: 2px solid var(--glass-card-bg, #fff);
+}
+
+[data-theme="dark"] .notif-bell__badge {
+  border-color: rgba(30, 41, 59, 1);
+  box-shadow: 0 0 8px rgba(252, 76, 2, 0.5);
+}
+
+/* ── Корневой контейнер панели ──────────────────────────── */
+.notif-panel-root { display: none; }
+.notif-panel-root.is-open { display: block; }
+
+.notif-panel__backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 12400;
+}
+
+/* ── Панель: десктоп = поповер ──────────────────────────── */
+.notif-panel {
+  position: fixed;
+  top: var(--notif-anchor-top, 64px);
+  right: var(--notif-anchor-right, 16px);
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-card-bg-strong, rgba(255, 255, 255, 0.92));
+  backdrop-filter: var(--glass-card-blur-strong, blur(24px) saturate(1.2));
+  -webkit-backdrop-filter: var(--glass-card-blur-strong, blur(24px) saturate(1.2));
+  border: 1px solid var(--glass-card-border-strong, rgba(252, 76, 2, 0.12));
+  border-radius: 18px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22), 0 8px 20px rgba(252, 76, 2, 0.08);
+  z-index: 12450;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Montserrat', sans-serif;
+  animation: notifPanelPop 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+  transform-origin: top right;
+}
+
+@keyframes notifPanelPop {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+[data-theme="dark"] .notif-panel {
+  background: rgba(20, 26, 34, 0.96);
+  border-color: rgba(252, 76, 2, 0.18);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), 0 8px 20px rgba(252, 76, 2, 0.1);
+}
+
+/* ── Мобайл: bottom-sheet ───────────────────────────────── */
+@media (max-width: 1023px) {
+  .notif-panel__backdrop {
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 12400;
+  }
+  [data-theme="dark"] .notif-panel__backdrop {
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  .notif-panel {
+    top: auto;
+    right: 10px;
+    left: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: none;
+    max-height: 68vh;
+    border-radius: 20px;
+    transform-origin: bottom center;
+    animation: notifSheetUp 0.26s cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  @keyframes notifSheetUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
