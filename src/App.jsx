@@ -20,6 +20,7 @@ import { preloadAuthenticatedModules, preloadScreenModulesDelayed } from './util
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { startAppUpdatePolling } from './utils/appUpdate';
 import { useAppUpdateCheck } from './hooks/useAppUpdateCheck';
+import { PrDefs } from './components/ui';
 import './App.css';
 
 // Lazy для страниц вне основных вкладок
@@ -140,6 +141,7 @@ function App() {
 
   return (
     <>
+    <PrDefs />
     {/* Telegram fullscreen: фикс-полоса в safe-area сверху с логотипом по центру.
         Видна только при html.tg-fullscreen; контент скроллится под ней (padding-top на #root). */}
     <div className="tg-topbar" aria-hidden="true">

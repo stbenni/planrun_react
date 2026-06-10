@@ -1,0 +1,127 @@
+/* ============================================================
+   PlanRun · v3B «Телеметрия» — дизайн-токены
+   Подключать ПОСЛЕ sports-colors.css — переопределяет легаси.
+   Тёмная тема: html[data-theme="dark"] (как в dark-mode.css).
+   ============================================================ */
+
+:root {
+  /* --- Бренд --- */
+  --pr-accent: #F4480A;            /* основной (light). Заменяет дрейф #FC4C02/#FF4D00 */
+  --pr-accent-2: #E5226B;          /* второй конец градиента */
+  --pr-grad: linear-gradient(90deg, var(--pr-accent) 0%, var(--pr-accent-2) 100%);
+  --pr-grad-diag: linear-gradient(135deg, #FF5A1F 0%, #FF2D78 100%); /* для SVG-колец */
+  --pr-good: #0FA968;
+  --pr-bad: #E0254E;
+
+  /* --- Поверхности (light) --- */
+  --pr-bg-flat: #F2F4F9;
+  --pr-bg: radial-gradient(120% 90% at 80% -10%, rgba(255,90,31,0.10) 0%, transparent 50%),
+           radial-gradient(100% 80% at 0% 110%, rgba(255,45,120,0.06) 0%, transparent 55%),
+           linear-gradient(180deg, #F2F4F9 0%, #E9EDF4 100%);
+  --pr-card: rgba(255,255,255,0.75);
+  --pr-card-2: rgba(255,255,255,0.95);
+  --pr-card-border: rgba(14,20,32,0.08);
+  --pr-ink: #0E1420;
+  --pr-sub: #5D6573;
+  --pr-line: rgba(14,20,32,0.08);
+  --pr-track: rgba(14,20,32,0.08);
+  --pr-glow: 0 8px 24px rgba(244,72,10,0.25);
+  --pr-sheet: #FAFBFE;             /* солид-фон bottom-sheet и поповеров */
+  --pr-overlay: rgba(14,20,32,0.4);
+  --pr-pop-shadow: 0 24px 64px rgba(0,0,0,0.45);
+
+  /* --- Геометрия --- */
+  --pr-r-card: 20px;       /* карточки */
+  --pr-r-btn: 14px;        /* кнопки */
+  --pr-r-pill: 999px;      /* чипы, сегменты, навигация */
+  --pr-r-tile: 12px;       /* вложенные плитки внутри карточек */
+  --pr-blur: blur(14px);   /* backdrop-filter карточек */
+
+  /* --- Типографика --- */
+  /* Display: Unbounded (500/600/700, Cyrillic). Body: Jost (400/600/700). */
+  --pr-font-display: 'Unbounded', 'Jost', sans-serif;
+  --pr-font-body: 'Jost', -apple-system, system-ui, sans-serif;
+  --pr-label: 600 11px/1 var(--pr-font-body); /* + letter-spacing .14em + uppercase */
+}
+
+html[data-theme="dark"] {
+  --pr-accent: #FF5A1F;
+  --pr-accent-2: #FF2D78;
+  --pr-good: #3DDC97;
+  --pr-bad: #FF5470;
+
+  --pr-bg-flat: #0B0F16;
+  --pr-bg: radial-gradient(120% 90% at 80% -10%, rgba(255,90,31,0.12) 0%, transparent 50%),
+           radial-gradient(100% 80% at 0% 110%, rgba(255,45,120,0.08) 0%, transparent 55%),
+           linear-gradient(180deg, #0B0F16 0%, #080B10 100%);
+  --pr-card: rgba(255,255,255,0.045);
+  --pr-card-2: rgba(255,255,255,0.08);
+  --pr-card-border: rgba(255,255,255,0.09);
+  --pr-ink: #EDF1F7;
+  --pr-sub: #828B99;
+  --pr-line: rgba(255,255,255,0.08);
+  --pr-track: rgba(255,255,255,0.08);
+  --pr-glow: 0 0 24px rgba(255,90,31,0.35);
+  --pr-sheet: #10161F;
+  --pr-overlay: rgba(4,6,10,0.65);
+}
+
+/* --- Базовые рецепты --- */
+
+.pr-card {
+  background: var(--pr-card);
+  border: 1px solid var(--pr-card-border);
+  border-radius: var(--pr-r-card);
+  backdrop-filter: var(--pr-blur);
+}
+
+.pr-label {
+  font: var(--pr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pr-sub);
+}
+
+.pr-btn-primary {
+  background: var(--pr-grad);
+  color: #fff;
+  border: none;
+  border-radius: var(--pr-r-btn);
+  font: 700 14px/1 var(--pr-font-body);
+  padding: 13px 22px;
+  box-shadow: var(--pr-glow);
+  cursor: pointer;
+  transition: filter .15s ease, transform .15s ease;
+}
+.pr-btn-primary:hover { filter: brightness(1.12); transform: translateY(-1px); }
+
+.pr-btn-secondary {
+  background: var(--pr-card);
+  color: var(--pr-ink);
+  border: 1px solid var(--pr-card-border);
+  border-radius: var(--pr-r-btn);
+  font: 600 14px/1 var(--pr-font-body);
+  padding: 13px 18px;
+  cursor: pointer;
+}
+
+.pr-chip {
+  border-radius: var(--pr-r-pill);
+  font: 700 12px/1 var(--pr-font-body);
+  padding: 7px 14px;
+  background: var(--pr-card);
+  border: 1px solid var(--pr-card-border);
+  color: var(--pr-sub);
+  cursor: pointer;
+}
+.pr-chip.is-active { background: var(--pr-grad); border: none; color: #fff; }
+
+@keyframes pr-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,90,31,0.5); }
+  70% { box-shadow: 0 0 0 9px rgba(255,90,31,0); }
+}
+.pr-live-dot {
+  width: 7px; height: 7px; border-radius: 999px;
+  background: var(--pr-accent);
+  animation: pr-pulse 1.8s infinite;
+}

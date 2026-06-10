@@ -11,7 +11,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        display: ['Montserrat', 'sans-serif'],
+        display: ['Unbounded', 'Jost', 'sans-serif'],
       },
       colors: {
         // Переменные для лендинга (определены в LandingScreen)

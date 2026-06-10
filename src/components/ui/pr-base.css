@@ -1,0 +1,241 @@
+/* ============================================================
+   v3B «Телеметрия» — утилиты и примитивы поверх pr-tokens.css
+   ============================================================ */
+
+.pr-hover {
+  transition: transform .18s ease, border-color .18s ease;
+}
+.pr-hover:hover {
+  transform: translateY(-2px);
+  border-color: var(--pr-accent);
+}
+
+.pr-press {
+  transition: filter .15s ease, transform .15s ease;
+  cursor: pointer;
+}
+.pr-press:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.pr-grad-text {
+  background: var(--pr-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.pr-ring-arc {
+  transition: stroke-dashoffset 1.1s cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes pr-livebar {
+  0% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+  100% { transform: scaleY(0.3); }
+}
+
+@keyframes pr-ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* --- Поле ввода --- */
+.pr-field-label {
+  font: var(--pr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pr-sub);
+  font-size: 8.5px;
+  margin-bottom: 5px;
+}
+.pr-field {
+  width: 100%;
+  background: var(--pr-card-2);
+  border: 1px solid var(--pr-card-border);
+  border-radius: var(--pr-r-tile);
+  padding: 11px 13px;
+  font: 600 13.5px/1.4 var(--pr-font-body);
+  color: var(--pr-ink);
+  outline: none;
+  transition: border-color .15s ease;
+}
+.pr-field::placeholder { color: var(--pr-sub); font-weight: 500; }
+.pr-field:focus { border-color: var(--pr-accent); }
+textarea.pr-field { resize: vertical; min-height: 52px; }
+
+/* --- Тумблер --- */
+.pr-toggle {
+  width: 42px;
+  height: 24px;
+  border-radius: var(--pr-r-pill);
+  flex-shrink: 0;
+  background: var(--pr-track);
+  border: none;
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background .2s;
+}
+.pr-toggle.is-on { background: var(--pr-grad); }
+.pr-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--pr-r-pill);
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: left .2s;
+}
+.pr-toggle.is-on .pr-toggle-knob { left: 21px; }
+
+/* --- Bottom-sheet --- */
+.pr-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: var(--pr-overlay);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  animation: pr-fade-in .2s ease;
+}
+.pr-sheet {
+  width: 100%;
+  max-width: 560px;
+  background: var(--pr-sheet);
+  border: 1px solid var(--pr-card-border);
+  border-bottom: none;
+  border-radius: 26px 26px 0 0;
+  padding: 10px 20px calc(22px + env(safe-area-inset-bottom, 0px));
+  max-height: 94%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--pr-pop-shadow);
+  animation: pr-sheet-up .26s cubic-bezier(.22, 1, .36, 1);
+}
+.pr-sheet-handle {
+  width: 40px;
+  height: 4.5px;
+  border-radius: var(--pr-r-pill);
+  background: var(--pr-track);
+  margin: 0 auto 14px;
+  flex-shrink: 0;
+}
+.pr-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+.pr-sheet-title {
+  font-family: var(--pr-font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--pr-ink);
+}
+.pr-sheet-close {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--pr-r-pill);
+  border: 1px solid var(--pr-card-border);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--pr-sub);
+  cursor: pointer;
+}
+.pr-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes pr-sheet-up {
+  from { transform: translateY(48px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes pr-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --- Таб-бар (BNav) --- */
+.pr-bnav {
+  background: var(--pr-card-2);
+  border: 1px solid var(--pr-card-border);
+  border-radius: 26px;
+  backdrop-filter: var(--pr-blur);
+  -webkit-backdrop-filter: var(--pr-blur);
+  margin: 0 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  flex-shrink: 0;
+}
+.pr-bnav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  border-radius: 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+}
+.pr-bnav-item.is-active { background: var(--pr-grad); }
+.pr-bnav-label {
+  font-family: var(--pr-font-body);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pr-sub);
+}
+.pr-bnav-item.is-active .pr-bnav-label { color: #fff; }
+.pr-bnav-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 14px);
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pr-r-pill);
+  background: var(--pr-accent);
+}
+
+.pr-btn-primary:disabled,
+.pr-btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-ring-arc,
+  .pr-hover,
+  .pr-press,
+  .pr-toggle,
+  .pr-toggle-knob {
+    transition: none;
+  }
+  .pr-sheet,
+  .pr-sheet-overlay,
+  .pr-live-dot {
+    animation: none;
+  }
+}
