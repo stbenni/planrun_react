@@ -15,6 +15,8 @@ import StepAssessment from '../components/Onboarding/StepAssessment';
 import StepGenerating from '../components/Onboarding/StepGenerating';
 import StepReady from '../components/Onboarding/StepReady';
 import { createInitialOnboardingState } from '../components/Onboarding/onboardingForm';
+import MobileDash from '../components/Dashboard/v3b/MobileDash';
+import DesktopDash from '../components/Dashboard/v3b/DesktopDash';
 import { PrDefs } from '../components/ui';
 import '../index.css';
 
@@ -76,6 +78,101 @@ const stubClient = {
   assessGoal: async () => null,
 };
 
+// ---------- фикстуры дашборда (зеркалят R3-данные мока) ----------
+
+const noop = () => {};
+
+const stubApi = {
+  getPlanNotifications: async () => ({ items: [{ id: 1 }] }),
+  getNotificationsDismissed: async () => ({}),
+};
+
+function weeksAgoIso(weeks, dayShift = 0) {
+  const d = new Date(Date.now() - weeks * 7 * 86400000 + dayShift * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+const dashWorkoutsByDate = (() => {
+  const out = {};
+  const kms = [34, 42, 38, 51, 46, 55, 49, 58];
+  kms.forEach((km, i) => {
+    const w = kms.length - 1 - i;
+    out[weeksAgoIso(w, 0)] = [{ distance: km * 0.5, duration: km * 0.5 * 5.4 }];
+    out[weeksAgoIso(w, 2)] = [{ distance: km * 0.5, duration: km * 0.5 * 5.0 }];
+  });
+  return out;
+})();
+
+const dashPlan = {
+  weeks_data: Array.from({ length: 16 }, (_, i) => ({
+    number: i + 19,
+    start_date: (() => {
+      const monday = new Date();
+      const day = monday.getDay() || 7;
+      monday.setDate(monday.getDate() - day + 1 - (5 - i) * 7);
+      return monday.toISOString().slice(0, 10);
+    })(),
+    total_volume: `${40 + i} км`,
+    days: {},
+  })),
+};
+
+const dashProps = {
+  api: stubApi,
+  user: { race_date: '2026-10-04', race_distance: 'marathon', race_target_time: '3:29:59' },
+  firstName: 'Иван',
+  mode: 'ai',
+  streak: 14,
+  weekModel: {
+    weekNumber: 24,
+    planKm: 55,
+    doneKm: 17,
+    days: [
+      { date: '2026-06-08', dow: 'Пн', km: 0, state: 'rest' },
+      { date: '2026-06-09', dow: 'Вт', km: 9, state: 'done' },
+      { date: '2026-06-10', dow: 'Ср', km: 8, state: 'done' },
+      { date: '2026-06-11', dow: 'Чт', km: 10, state: 'today' },
+      { date: '2026-06-12', dow: 'Пт', km: 0, state: 'rest' },
+      { date: '2026-06-13', dow: 'Сб', km: 22, state: 'plan' },
+      { date: '2026-06-14', dow: 'Вс', km: 6, state: 'plan' },
+    ],
+  },
+  trainingLoad: {
+    available: true,
+    current: { tsb: 9, ctl: 62, atl: 53, acwr: 1.1, acwr_status: 'optimal' },
+    daily: Array.from({ length: 28 }, (_, i) => ({
+      tsb: -6 + i * 0.55,
+      trimp: [40, 0, 86, 52, 0, 110, 64][i % 7],
+    })),
+  },
+  briefing: 'Восстановление полное. Сегодня можно работать на пороге — окно продуктивности до 11:00.',
+  todayWorkout: {
+    type: 'tempo',
+    is_key_workout: true,
+    date: '2026-06-11',
+    text: '10 км · 0:48:00\nТемп: 4:35 мин/км\nРазминка 2 км, темповый блок 6 км в темпе 4:30–4:40, заминка 2 км\nтемповая ключевая',
+  },
+  hasAnyPlannedWorkout: true,
+  plan: dashPlan,
+  workoutsByDate: dashWorkoutsByDate,
+  onModeClick: noop,
+  onStart: noop,
+  onOpenCalendar: noop,
+  onOpenStats: noop,
+};
+
+const dashPrediction = {
+  vdot: 52.1,
+  predictions: { marathon: { formatted: '3:34:10' } },
+  training_paces: { easy: '5:45–6:15', marathon: '5:00', threshold: '4:35', interval: '4:12', repetition: '3:55' },
+};
+
+const dashRecords = [
+  { dist: '5 км', time: '21:48', fresh: false },
+  { dist: '10 км', time: '45:32', fresh: false },
+  { dist: '21,1', time: '1:43:05', fresh: true },
+];
+
 function StatefulStep({ Component, preset, extraProps }) {
   const [formData, setFormData] = useState(preset);
   const onChange = (f, v) => setFormData((p) => ({ ...p, [f]: v }));
@@ -88,10 +185,26 @@ function StatefulStep({ Component, preset, extraProps }) {
   return <Component formData={formData} onChange={onChange} onToggleArray={onToggleArray} {...extraProps} />;
 }
 
-const noop = () => {};
-
 const SCREENS = {
   flow: () => <OnboardingFlow />,
+  'dash-mobile': () => (
+    <div style={{ minHeight: '100vh', background: 'var(--pr-bg)' }}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <MobileDash {...dashProps} vdot={dashPrediction.vdot} />
+      </div>
+    </div>
+  ),
+  'dash-desktop': () => (
+    <div style={{ minHeight: '100vh', background: 'var(--pr-bg)' }}>
+      <DesktopDash
+        {...dashProps}
+        prediction={dashPrediction}
+        records={dashRecords}
+        syncedProvider="Garmin"
+        onNavigate={noop}
+      />
+    </div>
+  ),
   'ob-mode': () => (
     <Shell filled={1} total={4}><StatefulStep Component={StepMode} preset={{ ...racePreset, training_mode: 'ai' }} /></Shell>
   ),

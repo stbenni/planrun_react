@@ -17,11 +17,13 @@ import useMobileKeyboardState from '../hooks/useMobileKeyboardState';
 
 const AppLayout = ({ onLogout }) => {
   const location = useLocation();
-  const { api } = useAuthStore();
+  const { api, user } = useAuthStore();
   const showBottomNav = true;
   const isChatPage = location.pathname.startsWith('/chat');
   const { isKeyboardOpen } = useMobileKeyboardState({ enabled: isChatPage });
-  const shouldShowTopHeader = !(isChatPage && isKeyboardOpen);
+  // Дашборд бегуна v3B несёт собственную шапку (мобайл и десктоп) — TopHeader там лишний.
+  const isRunnerDashboard = location.pathname === '/' && user?.role !== 'coach';
+  const shouldShowTopHeader = !(isChatPage && isKeyboardOpen) && !isRunnerDashboard;
   const shouldShowBottomNav = showBottomNav && !(isChatPage && isKeyboardOpen);
 
   // Детект in-app браузера Telegram. На Android UA НЕ содержит «Telegram» — ловим по

@@ -2,12 +2,10 @@
  * Dashboard Screen - Главный экран приложения
  */
 
-import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
-import Dashboard from '../components/Dashboard/v3/DashboardV3';
-import '../components/Dashboard/Dashboard.css';
+import Dashboard from '../components/Dashboard/v3b/DashboardV3B';
 
 const DashboardScreen = () => {
   const isTabActive = useIsTabActive('/');

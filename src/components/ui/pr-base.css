@@ -216,6 +216,14 @@ textarea.pr-field { resize: vertical; min-height: 52px; }
   background: var(--pr-accent);
 }
 
+@keyframes pr-skeleton {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.pr-skeleton {
+  animation: pr-skeleton 1.4s ease-in-out infinite;
+}
+
 .pr-btn-primary:disabled,
 .pr-btn-secondary:disabled {
   opacity: 0.55;
