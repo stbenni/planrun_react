@@ -71,6 +71,7 @@ import {
   Mic,
   Play,
   Pause,
+  Share2,
 } from 'lucide-react';
 
 const ICON_SIZE = 20;
@@ -287,6 +288,9 @@ export function MountainIcon(props) {
 }
 export function TrashIcon(props) {
   return <Trash2 {...iconProps} {...props} />;
+}
+export function ShareIcon(props) {
+  return <Share2 {...iconProps} {...props} />;
 }
 export function LeafIcon(props) {
   return <Leaf {...iconProps} {...props} />;

@@ -1,11 +1,12 @@
 /**
- * useNotificationFeed — агрегатор уведомлений для notification center.
- * Источники: plan_notifications (read+unread, единое событийное хранилище),
- * AI-сообщения и тренерские сообщения из чата. Нормализует всё в общий вид,
- * считает счётчики по категориям и отдаёт действия mark read / mark all.
+ * useNotificationFeed — фид notification center из единого store (plan_notifications).
+ * Все события, включая чат (свёрнуто по диалогу), приходят одной выдачей —
+ * без отдельного поллинга чата. Нормализует, считает счётчики по категориям,
+ * отдаёт mark read / mark all / dismiss.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { ChatSSE } from '../../services/ChatSSE';
 import {
   categoryForType,
   defaultTitleForCategory,
@@ -20,15 +21,16 @@ function toDate(v) {
   return Number.isNaN(d.getTime()) ? new Date(0) : d;
 }
 
-function normalizePlan(n) {
+function normalizeRow(n) {
   const meta = (n.metadata && typeof n.metadata === 'object') ? n.metadata : {};
-  const category = categoryForType(n.type, 'plan');
+  const category = meta.category || categoryForType(n.type, 'plan');
   const link = meta.link
     || (meta.date ? `/calendar?date=${encodeURIComponent(meta.date)}` : '/calendar');
   return {
     id: `plan_${n.id}`,
     rawId: n.id,
     source: 'plan',
+    conversationId: meta.conversation_id || null,
     category,
     title: meta.title || defaultTitleForCategory(category),
     body: meta.body || n.message || '',
@@ -39,40 +41,7 @@ function normalizePlan(n) {
   };
 }
 
-function normalizeAi(m) {
-  return {
-    id: `ai_${m.id}`,
-    rawId: m.id,
-    source: 'ai',
-    conversationId: m.conversation_id || null,
-    category: 'ai',
-    title: 'AI-тренер',
-    body: m.content || '',
-    time: toDate(m.created_at),
-    read: !!m.read_at,
-    link: '/chat',
-    actionLabel: defaultActionForCategory('ai'),
-  };
-}
-
-function normalizeCoach(m) {
-  const who = m.sender_username || m.username;
-  return {
-    id: `coach_${m.id}`,
-    rawId: m.id,
-    source: 'coach',
-    conversationId: m.conversation_id || null,
-    category: 'coach',
-    title: who ? `${who} написал` : 'Сообщение от тренера',
-    body: m.content || '',
-    time: toDate(m.created_at),
-    read: !!m.read_at,
-    link: '/chat',
-    actionLabel: defaultActionForCategory('coach'),
-  };
-}
-
-export function useNotificationFeed(api, user, isAdmin) {
+export function useNotificationFeed(api) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const cooldownRef = useRef(0);
@@ -83,36 +52,16 @@ export function useNotificationFeed(api, user, isAdmin) {
     if (Date.now() < cooldownRef.current) return;
     setLoading(true);
     try {
-      const tasks = [
+      const [planRes, dismissedRes] = await Promise.all([
         api.getPlanNotifications({ includeRead: true, limit: 50 }).catch(() => null),
         api.getNotificationsDismissed().catch(() => null),
-      ];
-      if (!isAdmin) {
-        tasks.push(api.chatGetMessages('ai', 10, 0).catch(() => null));
-        tasks.push(api.chatGetMessages('admin', 10, 0).catch(() => null));
-      }
-      const [planRes, dismissedRes, aiRes, coachRes] = await Promise.all(tasks);
+      ]);
 
       const dismissed = new Set(Array.isArray(dismissedRes) ? dismissedRes : []);
       dismissedRef.current = dismissed;
 
-      const out = [];
-
       const planList = planRes?.data?.notifications ?? planRes?.notifications ?? [];
-      for (const n of planList) out.push(normalizePlan(n));
-
-      if (!isAdmin) {
-        const aiList = Array.isArray(aiRes?.messages) ? aiRes.messages : [];
-        for (const m of aiList) {
-          if (m.sender_type === 'ai') out.push(normalizeAi(m));
-        }
-        const coachList = Array.isArray(coachRes?.messages) ? coachRes.messages : [];
-        for (const m of coachList) {
-          if (m.sender_type === 'admin' || (m.sender_type === 'user' && m.sender_id !== user?.id)) {
-            out.push(normalizeCoach(m));
-          }
-        }
-      }
+      const out = planList.map(normalizeRow);
 
       const visible = out.filter((it) => !dismissed.has(it.id));
       visible.sort((a, b) => b.time - a.time);
@@ -124,20 +73,23 @@ export function useNotificationFeed(api, user, isAdmin) {
     } finally {
       setLoading(false);
     }
-  }, [api, isAdmin, user?.id]);
+  }, [api]);
 
   useEffect(() => {
     load();
     const t = setInterval(load, REFRESH_MS);
-    return () => clearInterval(t);
+    // Real-time: новое чат-сообщение меняет chat_unread по SSE → обновляем фид сразу.
+    const onSse = () => load();
+    ChatSSE.subscribe(onSse);
+    return () => { clearInterval(t); ChatSSE.unsubscribe(onSse); };
   }, [load]);
 
   const markRead = useCallback((item) => {
     if (!item || item.read) return;
     setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, read: true } : it)));
-    if (item.source === 'plan') {
-      api?.markPlanNotificationRead(item.rawId).catch(() => {});
-    } else if (item.conversationId) {
+    api?.markPlanNotificationRead(item.rawId).catch(() => {});
+    // Чат-запись: гасим и непрочитанное самого диалога (синхронизация двух read-моделей).
+    if (item.conversationId) {
       api?.chatMarkRead(item.conversationId).catch(() => {});
     }
   }, [api]);

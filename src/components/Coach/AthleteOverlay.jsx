@@ -86,7 +86,7 @@ export default function AthleteOverlay({ athlete, onClose }) {
   const handleOpenChat = () => {
     if (!athlete) return;
     onClose?.();
-    navigate('/chat', { state: { contactUser: { id: athlete.id, username: athlete.username, username_slug: athlete.username_slug } } });
+    navigate('/chat', { state: { contactUser: { id: athlete.id, username: athlete.username, username_slug: athlete.username_slug, first_name: athlete.first_name, last_name: athlete.last_name, name: athlete.name } } });
   };
 
   const handleEditPlan = () => {

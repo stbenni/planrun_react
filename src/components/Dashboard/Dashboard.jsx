@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   DndContext,
   DragOverlay,
@@ -136,7 +137,7 @@ function CustomizerRow({ row, rowIndex, layout, setLayout, saveLayout, isMobileV
 }
 
 function isAiPlanMode(trainingMode) {
-  return trainingMode === 'ai' || trainingMode === 'both';
+  return trainingMode === 'ai';
 }
 
 /** Маппинг моdules → группы для sticky-tabs (v3 dashboard). */
@@ -153,7 +154,7 @@ const MODULE_TO_SECTION = {
 };
 
 const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMessage, isNewRegistration }) => {
-  const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
+  const navigate = useNavigate();
   const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
   const needsOnboarding = !!(user && !user.onboarding_completed);
 
@@ -338,7 +339,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           <button
             type="button"
             className="dashboard-empty-onboarding-btn"
-            onClick={() => setShowOnboardingModal(true)}
+            onClick={() => navigate('/onboarding')}
           >
             Настроить план
           </button>
@@ -367,7 +368,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
           <button
             type="button"
             className="btn btn-primary dashboard-empty-onboarding-btn"
-            onClick={() => (needsOnboarding ? setShowOnboardingModal(true) : handleRegeneratePlan())}
+            onClick={() => (needsOnboarding ? navigate('/onboarding') : handleRegeneratePlan())}
             disabled={regenerating}
           >
             {regenerating ? 'Генерация...' : 'Создать план'}
@@ -506,6 +507,7 @@ const Dashboard = ({ api, user, isTabActive = true, onNavigate, registrationMess
                   ) : todayWorkout ? (
                     <TodayHeroV3
                       api={api}
+                      plan={plan}
                       onOpenChat={onNavigate ? () => onNavigate('chat') : undefined}
                       workout={todayWorkout}
                       date={todayWorkout.date}

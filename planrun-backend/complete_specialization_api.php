@@ -103,6 +103,12 @@ try {
     $raceTargetTime = !empty($input['race_target_time']) ? $input['race_target_time'] : null;
     $trainingStartDate = !empty($input['training_start_date']) ? $input['training_start_date'] : null;
 
+    // Имя/Фамилия (отображаемое имя; собираются в онбординге). Имя обязательно на фронте.
+    $firstName = isset($input['first_name']) ? mb_substr(trim((string) $input['first_name']), 0, 100) : '';
+    $lastName = isset($input['last_name']) ? mb_substr(trim((string) $input['last_name']), 0, 100) : '';
+    $firstName = $firstName !== '' ? $firstName : null;
+    $lastName = $lastName !== '' ? $lastName : null;
+
     $allowedGenders = ['male', 'female'];
     $gender = null;
     if (!empty($input['gender']) && in_array($input['gender'], $allowedGenders, true)) {
@@ -110,14 +116,11 @@ try {
     }
 
     $trainingModeInput = $input['training_mode'] ?? 'ai';
-    $allowedTrainingModes = ['ai', 'coach', 'both', 'self'];
+    $allowedTrainingModes = ['ai', 'coach', 'self'];
     if (!in_array($trainingModeInput, $allowedTrainingModes, true)) {
         $trainingMode = 'ai';
     } else {
         $trainingMode = $trainingModeInput;
-    }
-    if ($trainingMode === 'coach') {
-        $trainingMode = 'ai';
     }
     if ($trainingMode === 'self') {
         $goalType = 'health';
@@ -268,6 +271,8 @@ try {
     $preferredOfpDaysJson = !empty($preferredOfpDaysJson) && $preferredOfpDaysJson !== '[]' ? $preferredOfpDaysJson : null;
 
     $userData = [
+        'first_name' => ['value' => $firstName, 'type' => 's'],
+        'last_name' => ['value' => $lastName, 'type' => 's'],
         'goal_type' => ['value' => $goalType, 'type' => 's'],
         'race_distance' => ['value' => $raceDistance, 'type' => 's'],
         'race_date' => ['value' => $raceDate, 'type' => 's'],
@@ -361,9 +366,13 @@ try {
     $hasPlan = $checkPlan->get_result()->fetch_assoc();
     $checkPlan->close();
     if (!$hasPlan) {
-        $planStmt = $db->prepare('INSERT INTO user_training_plans (user_id, start_date, marathon_date, target_time, is_active) VALUES (?, CURDATE(), ?, ?, FALSE)');
+        // ai: план остаётся неактивным — его активирует завершившийся job генерации.
+        // self/coach: план активен сразу (AI-генерации нет; недели добавит сам юзер или тренер).
+        // Без этого self/coach залипали бы в статусе «generating» (нет job для активации).
+        $isActiveInitial = ($trainingMode === 'ai') ? 0 : 1;
+        $planStmt = $db->prepare('INSERT INTO user_training_plans (user_id, start_date, marathon_date, target_time, is_active) VALUES (?, CURDATE(), ?, ?, ?)');
         if ($planStmt) {
-            $planStmt->bind_param('iss', $userId, $planDate, $planTime);
+            $planStmt->bind_param('issi', $userId, $planDate, $planTime, $isActiveInitial);
             $planStmt->execute();
             $planStmt->close();
         }
@@ -373,7 +382,10 @@ try {
     if ($trainingMode === 'self') {
         // Для «самостоятельно» не создаём недели/дни — календарь остаётся пустым, тренировки навешиваются на даты
         $planGenerationMessage = 'Календарь готов. Добавляйте тренировки на любую дату.';
-    } elseif ($trainingMode === 'ai' || $trainingMode === 'both') {
+    } elseif ($trainingMode === 'coach') {
+        // Живой тренер сам составит план — AI-генерацию не запускаем, недели создаст тренер.
+        $planGenerationMessage = 'Календарь готов. Ваш тренер составит план.';
+    } elseif ($trainingMode === 'ai') {
         try {
             $queueService = new PlanGenerationQueueService($db);
             $queueService->enqueue((int) $userId, 'generate');

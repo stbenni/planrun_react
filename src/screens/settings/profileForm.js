@@ -10,6 +10,8 @@ export function normalizeValue(value) {
 export function createInitialFormData() {
   return {
     username: '',
+    first_name: '',
+    last_name: '',
     email: '',
     gender: '',
     birth_year: '',
@@ -175,6 +177,8 @@ function formatEasyPaceMinutes(easyPaceSec) {
 export function mapProfileToFormData(userData = {}) {
   return {
     username: String(userData.username || ''),
+    first_name: String(userData.first_name || ''),
+    last_name: String(userData.last_name || ''),
     email: String(userData.email || ''),
     gender: String(userData.gender || ''),
     birth_year: userData.birth_year ? String(userData.birth_year) : '',

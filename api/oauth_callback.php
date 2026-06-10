@@ -78,6 +78,7 @@ require_once $projectRoot . '/planrun-backend/providers/StravaProvider.php';
 require_once $projectRoot . '/planrun-backend/providers/PolarProvider.php';
 require_once $projectRoot . '/planrun-backend/providers/GarminProvider.php';
 require_once $projectRoot . '/planrun-backend/providers/CorosProvider.php';
+require_once $projectRoot . '/planrun-backend/providers/SuuntoProvider.php';
 
 $providers = [
     'huawei' => HuaweiHealthProvider::class,
@@ -85,6 +86,7 @@ $providers = [
     'polar' => PolarProvider::class,
     'garmin' => GarminProvider::class,
     'coros' => CorosProvider::class,
+    'suunto' => SuuntoProvider::class,
 ];
 if (!isset($providers[$providerId])) {
     header('Location: ' . $redirectBase . '&error=unknown_provider');

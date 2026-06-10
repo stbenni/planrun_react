@@ -1194,9 +1194,34 @@ function applyTrainingStatePaceRepairs(array $normalized, array $trainingState):
         $weekNumber = (int) ($week['week_number'] ?? 0);
         foreach ($week['days'] as &$day) {
             $type = normalizeTrainingType($day['type'] ?? null);
+
+            // Интервалы: если AI не дал темп отрезков — подставляем из VDOT (interval_sec).
+            if ($type === 'interval' && empty($day['interval_pace']) && !empty($paceRules['interval_sec'])) {
+                $day['interval_pace'] = formatPaceFromSec((int) $paceRules['interval_sec']);
+            }
+
             $pace = $day['pace'] ?? null;
             $paceSec = parsePaceToSeconds($pace);
             if ($paceSec === null) {
+                // AI не проставил темп → бэкфилл из VDOT-производных pace_rules.
+                $fillSec = null;
+                if ($type === 'easy' && isset($paceRules['easy_min_sec'], $paceRules['easy_max_sec'])) {
+                    $fillSec = (int) round(((int) $paceRules['easy_min_sec'] + (int) $paceRules['easy_max_sec']) / 2);
+                } elseif ($type === 'long' && isset($paceRules['long_min_sec'], $paceRules['long_max_sec'])) {
+                    $fillSec = (int) round(((int) $paceRules['long_min_sec'] + (int) $paceRules['long_max_sec']) / 2);
+                } elseif ($type === 'tempo' && isset($paceRules['tempo_sec'])) {
+                    $goalSpecificTargetSec = resolveGoalSpecificTempoPaceTargetSec($day, $trainingState, $weekNumber);
+                    $fillSec = $goalSpecificTargetSec ?: (int) $paceRules['tempo_sec'];
+                } elseif ($type === 'race' && !empty($paceRules['race_pace_sec'])) {
+                    $fillSec = (int) $paceRules['race_pace_sec'];
+                }
+                if ($fillSec !== null && $fillSec > 0) {
+                    $day['pace'] = formatPaceFromSec($fillSec);
+                    if (!empty($day['distance_km'])) {
+                        $day['duration_minutes'] = calculateDurationMinutes((float) $day['distance_km'], $day['pace']);
+                    }
+                    $day = updateSimpleRunDayAfterDistanceChange($day);
+                }
                 continue;
             }
 

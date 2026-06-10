@@ -10,16 +10,10 @@ import { useEffect, useState, useCallback } from 'react';
 import useAuthStore from '../stores/useAuthStore';
 import useCoachStore from '../stores/useCoachStore';
 import TemplateEditorModal from '../components/Coach/TemplateEditorModal';
-import { WORKOUT_TYPE_COLOR } from '../components/Coach/CoachPrimitives';
 import { getTemplateIcon } from '../components/Coach/templateIcons';
 import { PenLineIcon, CloseIcon, PlusIcon, ClipboardListIcon } from '../components/common/Icons';
+import { WORKOUT_TYPE_COLOR, WORKOUT_TYPE_LABEL as TYPE_LABELS } from '../utils/workoutTypes';
 import './TemplatesScreen.css';
-
-const TYPE_LABELS = {
-  rest: 'Отдых', tempo: 'Темповая', interval: 'Интервалы', long: 'Длительная',
-  race: 'Гонка', other: 'ОФП', free: 'Свободно', easy: 'Лёгкая', sbu: 'СБУ',
-  fartlek: 'Фартлек', control: 'Контрольная', walking: 'Ходьба',
-};
 
 export default function TemplatesScreen() {
   const { api } = useAuthStore();

@@ -38,6 +38,7 @@ const RecentWorkoutsList = ({ workouts, api, onWorkoutClick }) => {
         const workoutDate = workout.start_time ? workout.start_time.split('T')[0] : workout.date;
         const activityType = (workout.activity_type || 'running').toLowerCase().trim();
         const typeLabel = TYPE_NAMES[activityType] || 'Бег';
+        const isStrength = activityType === 'other'; // ОФП — без дистанции/темпа (только время)
         const key = workout.id ?? `${workoutDate}-${index}`;
         
         return (
@@ -60,7 +61,7 @@ const RecentWorkoutsList = ({ workouts, api, onWorkoutClick }) => {
                 })}
               </div>
               <div className="workout-item-metrics">
-                {(workout.distance_km != null && parseFloat(workout.distance_km) > 0) && (
+                {!isStrength && (workout.distance_km != null && parseFloat(workout.distance_km) > 0) && (
                   <span className="workout-metric">
                     <DistanceIcon className="workout-metric__icon" aria-hidden />
                     {workout.distance_km} км
@@ -81,7 +82,7 @@ const RecentWorkoutsList = ({ workouts, api, onWorkoutClick }) => {
                         : `${workout.duration_minutes} мин`}
                   </span>
                 )}
-                {workout.avg_pace && (
+                {!isStrength && workout.avg_pace && (
                   <span className="workout-metric">
                     <PaceIcon className="workout-metric__icon" aria-hidden />
                     {workout.avg_pace} /км

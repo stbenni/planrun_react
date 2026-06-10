@@ -518,8 +518,11 @@ function assessGoalRealism(array $userData): array {
     $expLevel = $userData['experience_level'] ?? 'novice';
     $isNovice = in_array($expLevel, ['novice', 'beginner']);
 
-    // Если weekly_base_km не указан (0), но есть данные о забегах/темпе — оценить базу
-    if ($weeklyKm <= 0) {
+    // Эвристическая оценка базы — ТОЛЬКО когда объём реально неизвестен.
+    // Если пользователь явно выбрал диапазон (включая «Не бегаю» = 'none') — уважаем его 0
+    // и НЕ подменяем выдуманным числом (иначе «не бегаю» превращается в «объём 24 км»).
+    $volumeExplicit = !empty($userData['weekly_base_range']);
+    if ($weeklyKm <= 0 && !$volumeExplicit) {
         $hasRaceHistory = !empty($userData['last_race_time']) && !empty($userData['last_race_distance']);
         $hasPace = !empty($userData['easy_pace_sec']) || !empty($userData['comfortable_pace']);
         if ($hasRaceHistory || $hasPace) {
@@ -710,7 +713,36 @@ function assessGoalRealism(array $userData): array {
                 $predictedStr = formatTimeSec($predictedSec);
                 $targetStr = formatTimeSec($targetSec);
 
-                if ($diff > 15) {
+                // Пороги «амбициозно/нереально» зависят от дистанции: чем длиннее забег,
+                // тем труднее улучшить результат за один цикл (длинные дистанции сильнее
+                // зависят от накопленного объёма, который за 12-18 нед не нарастить).
+                // [challenging%, unrealistic%]
+                $diffThresholds = [
+                    '5k'       => [7, 18], '10k'   => [6, 16],
+                    'half'     => [5, 14], '21.1k' => [5, 14],
+                    'marathon' => [4, 12], '42.2k' => [4, 12],
+                ];
+                [$challengingPct, $unrealisticPct] = $diffThresholds[$dist] ?? [5, 15];
+
+                // Возрастная модуляция: после 35 потолок прироста за цикл снижается
+                // (VDOT естественно падает ~0.5-1%/год, прирост медленнее, риск травм выше).
+                // Сужаем пороги на ~12% за декаду после 35, но не более чем вдвое.
+                // VDOT/прогноз НЕ трогаем — они корректны как измерение текущей формы;
+                // меняется только оценка ДОСТИЖИМОСТИ улучшения.
+                $age = null;
+                if (!empty($userData['birth_year'])) {
+                    $by = (int) $userData['birth_year'];
+                    if ($by > 1900 && $by <= (int) date('Y')) {
+                        $age = (int) date('Y') - $by;
+                    }
+                }
+                if ($age !== null && $age > 35) {
+                    $ageFactor = max(0.5, 1.0 - 0.12 * (($age - 35) / 10.0));
+                    $challengingPct = round($challengingPct * $ageFactor, 1);
+                    $unrealisticPct = round($unrealisticPct * $ageFactor, 1);
+                }
+
+                if ($diff > $unrealisticPct) {
                     $severities[] = 'unrealistic';
                     $messages[] = [
                         'type' => 'error',
@@ -719,11 +751,11 @@ function assessGoalRealism(array $userData): array {
                             ['text' => "Поставить реалистичную цель: {$predictedStr}", 'action' => ['field' => 'race_target_time', 'value' => formatTimeSec($predictedSec)]],
                         ],
                     ];
-                } elseif ($diff > 5) {
+                } elseif ($diff > $challengingPct) {
                     $severities[] = 'challenging';
                     $messages[] = [
                         'type' => 'warning',
-                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}). Амбициозно, но достижимо при правильной подготовке.",
+                        'text' => "Ваш целевой результат ({$targetStr}) на " . round($diff) . "% быстрее прогноза ({$predictedStr}, на основе {$vdotSource}). Амбициозно, но достижимо при правильной подготовке.",
                         'suggestions' => [],
                     ];
                 } elseif ($diff >= -5) {
@@ -736,6 +768,16 @@ function assessGoalRealism(array $userData): array {
                     $messages[] = [
                         'type' => 'success',
                         'text' => "Ваш целевой результат ({$targetStr}) консервативен. По текущей форме вы способны на {$predictedStr}.",
+                        'suggestions' => [],
+                    ];
+                }
+
+                // Мягкое предупреждение для мастеров (50+), когда цель амбициозна/нереальна:
+                // прирост идёт медленнее, стоит заложить больше времени.
+                if ($age !== null && $age >= 50 && $diff > $challengingPct) {
+                    $messages[] = [
+                        'type' => 'info',
+                        'text' => "В возрасте {$age}+ прирост формы идёт медленнее, а восстановление дольше. Заложите больше времени на подготовку и не форсируйте объём.",
                         'suggestions' => [],
                     ];
                 }

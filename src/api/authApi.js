@@ -312,7 +312,7 @@ async function sendVerificationCode(client, email) {
   return { success: true, message: data.message };
 }
 
-async function registerMinimal(client, { username, email, password, verification_code, timezone }) {
+async function registerMinimal(client, { email, password, verification_code, timezone }) {
   const nativeApp = isNativeCapacitor();
   let deviceId = null;
   if (nativeApp) {
@@ -326,8 +326,8 @@ async function registerMinimal(client, { username, email, password, verification
     }
   }
 
+  // username больше не вводится — генерируется на бэке (user_<id>).
   const payload = {
-    username,
     email,
     password,
     register_minimal: true,
@@ -353,7 +353,6 @@ async function registerMinimal(client, { username, email, password, verification
     if (contentType && contentType.includes('application/json')) {
       if (data.success) {
         const registeredUser = data.user || {
-          username,
           email,
           authenticated: true,
         };
@@ -373,7 +372,8 @@ async function registerMinimal(client, { username, email, password, verification
         }
 
         if (nativeApp) {
-          const loginResult = await loginWithJwt(client, username, password);
+          // JWT-логин по email (username теперь автоген, неизвестен клиенту до ответа).
+          const loginResult = await loginWithJwt(client, email, password);
           return {
             success: true,
             user: {

@@ -128,11 +128,13 @@ class TrainingPlanService extends BaseService {
             $activeQueueJob = null;
             $latestQueueJob = null;
             $latestGeneration = null;
+            $queueChecked = false; // опрос очереди прошёл без ошибок — можно доверять отсутствию активного job
             try {
                 if ($this->queueService->isQueueAvailable()) {
                     $activeQueueJob = $this->queueService->findLatestActiveJobForUser((int) $userId);
                     $latestQueueJob = $this->queueService->findLatestJobForUser((int) $userId);
                     $latestGeneration = $this->extractGenerationDiagnostics($latestQueueJob);
+                    $queueChecked = true;
                 }
             } catch (Throwable $queueError) {
                 $this->logError('Не удалось загрузить статус очереди генерации плана', [
@@ -178,6 +180,33 @@ class TrainingPlanService extends BaseService {
                 $planData = loadTrainingPlanForUser($userId, false);
                 $weeksData = isset($planData['weeks_data']) && is_array($planData['weeks_data']) ? $planData['weeks_data'] : [];
                 $hasWeeksInDb = !empty($weeksData);
+
+                // Авто-восстановление: очередь опрошена, активного job нет, но недели в БД валидны —
+                // значит план сгенерирован, но остался неактивным (краш/таймаут после записи недель,
+                // либо self-режим без job). Активируем готовый план вместо вечного «generating».
+                if ($queueChecked && !$activeQueueJob && $hasWeeksInDb && ($latestQueueJob['status'] ?? null) !== 'failed') {
+                    try {
+                        $this->reactivatePlan($userId);
+                        $recoveredData = loadTrainingPlanForUser($userId, false);
+                        $recoveredWeeks = isset($recoveredData['weeks_data']) && is_array($recoveredData['weeks_data']) ? $recoveredData['weeks_data'] : [];
+                        $this->logInfo('План авто-восстановлен из состояния generating', [
+                            'user_id' => $userId,
+                            'plan_id' => (int) $planCheckRow['id'],
+                            'weeks' => count($recoveredWeeks),
+                        ]);
+                        return [
+                            'has_plan' => !empty($recoveredWeeks),
+                            'recovered' => true,
+                            'latest_generation' => $latestGeneration,
+                            'user_id' => $userId,
+                        ];
+                    } catch (Throwable $reEx) {
+                        $this->logError('Авто-восстановление плана не удалось', [
+                            'user_id' => $userId,
+                            'error' => $reEx->getMessage(),
+                        ]);
+                    }
+                }
 
                 if (!$activeQueueJob && ($latestQueueJob['status'] ?? null) === 'failed') {
                     return [
@@ -232,7 +261,32 @@ class TrainingPlanService extends BaseService {
      * @return array Результат запуска генерации
      * @throws Exception
      */
+    /**
+     * Генерация/пересчёт плана через AI доступны только в режиме 'ai'.
+     * self ведёт план сам, coach — через живого тренера. Защита на случай прямого
+     * вызова API или устаревшего UI (на фронте кнопки и так скрыты не-AI режимам).
+     */
+    private function assertAiPlanMode($userId): void {
+        $stmt = $this->db->prepare("SELECT training_mode FROM users WHERE id = ?");
+        if (!$stmt) {
+            return;
+        }
+        $uid = (int) $userId;
+        $stmt->bind_param('i', $uid);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $mode = (string) ($row['training_mode'] ?? 'ai');
+        if ($mode !== 'ai') {
+            $this->throwException('Генерация и пересчёт плана доступны только в режиме AI-тренера', 403, [
+                'user_id' => $uid,
+                'training_mode' => $mode,
+            ]);
+        }
+    }
+
     public function regeneratePlan($userId) {
+        $this->assertAiPlanMode((int) $userId);
         // Валидация
         if (!$this->validator->validateRegeneratePlan(['user_id' => $userId])) {
             $this->throwValidationException(
@@ -273,6 +327,7 @@ class TrainingPlanService extends BaseService {
      * @throws Exception
      */
     public function regeneratePlanWithProgress($userId) {
+        $this->assertAiPlanMode((int) $userId);
         if ($check = $this->buildReadinessCheckResponse((int) $userId, 'recalculate')) {
             return $check;
         }
@@ -330,6 +385,7 @@ class TrainingPlanService extends BaseService {
      * Будущие тренировки пересчитываются, прошлые (workout_log) сохраняются.
      */
     public function recalculatePlan($userId, $reason = null, array $options = []) {
+        $this->assertAiPlanMode((int) $userId);
         $queuePayload = array_merge(
             ['reason' => $reason],
             $this->normalizePlanningContext($options)
@@ -366,6 +422,7 @@ class TrainingPlanService extends BaseService {
      * Собирает полную историю тренировок и передаёт AI для правильной прогрессии.
      */
     public function generateNextPlan($userId, $goals = null, array $options = []) {
+        $this->assertAiPlanMode((int) $userId);
         $queuePayload = array_merge(
             ['goals' => $goals],
             $this->normalizePlanningContext($options)

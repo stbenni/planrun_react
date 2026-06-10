@@ -647,3 +647,12 @@ select {
   background-size: 14px;
   padding-right: calc(var(--space-4) + 14px + var(--space-3));
 }
+
+/* Нейтральная линия/граница (theme-aware) — формы и онбординг v3.
+   Порядок важен: светлый :root первым, затем dark-переопределения. */
+:root { --border-light: rgba(15, 23, 42, 0.12); }
+[data-theme="dark"],
+:root[data-theme="dark"] { --border-light: rgba(255, 255, 255, 0.16); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --border-light: rgba(255, 255, 255, 0.16); }
+}

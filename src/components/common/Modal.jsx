@@ -22,6 +22,7 @@ const Modal = ({
   contentClassName = '',
   bodyClassName = '',
   mobilePresentation = 'default',
+  disableBackdropClose = false,
 }) => {
   useEffect(() => {
     if (isOpen) {
@@ -35,12 +36,13 @@ const Modal = ({
   }, [isOpen]);
 
   useEffect(() => {
+    if (disableBackdropClose) return undefined;
     const handleEscape = (e) => {
       if (e.key === 'Escape' && isOpen) onClose();
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, disableBackdropClose]);
 
   if (!isOpen) return null;
 
@@ -53,7 +55,7 @@ const Modal = ({
   const content = (
     <div
       className={`app-modal ${isModern ? 'app-modal--modern' : ''} ${isMobileFullscreen ? 'app-modal--mobile-fullscreen' : ''}`.trim()}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (!disableBackdropClose && e.target === e.currentTarget) onClose(); }}
       role="dialog"
       aria-modal="true"
     >

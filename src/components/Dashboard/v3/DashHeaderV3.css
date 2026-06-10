@@ -124,6 +124,14 @@
   flex-shrink: 0;
 }
 
+.dash-header-v3__mode-caret {
+  display: none;
+  margin-left: 2px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+}
+
 @media (min-width: 1024px) {
   .dash-header-v3__mode {
     width: auto;
@@ -139,6 +147,9 @@
   }
   .dash-header-v3__mode-status {
     display: none;
+  }
+  .dash-header-v3__mode-caret {
+    display: inline-block;
   }
 }
 

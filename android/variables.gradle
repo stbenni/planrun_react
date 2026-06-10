@@ -1,7 +1,9 @@
 ext {
-    minSdkVersion = 23
+    minSdkVersion = 26
     compileSdkVersion = 36
     targetSdkVersion = 36
+    // Kotlin для нативных плагинов (Capacitor 8 + Health Connect). Держим единую версию для всех модулей.
+    kotlin_version = '2.2.20'
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'

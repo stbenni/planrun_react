@@ -185,6 +185,32 @@ class ChatToolRegistry {
         return $userId ? null : json_encode(['error' => 'user_required']);
     }
 
+    /**
+     * Менять план через AI-чат можно только в режиме 'ai'.
+     * self ведёт план сам, coach — через живого тренера.
+     */
+    private function requireAiPlanMode(?int $userId): ?string {
+        if (!$userId) {
+            return null;
+        }
+        $stmt = $this->db->prepare("SELECT training_mode FROM users WHERE id = ?");
+        if (!$stmt) {
+            return null;
+        }
+        $uid = (int) $userId;
+        $stmt->bind_param('i', $uid);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ((string) ($row['training_mode'] ?? 'ai') !== 'ai') {
+            return json_encode([
+                'error' => 'not_ai_mode',
+                'message' => 'Изменение плана через AI доступно только в режиме AI-тренера.',
+            ], JSON_UNESCAPED_UNICODE);
+        }
+        return null;
+    }
+
     private function validateDate(string $date): bool {
         return (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $date);
     }
@@ -390,6 +416,7 @@ class ChatToolRegistry {
 
     private function executeUpdateTrainingDay(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $date = $args['date'] ?? '';
         if (!$this->validateDate($date)) return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
         $type = $args['type'] ?? null;
@@ -413,6 +440,7 @@ class ChatToolRegistry {
 
     private function executeDeleteTrainingDay(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $date = $args['date'] ?? '';
         if (!$this->validateDate($date)) return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
         $dayId = $this->findDayIdByDate($userId, $date);
@@ -429,6 +457,7 @@ class ChatToolRegistry {
 
     private function executeMoveTrainingDay(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $src = $args['source_date'] ?? '';
         $tgt = $args['target_date'] ?? '';
         if (!$this->validateDate($src) || !$this->validateDate($tgt)) return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
@@ -473,6 +502,7 @@ class ChatToolRegistry {
 
     private function executeSwapTrainingDays(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $d1 = $args['date1'] ?? '';
         $d2 = $args['date2'] ?? '';
         if (!$this->validateDate($d1) || !$this->validateDate($d2)) return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);
@@ -498,6 +528,7 @@ class ChatToolRegistry {
 
     private function executeRecalculatePlan(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         try {
             require_once __DIR__ . '/TrainingPlanService.php';
             $result = (new TrainingPlanService($this->db))->recalculatePlan($userId, !empty($args['reason']) ? trim($args['reason']) : null);
@@ -509,6 +540,7 @@ class ChatToolRegistry {
 
     private function executeGenerateNextPlan(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         try {
             require_once __DIR__ . '/TrainingPlanService.php';
             $result = (new TrainingPlanService($this->db))->generateNextPlan($userId, !empty($args['goals']) ? trim($args['goals']) : null);
@@ -736,6 +768,7 @@ class ChatToolRegistry {
 
     private function executeAddTrainingDay(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $date = $args['date'] ?? '';
         if (!$this->validateDate($date)) return json_encode(['error' => 'invalid_date', 'message' => 'Формат даты: Y-m-d']);
         $type = $args['type'] ?? '';
@@ -754,6 +787,7 @@ class ChatToolRegistry {
 
     private function executeCopyDay(array $args, ?int $userId): string {
         if ($err = $this->requireUser($userId)) return $err;
+        if ($err = $this->requireAiPlanMode($userId)) return $err;
         $src = $args['source_date'] ?? '';
         $tgt = $args['target_date'] ?? '';
         if (!$this->validateDate($src) || !$this->validateDate($tgt)) return json_encode(['error' => 'invalid_dates', 'message' => 'Формат дат: Y-m-d']);

@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import { getAvatarSrc } from '../utils/avatarUrl';
+import { getDisplayName, getInitials } from '../utils/displayName';
 import { UsersIcon, MailIcon, TrashIcon, CloseIcon } from '../components/common/Icons';
 import './AthletesOverviewScreen.css';
 
@@ -361,19 +362,19 @@ function AthleteCard({ athlete, navigate, api, attention, attentionReason = null
       tabIndex={0}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
-      aria-label={`Открыть план ученика ${a.username}`}
+      aria-label={`Открыть план ученика ${getDisplayName(a)}`}
     >
       <Link to={`/${a.username_slug}`} className="ao-card-avatar" onClick={(e) => e.stopPropagation()}>
         {a.avatar_path ? (
           <img src={getAvatarSrc(a.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" />
         ) : (
-          <div className="ao-card-avatar-placeholder">{(a.username || '?')[0]}</div>
+          <div className="ao-card-avatar-placeholder">{getInitials(a)}</div>
         )}
       </Link>
       <div className="ao-card-body">
         <div className="ao-card-top">
           <Link to={`/${a.username_slug}`} className="ao-card-name" onClick={(e) => e.stopPropagation()}>
-            {a.username}
+            {getDisplayName(a)}
             {a.has_new_activity && <span className="ao-card-new-badge">Новое</span>}
           </Link>
           <span className={`ao-card-activity ${activityDays >= 7 ? 'ao-card-activity--stale' : ''}`}>
@@ -532,7 +533,7 @@ function GroupsModal({ api, groups, athletes, onClose, onSave }) {
                     checked={editingGroup.memberIds.includes(a.id)}
                     onChange={() => toggleMember(a.id)}
                   />
-                  <span>{a.username}</span>
+                  <span>{getDisplayName(a)}</span>
                 </label>
               ))}
             </div>

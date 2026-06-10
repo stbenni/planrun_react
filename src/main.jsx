@@ -6,6 +6,7 @@ import './index.css'
 import { initLogger, installGlobalErrorLogger, logger } from './utils/logger'
 import WebPushService from './services/WebPushService'
 import { isNativeCapacitor } from './services/TokenStorageService'
+import { detectAndroidEdgeToEdge } from './utils/androidInsets'
 
 initLogger()
 installGlobalErrorLogger()
@@ -17,6 +18,8 @@ if (process.env.NODE_ENV !== 'production') {
 if (isNativeCapacitor()) {
   document.documentElement.classList.add('native-app')
 }
+
+detectAndroidEdgeToEdge()
 
 if (WebPushService.isSupported()) {
   WebPushService.registerServiceWorker().catch(() => {})

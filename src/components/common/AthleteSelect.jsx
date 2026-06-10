@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDownIcon, CheckIcon } from './Icons';
+import { getDisplayName } from '../../utils/displayName';
 import './AthleteSelect.css';
 
 export default function AthleteSelect({ value, ownLabel = 'Мой календарь', athletes = [], onChange }) {
@@ -21,7 +22,7 @@ export default function AthleteSelect({ value, ownLabel = 'Мой календа
 
   const items = [{ slug: '', label: ownLabel, isOwn: true }, ...athletes.map((a) => ({
     slug: a.username_slug,
-    label: a.username,
+    label: getDisplayName(a),
     isOwn: false,
   }))];
 

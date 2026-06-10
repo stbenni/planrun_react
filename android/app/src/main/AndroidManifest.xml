@@ -43,6 +43,27 @@
 
         </activity>
 
+        <!-- Health Connect: экран обоснования доступа (privacy policy).
+             Android 13 и ниже — androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE; Android 14+ — VIEW_PERMISSION_USAGE.
+             ВАЖНО: на Android 13− без валидного этого экрана HC блокирует выдачу прав (granted=[]). -->
+        <activity
+            android:name=".HealthConnectRationaleActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".HealthConnectRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -57,6 +78,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Камера: фото для генератора шеринга тренировки -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <!-- Голосовые сообщения в чате: запись с микрофона (Capacitor WebView запрашивает оба) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -67,4 +90,26 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <!-- Разрешение для установки APK-обновлений, загруженных вне Google Play -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Сохранение карточки тренировки в Галерею (Android ≤ 9; на 10+ MediaStore не требует прав) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- Health Connect: чтение тренировок и связанных метрик (read-only) -->
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE_ROUTES" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_SPEED" />
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_ELEVATION_GAINED" />
+    <!-- Доступ к истории старше 30 дней (для первичного бэкфилла) -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+
+    <!-- Health Connect package visibility (Android 11+ package filtering) -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
+    </queries>
 </manifest>

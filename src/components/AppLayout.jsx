@@ -9,18 +9,15 @@ import TopHeader from './common/TopHeader';
 import BottomNav from './common/BottomNav';
 import UserDrawer from './common/UserDrawer';
 import PlanGeneratingBanner from './common/PlanGeneratingBanner';
-import SpecializationModal from './SpecializationModal';
 import PageTransition from './common/PageTransition';
 import AppTabsContent from './AppTabsContent';
-import ViewportDebug from './common/ViewportDebug';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import useMobileKeyboardState from '../hooks/useMobileKeyboardState';
 
 const AppLayout = ({ onLogout }) => {
   const location = useLocation();
-  const { api, user, showOnboardingModal, setShowOnboardingModal } = useAuthStore();
-  const needsOnboarding = !!(user && !user.onboarding_completed);
+  const { api } = useAuthStore();
   const showBottomNav = true;
   const isChatPage = location.pathname.startsWith('/chat');
   const { isKeyboardOpen } = useMobileKeyboardState({ enabled: isChatPage });
@@ -141,19 +138,12 @@ const AppLayout = ({ onLogout }) => {
       {shouldShowTopHeader && <TopHeader />}
       <UserDrawer />
       <PlanGeneratingBanner />
-      {needsOnboarding && (
-        <SpecializationModal
-          isOpen={showOnboardingModal}
-          onClose={() => setShowOnboardingModal(false)}
-        />
-      )}
       <PageTransition>
         <div className={`page-transition-content ${location.pathname.startsWith('/chat') ? 'page-transition-content--chat' : ''}`}>
           <AppTabsContent onLogout={onLogout} />
         </div>
       </PageTransition>
       {shouldShowBottomNav && <BottomNav />}
-      <ViewportDebug />
     </>
   );
 };

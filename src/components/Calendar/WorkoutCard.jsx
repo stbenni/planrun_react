@@ -6,26 +6,8 @@
 import React, { useMemo } from 'react';
 import { CompletedIcon, CalendarIcon, RestIcon, RunningIcon, TimeIcon, MapPinIcon, OtherIcon, BarChartIcon, DistanceIcon, PaceIcon, XCircleIcon, PenLineIcon, TrashIcon } from '../common/Icons';
 import { parseStructuredExercises } from '../../utils/structuredExercises';
+import { WORKOUT_TYPE_LABEL as TYPE_NAMES } from '../../utils/workoutTypes';
 import './WorkoutCard.css';
-
-const TYPE_NAMES = {
-  easy: 'Легкий бег',
-  long: 'Длительный бег',
-  'long-run': 'Длительный бег',
-  tempo: 'Темповый бег',
-  interval: 'Интервалы',
-  other: 'ОФП',
-  sbu: 'СБУ',
-  fartlek: 'Фартлек',
-  control: 'Контрольный забег',
-  race: 'Соревнование',
-  rest: 'День отдыха',
-  free: 'Пустой день',
-  walking: 'Ходьба',
-  hiking: 'Поход',
-  cycling: 'Велосипед',
-  swimming: 'Плавание',
-};
 
 /** Цветовая группа для полоски — типы плана (easy, tempo...) и activity_type из импорта (walking, hiking). */
 function getWorkoutStripColorClass(type) {

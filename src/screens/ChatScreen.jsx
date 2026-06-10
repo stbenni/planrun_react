@@ -8,11 +8,14 @@ import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, Fra
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePlanStore from '../stores/usePlanStore';
+import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { getPlanDayForDate } from '../utils/calendarHelpers';
+import { WORKOUT_TYPE_LABEL } from '../utils/workoutTypes';
 import { useChatUnread } from '../hooks/useChatUnread';
 import { useIsTabActive } from '../hooks/useIsTabActive';
 import { ChatSSE } from '../services/ChatSSE';
 import { getAvatarSrc } from '../utils/avatarUrl';
+import { getDisplayName, getInitials } from '../utils/displayName';
 import { useChatDirectories } from './chat/useChatDirectories';
 import { useChatMessageLists } from './chat/useChatMessageLists';
 import { useChatSubmitHandlers } from './chat/useChatSubmitHandlers';
@@ -107,6 +110,13 @@ function getMessageToolsUsed(msg) {
   return Array.isArray(t) && t.length ? t : null;
 }
 
+// Синхронные write-тулзы AI: меняют план/результат сразу → мгновенный refresh виджетов.
+// recalculate_plan/generate_next_plan — async (план меняется минутами позже), их ловит поллинг.
+const INSTANT_REFRESH_TOOLS = new Set([
+  'update_training_day', 'add_training_day', 'delete_training_day',
+  'swap_training_days', 'move_training_day', 'copy_day', 'log_workout',
+]);
+
 function deriveChatKind(chat) {
   if (!chat) return 'dialog';
   if (chat.id === TAB_AI) return 'ai';
@@ -140,7 +150,7 @@ function ChatEntityAvatar({ chat, size = 44, avatarBase = '/api', withOnline = f
       {user?.avatar_path ? (
         <img src={getAvatarSrc(user.avatar_path, avatarBase, 'sm')} alt="" className="chat-entity-avatar__img" />
       ) : (
-        <span className="chat-entity-avatar__initials">{user?.username ? user.username.slice(0, 2).toUpperCase() : '?'}</span>
+        <span className="chat-entity-avatar__initials">{getInitials(user)}</span>
       )}
     </span>
   );
@@ -164,27 +174,6 @@ function formatDateSeparator(createdAt, tz) {
   if (key === yestKey) return 'ВЧЕРА';
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: tz }).toUpperCase();
 }
-
-const WORKOUT_TYPE_LABEL = {
-  easy: 'Лёгкий бег',
-  run: 'Бег',
-  running: 'Бег',
-  long: 'Длительный бег',
-  'long-run': 'Длительный бег',
-  tempo: 'Темповая тренировка',
-  interval: 'Интервалы',
-  fartlek: 'Фартлек',
-  control: 'Контрольная тренировка',
-  race: 'Забег',
-  sbu: 'СБУ',
-  strength: 'ОФП',
-  ofp: 'ОФП',
-  cross: 'Кросс-тренинг',
-  cycling: 'Велотренировка',
-  swimming: 'Плавание',
-  walking: 'Ходьба',
-  hiking: 'Поход',
-};
 
 const ChatScreen = () => {
   const AUTO_SCROLL_BOTTOM_THRESHOLD = 80;
@@ -293,6 +282,29 @@ const ChatScreen = () => {
     loadUserDialogMessages,
     loadChatAdminMessages,
   } = useChatMessageLists(api, selectedChat, loadDirectDialogs);
+
+  // Мгновенный refresh виджетов, когда AI правит план/результат синхронной write-тулзой.
+  // Историю при загрузке/смене разговора «засеваем» как обработанную — без лишних refresh.
+  const refreshedMsgIdsRef = useRef(new Set());
+  const seedKeyRef = useRef(null);
+  useEffect(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const seedKey = conversationId ?? selectedChat;
+    if (seedKeyRef.current !== seedKey) {
+      seedKeyRef.current = seedKey;
+      refreshedMsgIdsRef.current = new Set(messages.map((m) => m?.id).filter(Boolean));
+      return;
+    }
+    for (const msg of messages) {
+      const id = msg?.id;
+      if (!id || String(id).startsWith('temp-') || refreshedMsgIdsRef.current.has(id)) continue;
+      const tools = getMessageToolsUsed(msg);
+      if (tools && tools.some((t) => INSTANT_REFRESH_TOOLS.has(t))) {
+        useWorkoutRefreshStore.getState().triggerRefresh();
+      }
+      refreshedMsgIdsRef.current.add(id);
+    }
+  }, [messages, conversationId, selectedChat]);
   const activeMessages = isAdminMode
     ? chatAdminMessages
     : isUserDialog
@@ -833,11 +845,11 @@ const ChatScreen = () => {
                   {u.avatar_path ? (
                     <img src={getAvatarSrc(u.avatar_path, api?.baseUrl || '/api', 'sm')} alt="" className="chat-admin-user-avatar-img" />
                   ) : (
-                    <span className="chat-admin-user-initials">{u.username ? u.username.slice(0, 2).toUpperCase() : '?'}</span>
+                    <span className="chat-admin-user-initials">{getInitials(u)}</span>
                   )}
                 </span>
                 <div className="chat-admin-user-info">
-                  <span className="chat-admin-user-name">{u.username}</span>
+                  <span className="chat-admin-user-name">{getDisplayName(u)}</span>
                   {u.email && <span className="chat-admin-user-email">{u.email}</span>}
                 </div>
               </button>
@@ -913,7 +925,7 @@ const ChatScreen = () => {
             <div className="chat-main-header-info">
               <span className="chat-main-header-icon" aria-hidden="true"><UsersIcon size={20} /></span>
               <div>
-                <h3 className="chat-main-header-title">Чат с {selectedChatUser.username}</h3>
+                <h3 className="chat-main-header-title">Чат с {getDisplayName(selectedChatUser)}</h3>
                 <p className="chat-main-header-subtitle">Ответ от администрации</p>
               </div>
             </div>
@@ -1007,7 +1019,7 @@ const ChatScreen = () => {
           <div className="chat-main-header-info">
             <ChatEntityAvatar chat={{ user: contactUserForDialog }} size={40} avatarBase={api?.baseUrl || '/api'} />
             <div className="chat-main-header-text">
-              <h3 className="chat-main-header-title">{contactUserForDialog?.username || 'Пользователь'}</h3>
+              <h3 className="chat-main-header-title">{getDisplayName(contactUserForDialog) || 'Пользователь'}</h3>
               <p className="chat-main-header-subtitle">Личный диалог</p>
             </div>
           </div>
@@ -1038,7 +1050,7 @@ const ChatScreen = () => {
           </div>
         ) : userDialogMessages.length === 0 ? (
           <div className="chat-empty">
-            <p>Напишите сообщение пользователю {contactUserForDialog?.username || 'пользователю'}. Оно будет доставлено в его чат.</p>
+            <p>Напишите сообщение пользователю {getDisplayName(contactUserForDialog) || 'пользователю'}. Оно будет доставлено в его чат.</p>
           </div>
         ) : (
           <>
@@ -1053,7 +1065,7 @@ const ChatScreen = () => {
                   <div className={`chat-message chat-message--${isFromMe ? 'user' : isFromOtherUser ? 'other-user' : msg.sender_type}`}>
                     <div className="chat-message-bubble">
                       {isFromOtherUser && msg.sender_username && (
-                        <div className="chat-message-sender-name">{msg.sender_username}</div>
+                        <div className="chat-message-sender-name">{getDisplayName({ first_name: msg.sender_first_name, last_name: msg.sender_last_name, username: msg.sender_username })}</div>
                       )}
                       {msg.sender_type === 'admin' && (
                         <div className="chat-message-sender-name">Администрация</div>
@@ -1089,7 +1101,7 @@ const ChatScreen = () => {
             {composerAttach}
             <ChatComposerInput
               ref={inputRef}
-              placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${contactUserForDialog?.username || 'пользователю'}...`}
+              placeholder={Number(contactUserForDialog?.id) === myUserId ? 'Нельзя написать себе' : `Напишите ${getDisplayName(contactUserForDialog) || 'пользователю'}...`}
               onChange={setInput}
               disabled={sending || userDialogLoading || Number(contactUserForDialog?.id) === myUserId}
             />

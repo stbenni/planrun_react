@@ -8,13 +8,8 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CloseIcon, AlertTriangleIcon } from '../common/Icons';
+import { WORKOUT_TYPE_LABEL as TYPE_LABELS } from '../../utils/workoutTypes';
 import './ConfirmConflictDialog.css';
-
-const TYPE_LABELS = {
-  rest: 'Отдых', tempo: 'Темповая', interval: 'Интервалы', long: 'Длительная',
-  race: 'Гонка', other: 'ОФП', free: 'Свободно', easy: 'Лёгкая', sbu: 'СБУ',
-  fartlek: 'Фартлек', control: 'Контрольная', walking: 'Ходьба',
-};
 
 export default function ConfirmConflictDialog({ isOpen, conflicts, onClose, onConfirm, busy = false }) {
   useEffect(() => {

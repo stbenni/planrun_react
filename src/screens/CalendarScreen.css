@@ -748,9 +748,32 @@
     font-size: var(--text-xs);
   }
 
+  /* v3: bottom-sheet формат на мобайле */
   .recalc-confirm-modal {
-    margin: 10vh var(--space-4);
+    margin: 0;
     max-width: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: calv3-sheet-up 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  @keyframes calv3-sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  /* комфортные действия на мобайле (как в atv3-шторках) */
+  .recalc-confirm-actions {
+    justify-content: stretch;
+  }
+  .recalc-confirm-actions .btn {
+    flex: 1;
+    padding: var(--space-4);
+    font-size: var(--text-base);
   }
 
   .recalc-reason-hints {

@@ -18,16 +18,9 @@ import AddTrainingModal from './AddTrainingModal';
 import WorkoutCard from './WorkoutCard';
 import WorkoutDetailsModal from '../Stats/WorkoutDetailsModal';
 import LogoLoading from '../common/LogoLoading';
+import { WORKOUT_TYPE_LABEL as TYPE_NAMES } from '../../utils/workoutTypes';
 
 const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-
-const TYPE_NAMES = {
-  easy: 'Легкий бег', long: 'Длительный бег', 'long-run': 'Длительный бег',
-  tempo: 'Темповый бег', interval: 'Интервалы', fartlek: 'Фартлек',
-  control: 'Контрольный забег', race: 'Соревнование', other: 'ОФП', sbu: 'СБУ',
-  rest: 'День отдыха', free: 'Пустой день', walking: 'Ходьба', hiking: 'Поход',
-  cycling: 'Велосипед', swimming: 'Плавание', run: 'Бег', running: 'Бег',
-};
 
 const formatDurationDisplay = (minutesOrSeconds, isSeconds = false) => {
   if (minutesOrSeconds == null) return null;

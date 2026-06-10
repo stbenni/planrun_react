@@ -3,6 +3,8 @@
  * SDK (telegram-web-app.js) подключается в index.html (async). Здесь — безопасные обёртки.
  */
 
+import { applyTheme, getSystemTheme, getThemePreference } from '../screens/settings/settingsUtils';
+
 const SDK_WAIT_TIMEOUT_MS = 1500;
 
 /**
@@ -102,6 +104,26 @@ function applyTelegramInsets(webApp) {
 }
 
 /**
+ * Синхронизирует тему приложения с темой клиента Telegram.
+ * Тема Telegram может не совпадать с темой ОС (prefers-color-scheme): пользователь
+ * вправе включить тёмный Telegram на светлой системе и наоборот, поэтому внутри
+ * Mini App источник истины — Telegram. Ручной выбор пользователя (light/dark в
+ * настройках) имеет приоритет — трогаем тему только в режиме «как в системе».
+ */
+function syncThemeWithTelegram(webApp) {
+  const apply = () => {
+    if (getThemePreference() !== 'system') return; // уважаем ручной выбор
+    const scheme = webApp.colorScheme === 'dark' || webApp.colorScheme === 'light'
+      ? webApp.colorScheme
+      : getSystemTheme();
+    applyTheme(scheme);
+  };
+  apply();
+  // Реакция на смену темы прямо внутри Telegram (matchMedia такое событие не ловит).
+  try { webApp.onEvent?.('themeChanged', apply); } catch { /* событие не поддержано */ }
+}
+
+/**
  * Инициализация Mini App: ready() + expand() + полноэкранный режим (Bot API 8.0+).
  * На старых клиентах тихий фолбэк на expand(). Возвращает WebApp или null.
  */
@@ -110,6 +132,7 @@ export async function initTelegramMiniApp() {
   if (!webApp) return null;
   try { webApp.ready(); } catch { /* SDK без ready — игнор */ }
   try { webApp.expand(); } catch { /* expand необязателен */ }
+  syncThemeWithTelegram(webApp);
 
   try {
     // Fullscreen на всех клиентах с Bot API 8.0+. Верхнюю safe-area-полосу оформляем

@@ -2,17 +2,6 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      (function() {
-        var s = localStorage.getItem('theme');
-        var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        var theme = (s === 'dark' || s === 'light') ? s : sys;
-        var link = document.createElement('link');
-        link.rel = 'manifest';
-        link.href = theme === 'dark' ? '/site.webmanifest.dark' : '/site.webmanifest';
-        document.head.appendChild(link);
-      })();
-    </script>
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
@@ -28,15 +17,44 @@
         function getSystemTheme() {
           return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        // Тема клиента Telegram (может отличаться от темы ОС). До загрузки SDK
+        // берём из URL-хэша — Telegram кладёт туда tgWebAppThemeParams; после —
+        // из window.Telegram.WebApp.colorScheme. null, если мы не в Telegram.
+        function getTelegramTheme() {
+          try {
+            var live = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.colorScheme;
+            if (live === 'dark' || live === 'light') return live;
+          } catch (e) { /* SDK ещё не готов */ }
+          try {
+            var src = window.location.hash || window.location.search || '';
+            var m = src.match(/tgWebAppThemeParams=([^&]+)/);
+            if (!m) return null;
+            var bg = JSON.parse(decodeURIComponent(m[1])).bg_color;
+            if (!bg) return null;
+            var hex = String(bg).replace('#', '');
+            if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+            var r = parseInt(hex.substr(0,2),16), g = parseInt(hex.substr(2,2),16), b = parseInt(hex.substr(4,2),16);
+            if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+            return (0.299*r + 0.587*g + 0.114*b) / 255 < 0.5 ? 'dark' : 'light';
+          } catch (e) { return null; }
+        }
         function getTheme() {
           var saved = localStorage.getItem('theme');
-          return (saved === 'dark' || saved === 'light') ? saved : getSystemTheme();
+          if (saved === 'dark' || saved === 'light') return saved;
+          return getTelegramTheme() || getSystemTheme();
         }
         function applyTheme(theme) {
           document.documentElement.setAttribute('data-theme', theme);
           if (document.body) document.body.setAttribute('data-theme', theme);
           var meta = document.getElementById('theme-color-meta');
           if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1A1A' : '#FFFFFF');
+          var manifest = document.querySelector('link[rel="manifest"]');
+          if (!manifest) {
+            manifest = document.createElement('link');
+            manifest.rel = 'manifest';
+            document.head.appendChild(manifest);
+          }
+          manifest.href = theme === 'dark' ? '/site.webmanifest.dark' : '/site.webmanifest';
         }
         applyTheme(getTheme());
         document.addEventListener('DOMContentLoaded', function() {
@@ -46,7 +64,7 @@
         if (m && m.addEventListener) {
           m.addEventListener('change', function() {
             if (localStorage.getItem('theme') !== 'dark' && localStorage.getItem('theme') !== 'light') {
-              applyTheme(getSystemTheme());
+              applyTheme(getTheme());
             }
           });
         }

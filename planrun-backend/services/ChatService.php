@@ -94,7 +94,7 @@ class ChatService extends BaseService {
                 'Ответ AI-тренера',
                 $assistantContent,
                 '/chat',
-                ['proactive_type' => 'post_workout_checkin_reply']
+                ['proactive_type' => 'post_workout_checkin_reply', 'conversation_id' => $conversationId]
             );
         } catch (\Throwable $e) {
             Logger::warning('Post-workout reply notification dispatch failed', [
@@ -277,7 +277,7 @@ class ChatService extends BaseService {
             ]);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
-                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai', ['conversation_id' => $conversation['id']]);
             }
         }
 
@@ -423,7 +423,7 @@ class ChatService extends BaseService {
             $this->repository->addMessage($conversation['id'], 'ai', null, $fullContent, $aiMeta);
             $this->repository->touchConversation($conversation['id']);
             if (connection_aborted()) {
-                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai');
+                $this->sendChatPush($userId, 'Новое сообщение от AI-тренера', $fullContent, 'ai', ['conversation_id' => $conversation['id']]);
             }
         }
 
@@ -863,7 +863,11 @@ class ChatService extends BaseService {
 
     public function markAsRead(int $userId, int $conversationId): void {
         $conv = $this->repository->getConversationById($conversationId, $userId);
-        if ($conv) $this->repository->markMessagesRead($conversationId);
+        if ($conv) {
+            $this->repository->markMessagesRead($conversationId);
+            require_once __DIR__ . '/NotificationService.php';
+            (new NotificationService($this->db))->markReadByRefKey($userId, 'chat:' . $conversationId);
+        }
     }
 
     public function sendUserMessageToAdmin(int $userId, string $content, ?array $attachment = null): array {
@@ -885,7 +889,7 @@ class ChatService extends BaseService {
         $this->repository->touchConversation($conversation['id']);
         $senderUsername = $this->getUsernameById($senderUserId);
         $preview = $content !== '' ? $content : '📷 Фото';
-        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $preview, 'direct', ['sender_name' => $senderUsername ?: 'пользователя']);
+        $this->sendChatPush($targetUserId, 'Новое сообщение от ' . ($senderUsername ?: 'пользователя'), $preview, 'direct', ['sender_name' => $senderUsername ?: 'пользователя', 'conversation_id' => $conversation['id']]);
         return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
@@ -893,7 +897,7 @@ class ChatService extends BaseService {
         $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
         $messageId = $this->repository->addMessage($conversation['id'], 'admin', $adminUserId, $content);
         $this->repository->touchConversation($conversation['id']);
-        $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin');
+        $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin', ['conversation_id' => $conversation['id']]);
         return ['conversation_id' => $conversation['id'], 'message_id' => $messageId];
     }
 
@@ -941,6 +945,7 @@ class ChatService extends BaseService {
         $link = trim((string) ($notificationOptions['link'] ?? '/chat'));
         $dispatchOptions = $notificationOptions;
         unset($dispatchOptions['event_key'], $dispatchOptions['title'], $dispatchOptions['link']);
+        $dispatchOptions['conversation_id'] = $conversation['id'];
         $this->dispatchNotificationEvent($userId, $eventKey, $title !== '' ? $title : 'Новое сообщение от AI-тренера', $content, $link, $dispatchOptions);
         return ['message_id' => $messageId];
     }
@@ -955,6 +960,10 @@ class ChatService extends BaseService {
     }
 
     private function dispatchNotificationEvent(int $userId, string $eventKey, string $title, string $body, string $link = '/chat', array $notificationOptions = []): void {
+        $conversationId = (int) ($notificationOptions['conversation_id'] ?? 0);
+        $senderName = (string) ($notificationOptions['sender_name'] ?? '');
+        unset($notificationOptions['conversation_id']);
+
         require_once __DIR__ . '/NotificationDispatcher.php';
         $truncated = mb_strlen($body) > 100 ? mb_substr($body, 0, 97) . '...' : $body;
         $pushData = is_array($notificationOptions['push_data'] ?? null) ? $notificationOptions['push_data'] : [];
@@ -962,6 +971,24 @@ class ChatService extends BaseService {
         (new NotificationDispatcher($this->db))->dispatchToUser($userId, $eventKey, $title, $truncated, array_merge($notificationOptions, [
             'link' => $link, 'push_data' => array_merge(['type' => 'chat', 'link' => $link], $pushData),
         ]));
+
+        // In-app: одна свёрнутая запись на диалог в едином store (фид «колокола»).
+        if ($conversationId > 0) {
+            $category = (str_contains($eventKey, 'ai') || str_contains($eventKey, 'proactive')) ? 'ai' : 'coach';
+            $meta = ['conversation_id' => $conversationId];
+            if ($senderName !== '') {
+                $meta['title'] = $senderName . ' написал';
+            }
+            require_once __DIR__ . '/NotificationService.php';
+            (new NotificationService($this->db))->create($userId, $eventKey, $title, $truncated, [
+                'type' => $eventKey,
+                'ref_key' => 'chat:' . $conversationId,
+                'category' => $category,
+                'link' => $link,
+                'metadata' => $meta,
+                'dispatch' => false, // доставка уже выполнена выше
+            ]);
+        }
     }
 
     private function notifyAdminsAboutUserMessage(int $senderUserId, string $senderName, string $content): void {
@@ -1004,7 +1031,7 @@ class ChatService extends BaseService {
             $conversation = $this->repository->getOrCreateConversation($targetUserId, 'admin');
             $this->repository->addMessage($conversation['id'], 'admin', $adminUserId, $content);
             $this->repository->touchConversation($conversation['id']);
-            $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin');
+            $this->sendChatPush($targetUserId, 'Новое сообщение от администрации', $content, 'admin', ['conversation_id' => $conversation['id']]);
             $sent++;
         }
         return ['sent' => $sent];

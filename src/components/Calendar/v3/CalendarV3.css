@@ -1,0 +1,1280 @@
+/* ───────────────────────────────────────────────────────────────────────
+   Calendar v3 — порт редизайна redesign/src/v3-calendar.jsx
+   Токены прототипа (C.*) замаплены на переменные проекта; тип-акценты —
+   инлайн через typeColorVar() (data-driven). Light/dark через [data-theme].
+   ─────────────────────────────────────────────────────────────────────── */
+
+.calv3 {
+  /* bridge-токены: то, чего нет 1:1 в проекте */
+  --calv3-ink:    var(--text-primary);
+  --calv3-ink2:   var(--text-secondary);
+  --calv3-ink3:   var(--text-tertiary);
+  --calv3-ink4:   #94A3B8;
+  --calv3-line:   var(--card-border);
+  --calv3-line2:  #CBD5E1;
+  --calv3-surf:   var(--bg-primary);
+  --calv3-surf3:  var(--bg-tertiary);
+  --calv3-wash:   var(--primary-50);
+  --calv3-card-bg: rgba(255, 255, 255, 0.66);
+
+  position: relative;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--calv3-ink);
+}
+
+[data-theme="dark"] .calv3 {
+  --calv3-ink4:   #7B8696;
+  --calv3-line2:  #3A4451;
+  --calv3-wash:   rgba(252, 76, 2, 0.14);
+  --calv3-card-bg: rgba(28, 34, 43, 0.55);
+}
+
+/* warm radial shell */
+.calv3-shell {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.06) 0%, transparent 50%),
+    radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.04) 0%, transparent 55%),
+    linear-gradient(180deg, #FAF7F3 0%, #F4F7FB 100%);
+}
+[data-theme="dark"] .calv3-shell {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(252, 76, 2, 0.10) 0%, transparent 50%),
+    radial-gradient(100% 70% at 100% 100%, rgba(252, 76, 2, 0.06) 0%, transparent 55%),
+    linear-gradient(180deg, #0F151D 0%, #0B1015 100%);
+}
+
+/* glass card */
+.calv3-card {
+  padding: 16px;
+  background: var(--glass-card-bg);
+  -webkit-backdrop-filter: var(--glass-card-blur);
+  backdrop-filter: var(--glass-card-blur);
+  border: 1px solid var(--glass-card-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-card-shadow);
+}
+.calv3-card-label {
+  font-size: 10px;
+  color: var(--calv3-ink3);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+.calv3-card-label--row { display: flex; align-items: center; gap: 6px; }
+
+/* ── InfoTip (ⓘ + тултип) ──────────────────────────────────────────── */
+.calv3-infotip { position: relative; display: inline-flex; }
+.calv3-infotip__btn {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1px solid var(--calv3-line2);
+  background: transparent;
+  color: var(--calv3-ink3);
+  font-size: 10px;
+  font-weight: 800;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.calv3-infotip__btn:hover { border-color: var(--primary-500); color: var(--primary-500); }
+.calv3-infotip__pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -2px;            /* растём влево — справа rail, слева свободное место */
+  left: auto;
+  width: 256px;
+  padding: 12px 13px;
+  background: var(--calv3-ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.5;
+  text-transform: none;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+  z-index: 70;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 0.13s ease, transform 0.13s ease;
+  pointer-events: none;
+}
+.calv3-infotip__pop.is-open,
+.calv3-infotip:hover .calv3-infotip__pop {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.calv3-infotip__pop::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 4px;
+  border: 6px solid transparent;
+  border-bottom-color: var(--calv3-ink);
+}
+[data-theme="dark"] .calv3-infotip__pop { background: #2A3340; }
+[data-theme="dark"] .calv3-infotip__pop::before { border-bottom-color: #2A3340; }
+
+/* список фаз внутри тултипа */
+.calv3-phasehelp__title { font-weight: 800; font-size: 12.5px; margin-bottom: 8px; }
+.calv3-phasehelp__row { display: flex; align-items: baseline; gap: 8px; margin-top: 5px; }
+.calv3-phasehelp__row b { font-weight: 700; }
+.calv3-phasehelp__dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; transform: translateY(1px); }
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.calv3-head-wrap { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.calv3-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 0;
+  min-height: 44px; /* резерв: неделя (с подзаголовком) и месяц (без) одной высоты — не прыгает */
+}
+.calv3-nav-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  border: 1px solid var(--calv3-line);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--calv3-ink2);
+  font-family: inherit;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+[data-theme="dark"] .calv3-nav-btn { background: rgba(255, 255, 255, 0.05); }
+.calv3-nav-btn:disabled { opacity: 0.4; cursor: default; }
+.calv3-head-center { flex: 1; text-align: center; min-width: 0; }
+.calv3-head-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--calv3-ink);
+  letter-spacing: -0.02em;
+}
+.calv3-head-sub {
+  font-size: 11.5px;
+  color: var(--calv3-ink3);
+  margin-top: 1px;
+}
+
+/* ── Segmented control (Неделя / Месяц) ────────────────────────────── */
+/* Ряд: переключатель растягивается, ⋯-меню плана прижато справа */
+.calv3-seg-row { display: flex; align-items: center; gap: 8px; }
+.calv3-seg-row .calv3-seg { flex: 1; }
+.calv3-seg-menu { flex-shrink: 0; }
+.calv3-seg-menu .calv3-planmenu-btn { width: 40px; height: 40px; border-radius: 10px; }
+.calv3-seg {
+  display: flex;
+  gap: 2px;
+  background: var(--calv3-surf3);
+  border-radius: 10px;
+  padding: 3px;
+}
+.calv3-seg-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--calv3-ink3);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.calv3-seg-btn.is-on {
+  background: var(--calv3-surf);
+  color: var(--calv3-ink);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+[data-theme="dark"] .calv3-seg-btn.is-on { background: rgba(255, 255, 255, 0.1); }
+.calv3-seg--global { margin: 0 0 14px; }
+.calendar-v3-root { padding: 12px 0 0; }
+/* На мобайле сегмент показывает CalHeaderV3 (под заголовком, как в прототипе) → глобальный скрыт */
+@media (max-width: 640px) {
+  .calv3-seg--global { display: none; }
+}
+@media (min-width: 641px) {
+  .calv3-seg--global { max-width: 280px; }
+}
+
+/* ── Phase ribbon ──────────────────────────────────────────────────── */
+.calv3-phase {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.calv3-phase__label {
+  font-size: 10px;
+  color: var(--calv3-ink3);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.calv3-phase__track { display: flex; gap: 3px; flex: 1; }
+.calv3-phase__seg {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--calv3-line2);
+  opacity: 0.5;
+}
+.calv3-phase__seg.is-on { flex: 2; opacity: 1; }
+.calv3-phase__name { font-size: 12px; font-weight: 700; }
+
+/* ── Volume rail ───────────────────────────────────────────────────── */
+.calv3-vol { display: flex; }
+.calv3-vol--v { flex-direction: column; gap: 6px; }
+.calv3-vol--h { flex-direction: row; gap: 10px; }
+
+.calv3-vol__row { display: flex; align-items: center; gap: 8px; flex: 1; }
+.calv3-vol--v .calv3-vol__row { flex-direction: row; }
+.calv3-vol--h .calv3-vol__row { flex-direction: column; }
+
+.calv3-vol__name {
+  font-size: 10px;
+  color: var(--calv3-ink3);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.calv3-vol__name.is-current { color: var(--calv3-ink); }
+.calv3-vol--v .calv3-vol__name { width: 44px; }
+.calv3-vol--h .calv3-vol__name { order: 2; }
+
+/* vertical: thin horizontal bar */
+.calv3-vol__bar {
+  flex: 1;
+  height: 8px;
+  background: var(--calv3-surf3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.calv3-vol__fill { height: 100%; border-radius: 999px; }
+.calv3-vol__num {
+  width: 40px;
+  text-align: right;
+  font-family: 'Jost', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--calv3-ink3);
+}
+.calv3-vol__num.is-current { color: var(--calv3-ink); }
+.calv3-vol__num-unit { font-size: 9px; color: var(--calv3-ink4); }
+
+/* horizontal: tall vertical bar */
+.calv3-vol__col { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.calv3-vol__col-num {
+  font-family: 'Jost', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--calv3-ink2);
+}
+.calv3-vol__vbar {
+  width: 100%;
+  height: 64px;
+  background: var(--calv3-surf3);
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.calv3-vol__vfill { width: 100%; border-radius: 6px 6px 0 0; }
+
+.calv3-vol-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--calv3-wash);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--primary-500);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* ── Tags ──────────────────────────────────────────────────────────── */
+.calv3-tag {
+  background: var(--primary-500);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.calv3-tag--done { background: var(--success-500); }
+
+/* ════════════════════════════════════════════════════════════════════
+   WEEK · MOBILE — list of day rows
+   ════════════════════════════════════════════════════════════════════ */
+.calv3-week-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+.calv3-dayrow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  border: 1px solid var(--calv3-line);
+  background: var(--calv3-card-bg);
+}
+.calv3-dayrow.is-rest { cursor: default; }
+.calv3-dayrow.is-today {
+  border: 1.5px solid var(--primary-500);
+  background: rgba(252, 76, 2, 0.05);
+}
+.calv3-dayrow__date { width: 34px; text-align: center; flex-shrink: 0; }
+.calv3-dayrow__dow { font-size: 9.5px; color: var(--calv3-ink4); font-weight: 700; }
+.calv3-dayrow.is-today .calv3-dayrow__dow { color: var(--primary-500); }
+.calv3-dayrow__d {
+  font-family: 'Jost', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--calv3-ink);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.calv3-dayrow.is-today .calv3-dayrow__d { color: var(--primary-500); }
+.calv3-dayrow__accent {
+  width: 3px;
+  align-self: stretch;
+  min-height: 30px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.calv3-dayrow__body { flex: 1; min-width: 0; }
+.calv3-dayrow__title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--calv3-ink);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.calv3-dayrow.is-rest .calv3-dayrow__title { font-weight: 500; color: var(--calv3-ink4); }
+.calv3-dayrow__meta {
+  font-size: 12px;
+  color: var(--calv3-ink3);
+  font-family: 'Jost', sans-serif;
+  margin-top: 1px;
+}
+.calv3-dayrow__key {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--primary-500);
+  flex-shrink: 0;
+}
+.calv3-dayrow__chev { color: var(--calv3-ink4); font-size: 18px; flex-shrink: 0; }
+.calv3-dayrow__check {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--success-500);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WEEK · DESKTOP — 7-col day cards + embedded sheet + side rail
+   ════════════════════════════════════════════════════════════════════ */
+.calv3-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.calv3-daycard {
+  text-align: left;
+  padding: 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 140px;
+  border: 1px solid var(--calv3-line);
+  background: rgba(255, 255, 255, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+[data-theme="dark"] .calv3-daycard { background: rgba(255, 255, 255, 0.04); }
+.calv3-daycard.is-active { border: 1.5px solid var(--calv3-ink); background: var(--calv3-surf); }
+.calv3-daycard.is-today { border: 1.5px solid var(--primary-500); }
+.calv3-daycard.is-active.is-today { background: var(--calv3-wash); }
+.calv3-daycard__top { display: flex; align-items: center; justify-content: space-between; }
+.calv3-daycard__dow { font-size: 10px; color: var(--calv3-ink3); font-weight: 700; }
+.calv3-daycard__d { font-family: 'Jost', sans-serif; font-size: 18px; font-weight: 800; color: var(--calv3-ink); }
+.calv3-daycard.is-today .calv3-daycard__d { color: var(--primary-500); }
+.calv3-daycard__accent { width: 100%; height: 3px; border-radius: 4px; }
+.calv3-daycard__body { flex: 1; }
+.calv3-daycard__title { font-size: 12.5px; font-weight: 700; color: var(--calv3-ink); line-height: 1.25; }
+.calv3-daycard__meta { font-size: 11px; color: var(--calv3-ink3); font-family: 'Jost', sans-serif; margin-top: 3px; }
+.calv3-daycard__foot { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.calv3-daycard__done { font-size: 11px; color: var(--success-600); font-weight: 700; }
+
+/* desktop body layout */
+.calv3-desk-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+}
+.calv3-desk-main { min-width: 0; }
+@media (max-width: 900px) {
+  .calv3-desk-body { grid-template-columns: 1fr; }
+}
+.calv3-desk-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.calv3-desk-row-spacer { flex: 1; min-width: 12px; }
+
+/* ── plan actions kebab (⋮) ────────────────────────────────────────── */
+.calv3-planmenu { position: relative; flex-shrink: 0; }
+.calv3-planmenu-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  border: 1px solid var(--calv3-line);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--calv3-ink2);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .calv3-planmenu-btn { background: rgba(255, 255, 255, 0.05); }
+.calv3-planmenu-btn.is-open { border-color: var(--primary-500); color: var(--primary-500); }
+.calv3-planmenu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 210px;
+  background: var(--calv3-surf);
+  border: 1px solid var(--calv3-line);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+[data-theme="dark"] .calv3-planmenu-panel { background: var(--bg-secondary); }
+.calv3-planmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  color: var(--calv3-ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.calv3-planmenu-item:hover:not(:disabled) { background: var(--calv3-surf3); }
+.calv3-planmenu-item:disabled { opacity: 0.5; cursor: default; }
+.calv3-planmenu-item--danger { color: var(--accent-600); }
+/* разделитель в меню + форма «Копировать неделю» внутри ⋯ */
+.calv3-planmenu-sep { height: 1px; background: var(--calv3-line); margin: 4px 6px; }
+.calv3-planmenu-copy { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
+.calv3-planmenu-copy .calv3-copyweek__date { width: 100%; }
+.calv3-planmenu-copy__row { display: flex; gap: 8px; }
+.calv3-planmenu-copy__ok,
+.calv3-planmenu-copy__cancel {
+  flex: 1; padding: 8px 10px; border-radius: 9px;
+  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  border: 1px solid transparent;
+}
+.calv3-planmenu-copy__ok { background: var(--primary-500); color: #fff; border: none; }
+.calv3-planmenu-copy__ok:disabled { opacity: 0.5; cursor: default; }
+.calv3-planmenu-copy__cancel { background: transparent; border-color: var(--calv3-line); color: var(--calv3-ink2); }
+.calv3-desk-title { font-size: 24px; font-weight: 800; color: var(--calv3-ink); letter-spacing: -0.02em; }
+.calv3-desk-sub { font-size: 13px; color: var(--calv3-ink3); }
+.calv3-ghost-btn {
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--calv3-line);
+  color: var(--calv3-ink2);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+[data-theme="dark"] .calv3-ghost-btn { background: rgba(255, 255, 255, 0.05); }
+.calv3-primary-btn {
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: var(--primary-500);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 12px rgba(252, 76, 2, 0.25);
+}
+.calv3-desk-note { font-size: 13px; color: var(--calv3-ink2); line-height: 1.5; }
+.calv3-desk-note-author { font-size: 11px; color: var(--calv3-ink3); margin-top: 6px; }
+
+/* ════════════════════════════════════════════════════════════════════
+   DAY SHEET — bottom sheet (mobile) / embedded panel (desktop)
+   ════════════════════════════════════════════════════════════════════ */
+.calv3-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 1200;
+  animation: calv3-scrim-in 0.22s ease both;
+}
+.calv3-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--calv3-surf);
+  border-radius: 22px 22px 0 0;
+  padding: 20px;
+  animation: calv3-sheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* запас снизу под плавающий навбар (gap + высота навбара + safe-area), иначе он перекрывает контент */
+  padding-bottom: calc(var(--mobile-content-padding-bottom, 90px) + 12px);
+  z-index: 1201;
+  box-shadow: 0 -20px 40px rgba(0, 0, 0, 0.18);
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+[data-theme="dark"] .calv3-sheet { background: var(--bg-secondary); }
+.calv3-sheet-grip {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--calv3-line2);
+  margin: 0 auto 14px;
+}
+.calv3-embed {
+  padding: 16px;
+  background: var(--glass-card-bg);
+  -webkit-backdrop-filter: var(--glass-card-blur);
+  backdrop-filter: var(--glass-card-blur);
+  border: 1px solid var(--glass-card-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-card-shadow);
+  max-width: 560px;
+}
+/* Выполненный день: одна тренировка — компактнее, несколько — на всю ширину под сетку */
+.calv3-embed:has(.calv3-day-cols--done) { max-width: none; }
+
+.calv3-sheet-head { display: flex; align-items: flex-start; gap: 12px; }
+.calv3-sheet-accent { width: 4px; align-self: stretch; min-height: 44px; border-radius: 4px; }
+.calv3-sheet-head-main { flex: 1; min-width: 0; }
+.calv3-sheet-kicker { display: flex; align-items: center; gap: 8px; }
+.calv3-sheet-type { font-size: 11px; color: var(--calv3-ink3); font-weight: 700; letter-spacing: 0.08em; }
+.calv3-sheet-title { font-size: 22px; font-weight: 800; color: var(--calv3-ink); letter-spacing: -0.02em; margin-top: 2px; }
+.calv3-sheet-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.calv3-sheet-edit {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--primary-500);
+  background: var(--calv3-wash);
+  color: var(--primary-500);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.calv3-sheet-close {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: var(--calv3-surf3);
+  color: var(--calv3-ink2);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.calv3-sheet-metrics {
+  display: flex;
+  gap: 18px;
+  margin-top: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--calv3-line);
+}
+.calv3-m-num { font-family: 'Jost', sans-serif; font-size: 26px; font-weight: 800; color: var(--calv3-ink); letter-spacing: -0.03em; line-height: 1; }
+.calv3-m-num--primary { color: var(--primary-500); }
+.calv3-m-lbl { font-size: 10px; color: var(--calv3-ink3); margin-top: 4px; font-weight: 600; }
+.calv3-m-fact {
+  margin-top: 7px; padding-top: 6px;
+  border-top: 1px dashed var(--calv3-line);
+  font-size: 15px; font-weight: 800; color: var(--calv3-ink); line-height: 1;
+}
+
+.calv3-sheet-note {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--calv3-surf3);
+  border-radius: 12px;
+}
+.calv3-sheet-note-av {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FC4C02, #FF6B3D);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.calv3-sheet-note-text { flex: 1; font-size: 12.5px; color: var(--calv3-ink2); line-height: 1.45; }
+
+.calv3-sheet-actions { display: flex; gap: 8px; margin-top: 16px; }
+/* добавить тренировку в этот день — внизу мобильного sheet (вторичная, чтобы не спорить с CTA) */
+.calv3-sheet-add {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px;
+  border: 1.5px dashed var(--calv3-line);
+  border-radius: 13px;
+  background: transparent;
+  color: var(--calv3-ink2);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.calv3-sheet-add:hover {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+  background: var(--calv3-wash);
+}
+.calv3-cta {
+  flex: 1;
+  padding: 13px 18px;
+  border-radius: 13px;
+  background: var(--primary-500);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 8px 20px rgba(252, 76, 2, 0.3);
+}
+.calv3-cta-icon {
+  width: 46px; height: 46px;
+  border-radius: 13px;
+  background: var(--calv3-surf3);
+  color: var(--calv3-ink);
+  border: none;
+  font-size: 17px;
+  cursor: pointer;
+  font-family: inherit;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.calv3-cta-ghost {
+  flex: 1;
+  padding: 13px 18px;
+  border-radius: 13px;
+  background: var(--calv3-surf3);
+  color: var(--calv3-ink);
+  border: none;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* interval breakdown */
+.calv3-segbar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--calv3-surf3);
+}
+.calv3-segbar-note { font-size: 11px; color: var(--calv3-ink3); margin-top: 8px; }
+
+/* exercise list */
+.calv3-ex-head { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.calv3-ex-head-label { font-size: 11px; color: var(--calv3-ink3); font-weight: 700; letter-spacing: 0.06em; }
+.calv3-ex-head-rule { flex: 1; height: 1px; background: var(--calv3-line); }
+.calv3-ex-head-time { font-size: 11px; color: var(--calv3-ink3); font-family: 'Jost', sans-serif; }
+.calv3-ex-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--calv3-line);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--calv3-line);
+}
+.calv3-ex-item { display: flex; align-items: center; gap: 12px; padding: 11px 13px; background: var(--calv3-surf); }
+.calv3-ex-num {
+  width: 22px; height: 22px;
+  border-radius: 7px;
+  background: var(--calv3-surf3);
+  color: var(--calv3-ink3);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: 'Jost', sans-serif;
+  flex-shrink: 0;
+}
+.calv3-ex-main { flex: 1; min-width: 0; }
+.calv3-ex-name { font-size: 13.5px; font-weight: 600; color: var(--calv3-ink); }
+.calv3-ex-hint { font-size: 11px; color: var(--calv3-ink4); margin-top: 1px; }
+.calv3-ex-sets { font-family: 'Jost', sans-serif; font-size: 13.5px; font-weight: 700; color: var(--primary-500); flex-shrink: 0; }
+
+/* plan text body */
+.calv3-sheet-plan { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.calv3-sheet-plan-itemhead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--calv3-ink3);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.calv3-sheet-plan-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+.calv3-sheet-plan-text { font-size: 13px; color: var(--calv3-ink2); line-height: 1.5; white-space: pre-line; }
+
+.calv3-sheet-ex { margin-top: 14px; }
+.calv3-sheet-done-wrap { margin-top: 4px; }
+
+/* ── completed workout inline (DayCompletedV3) ─────────────────────── */
+.calv3-done { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--calv3-line); }
+.calv3-done:first-child { border-top: none; padding-top: 0; }
+
+/* Несколько выполненных тренировок за день → отдельными карточками (в столбик) */
+.calv3-done-grid--multi {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.calv3-done-grid--multi .calv3-done,
+.calv3-done-grid--multi .calv3-done:first-child {
+  margin-top: 0;
+  padding: 14px;
+  border: 1px solid var(--calv3-line);
+  border-radius: 14px;
+  background: var(--calv3-card-bg);
+}
+
+/* Десктоп: день в 2 колонки — слева ПЛАН, справа карточка с выполненными тренировками */
+.calv3-day-main, .calv3-day-side { min-width: 0; }
+.calv3-day-side { margin-top: 16px; }
+@media (min-width: 700px) {
+  .calv3-embed .calv3-day-cols--done {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .calv3-embed .calv3-day-cols--done > .calv3-day-side { margin-top: 0; }
+}
+.calv3-embed:has(.calv3-day-cols--done) {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.calv3-embed .calv3-day-cols--done > .calv3-day-main,
+.calv3-embed .calv3-day-cols--done > .calv3-day-side {
+  padding: 18px;
+  background: var(--glass-card-bg);
+  -webkit-backdrop-filter: var(--glass-card-blur);
+  backdrop-filter: var(--glass-card-blur);
+  border: 1px solid var(--glass-card-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-card-shadow);
+}
+
+/* Результаты дня — карточки тренировок (основная + доп.) по две в ряд */
+.calv3-results {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 16px;
+  align-items: start;
+}
+.calv3-results > .calv3-done {
+  margin-top: 0;
+  padding: 14px;
+  border: 1px solid var(--calv3-line);
+  border-radius: 14px;
+  background: var(--calv3-card-bg);
+}
+@media (min-width: 700px) {
+  .calv3-embed .calv3-day-cols--done > .calv3-day-side .calv3-results { gap: 12px; }
+}
+
+/* Компактная цель плана в сводке (когда план→факт ушло на карточку) */
+.calv3-sheet-target {
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--calv3-ink3);
+}
+
+/* Строка сравнения «план → факт» */
+.calv3-cmp {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+.calv3-cmp-cell {
+  padding: 11px 13px;
+  border-radius: 13px;
+  background: var(--calv3-card-bg);
+  border: 1px solid var(--calv3-line);
+}
+.calv3-cmp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--calv3-ink3);
+  margin-bottom: 7px;
+}
+.calv3-cmp-vals { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.calv3-cmp-plan { font-size: 14px; font-weight: 600; color: var(--calv3-ink3); }
+.calv3-cmp-arr { font-size: 12px; color: var(--calv3-ink3); }
+.calv3-cmp-fact {
+  font-size: 21px; font-weight: 800; line-height: 1; color: var(--calv3-ink);
+}
+.calv3-cmp-unit { font-size: 13px; font-weight: 700; color: var(--calv3-ink3); }
+.calv3-cmp-delta { font-size: 14px; font-weight: 800; margin-left: 3px; }
+.calv3-cmp-delta--good { color: #16a34a; }
+.calv3-cmp-delta--bad { color: #ef4444; }
+.calv3-cmp-delta--muted { color: var(--calv3-ink3); }
+.calv3-done-head { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.calv3-done-body {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.calv3-done-body.is-open { grid-template-rows: 1fr; }
+.calv3-done-body-inner { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) { .calv3-done-body { transition: none; } }
+.calv3-done-head-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px;
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+}
+.calv3-done-head-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.calv3-done-summary {
+  display: flex; align-items: baseline; flex-wrap: wrap; row-gap: 4px;
+  margin-left: 16px; font-size: 13px; color: var(--calv3-ink3);
+}
+.calv3-done-summary > span:not(:first-child)::before {
+  content: '·'; margin: 0 9px; color: var(--calv3-line); font-weight: 700;
+}
+.calv3-done-summary b { color: var(--calv3-ink); font-weight: 700; }
+.calv3-done-chev-btn {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  border: none; background: none; cursor: pointer;
+}
+.calv3-done-chev { flex-shrink: 0; color: var(--calv3-ink3); transition: transform 0.2s ease; }
+.calv3-done-chev.is-up { transform: rotate(180deg); }
+.calv3-done-accent { width: 8px; height: 8px; border-radius: 999px; }
+.calv3-done-type { font-size: 11px; font-weight: 700; color: var(--calv3-ink3); letter-spacing: 0.04em; }
+.calv3-done-badge {
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; line-height: 1;
+  padding: 4px 8px; border-radius: 999px; text-transform: uppercase;
+}
+.calv3-done-badge--plan { background: rgba(252, 76, 2, 0.12); color: var(--primary-500, #fc4c02); }
+.calv3-done-badge--extra { background: var(--bg-tertiary, rgba(148, 163, 184, 0.18)); color: var(--text-tertiary, #64748b); }
+/* Иконки-действия в шапке карточки: поделиться + удалить (рядом, справа) */
+.calv3-done-head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.calv3-done-icon-btn {
+  width: 30px; height: 30px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--calv3-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--calv3-ink3);
+  font-size: 18px; line-height: 1; font-family: inherit;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.calv3-done-icon-btn:hover {
+  color: var(--calv3-ink);
+  border-color: var(--calv3-ink3);
+  background: var(--calv3-wash);
+}
+.calv3-done-icon-btn:disabled { opacity: 0.5; cursor: default; }
+.calv3-done-icon-btn--danger:hover {
+  color: var(--danger-500, #ef4444);
+  border-color: var(--danger-500, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* диалог подтверждения удаления */
+.calv3-confirm-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  animation: calv3-confirm-fade .14s ease;
+}
+.calv3-confirm {
+  width: 100%; max-width: 340px;
+  padding: 22px;
+  background: var(--glass-card-bg, #fff);
+  -webkit-backdrop-filter: var(--glass-card-blur); backdrop-filter: var(--glass-card-blur);
+  border: 1px solid var(--glass-card-border);
+  border-radius: 18px;
+  box-shadow: var(--glass-card-shadow, 0 24px 64px rgba(0, 0, 0, 0.28));
+  animation: calv3-confirm-pop .16s cubic-bezier(.2, .9, .3, 1.2);
+}
+.calv3-confirm-title { font-family: 'Jost', sans-serif; font-size: 18px; font-weight: 800; color: var(--calv3-ink); }
+.calv3-confirm-text { margin-top: 8px; font-size: 13.5px; line-height: 1.5; color: var(--calv3-ink3); }
+.calv3-confirm-actions { display: flex; gap: 10px; margin-top: 20px; }
+.calv3-confirm-btn {
+  flex: 1; padding: 11px 14px;
+  border-radius: 12px; border: 1px solid var(--calv3-line);
+  background: transparent; color: var(--calv3-ink);
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background .15s ease, filter .15s ease;
+}
+.calv3-confirm-btn:hover { background: var(--calv3-wash); }
+.calv3-confirm-btn--danger { border: none; color: #fff; background: var(--danger-500, #ef4444); }
+.calv3-confirm-btn--danger:hover { background: var(--danger-600, #dc2626); filter: none; }
+@keyframes calv3-confirm-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes calv3-confirm-pop { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes calv3-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes calv3-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .calv3-sheet, .calv3-sheet-scrim { animation: none; }
+}
+.calv3-done-metrics { display: flex; flex-direction: column; gap: 8px; }
+.calv3-done-row { display: flex; gap: 8px; }
+.calv3-done-card {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--calv3-surf3);
+  text-align: center;
+}
+.calv3-done-card--hero { background: var(--calv3-wash); }
+.calv3-done-val { font-family: 'Jost', sans-serif; font-size: 20px; font-weight: 800; color: var(--calv3-ink); letter-spacing: -0.02em; }
+.calv3-done-card--hero .calv3-done-val { font-size: 28px; color: var(--primary-500); }
+.calv3-done-unit { font-size: 12px; color: var(--calv3-ink3); font-weight: 600; }
+.calv3-done-sub { font-size: 10px; color: var(--calv3-ink3); margin-top: 3px; }
+.calv3-done-map { margin-top: 12px; border-radius: 14px; overflow: hidden; height: 200px; }
+.calv3-done-map > * { height: 100%; }
+.calv3-done-chart { margin-top: 12px; }
+.calv3-done-notes { margin-top: 12px; font-size: 13px; color: var(--calv3-ink2); line-height: 1.45; white-space: pre-line; }
+
+/* Вкладки выполненной тренировки (как в статистике): Обзор / Данные / Круги / Графики */
+.calv3-done-tabs {
+  display: flex; gap: 2px; margin-top: 14px;
+  border-bottom: 1px solid var(--calv3-line);
+  overflow-x: auto; scrollbar-width: none;
+}
+.calv3-done-tabs::-webkit-scrollbar { display: none; }
+.calv3-done-tab {
+  flex: 0 0 auto; padding: 9px 12px;
+  background: transparent; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap;
+  color: var(--calv3-ink3); cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.calv3-done-tab:hover { color: var(--calv3-ink); }
+.calv3-done-tab.is-active { color: var(--calv3-ink); border-bottom-color: var(--primary-500); }
+.calv3-done-tabc { margin-top: 14px; }
+
+/* Вкладка «Данные» — строки label/value */
+.calv3-done-details { display: flex; flex-direction: column; }
+.calv3-done-drow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 2px; border-bottom: 1px solid var(--calv3-line); font-size: 13.5px;
+}
+.calv3-done-drow:last-child { border-bottom: none; }
+.calv3-done-dlabel { color: var(--calv3-ink3); }
+.calv3-done-dval { color: var(--calv3-ink); font-weight: 700; font-family: 'Jost', sans-serif; text-align: right; }
+
+/* График во вкладке «Графики» — без «бокса», под стиль карточки (3 класса, чтобы перебить dark-правила) */
+.calv3-done .calv3-done-tabc .workout-chart-container {
+  background: none; border: none; box-shadow: none; padding: 0; border-radius: 0; margin: 0;
+}
+.calv3-done .calv3-done-tabc .workout-chart-title {
+  font-family: 'Jost', sans-serif; font-size: 13.5px; font-weight: 700; color: var(--calv3-ink2);
+}
+.calv3-done .calv3-done-tabc .workout-chart-legend {
+  color: var(--calv3-ink3); font-size: 11.5px; margin-top: 10px;
+}
+
+.calv3-done-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.calv3-done-actions .calv3-cta-ghost { flex: 0 0 auto; padding: 11px 16px; font-size: 13px; }
+.calv3-cta-ghost--danger { color: var(--accent-600); }
+.calv3-done-delete-btn {
+  padding: 11px 16px;
+  border-radius: 13px;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.07);
+  color: var(--danger-500, #ef4444);
+  font-weight: 600; font-size: 13px;
+  font-family: inherit; cursor: pointer;
+  transition: background 0.15s ease;
+}
+.calv3-done-delete-btn:hover { background: rgba(239, 68, 68, 0.12); }
+.calv3-done-delete-btn:active { transform: scale(0.99); }
+
+/* laps table */
+.calv3-done-laps { margin-top: 12px; overflow-x: auto; }
+.calv3-laps-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.calv3-laps-table th {
+  text-align: right;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--calv3-ink3);
+  letter-spacing: 0.04em;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--calv3-line);
+}
+.calv3-laps-table th:first-child { text-align: left; }
+.calv3-laps-table td {
+  text-align: right;
+  padding: 7px 8px;
+  color: var(--calv3-ink2);
+  font-family: 'Jost', sans-serif;
+  border-bottom: 1px solid var(--calv3-line);
+}
+.calv3-laps-table td:first-child { text-align: left; font-weight: 700; color: var(--calv3-ink); }
+
+/* ── empty / loading day ───────────────────────────────────────────── */
+.calv3-sheet-empty { font-size: 13px; color: var(--calv3-ink3); text-align: center; padding: 8px 0 4px; }
+
+/* ── «План завершён» карточка в rail (вместо объёма/фаз) ───────────── */
+.calv3-ended-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--calv3-ink);
+}
+.calv3-ended-card__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--success-500);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+/* ── week wrappers ─────────────────────────────────────────────────── */
+.calv3-week { position: relative; }
+.calv3-week--mobile { touch-action: pan-y; }
+.calv3-desk-side { align-self: start; }
+
+/* ════════════════════════════════════════════════════════════════════
+   MONTH VIEW
+   ════════════════════════════════════════════════════════════════════ */
+.calv3-month { position: relative; }
+.calv3-mgrid-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.calv3-mgrid-head__c { text-align: center; font-size: 10px; color: var(--calv3-ink3); font-weight: 700; }
+.calv3-mgrid-head--desk .calv3-mgrid-head__c { text-align: left; padding: 4px 8px; font-size: 11px; }
+
+.calv3-mgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.calv3-mgrid--desk { gap: 6px; }
+
+/* mobile cell */
+.calv3-mcell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px;
+  border: 1px solid var(--calv3-line);
+  background: var(--calv3-card-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+.calv3-mcell.is-today { border: 1.5px solid var(--primary-500); background: var(--calv3-wash); }
+.calv3-mcell.is-done { background: rgba(34, 197, 94, 0.06); }
+.calv3-mcell__d { font-family: 'Jost', sans-serif; font-size: 13px; font-weight: 700; color: var(--calv3-ink); align-self: flex-start; margin-left: 2px; }
+.calv3-mcell.is-today .calv3-mcell__d { color: var(--primary-500); }
+.calv3-mcell__dot { width: 7px; height: 7px; border-radius: 999px; margin-bottom: 3px; }
+.calv3-mcell__dot[data-rest] { background: transparent; border: 1.5px solid var(--calv3-line2); }
+.calv3-mcell__check {
+  width: 14px; height: 14px; border-radius: 999px;
+  background: var(--success-500); color: #fff;
+  display: grid; place-items: center; font-size: 8px; font-weight: 800; margin-bottom: 2px;
+}
+
+/* desktop cell */
+.calv3-mcell-d {
+  min-height: 96px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--calv3-line);
+  background: rgba(255, 255, 255, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+[data-theme="dark"] .calv3-mcell-d { background: rgba(255, 255, 255, 0.04); }
+.calv3-mcell-d--empty { min-height: 96px; border: none; background: transparent; cursor: default; }
+.calv3-mcell-d.is-today { border: 1.5px solid var(--primary-500); background: var(--calv3-wash); }
+.calv3-mcell-d.is-done { background: rgba(34, 197, 94, 0.05); }
+.calv3-mcell-d.is-active { border: 1.5px solid var(--calv3-ink); }
+.calv3-mcell-d__top { display: flex; align-items: center; justify-content: space-between; }
+.calv3-mcell-d__d { font-family: 'Jost', sans-serif; font-size: 14px; font-weight: 700; color: var(--calv3-ink); }
+.calv3-mcell-d.is-today .calv3-mcell-d__d { color: var(--primary-500); }
+.calv3-mcell-d__check { width: 16px; height: 16px; border-radius: 999px; background: var(--success-500); color: #fff; display: grid; place-items: center; font-size: 9px; font-weight: 800; }
+.calv3-mcell-d__accent { width: 100%; height: 3px; border-radius: 4px; }
+.calv3-mcell-d__label { font-size: 11px; font-weight: 600; color: var(--calv3-ink); line-height: 1.2; }
+.calv3-mcell-d__km { font-size: 10.5px; color: var(--calv3-ink3); font-family: 'Jost', sans-serif; }
+.calv3-mcell-d__rest { font-size: 11px; color: var(--calv3-ink4); margin-top: 4px; }
+
+/* legend */
+.calv3-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--calv3-card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--calv3-line);
+}
+.calv3-legend__item { display: flex; align-items: center; gap: 5px; }
+.calv3-legend__dot { width: 8px; height: 8px; border-radius: 999px; }
+.calv3-legend__item span:last-child { font-size: 11px; color: var(--calv3-ink2); }
+
+/* phases list (desktop side rail) */
+.calv3-phases-list { display: flex; flex-direction: column; gap: 8px; }
+.calv3-phase-row { display: flex; align-items: center; gap: 10px; }
+.calv3-phase-row__bar { width: 3px; height: 24px; border-radius: 4px; flex-shrink: 0; }
+.calv3-phase-row__body { flex: 1; min-width: 0; }
+.calv3-phase-row__title { font-size: 12.5px; font-weight: 600; color: var(--calv3-ink); }
+.calv3-phase-row__sub { font-size: 11px; color: var(--calv3-ink3); }
+
+/* ── week tools (copy week / add training) ─────────────────────────── */
+.calv3-week-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.calv3-week-tools--end { justify-content: flex-end; }
+.calv3-desk-actions { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 14px; }
+.calv3-copyweek { display: inline-flex; align-items: center; gap: 6px; }
+.calv3-copyweek__date {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--calv3-line);
+  background: var(--calv3-surf);
+  color: var(--calv3-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* ── week notes (как в прототипе: чистая карточка, текст + «— автор») ── */
+.calv3-wknotes { /* .calv3-card сам задаёт фон/паддинг */ }
+/* На мобиле заметки не должны прилипать к списку дней */
+.calv3-week--mobile .calv3-wknotes { margin-top: 16px; }
+.calv3-wknote { margin-top: 2px; }
+.calv3-wknote + .calv3-wknote { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--calv3-line); }
+.calv3-wknote__text { font-size: 13px; color: var(--calv3-ink2); line-height: 1.5; white-space: pre-line; }
+.calv3-wknote__foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.calv3-wknote__author { font-size: 11px; color: var(--calv3-ink3); font-style: italic; }
+.calv3-wknote__actions { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity 0.12s ease; }
+.calv3-wknote:hover .calv3-wknote__actions { opacity: 1; }
+.calv3-wknote__btn {
+  width: 22px; height: 22px;
+  border-radius: 7px;
+  border: none;
+  background: var(--calv3-surf3);
+  color: var(--calv3-ink3);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+.calv3-wknote__btn:hover { color: var(--primary-500); }
+.calv3-wknote__add-btn {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px dashed var(--calv3-line2);
+  background: transparent;
+  color: var(--calv3-ink2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.calv3-wknote__add-btn:hover { border-color: var(--primary-500); color: var(--primary-500); }
+
+.calv3-notes__textarea {
+  width: 100%;
+  border: 1px solid var(--calv3-line);
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  color: var(--calv3-ink);
+  background: var(--calv3-surf);
+  resize: vertical;
+}
+.calv3-notes__textarea:focus { border-color: var(--primary-500); }
+.calv3-note__add { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.calv3-note__edit-btns { display: flex; gap: 8px; margin-top: 8px; }
+.calv3-note__edit-btns .calv3-cta,
+.calv3-note__edit-btns .calv3-cta-ghost { flex: 0 0 auto; padding: 9px 16px; font-size: 13px; box-shadow: none; }

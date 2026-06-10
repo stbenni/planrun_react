@@ -115,7 +115,7 @@ class WorkoutStructureAnalyzer {
             $confidence = 'medium';
         }
 
-        return [
+        $result = [
             'type' => $type,
             'confidence' => $confidence,
             'lap_count' => count($valid),
@@ -133,6 +133,50 @@ class WorkoutStructureAnalyzer {
             'lap_table' => $this->buildLapTable($valid, $fastThreshold, $slowThreshold, $maxHr),
             'narrative' => $this->buildNarrative($type, $fast, $slow, $normal, $alternating, $maxHr),
         ];
+
+        // Поток-детектор: распознаёт интервалы/фартлек по сырому таймлайну (точнее, чем км-круги,
+        // на коротких репитах). Если нашёл чёткую структуру, а по кругам тип был размытым — уточняем.
+        $detected = $this->detectStreamStructure($workoutId, $maxHr);
+        if ($detected !== null) {
+            $result['detected'] = $detected;
+            if (in_array($result['type'], ['mixed', 'easy', 'long', 'tempo'], true)) {
+                $result['type'] = $detected['type'];
+                $result['confidence'] = $detected['confidence'];
+                $result['narrative'] = $detected['narrative'];
+            }
+        }
+
+        return $result;
+    }
+
+    /** Прогоняет детектор сегментов по таймлайну тренировки. @return array<string,mixed>|null */
+    private function detectStreamStructure(int $workoutId, ?int $maxHr): ?array {
+        $timeline = $this->loadTimeline($workoutId);
+        if (count($timeline) < 30) return null;
+        require_once __DIR__ . '/WorkoutSegmentDetector.php';
+        return (new WorkoutSegmentDetector())->detect($timeline, $maxHr);
+    }
+
+    /** @return array<int,array<string,mixed>> точки таймлайна для детектора */
+    private function loadTimeline(int $workoutId): array {
+        $stmt = $this->db->prepare(
+            "SELECT timestamp, distance, pace, heart_rate FROM workout_timeline WHERE workout_id = ? ORDER BY id ASC"
+        );
+        if (!$stmt) return [];
+        $stmt->bind_param('i', $workoutId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $rows = [];
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = [
+                'timestamp' => $r['timestamp'],
+                'distance' => $r['distance'] !== null ? (float) $r['distance'] : null,
+                'pace' => $r['pace'],
+                'heart_rate' => $r['heart_rate'] !== null ? (int) $r['heart_rate'] : null,
+            ];
+        }
+        $stmt->close();
+        return $rows;
     }
 
     // ── Loading ──────────────────────────────────────────────────────────

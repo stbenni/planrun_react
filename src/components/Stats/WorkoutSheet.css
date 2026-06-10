@@ -1,0 +1,95 @@
+.wsheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 12100;
+  background: rgba(15, 23, 42, 0.4);
+  animation: wsheet-scrim-in 0.22s ease both;
+}
+
+.wsheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12200;
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--calv3-surf, var(--card-bg));
+  border-radius: 22px 22px 0 0;
+  padding: 14px 20px calc(var(--mobile-content-padding-bottom, 90px) + 12px);
+  box-shadow: 0 -20px 40px rgba(0, 0, 0, 0.18);
+  animation: wsheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-theme="dark"] .wsheet { background: var(--bg-secondary); }
+
+.wsheet-grip {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--card-border);
+  margin: 0 auto 6px;
+}
+
+.wsheet-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* Карточка тренировки на всю ширину окна */
+.wsheet .calv3-results { margin-top: 4px; }
+/* освобождаем место под кнопку закрытия ✕ (верх-право) */
+.wsheet .calv3-done-head { padding-right: 40px; }
+
+@keyframes wsheet-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wsheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes wsheet-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+/* Десктоп: выезжает справа на всю высоту */
+@media (min-width: 1024px) {
+  .wsheet {
+    left: auto;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 480px;
+    max-width: 100vw;
+    max-height: none;
+    height: 100%;
+    border-radius: 22px 0 0 22px;
+    padding: 22px 26px;
+    box-shadow: -20px 0 40px rgba(0, 0, 0, 0.18);
+    animation: wsheet-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+  .wsheet-grip { display: none; }
+
+  /* поджимаем контент, чтобы влезал без лишнего скролла и выглядел ровно */
+  .wsheet .calv3-results { margin-top: 0; }
+  .wsheet .calv3-results > .calv3-done { padding: 16px; }
+  .wsheet .calv3-done-map { height: 180px; margin-top: 8px; }
+  .wsheet .calv3-done-tabs { margin-top: 10px; }
+  .wsheet .calv3-done-tabc { margin-top: 10px; }
+  .wsheet .calv3-done-chart { margin: 0 0 12px; }
+  .wsheet .calv3-done-chart .workout-chart-legend { margin-top: 6px; }
+  .wsheet .calv3-done-chart .workout-chart-legend > span:not(.workout-chart-legend-item) { display: none; }
+  .wsheet .calv3-done-metrics { gap: 6px; }
+  .wsheet .calv3-done-card { padding: 9px 12px; }
+  .wsheet .calv3-done-card--hero .calv3-done-val { font-size: 24px; }
+  .wsheet .calv3-done-actions { margin-top: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wsheet, .wsheet-scrim { animation: none; }
+}

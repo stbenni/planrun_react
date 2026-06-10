@@ -51,17 +51,28 @@ class UserProfileService extends BaseService {
         $types = '';
 
         // --- Базовые ---
-        if (isset($data['username'])) {
+        if (array_key_exists('username', $data)) {
             $username = trim($data['username']);
             if (strlen($username) < 3 || strlen($username) > 50) {
-                $this->throwValidationException('Имя пользователя должно быть от 3 до 50 символов');
+                $this->throwValidationException('Адрес профиля должен быть от 3 до 50 символов');
+            }
+            // username UNIQUE — проверяем занятость другим юзером, чтобы не упасть SQL-ошибкой.
+            $chk = $this->db->prepare('SELECT id FROM users WHERE username = ? AND id != ? LIMIT 1');
+            if ($chk) {
+                $chk->bind_param('si', $username, $userId);
+                $chk->execute();
+                $taken = $chk->get_result()->fetch_assoc();
+                $chk->close();
+                if ($taken) {
+                    $this->throwValidationException('Этот адрес профиля уже занят');
+                }
             }
             $updateFields[] = 'username = ?';
             $updateValues[] = $username;
             $types .= 's';
         }
 
-        if (isset($data['email'])) {
+        if (array_key_exists('email', $data)) {
             $email = $normalizeNull($data['email']);
             if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $this->throwValidationException('Некорректный формат email');
@@ -71,14 +82,30 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['timezone'])) {
+        // Имя/Фамилия (отображаемое имя). Имя при наличии — непустое.
+        if (array_key_exists('first_name', $data)) {
+            $firstName = $data['first_name'] === null ? null : mb_substr(trim((string) $data['first_name']), 0, 100);
+            if ($firstName === '') $firstName = null;
+            $updateFields[] = 'first_name = ?';
+            $updateValues[] = $firstName;
+            $types .= 's';
+        }
+        if (array_key_exists('last_name', $data)) {
+            $lastName = $data['last_name'] === null ? null : mb_substr(trim((string) $data['last_name']), 0, 100);
+            if ($lastName === '') $lastName = null;
+            $updateFields[] = 'last_name = ?';
+            $updateValues[] = $lastName;
+            $types .= 's';
+        }
+
+        if (array_key_exists('timezone', $data)) {
             $updateFields[] = 'timezone = ?';
             $updateValues[] = $normalizeNull($data['timezone']);
             $types .= 's';
         }
 
         // --- Профиль ---
-        if (isset($data['gender'])) {
+        if (array_key_exists('gender', $data)) {
             $gender = $normalizeNull($data['gender']);
             if ($gender !== null && !in_array($gender, ['male', 'female'], true)) {
                 $gender = null;
@@ -88,7 +115,7 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['birth_year'])) {
+        if (array_key_exists('birth_year', $data)) {
             $birthYear = $normalizeNull($data['birth_year']);
             if ($birthYear !== null) {
                 $birthYear = (int)$birthYear;
@@ -101,7 +128,7 @@ class UserProfileService extends BaseService {
             $types .= 'i';
         }
 
-        if (isset($data['birth_month'])) {
+        if (array_key_exists('birth_month', $data)) {
             $birthMonth = $normalizeNull($data['birth_month']);
             if ($birthMonth !== null) {
                 $birthMonth = (int)$birthMonth;
@@ -114,7 +141,7 @@ class UserProfileService extends BaseService {
             $types .= 'i';
         }
 
-        if (isset($data['height_cm'])) {
+        if (array_key_exists('height_cm', $data)) {
             $heightCm = $normalizeNull($data['height_cm']);
             if ($heightCm !== null) {
                 $heightCm = (int)$heightCm;
@@ -127,7 +154,7 @@ class UserProfileService extends BaseService {
             $types .= 'i';
         }
 
-        if (isset($data['weight_kg'])) {
+        if (array_key_exists('weight_kg', $data)) {
             $weightKg = $normalizeNull($data['weight_kg']);
             if ($weightKg !== null) {
                 $weightKg = (float)$weightKg;
@@ -141,7 +168,7 @@ class UserProfileService extends BaseService {
         }
 
         // --- Цель и забег ---
-        if (isset($data['goal_type'])) {
+        if (array_key_exists('goal_type', $data)) {
             $goalType = $data['goal_type'];
             if (!in_array($goalType, ['health', 'race', 'weight_loss', 'time_improvement'], true)) {
                 $goalType = 'health';
@@ -156,7 +183,7 @@ class UserProfileService extends BaseService {
         $this->addNullableStringField($data, 'race_target_time', $updateFields, $updateValues, $types, $normalizeNull);
 
         // --- Опыт и тренировки ---
-        if (isset($data['experience_level'])) {
+        if (array_key_exists('experience_level', $data)) {
             $expLevel = $data['experience_level'];
             if (!in_array($expLevel, ['novice', 'beginner', 'intermediate', 'advanced', 'expert'], true)) {
                 $expLevel = ($expLevel === 'zero' || $expLevel === '') ? 'novice' : 'beginner';
@@ -166,41 +193,41 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['weekly_base_km'])) {
+        if (array_key_exists('weekly_base_km', $data)) {
             $val = $normalizeNull($data['weekly_base_km']);
             $updateFields[] = 'weekly_base_km = ?';
             $updateValues[] = $val !== null ? (float)$val : null;
             $types .= 'd';
         }
 
-        if (isset($data['sessions_per_week'])) {
+        if (array_key_exists('sessions_per_week', $data)) {
             $val = $normalizeNull($data['sessions_per_week']);
             $updateFields[] = 'sessions_per_week = ?';
             $updateValues[] = $val !== null ? (int)$val : null;
             $types .= 'i';
         }
 
-        if (isset($data['preferred_days'])) {
+        if (array_key_exists('preferred_days', $data)) {
             $preferredDays = is_array($data['preferred_days']) ? $data['preferred_days'] : [];
             $updateFields[] = 'preferred_days = ?';
             $updateValues[] = !empty($preferredDays) ? json_encode(array_values($preferredDays), JSON_UNESCAPED_UNICODE) : null;
             $types .= 's';
         }
 
-        if (isset($data['preferred_ofp_days'])) {
+        if (array_key_exists('preferred_ofp_days', $data)) {
             $preferredOfpDays = is_array($data['preferred_ofp_days']) ? $data['preferred_ofp_days'] : [];
             $updateFields[] = 'preferred_ofp_days = ?';
             $updateValues[] = !empty($preferredOfpDays) ? json_encode(array_values($preferredOfpDays), JSON_UNESCAPED_UNICODE) : null;
             $types .= 's';
         }
 
-        if (isset($data['has_treadmill'])) {
+        if (array_key_exists('has_treadmill', $data)) {
             $updateFields[] = 'has_treadmill = ?';
             $updateValues[] = ($data['has_treadmill'] === true || $data['has_treadmill'] === 1 || $data['has_treadmill'] === '1') ? 1 : 0;
             $types .= 'i';
         }
 
-        if (isset($data['training_time_pref'])) {
+        if (array_key_exists('training_time_pref', $data)) {
             $val = $normalizeNull($data['training_time_pref']);
             if ($val !== null && !in_array($val, ['morning', 'day', 'evening'], true)) {
                 $val = null;
@@ -210,7 +237,7 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['ofp_preference'])) {
+        if (array_key_exists('ofp_preference', $data)) {
             $val = $normalizeNull($data['ofp_preference']);
             if ($val !== null && !in_array($val, ['gym', 'home', 'both', 'group_classes', 'online'], true)) {
                 $val = null;
@@ -220,9 +247,9 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['training_mode'])) {
+        if (array_key_exists('training_mode', $data)) {
             $trainingMode = $data['training_mode'];
-            if (!in_array($trainingMode, ['ai', 'coach', 'both', 'self'], true)) {
+            if (!in_array($trainingMode, ['ai', 'coach', 'self'], true)) {
                 $trainingMode = 'ai';
             }
             $updateFields[] = 'training_mode = ?';
@@ -236,7 +263,7 @@ class UserProfileService extends BaseService {
         $this->addNullableStringField($data, 'health_notes', $updateFields, $updateValues, $types, $normalizeNull);
         $this->addNullableStringField($data, 'device_type', $updateFields, $updateValues, $types, $normalizeNull);
 
-        if (isset($data['weight_goal_kg'])) {
+        if (array_key_exists('weight_goal_kg', $data)) {
             $val = $normalizeNull($data['weight_goal_kg']);
             $updateFields[] = 'weight_goal_kg = ?';
             $updateValues[] = $val !== null ? (float)$val : null;
@@ -245,7 +272,7 @@ class UserProfileService extends BaseService {
 
         $this->addNullableStringField($data, 'weight_goal_date', $updateFields, $updateValues, $types, $normalizeNull);
 
-        if (isset($data['health_program'])) {
+        if (array_key_exists('health_program', $data)) {
             $val = $normalizeNull($data['health_program']);
             if ($val !== null && !in_array($val, ['start_running', 'couch_to_5k', 'regular_running', 'custom'], true)) {
                 $val = null;
@@ -255,14 +282,14 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['health_plan_weeks'])) {
+        if (array_key_exists('health_plan_weeks', $data)) {
             $val = $normalizeNull($data['health_plan_weeks']);
             $updateFields[] = 'health_plan_weeks = ?';
             $updateValues[] = $val !== null ? (int)$val : null;
             $types .= 'i';
         }
 
-        if (isset($data['current_running_level'])) {
+        if (array_key_exists('current_running_level', $data)) {
             $val = $normalizeNull($data['current_running_level']);
             if ($val !== null && !in_array($val, ['zero', 'basic', 'comfortable'], true)) {
                 $val = null;
@@ -273,7 +300,7 @@ class UserProfileService extends BaseService {
         }
 
         // --- Расширенный профиль бегуна ---
-        if (isset($data['running_experience'])) {
+        if (array_key_exists('running_experience', $data)) {
             $val = $normalizeNull($data['running_experience']);
             if ($val !== null && !in_array($val, ['less_3m', '3_6m', '6_12m', '1_2y', 'more_2y'], true)) {
                 $val = null;
@@ -283,14 +310,14 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['easy_pace_sec'])) {
+        if (array_key_exists('easy_pace_sec', $data)) {
             $val = $normalizeNull($data['easy_pace_sec']);
             $updateFields[] = 'easy_pace_sec = ?';
             $updateValues[] = $val !== null ? (int)$val : null;
             $types .= 'i';
         }
 
-        if (isset($data['is_first_race_at_distance'])) {
+        if (array_key_exists('is_first_race_at_distance', $data)) {
             $val = $normalizeNull($data['is_first_race_at_distance']);
             if ($val !== null) {
                 $val = ($val === true || $val === 1 || $val === '1') ? 1 : 0;
@@ -300,7 +327,7 @@ class UserProfileService extends BaseService {
             $types .= 'i';
         }
 
-        if (isset($data['last_race_distance'])) {
+        if (array_key_exists('last_race_distance', $data)) {
             $val = $normalizeNull($data['last_race_distance']);
             if ($val !== null && !in_array($val, ['5k', '10k', 'half', 'marathon', 'other'], true)) {
                 $val = null;
@@ -310,7 +337,7 @@ class UserProfileService extends BaseService {
             $types .= 's';
         }
 
-        if (isset($data['last_race_distance_km'])) {
+        if (array_key_exists('last_race_distance_km', $data)) {
             $val = $normalizeNull($data['last_race_distance_km']);
             $updateFields[] = 'last_race_distance_km = ?';
             $updateValues[] = $val !== null ? (float)$val : null;
@@ -321,7 +348,7 @@ class UserProfileService extends BaseService {
         $this->addNullableStringField($data, 'last_race_date', $updateFields, $updateValues, $types, $normalizeNull);
 
         // --- Аватар ---
-        if (isset($data['avatar_path'])) {
+        if (array_key_exists('avatar_path', $data)) {
             $normalizedAvatar = AvatarService::normalizeStoredAvatarPath($data['avatar_path']);
             if (!$normalizedAvatar['valid']) {
                 $this->throwValidationException('Некорректный avatar_path');
@@ -338,14 +365,14 @@ class UserProfileService extends BaseService {
             'push_workouts_enabled', 'push_chat_enabled',
         ];
         foreach ($boolFields as $field) {
-            if (isset($data[$field])) {
+            if (array_key_exists($field, $data)) {
                 $updateFields[] = "$field = ?";
                 $updateValues[] = (int)$data[$field] ? 1 : 0;
                 $types .= 'i';
             }
         }
 
-        if (isset($data['push_workout_hour'])) {
+        if (array_key_exists('push_workout_hour', $data)) {
             $h = (int)$data['push_workout_hour'];
             if ($h >= 0 && $h <= 23) {
                 $updateFields[] = 'push_workout_hour = ?';
@@ -353,7 +380,7 @@ class UserProfileService extends BaseService {
                 $types .= 'i';
             }
         }
-        if (isset($data['push_workout_minute'])) {
+        if (array_key_exists('push_workout_minute', $data)) {
             $m = (int)$data['push_workout_minute'];
             if ($m >= 0 && $m <= 59) {
                 $updateFields[] = 'push_workout_minute = ?';
@@ -362,7 +389,7 @@ class UserProfileService extends BaseService {
             }
         }
 
-        if (isset($data['privacy_level'])) {
+        if (array_key_exists('privacy_level', $data)) {
             $privacyLevel = $data['privacy_level'];
             if (!in_array($privacyLevel, ['public', 'private', 'link'], true)) {
                 $privacyLevel = 'public';
@@ -386,7 +413,7 @@ class UserProfileService extends BaseService {
         }
 
         // --- username_slug ---
-        if (isset($data['username'])) {
+        if (array_key_exists('username', $data)) {
             require_once __DIR__ . '/../user_functions.php';
             $usernameSlug = generateUsernameSlug($data['username'], $userId);
             $updateFields[] = 'username_slug = ?';
@@ -737,7 +764,7 @@ class UserProfileService extends BaseService {
     // ==================== ПРИВАТНЫЕ ХЕЛПЕРЫ ====================
 
     private function addNullableStringField(array $data, string $key, array &$fields, array &$values, string &$types, callable $normalizeNull): void {
-        if (isset($data[$key])) {
+        if (array_key_exists($key, $data)) {
             $fields[] = "$key = ?";
             $values[] = $normalizeNull($data[$key]);
             $types .= 's';

@@ -7,7 +7,8 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import Modal from '../common/Modal';
+import { createPortal } from 'react-dom';
+import useSheetFocus from './v3/useSheetFocus';
 import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
 import {
   parseTime, formatTime, parsePace, formatPace,
@@ -36,7 +37,7 @@ const createRunBlock = (planDay, extraId) => ({
 
 const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave }) => {
   const [runBlocks, setRunBlocks] = useState([]);
-  const [runDistance, setRunDistance] = useState('');
+  const [, setRunDistance] = useState('');
   const [runDuration, setRunDuration] = useState('');
   const [runPace, setRunPace] = useState('');
   const [runHR, setRunHR] = useState('');
@@ -56,6 +57,7 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const [extraTypes, setExtraTypes] = useState([]);
   const [showAddTypeDropdown, setShowAddTypeDropdown] = useState(false);
   const nextCustomIdRef = useRef(0);
+  const sheetRef = useRef(null);
   // При редактировании существующей записи запоминаем её week_number/day_name,
   // чтобы saveResult обновил ту же строку, а не создал дубликат.
   const [existingKeys, setExistingKeys] = useState(null);
@@ -77,12 +79,8 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
   const [fartlekCooldownKm, setFartlekCooldownKm] = useState('');
 
   const runPlanDays = (dayPlan.planDays || []).filter(pd => RUN_TYPES.includes(pd.type));
-  const simpleRunPlanDays = runPlanDays.filter(pd => SIMPLE_RUN_TYPES.includes(pd.type));
   const intervalPlanDay = runPlanDays.find(pd => pd.type === 'interval');
   const fartlekPlanDay = runPlanDays.find(pd => pd.type === 'fartlek');
-  const runPlanDay = runPlanDays[0];
-  const runType = runPlanDay?.type || null;
-  const hasRun = runPlanDays.length > 0 || runBlocks.length > 0;
   const ofpExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'ofp') ?? [];
   const sbuExercises = dayPlan.dayExercises?.filter(ex => (ex.category || '').toLowerCase() === 'sbu') ?? [];
   const hasOfpPlan = dayPlan.planDays?.some(pd => pd.type === 'other') || ofpExercises.length > 0;
@@ -717,11 +715,37 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
     </>
   );
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Отметить тренировку" size="medium" variant="modern" mobilePresentation="fullscreen">
-      <p className="add-training-date">{dateLabel}</p>
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, onClose]);
 
-      <form onSubmit={handleSubmit} className="add-training-form">
+  useSheetFocus(sheetRef, isOpen);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="atv3-modal-root" role="presentation">
+      <div className="atv3-scrim" onClick={onClose} />
+      <div className="atv3-sheet" role="dialog" aria-modal="true" aria-label="Отметить тренировку" ref={sheetRef}>
+        <div className="atv3-grip" aria-hidden />
+        <div className="atv3-sheet-top">
+          <div className="atv3-sheet-titles">
+            <div className="atv3-sheet-kicker">{dateLabel ? dateLabel.toUpperCase() : 'РЕЗУЛЬТАТ'}</div>
+            <div className="atv3-sheet-title">Отметить тренировку</div>
+          </div>
+          <button type="button" className="atv3-sheet-x" onClick={onClose} aria-label="Закрыть">✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="atv3-sheet-form">
+          <div className="atv3-sheet-scroll">
           {hasRunBlock && renderRunBlocks()}
 
           {hasOfpPlan && (
@@ -863,17 +887,25 @@ const ResultModal = ({ isOpen, onClose, date, weekNumber, dayKey, api, onSave })
             </div>
           )}
 
-          <div className="form-group">
-            <label htmlFor="resultNotes">Заметки</label>
-            <textarea id="resultNotes" rows="2" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Дополнительные заметки..." className="add-training-textarea" />
+          <div className="atv3-label atv3-label--mt">ЗАМЕТКИ</div>
+          <textarea
+            id="resultNotes"
+            rows="2"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            placeholder="Дополнительные заметки…"
+            className="atv3-area"
+          />
           </div>
 
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Сохранение...' : 'Сохранить'}</button>
+          <div className="atv3-footer">
+            <button type="button" className="atv3-cancel" onClick={onClose}>Отмена</button>
+            <button type="submit" className="atv3-save" disabled={loading}>{loading ? 'Сохранение…' : 'Сохранить'}</button>
           </div>
         </form>
-    </Modal>
+      </div>
+    </div>,
+    document.body
   );
 };
 

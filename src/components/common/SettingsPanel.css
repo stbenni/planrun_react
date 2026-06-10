@@ -1,0 +1,86 @@
+/* Выезжающая панель настроек — паттерн drill-in тренера (.coach-overlay). */
+
+.settings-panel-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+}
+
+.settings-panel-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  animation: settings-panel-fade 0.2s ease-out;
+}
+
+.settings-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 100vw;
+  background: var(--app-background-base);
+  background-image: var(--app-background-image);
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: settings-panel-slide 0.25s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.settings-panel-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.settings-panel-close:hover { background: var(--gray-200); }
+
+.settings-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 18px calc(env(safe-area-inset-bottom, 0px) + 24px);
+}
+
+/* Внутри панели settings-content не добавляет своих внешних отступов/ширины. */
+.settings-in-panel { max-width: none; margin: 0; min-height: auto; }
+.settings-in-panel .settings-content { padding: 0; }
+
+.settings-panel-loading {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-family: 'Montserrat', sans-serif;
+}
+
+@keyframes settings-panel-slide {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes settings-panel-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Мобайл: фуллскрин. */
+@media (max-width: 1023px) {
+  .settings-panel {
+    width: 100vw;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+[data-theme="dark"] .settings-panel-scrim { background: rgba(0, 0, 0, 0.55); }
+[data-theme="dark"] .settings-panel-close:hover { background: var(--gray-700); }

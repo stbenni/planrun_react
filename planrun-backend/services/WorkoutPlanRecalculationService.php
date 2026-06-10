@@ -15,6 +15,19 @@ class WorkoutPlanRecalculationService extends BaseService {
         float $newVdot
     ): array {
         try {
+            // Автопересчёт плана через AI — только для режима 'ai'. self/coach ведут план сами/через тренера,
+            // иначе быстрый контрольный/забег деактивировал бы их план и затёр AI-пересчётом.
+            $modeRow = null;
+            if ($modeStmt = $this->db->prepare("SELECT training_mode FROM users WHERE id = ?")) {
+                $modeStmt->bind_param('i', $userId);
+                $modeStmt->execute();
+                $modeRow = $modeStmt->get_result()->fetch_assoc();
+                $modeStmt->close();
+            }
+            if (($modeRow['training_mode'] ?? 'ai') !== 'ai') {
+                return ['queued' => false, 'skipped_reason' => 'автопересчёт только для режима AI'];
+            }
+
             $remainingDays = $this->countRemainingPlannedDaysAfterDate($userId, $resultDate);
             if ($remainingDays < self::MIN_FUTURE_WORKOUTS) {
                 return ['queued' => false, 'skipped_reason' => 'в плане почти не осталось будущих тренировок'];

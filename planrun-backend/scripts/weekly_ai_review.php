@@ -37,11 +37,12 @@ $reviewDayOfWeek = 7; // воскресенье (ISO-8601: 1=Пн, 7=Вс)
 // Тестовый bypass фильтра: WEEKLY_REVIEW_FORCE_USER=<user_id> запускает обзор только для этого пользователя.
 $forceUserId = (int) (getenv('WEEKLY_REVIEW_FORCE_USER') ?: 0);
 
-// Находим пользователей с активным планом
+// Находим пользователей с активным планом (AI-ревью плана — только для режима 'ai')
 $result = $db->query("
     SELECT u.id, COALESCE(u.timezone, 'Europe/Moscow') AS timezone
     FROM users u
     INNER JOIN training_plan_weeks tpw ON tpw.user_id = u.id
+    WHERE u.training_mode = 'ai'
     GROUP BY u.id, u.timezone
     HAVING MAX(DATE_ADD(tpw.start_date, INTERVAL 6 DAY)) >= CURDATE() - INTERVAL 7 DAY
 ");

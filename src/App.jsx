@@ -14,6 +14,7 @@ import LockScreen from './components/common/LockScreen';
 import SkeletonScreen from './components/common/SkeletonScreen';
 import LogoLoading from './components/common/LogoLoading';
 import AppErrorBoundary from './components/common/AppErrorBoundary';
+import SettingsPanel from './components/common/SettingsPanel';
 import AppUpdateModal from './components/AppUpdateModal';
 import { preloadAuthenticatedModules, preloadScreenModulesDelayed } from './utils/modulePreloader';
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -23,6 +24,7 @@ import './App.css';
 
 // Lazy для страниц вне основных вкладок
 const UserProfileScreen = lazyWithRetry(() => import('./screens/UserProfileScreen'), 'UserProfileScreen');
+const OnboardingFlow = lazyWithRetry(() => import('./screens/OnboardingFlow'), 'OnboardingFlow');
 const ForgotPasswordScreen = lazyWithRetry(() => import('./screens/ForgotPasswordScreen'), 'ForgotPasswordScreen');
 const ResetPasswordScreen = lazyWithRetry(() => import('./screens/ResetPasswordScreen'), 'ResetPasswordScreen');
 const PrivacyPolicyScreen = lazyWithRetry(() => import('./screens/PrivacyPolicyScreen'), 'PrivacyPolicyScreen');
@@ -43,6 +45,17 @@ function RoutedErrorBoundary({ children }) {
       {children}
     </AppErrorBoundary>
   );
+}
+
+/** Гейт /onboarding: обычно прошедший онбординг → дашборд, но при СМЕНЕ режима
+ *  (navigate('/onboarding', { state:{ mode } })) пускаем повторно — собрать метрики. */
+function OnboardingGate({ isAuthenticated, user }) {
+  const loc = useLocation();
+  if (!isAuthenticated) return <Navigate to="/landing" replace />;
+  if (!user) return <div className="loading-container"><LogoLoading /></div>;
+  const isSwitch = !!loc.state?.mode;
+  if (user.onboarding_completed && !isSwitch) return <Navigate to="/" replace />;
+  return <OnboardingFlow />;
 }
 
 function App() {
@@ -227,9 +240,27 @@ function App() {
           path="/dashboard"
           element={<Navigate to={isAuthenticated ? '/' : '/landing'} replace />}
         />
-        {/* Авторизованная зона: вкладки (все экраны смонтированы, переключение без перезагрузки) */}
+        {/* Онбординг (специализация): полноэкранный wizard. Гость → лендинг, прошедший → дашборд. */}
         <Route
-          element={isAuthenticated ? <AppLayout onLogout={handleLogout} /> : <Navigate to="/landing" replace />}
+          path="/onboarding"
+          element={<OnboardingGate isAuthenticated={isAuthenticated} user={user} />}
+        />
+        {/* Авторизованная зона: вкладки (все экраны смонтированы, переключение без перезагрузки).
+            Незавершённый онбординг → редирект на полноэкранный /onboarding.
+            Пока user ещё догружается (медленная сеть/мобильные) — показываем лоадер,
+            а не пустой дашборд: иначе гейтинг онбординга не успевает сработать. */}
+        <Route
+          element={
+            !isAuthenticated ? (
+              <Navigate to="/landing" replace />
+            ) : !user ? (
+              <div className="loading-container"><LogoLoading /></div>
+            ) : !user.onboarding_completed ? (
+              <Navigate to="/onboarding" replace />
+            ) : (
+              <AppLayout onLogout={handleLogout} />
+            )
+          }
           path="/"
         >
           <Route index element={null} />
@@ -266,6 +297,7 @@ function App() {
       {updateAvailable && (
         <AppUpdateModal updateInfo={updateInfo} onDismiss={dismissUpdate} />
       )}
+      <SettingsPanel />
     </Router>
     </>
   );

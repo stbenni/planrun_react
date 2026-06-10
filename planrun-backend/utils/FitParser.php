@@ -154,8 +154,16 @@ class FitParser {
         // === Timeline ===
         $timeline = self::buildTimeline($timestamps, $heartRates, $latitudes, $longitudes, $altitudes, $cadences, $speeds, $distances);
 
-        // === Laps ===
+        // === Laps / сплиты ===
         $laps = self::buildLaps($fit->data_mesgs['lap'] ?? []);
+        // Если часы не писали километровые автолапы (≤1 круга) — нарезаем сплиты по 1 км из трека
+        // (как «Splits» в Strava). Настоящие мульти-круги (автолап вкл.) сохраняем как есть.
+        if ((!is_array($laps) || count($laps) <= 1) && !empty($timeline)) {
+            $splits = self::buildSplitsFromTimeline($timeline, 1.0);
+            if (is_array($splits) && count($splits) > 1) {
+                $laps = $splits;
+            }
+        }
 
         return [
             'activity_type' => $activityType,
@@ -230,16 +238,14 @@ class FitParser {
             $dist = self::getVal($distances, $key);
             $distKm = ($dist !== null && $dist > 0) ? round($dist, 3) : null;
 
-            // Темп из скорости (м/с → мин/км)
+            // Темп из скорости. Библиотека отдаёт speed в КМ/Ч → сек/км = 3600 / скорость.
+            // (Раньше тут было 1000/speed как для м/с — давало нереальный темп и pace всегда падал в null.)
             $pace = null;
             $speed = self::getVal($speeds, $key);
-            if ($speed !== null && $speed > 0.3) { // > ~1 км/ч (чтобы не было бесконечного темпа)
-                $paceSecPerKm = 1000 / $speed; // секунд на километр
-                if ($paceSecPerKm >= 120 && $paceSecPerKm <= 900) { // 2:00 — 15:00 мин/км
-                    $m = (int)floor($paceSecPerKm / 60);
-                    $s = (int)round($paceSecPerKm % 60);
-                    if ($s >= 60) { $s -= 60; $m++; }
-                    $pace = sprintf('%d:%02d', $m, $s);
+            if ($speed !== null && $speed > 0.5) { // > 0.5 км/ч
+                $paceSecPerKm = (int) round(3600 / $speed);
+                if ($paceSecPerKm >= 120 && $paceSecPerKm <= 1500) { // 2:00 — 25:00 мин/км
+                    $pace = sprintf('%d:%02d', intdiv($paceSecPerKm, 60), $paceSecPerKm % 60);
                 }
             }
 
@@ -264,16 +270,18 @@ class FitParser {
     private static function buildLaps(array $lapData): ?array {
         if (empty($lapData)) return null;
 
-        $timestamps = $lapData['timestamp'] ?? [];
-        $totalTimers = $lapData['total_timer_time'] ?? [];
-        $totalDists = $lapData['total_distance'] ?? [];
-        $avgHrs = $lapData['avg_heart_rate'] ?? [];
-        $maxHrs = $lapData['max_heart_rate'] ?? [];
-        $avgSpeeds = $lapData['avg_speed'] ?? [];
-        $avgCadences = $lapData['avg_cadence'] ?? [];
-        $totalAscents = $lapData['total_ascent'] ?? [];
+        // phpFITFileAnalysis отдаёт поля как СКАЛЯР при одном круге и как МАССИВ при нескольких —
+        // нормализуем к массивам, иначе единственный круг (частый случай Suunto без автолапа) теряется.
+        $timestamps = self::toArray($lapData['timestamp'] ?? null);
+        $totalTimers = self::toArray($lapData['total_timer_time'] ?? null);
+        $totalDists = self::toArray($lapData['total_distance'] ?? null);
+        $avgHrs = self::toArray($lapData['avg_heart_rate'] ?? null);
+        $maxHrs = self::toArray($lapData['max_heart_rate'] ?? null);
+        $avgSpeeds = self::toArray($lapData['avg_speed'] ?? null);
+        $avgCadences = self::toArray($lapData['avg_cadence'] ?? null);
+        $totalAscents = self::toArray($lapData['total_ascent'] ?? null);
 
-        if (!is_array($timestamps) || empty($timestamps)) return null;
+        if (empty($timestamps)) return null;
 
         $laps = [];
         $count = count($timestamps);
@@ -314,6 +322,83 @@ class FitParser {
     }
 
     /**
+     * Нарезает сплиты фиксированной длины (по умолчанию 1 км) из таймлайна — когда часы
+     * не писали километровые автолапы. Пульс/темп/набор считаем из трека, поэтому сплиты
+     * получаются богаче родного lap-summary (у Suunto он часто без пульса/темпа).
+     * @param array<int,array>|null $timeline точки с полями distance(км, кумул.), timestamp, heart_rate, cadence, altitude
+     * @return array<int,array>|null
+     */
+    private static function buildSplitsFromTimeline(?array $timeline, float $intervalKm = 1.0): ?array {
+        if (empty($timeline) || $intervalKm <= 0) return null;
+        $pts = [];
+        foreach ($timeline as $p) {
+            $d = $p['distance'] ?? null;
+            $t = isset($p['timestamp']) ? strtotime((string)$p['timestamp']) : null;
+            if ($d === null || $t === null || $t === false) continue;
+            $pts[] = [
+                'd'   => (float)$d,
+                't'   => (int)$t,
+                'hr'  => isset($p['heart_rate']) && $p['heart_rate'] !== null ? (int)$p['heart_rate'] : null,
+                'cad' => isset($p['cadence']) && $p['cadence'] !== null ? (int)$p['cadence'] : null,
+                'alt' => isset($p['altitude']) && $p['altitude'] !== null ? (float)$p['altitude'] : null,
+            ];
+        }
+        if (count($pts) < 2) return null;
+        $totalDist = $pts[count($pts) - 1]['d'];
+        if ($totalDist < $intervalKm) return null;
+
+        $splits = [];
+        $segStartD = $pts[0]['d'];
+        $segStartT = $pts[0]['t'];
+        $hrSum = 0; $hrCnt = 0; $hrMax = null; $cadSum = 0; $cadCnt = 0; $ascent = 0.0; $prevAlt = $pts[0]['alt'];
+        $boundary = $segStartD + $intervalKm;
+
+        $flush = function (float $endD, int $endT) use (&$splits, &$segStartD, &$segStartT, &$hrSum, &$hrCnt, &$hrMax, &$cadSum, &$cadCnt, &$ascent) {
+            $distKm = round($endD - $segStartD, 3);
+            if ($distKm <= 0) return;
+            $dur = max(0, $endT - $segStartT);
+            $splits[] = [
+                'name'             => 'Круг ' . (count($splits) + 1),
+                'distance_km'      => $distKm,
+                'duration_seconds' => $dur > 0 ? $dur : null,
+                'avg_pace'         => $dur > 0 ? self::paceStr($dur / $distKm) : null,
+                'avg_heart_rate'   => $hrCnt > 0 ? (int)round($hrSum / $hrCnt) : null,
+                'max_heart_rate'   => $hrMax,
+                'cadence'          => $cadCnt > 0 ? (int)round($cadSum / $cadCnt) : null,
+                'elevation_gain'   => $ascent > 0 ? (int)round($ascent) : null,
+            ];
+            $segStartD = $endD; $segStartT = $endT;
+            $hrSum = 0; $hrCnt = 0; $hrMax = null; $cadSum = 0; $cadCnt = 0; $ascent = 0.0;
+        };
+
+        foreach ($pts as $p) {
+            if ($p['hr'] !== null) { $hrSum += $p['hr']; $hrCnt++; if ($hrMax === null || $p['hr'] > $hrMax) $hrMax = $p['hr']; }
+            if ($p['cad'] !== null) { $cadSum += $p['cad']; $cadCnt++; }
+            if ($prevAlt !== null && $p['alt'] !== null && $p['alt'] > $prevAlt) $ascent += $p['alt'] - $prevAlt;
+            if ($p['alt'] !== null) $prevAlt = $p['alt'];
+            while ($p['d'] + 1e-9 >= $boundary && $boundary < $totalDist) {
+                $flush($boundary, $p['t']);
+                $boundary += $intervalKm;
+            }
+        }
+        $lastD = $pts[count($pts) - 1]['d'];
+        $lastT = $pts[count($pts) - 1]['t'];
+        if ($lastD - $segStartD > 0.05) {
+            $flush($lastD, $lastT);
+        }
+        return count($splits) > 0 ? $splits : null;
+    }
+
+    /** Темп (min:sec на км) из секунд-на-км; null вне разумного диапазона (2:00–30:00). */
+    private static function paceStr(float $secPerKm): ?string {
+        if ($secPerKm < 120 || $secPerKm > 1800) return null;
+        $m = (int)floor($secPerKm / 60);
+        $s = (int)round($secPerKm - $m * 60);
+        if ($s >= 60) { $s -= 60; $m++; }
+        return sprintf('%d:%02d', $m, $s);
+    }
+
+    /**
      * Получить значение из массива или скаляра по ключу
      */
     private static function getVal($data, $key) {
@@ -331,6 +416,16 @@ class FitParser {
         if ($data === null || !is_array($data)) return null;
         $values = array_values($data);
         return $values[$index] ?? null;
+    }
+
+    /**
+     * Нормализует значение FIT-поля к индексированному массиву:
+     * скаляр -> [скаляр], массив -> array_values, null -> [].
+     * Нужно, т.к. при одном сообщении (например один круг) библиотека отдаёт скаляр.
+     */
+    private static function toArray($v): array {
+        if ($v === null) return [];
+        return is_array($v) ? array_values($v) : [$v];
     }
 
     /**

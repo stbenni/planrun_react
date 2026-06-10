@@ -5,6 +5,7 @@ import useAuthStore from '../stores/useAuthStore';
 import LoginModal from '../components/LoginModal';
 import RegisterModal from '../components/RegisterModal';
 import ParticlesBackground from '../components/ParticlesBackground';
+import LogoLoading from '../components/common/LogoLoading';
 import './LandingScreen.css';
 
 const detectIOSDevice = () => {
@@ -155,6 +156,16 @@ const LandingScreen = ({ onRegister, registrationEnabled = true }) => {
     setRegisterOpen(false);
     setRegisterReturnTo(null);
   };
+
+  // Уже авторизованы (например, только что вошли) — навигация прочь идёт через useEffect выше.
+  // Пока она в полёте, показываем лоадер вместо мелькающего пустого лендинга (заметно на мобильных).
+  if (isAuthenticated) {
+    return (
+      <div className="loading-container">
+        <LogoLoading />
+      </div>
+    );
+  }
 
   return (
     <div ref={showcaseRef} className="landing-showcase">

@@ -85,6 +85,7 @@ const LeafletRouteMap = ({ timeline, hoverIndex }) => {
     L.marker(coords[coords.length - 1], { icon: endIcon }).addTo(map);
 
     map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    map.setZoom(Math.max(0, map.getZoom() - 1));
     mapInstanceRef.current = map;
 
     // Слушаем переключение темы

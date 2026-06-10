@@ -60,12 +60,13 @@ function planStructureLooksNormalized($planData): bool {
 function saverWriteNormalizedWeeks($db, int $userId, array $weeks, string $logPrefix): void {
     foreach ($weeks as $week) {
         $stmt = $db->prepare(
-            "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume) VALUES (?, ?, ?, ?)"
+            "INSERT INTO training_plan_weeks (user_id, week_number, start_date, total_volume, phase) VALUES (?, ?, ?, ?, ?)"
         );
         $wn = $week['week_number'];
         $sd = $week['start_date'];
         $tv = $week['total_volume'];
-        $stmt->bind_param('iisd', $userId, $wn, $sd, $tv);
+        $ph = isset($week['phase']) && $week['phase'] !== '' ? (string) $week['phase'] : null;
+        $stmt->bind_param('iisds', $userId, $wn, $sd, $tv, $ph);
         $stmt->execute();
         $weekId = $db->insert_id;
         $stmt->close();

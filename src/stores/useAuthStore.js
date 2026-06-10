@@ -15,7 +15,7 @@ import { isActivePlanGenerationStatus } from '../utils/planStatus';
 function shouldPrefetchAiPlan(userData) {
   return Boolean(
     userData?.onboarding_completed &&
-    (userData?.training_mode === 'ai' || userData?.training_mode === 'both')
+    (userData?.training_mode === 'ai')
   );
 }
 
@@ -49,12 +49,13 @@ const useAuthStore = create(
       api: null,
       loading: true,
       isAuthenticated: false,
-      showOnboardingModal: false,
       /** Сообщение о генерации плана после специализации (показывается на дашборде) */
       planGenerationMessage: null,
       /** Открыто ли боковое меню профиля (мобильное приложение) */
       drawerOpen: false,
       setDrawerOpen: (open) => set({ drawerOpen: typeof open === 'function' ? open(get().drawerOpen) : open }),
+      settingsPanelOpen: false,
+      setSettingsPanelOpen: (open) => set({ settingsPanelOpen: typeof open === 'function' ? open(get().settingsPanelOpen) : open }),
       /** Требуется разблокировка (PIN или биометрия) перед показом приложения */
       isLocked: false,
       setLocked: (value) => set({
@@ -511,7 +512,6 @@ const useAuthStore = create(
         }
       },
 
-      setShowOnboardingModal: (value) => set({ showOnboardingModal: value }),
       setPlanGenerationMessage: (message) => set({ planGenerationMessage: message }),
 
       // Обновление данных пользователя

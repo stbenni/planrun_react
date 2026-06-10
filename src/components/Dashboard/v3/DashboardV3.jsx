@@ -18,12 +18,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DashCustomizerV3, { getEnabledWidgets } from './DashCustomizerV3';
 import useAuthStore from '../../../stores/useAuthStore';
+import usePlanStore from '../../../stores/usePlanStore';
 import { useDashboardData } from '../useDashboardData';
 import { useDashboardPullToRefresh } from '../useDashboardPullToRefresh';
 import { useRef } from 'react';
 import SkeletonScreen from '../../common/SkeletonScreen';
+import PlanGeneratingState from '../PlanGeneratingState';
 import { RunningIcon, CalendarIcon, SettingsIcon } from '../../common/Icons';
 import GoalCountdownWidget from '../GoalCountdownWidget';
 
@@ -39,11 +42,13 @@ import FormSectionV3 from './FormSectionV3';
 import StatsSectionV3 from './StatsSectionV3';
 import TrendsSmallV3 from './TrendsSmallV3';
 import RacePredictionV3 from './RacePredictionV3';
+import ModeSwitchPopup from './ModeSwitchPopup';
+import { getDisplayName } from '../../../utils/displayName';
 
 import './DashboardV3.css';
 
 function isAiPlanMode(trainingMode) {
-  return trainingMode === 'ai' || trainingMode === 'both';
+  return trainingMode === 'ai';
 }
 
 export default function DashboardV3({
@@ -54,9 +59,79 @@ export default function DashboardV3({
   registrationMessage,
   isNewRegistration,
 }) {
-  const setShowOnboardingModal = useAuthStore((s) => s.setShowOnboardingModal);
+  const navigate = useNavigate();
   const setPlanGenerationMessage = useAuthStore((s) => s.setPlanGenerationMessage);
+  const updateUser = useAuthStore((s) => s.updateUser);
   const needsOnboarding = !!(user && !user.onboarding_completed);
+
+  const [modeOpen, setModeOpen] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+
+  const handleModeSelect = useCallback(async (newMode) => {
+    const cur = user?.training_mode;
+    if (!newMode || newMode === cur) { setModeOpen(false); return; }
+
+    // ── Уход ОТ тренера (coach → ai/self) ──────────────────────────────
+    // Завершаем работу с тренером (removeCoach → бэк ставит self). Для «Сам»
+    // на этом всё (план остаётся, ручной). Для AI — дальше онбординг (метрики + план).
+    if (cur === 'coach' && (newMode === 'ai' || newMode === 'self')) {
+      setModeBusy(true);
+      try {
+        const res = await api.getMyCoaches();
+        const coaches = res?.data?.coaches || res?.coaches || [];
+        const coach = coaches[0] || null;
+        const name = coach ? getDisplayName(coach) : 'тренером';
+        if (!window.confirm(`Завершить работу с ${name}? План перейдёт под ${newMode === 'ai' ? 'AI' : 'ваше'} управление.`)) {
+          setModeBusy(false);
+          return;
+        }
+        if (coach) await api.removeCoach({ coachId: coach.id });
+        if (newMode === 'self') {
+          await api.request('update_profile', { training_mode: 'self' }, 'POST');
+          updateUser({ ...user, training_mode: 'self' });
+          setModeOpen(false);
+        } else {
+          setModeOpen(false);
+          navigate('/onboarding', { state: { mode: 'ai' } });
+        }
+      } catch (e) {
+        console.error('leave coach failed:', e);
+      } finally {
+        setModeBusy(false);
+      }
+      return;
+    }
+
+    // ── Вход К тренеру (ai/self → coach) ───────────────────────────────
+    // Уже привязан — просто включаем режим. Нет тренера — в каталог;
+    // режим сам станет coach, когда тренер примет заявку (acceptRequest).
+    if (newMode === 'coach') {
+      setModeBusy(true);
+      try {
+        const res = await api.getMyCoaches();
+        const coaches = res?.data?.coaches || res?.coaches || [];
+        if (coaches.length > 0) {
+          await api.request('update_profile', { training_mode: 'coach' }, 'POST');
+          updateUser({ ...user, training_mode: 'coach' });
+          setModeOpen(false);
+        } else {
+          setModeOpen(false);
+          navigate('/trainers');
+        }
+      } catch (e) {
+        console.error('enter coach failed:', e);
+        setModeOpen(false);
+        navigate('/trainers');
+      } finally {
+        setModeBusy(false);
+      }
+      return;
+    }
+
+    // ── ai/self из ai/self — онбординг для сбора метрик + план/календарь ──
+    setModeOpen(false);
+    navigate('/onboarding', { state: { mode: newMode } });
+  }, [api, user, navigate, updateUser]);
 
   const clearPlanMessage = useCallback(() => setPlanGenerationMessage(null), [setPlanGenerationMessage]);
 
@@ -96,8 +171,12 @@ export default function DashboardV3({
   });
   useDashboardPullToRefresh(dashboardRef, loadDashboardData);
 
+  const generationLabel = usePlanStore((s) => s.generationLabel);
   const supportsAiPlan = isAiPlanMode(user?.training_mode);
   const showAiEmptyState = supportsAiPlan && noPlanChecked && !planGenerating && !planError && !planExists && !loading;
+  // План ещё генерируется (в т.ч. после F5 — статус восстановлен из usePlanStore.initPlanStatus).
+  // Показываем прогресс-экран, пока плана нет, вместо пустого дашборда.
+  const showPlanGenerating = supportsAiPlan && planGenerating && !planExists && !planError;
 
   const handleWorkoutPress = useCallback((workout) => {
     if (!onNavigate || !workout) return;
@@ -148,7 +227,7 @@ export default function DashboardV3({
           <p className="dashboard-empty-onboarding-text">
             Выберите режим тренировок, цель и заполните профиль — после этого здесь появится ваш план и прогресс.
           </p>
-          <button type="button" className="dashboard-empty-onboarding-btn" onClick={() => setShowOnboardingModal(true)}>
+          <button type="button" className="dashboard-empty-onboarding-btn" onClick={() => navigate('/onboarding')}>
             Настроить план
           </button>
         </div>
@@ -162,6 +241,10 @@ export default function DashboardV3({
         <SkeletonScreen type="dashboard" />
       </div>
     );
+  }
+
+  if (showPlanGenerating) {
+    return <PlanGeneratingState label={generationLabel} />;
   }
 
   if (showAiEmptyState) {
@@ -186,7 +269,7 @@ export default function DashboardV3({
   return (
     <div className="dashboard dashboard-v3" ref={dashboardRef}>
       <div className="dashboard-v3__header">
-        <DashHeaderV3 user={user} mode={trainingMode} weekSummary={weekSummary} api={api} isAdmin={user?.role === 'admin'} />
+        <DashHeaderV3 user={user} mode={user?.training_mode || 'ai'} weekSummary={weekSummary} onModeClick={() => setModeOpen(true)} />
       </div>
 
       <div className="dashboard-v3__columns">
@@ -197,6 +280,7 @@ export default function DashboardV3({
             {todayWorkout ? (
               <TodayHeroV3
                 workout={todayWorkout}
+                plan={plan}
                 api={api}
                 onOpenChat={handleOpenChat}
                 onStart={() => handleWorkoutPress(todayWorkout)}
@@ -296,6 +380,14 @@ export default function DashboardV3({
       </button>
 
       <DashCustomizerV3 isOpen={customizerOpen} onClose={() => setCustomizerOpen(false)} />
+
+      <ModeSwitchPopup
+        open={modeOpen}
+        currentMode={user?.training_mode || 'ai'}
+        busy={modeBusy}
+        onClose={() => setModeOpen(false)}
+        onSelect={handleModeSelect}
+      />
 
       <DashFabAi onOpen={handleOpenChat} mode={trainingMode} />
     </div>

@@ -214,17 +214,4 @@ export const TONE = {
   info: { bg: '#DBEAFE', color: '#1E40AF', solid: 'var(--info-500)' },
 };
 
-/** Workout type → цвет (для строки/точки в таблице). */
-export const WORKOUT_TYPE_COLOR = {
-  easy: 'var(--success-500)',
-  long: 'var(--info-500)',
-  'long-run': 'var(--info-500)',
-  tempo: 'var(--warning-500)',
-  interval: 'var(--danger-500)',
-  fartlek: 'var(--danger-500)',
-  control: '#8B5CF6',
-  race: 'var(--primary-500)',
-  sbu: '#8B5CF6',
-  other: 'var(--danger-500)',
-  rest: 'var(--gray-400)',
-};
+export { WORKOUT_TYPE_COLOR } from '../../utils/workoutTypes';

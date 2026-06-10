@@ -11,7 +11,7 @@ import { isActivePlanGenerationStatus } from '../../utils/planStatus';
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function isAiPlanMode(trainingMode) {
-  return trainingMode === 'ai' || trainingMode === 'both';
+  return trainingMode === 'ai';
 }
 
 function getSummaryObject(workoutsSummaryRes) {
@@ -140,6 +140,67 @@ function findDashboardWorkouts(plan, user) {
     todayWorkout: todayWorkout ? { ...todayWorkout, planDays: todayPlanDays } : null,
     nextWorkout: nextWorkout ? { ...nextWorkout, planDays: nextPlanDays } : null,
     currentWeek,
+  };
+}
+
+/** Фактическая тренировка за дату (для метрик в выполненной карточке «Сегодня»). */
+function pickTodayActual(dateStr, workoutsListByDate, resultsData, summaryObj) {
+  const w = (workoutsListByDate?.[dateStr] || [])[0];
+  if (w) {
+    return {
+      distance_km: w.distance_km ?? w.distance ?? null,
+      pace: w.avg_pace ?? w.pace ?? null,
+      avg_heart_rate: w.avg_heart_rate ?? null,
+      duration_minutes: w.duration_minutes ?? null,
+      activity_type: w.activity_type ?? w.type ?? null,
+    };
+  }
+  const r = (resultsData?.[dateStr] || [])[0];
+  if (r) {
+    return {
+      distance_km: r.distance_km ?? null,
+      pace: r.pace ?? r.result_time ?? null,
+      avg_heart_rate: r.avg_heart_rate ?? null,
+      duration_minutes: r.duration_minutes ?? null,
+      activity_type: r.activity_type ?? r.activity_type_name ?? null,
+    };
+  }
+  const s = summaryObj?.[dateStr];
+  if (s && (s.distance || s.duration || s.duration_seconds)) {
+    return {
+      distance_km: s.distance ?? null,
+      pace: null,
+      avg_heart_rate: null,
+      duration_minutes: s.duration ? Math.round(s.duration / 60) : null,
+      activity_type: s.activity_type ?? null,
+    };
+  }
+  return null;
+}
+
+/**
+ * Помечает сегодняшнюю тренировку как выполненную и подтягивает фактические метрики,
+ * чтобы карточка «Сегодня» показывала результат, а не CTA «Начать».
+ */
+function decorateTodayCompletion(todayWorkout, plan, user, summaryObj, allResults, workoutsListByDate, executedByDate) {
+  if (!todayWorkout) return todayWorkout;
+  const ianaTimezone = (
+    user?.timezone ||
+    (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.().resolvedOptions().timeZone) ||
+    'Europe/Moscow'
+  );
+  const todayStr = getTodayInTimezone(ianaTimezone);
+  const planDay = getPlanDayForDate(todayStr, plan);
+  const resultsData = buildResultsData(allResults);
+  const status = getDayCompletionStatus(todayStr, planDay, summaryObj, resultsData, workoutsListByDate, executedByDate);
+  const completed = status.status === 'completed' || status.status === 'rest_extra';
+  if (!completed) {
+    return { ...todayWorkout, completed: false, actual: null };
+  }
+  return {
+    ...todayWorkout,
+    completed: true,
+    actual: pickTodayActual(todayStr, workoutsListByDate, resultsData, summaryObj),
   };
 }
 
@@ -392,7 +453,7 @@ export function useDashboardData({
       setWorkoutsByDate(summaryObj && typeof summaryObj === 'object' ? summaryObj : {});
 
       const { todayWorkout: currentWorkout, nextWorkout: upcomingWorkout, currentWeek } = findDashboardWorkouts(planData, user);
-      setTodayWorkout(currentWorkout);
+      setTodayWorkout(decorateTodayCompletion(currentWorkout, planData, user, summaryObj, allResults, workoutsListByDate, executedByDate));
       setNextWorkout(upcomingWorkout);
       setWeekProgress(calculateWeekProgress(currentWeek, workoutsList, allResults, summaryObj, executedByDate));
       setMetrics(buildMetrics(summaryObj, allResults, planData, workoutsList));

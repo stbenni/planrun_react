@@ -26,6 +26,12 @@ export function categoryForType(type, source) {
   if (source === 'ai') return 'ai';
   if (source === 'coach') return 'coach';
   switch (type) {
+    case 'chat.ai_message':
+    case 'coach.proactive_post_workout_checkin_reply':
+      return 'ai';
+    case 'chat.admin_message':
+    case 'chat.direct_message':
+      return 'coach';
     case 'coach_plan_updated':
     case 'athlete_result_logged':
       return 'coach';

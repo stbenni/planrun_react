@@ -175,7 +175,7 @@ try {
             ErrorHandler::returnJsonError('Параметр slug обязателен', 400);
         }
 
-        $stmt = $db->prepare("SELECT id, username, username_slug, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts, role, coach_bio, coach_specialization, coach_accepts, coach_prices_on_request, coach_experience_years, coach_philosophy FROM users WHERE username_slug = ?");
+        $stmt = $db->prepare("SELECT id, username, username_slug, first_name, last_name, email, avatar_path, privacy_level, public_token, goal_type, race_date, race_distance, race_target_time, training_mode, privacy_show_email, privacy_show_trainer, privacy_show_calendar, privacy_show_metrics, privacy_show_workouts, role, coach_bio, coach_specialization, coach_accepts, coach_prices_on_request, coach_experience_years, coach_philosophy FROM users WHERE username_slug = ?");
         $stmt->bind_param("s", $slug);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
@@ -224,10 +224,16 @@ try {
         }
 
         $userRole = $row['role'] ?? 'user';
+        $pFirst = isset($row['first_name']) ? trim((string) $row['first_name']) : '';
+        $pLast = isset($row['last_name']) ? trim((string) $row['last_name']) : '';
+        $pName = trim($pFirst . ' ' . $pLast);
         $user = [
             'id' => $targetUserId,
             'username' => $row['username'],
             'username_slug' => $row['username_slug'],
+            'first_name' => $pFirst !== '' ? $pFirst : null,
+            'last_name' => $pLast !== '' ? $pLast : null,
+            'name' => $pName !== '' ? $pName : null,
             'avatar_path' => $row['avatar_path'],
             'privacy_level' => $privacyLevel,
             'role' => $userRole,
@@ -286,7 +292,7 @@ try {
             $tableCheck = $db->query("SHOW TABLES LIKE 'user_coaches'");
             if ($tableCheck && $tableCheck->num_rows > 0) {
                 $stmt = $db->prepare("
-                    SELECT u.id, u.username, u.username_slug, u.avatar_path
+                    SELECT u.id, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path
                     FROM user_coaches uc
                     JOIN users u ON uc.coach_id = u.id
                     WHERE uc.user_id = ?
@@ -295,10 +301,16 @@ try {
                 $stmt->execute();
                 $res = $stmt->get_result();
                 while ($rowCoach = $res->fetch_assoc()) {
+                    $cFirst = isset($rowCoach['first_name']) ? trim((string) $rowCoach['first_name']) : '';
+                    $cLast = isset($rowCoach['last_name']) ? trim((string) $rowCoach['last_name']) : '';
+                    $cName = trim($cFirst . ' ' . $cLast);
                     $coaches[] = [
                         'id' => (int)$rowCoach['id'],
                         'username' => $rowCoach['username'],
                         'username_slug' => $rowCoach['username_slug'],
+                        'first_name' => $cFirst !== '' ? $cFirst : null,
+                        'last_name' => $cLast !== '' ? $cLast : null,
+                        'name' => $cName !== '' ? $cName : null,
                         'avatar_path' => $rowCoach['avatar_path'],
                     ];
                 }
@@ -368,6 +380,10 @@ try {
 
         case 'get_day':
             planrunRouteControllerAction($db, WorkoutController::class, 'getDay', $method);
+            break;
+
+        case 'get_days':
+            planrunRouteControllerAction($db, WorkoutController::class, 'getDays', $method);
             break;
             
         case 'get_workout_timeline':
@@ -648,6 +664,15 @@ try {
             planrunRouteControllerAction($db, IntegrationsController::class, 'unlink', $method, 'POST');
             break;
 
+        case 'set_suunto_mirror':
+            planrunRouteControllerAction($db, IntegrationsController::class, 'setSuuntoMirror', $method, 'POST');
+            break;
+
+        // Health Connect (Android): приём тренировок, прочитанных нативно на устройстве
+        case 'health_connect_import':
+            planrunRouteControllerAction($db, IntegrationsController::class, 'importHealthConnect', $method, 'POST');
+            break;
+
         case 'strava_token_error':
             planrunRouteControllerAction($db, IntegrationsController::class, 'getStravaTokenError', $method, 'GET');
             break;
@@ -868,6 +893,14 @@ try {
 
         case 'update_coach_pricing':
             planrunRouteControllerAction($db, CoachController::class, 'updateCoachPricing', $method, 'POST');
+            break;
+
+        case 'get_my_coach_profile':
+            planrunRouteControllerAction($db, CoachController::class, 'getMyCoachProfile', $method, 'GET');
+            break;
+
+        case 'update_coach_profile':
+            planrunRouteControllerAction($db, CoachController::class, 'updateCoachProfile', $method, 'POST');
             break;
 
         // CoachController — группы атлетов

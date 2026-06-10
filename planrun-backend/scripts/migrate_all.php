@@ -260,4 +260,22 @@ foreach (['push_workouts_enabled', 'push_chat_enabled', 'push_workout_hour'] as 
     }
 }
 
+// users: first_name / last_name (отображаемое имя; username стал техническим slug)
+foreach (['first_name', 'last_name'] as $col) {
+    $check = $db->query("SHOW COLUMNS FROM users LIKE '$col'");
+    if ($check && $check->num_rows === 0) {
+        if ($db->query("ALTER TABLE users ADD COLUMN $col VARCHAR(100) NULL AFTER username")) {
+            echo "OK: users $col\n";
+        }
+    }
+}
+
+// training_plan_weeks: phase (фаза мезоцикла из генератора — для phase-полосы и «Фазы мезоцикла» в календаре)
+$checkPhase = $db->query("SHOW COLUMNS FROM training_plan_weeks LIKE 'phase'");
+if ($checkPhase && $checkPhase->num_rows === 0) {
+    if ($db->query("ALTER TABLE training_plan_weeks ADD COLUMN phase VARCHAR(32) NULL COMMENT 'Фаза мезоцикла: base/build/peak/taper/recovery' AFTER total_volume")) {
+        echo "OK: training_plan_weeks phase\n";
+    }
+}
+
 echo "All migrations done.\n";

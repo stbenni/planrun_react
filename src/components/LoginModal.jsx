@@ -3,16 +3,15 @@
  */
 
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import Modal from './common/Modal';
 import LoginForm from './LoginForm';
 
 const LoginModal = ({ isOpen, onClose }) => {
-  const navigate = useNavigate();
-
+  // Навигацию после входа НЕ делаем здесь: LandingScreen сам уводит по isAuthenticated
+  // (на /, а гейт App.jsx → /onboarding при незавершённом онбординге). Двойной navigate
+  // вызывал «дёрганье» / / onboarding и пустой кадр на мобильных.
   const handleSuccess = () => {
     onClose();
-    navigate('/', { replace: true });
   };
 
   if (!isOpen) return null;

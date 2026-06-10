@@ -39,7 +39,7 @@ function getUserData($userId, $fields = null, $useCache = true) {
     
     // По умолчанию загружаем только часто используемые поля
     if ($fields === null) {
-        $fields = 'id, username, username_slug, email, role, goal_type, race_date, race_target_time, race_distance,
+        $fields = 'id, username, username_slug, first_name, last_name, email, role, goal_type, race_date, race_target_time, race_distance,
                    training_start_date,
                    weekly_base_km, experience_level, gender, birth_year, birth_month, height_cm, weight_kg,
                    timezone, telegram_id, created_at, updated_at, training_mode, 

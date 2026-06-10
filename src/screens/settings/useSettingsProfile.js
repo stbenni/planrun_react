@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import useAuthStore from '../../stores/useAuthStore';
-import { mapProfileToFormData, normalizeValue } from './profileForm';
+import { mapProfileToFormData } from './profileForm';
 import { ensureNotificationChannelsEnabled, normalizeNotificationSettings } from './notificationSettings';
 
 export function useSettingsProfile({
@@ -112,42 +112,47 @@ export function useSettingsProfile({
 
       const saveSnapshot = JSON.stringify(formData);
 
+      // Пустые поля шлём как '' (а не null): иначе бэк-гейт пропускал поле и значение «откатывалось».
+      const sendVal = (v) => (v === null || v === undefined || v === 'null' ? '' : v);
+
       const dataToSend = {
         csrf_token: activeCsrfToken,
         username: formData.username,
-        email: normalizeValue(formData.email),
-        gender: normalizeValue(formData.gender),
-        birth_year: normalizeValue(formData.birth_year),
-        birth_month: normalizeValue(formData.birth_month),
-        height_cm: normalizeValue(formData.height_cm),
-        weight_kg: normalizeValue(formData.weight_kg),
+        first_name: sendVal(formData.first_name),
+        last_name: sendVal(formData.last_name),
+        email: sendVal(formData.email),
+        gender: sendVal(formData.gender),
+        birth_year: sendVal(formData.birth_year),
+        birth_month: sendVal(formData.birth_month),
+        height_cm: sendVal(formData.height_cm),
+        weight_kg: sendVal(formData.weight_kg),
         timezone: formData.timezone,
         goal_type: formData.goal_type,
-        race_distance: normalizeValue(formData.race_distance),
-        race_date: normalizeValue(formData.race_date),
-        race_target_time: normalizeValue(formData.race_target_time),
-        weight_goal_kg: normalizeValue(formData.weight_goal_kg),
-        weight_goal_date: normalizeValue(formData.weight_goal_date),
+        race_distance: sendVal(formData.race_distance),
+        race_date: sendVal(formData.race_date),
+        race_target_time: sendVal(formData.race_target_time),
+        weight_goal_kg: sendVal(formData.weight_goal_kg),
+        weight_goal_date: sendVal(formData.weight_goal_date),
         experience_level: formData.experience_level,
-        weekly_base_km: normalizeValue(formData.weekly_base_km),
-        sessions_per_week: normalizeValue(formData.sessions_per_week),
+        weekly_base_km: sendVal(formData.weekly_base_km),
+        sessions_per_week: sendVal(formData.sessions_per_week),
         preferred_days: Array.isArray(formData.preferred_days) ? formData.preferred_days : [],
         preferred_ofp_days: Array.isArray(formData.preferred_ofp_days) ? formData.preferred_ofp_days : [],
         has_treadmill: formData.has_treadmill,
-        training_time_pref: normalizeValue(formData.training_time_pref),
-        ofp_preference: normalizeValue(formData.ofp_preference),
+        training_time_pref: sendVal(formData.training_time_pref),
+        ofp_preference: sendVal(formData.ofp_preference),
         training_mode: formData.training_mode,
-        training_start_date: normalizeValue(formData.training_start_date),
-        health_notes: normalizeValue(formData.health_notes),
-        health_program: normalizeValue(formData.health_program),
-        health_plan_weeks: normalizeValue(formData.health_plan_weeks),
-        easy_pace_sec: normalizeValue(formData.easy_pace_sec),
+        training_start_date: sendVal(formData.training_start_date),
+        health_notes: sendVal(formData.health_notes),
+        health_program: sendVal(formData.health_program),
+        health_plan_weeks: sendVal(formData.health_plan_weeks),
+        easy_pace_sec: sendVal(formData.easy_pace_sec),
         is_first_race_at_distance: formData.is_first_race_at_distance,
-        last_race_distance: normalizeValue(formData.last_race_distance),
-        last_race_distance_km: normalizeValue(formData.last_race_distance_km),
-        last_race_time: normalizeValue(formData.last_race_time),
-        last_race_date: normalizeValue(formData.last_race_date),
-        avatar_path: normalizeValue(formData.avatar_path),
+        last_race_distance: sendVal(formData.last_race_distance),
+        last_race_distance_km: sendVal(formData.last_race_distance_km),
+        last_race_time: sendVal(formData.last_race_time),
+        last_race_date: sendVal(formData.last_race_date),
+        avatar_path: sendVal(formData.avatar_path),
         privacy_level: formData.privacy_level,
         privacy_show_email: formData.privacy_show_email ? 1 : 0,
         privacy_show_trainer: formData.privacy_show_trainer ? 1 : 0,

@@ -55,10 +55,20 @@ class WorkoutShareMapService {
         $points = [];
 
         foreach ($timeline as $point) {
-            $latitude = isset($point['latitude']) ? (float) $point['latitude'] : null;
-            $longitude = isset($point['longitude']) ? (float) $point['longitude'] : null;
+            if (!isset($point['latitude'], $point['longitude'])) {
+                continue;
+            }
+            $latitude = (float) $point['latitude'];
+            $longitude = (float) $point['longitude'];
 
             if (!is_finite($latitude) || !is_finite($longitude)) {
+                continue;
+            }
+            if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+                continue;
+            }
+            // Отсекаем «нулевые» координаты (Null Island) — пустые/битые GPS-точки
+            if (abs($latitude) < 0.0001 && abs($longitude) < 0.0001) {
                 continue;
             }
 

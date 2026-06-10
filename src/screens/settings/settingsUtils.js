@@ -1,4 +1,4 @@
-export const VALID_TABS = ['profile', 'training', 'notifications', 'social', 'integrations'];
+export const VALID_TABS = ['profile', 'training', 'notifications', 'social', 'integrations', 'look', 'security'];
 
 export function getSystemTheme() {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

@@ -3,8 +3,8 @@
  * Полная реализация с вкладками и всеми полями профиля
  */
 
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
@@ -16,82 +16,18 @@ import WebPushService from '../services/WebPushService';
 import { isNativeCapacitor } from '../services/TokenStorageService';
 import PinSetupModal from '../components/common/PinSetupModal';
 import SkeletonScreen from '../components/common/SkeletonScreen';
+import useHealthConnect from '../components/Integrations/useHealthConnect';
 import { getAvatarSrc } from '../utils/avatarUrl';
-import { UserIcon, RunningIcon, LockIcon, LinkIcon, CameraIcon, PaletteIcon, TargetIcon, OtherIcon, UsersIcon, BellIcon, GraduationCapIcon, CloseIcon, MailIcon, MessageCircleIcon, SmartphoneIcon, GlobeIcon, HeartIcon, MedalIcon, FlameIcon, TimeIcon, LeafIcon, WalkingIcon, ZapIcon, TrophyIcon } from '../components/common/Icons';
-
-const STATIC_TIMEZONES = ['Europe/Moscow', 'Europe/Kiev', 'Europe/Minsk', 'Asia/Almaty', 'Europe/London', 'America/New_York'];
-
-function detectBrowserTimezone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
-  } catch {
-    return null;
-  }
-}
-
-function formatTimezoneLabel(tz) {
-  try {
-    const parts = new Intl.DateTimeFormat('en', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date());
-    const offset = (parts.find((p) => p.type === 'timeZoneName')?.value || '').replace('GMT', 'UTC') || 'UTC';
-    return `${tz} (${offset})`;
-  } catch {
-    return tz;
-  }
-}
-
-function pluralizeYears(n) {
-  const lastTwo = n % 100;
-  const last = n % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return 'лет';
-  if (last === 1) return 'год';
-  if (last >= 2 && last <= 4) return 'года';
-  return 'лет';
-}
-
-function computeAge(birthYear, birthMonth) {
-  const yr = parseInt(birthYear, 10);
-  if (!yr || yr < 1900) return null;
-  const today = new Date();
-  let age = today.getFullYear() - yr;
-  const m = parseInt(birthMonth, 10);
-  if (m && m >= 1 && m <= 12 && today.getMonth() + 1 < m) {
-    age--;
-  }
-  return age >= 0 && age <= 150 ? age : null;
-}
-
-function computeIdealWeightRange(heightCm) {
-  const h = parseFloat(heightCm);
-  if (!h || h < 50 || h > 250) return null;
-  const meters = h / 100;
-  const min = Math.round(18.5 * meters * meters);
-  const max = Math.round(24.9 * meters * meters);
-  return { min, max };
-}
-
-function computeBmi(heightCm, weightKg) {
-  const h = parseFloat(heightCm);
-  const w = parseFloat(weightKg);
-  if (!h || !w || h < 50 || h > 250 || w < 20 || w > 300) return null;
-  const meters = h / 100;
-  const value = w / (meters * meters);
-  if (!isFinite(value)) return null;
-  const rounded = Math.round(value * 10) / 10;
-  let tone = 'success';
-  let label = 'норма';
-  if (rounded < 18.5) { tone = 'info'; label = 'недовес'; }
-  else if (rounded >= 25 && rounded < 30) { tone = 'warning'; label = 'повышен'; }
-  else if (rounded >= 30) { tone = 'danger'; label = 'высокий'; }
-  return { value: rounded, label, tone };
-}
+import { CloseIcon, MailIcon, MessageCircleIcon, SmartphoneIcon } from '../components/common/Icons';
 import { useMyCoaches } from './settings/useMyCoaches';
 import { useCoachPricing } from './settings/useCoachPricing';
-import { createInitialFormData, daysOfWeek } from './settings/profileForm';
+import { createInitialFormData } from './settings/profileForm';
 import { NOTIFICATION_CHANNELS, ensureNotificationChannelsEnabled, normalizeNotificationSettings, createInitialNotificationSettings } from './settings/notificationSettings';
-import { formatPaceMask, paceMaskToSeconds } from '../utils/paceMask';
 import { useSettingsActions } from './settings/useSettingsActions';
 import { useSettingsProfile } from './settings/useSettingsProfile';
 import { applyTheme, getSystemTheme, getThemePreference, VALID_TABS } from './settings/settingsUtils';
+import SettingsV3 from './settings/v3/SettingsV3';
+import { catById, catByTab } from './settings/v3/catalog';
 import './SettingsScreen.css';
 
 const TELEGRAM_LINK_PENDING_STORAGE_KEY = 'planrun.telegramLinkPendingAt';
@@ -160,50 +96,6 @@ function clearTelegramLinkPending() {
   }
 }
 
-function summarizeWebPushUserAgent(userAgent) {
-  const value = String(userAgent || '').toLowerCase();
-  if (!value) {
-    return 'Браузер без названия';
-  }
-
-  let browser = 'Неизвестный браузер';
-  if (value.includes('edg/')) {
-    browser = 'Microsoft Edge';
-  } else if (value.includes('opr/') || value.includes('opera')) {
-    browser = 'Opera';
-  } else if (value.includes('firefox/')) {
-    browser = 'Firefox';
-  } else if (value.includes('chrome/') && !value.includes('edg/')) {
-    browser = 'Chrome';
-  } else if (value.includes('safari/') && !value.includes('chrome/')) {
-    browser = 'Safari';
-  }
-
-  let platform = '';
-  if (value.includes('android')) {
-    platform = 'Android';
-  } else if (value.includes('iphone') || value.includes('ipad') || value.includes('ios')) {
-    platform = 'iOS';
-  } else if (value.includes('mac os') || value.includes('macintosh')) {
-    platform = 'macOS';
-  } else if (value.includes('windows')) {
-    platform = 'Windows';
-  } else if (value.includes('linux')) {
-    platform = 'Linux';
-  }
-
-  return platform ? `${browser} · ${platform}` : browser;
-}
-
-function formatWebPushEndpointSuffix(endpoint) {
-  const value = String(endpoint || '').trim();
-  if (!value) {
-    return '';
-  }
-
-  return value.length > 14 ? `…${value.slice(-14)}` : value;
-}
-
 function getBrowserNotificationRecoveryText(permission) {
   if (permission === 'denied') {
     return 'Браузер уже заблокировал уведомления для этого сайта. Нажмите на значок замка рядом с адресом сайта, откройте пункт "Уведомления" и переключите его в "Разрешить", затем обновите страницу.';
@@ -214,23 +106,6 @@ function getBrowserNotificationRecoveryText(permission) {
   }
 
   return '';
-}
-
-function getNotificationReminderTime(eventKey, schedule) {
-  if (eventKey === 'workout.reminder.today') {
-    return schedule?.workout_today_time || '08:00';
-  }
-
-  if (eventKey === 'workout.reminder.tomorrow') {
-    return schedule?.workout_tomorrow_time || '20:00';
-  }
-
-  return '';
-}
-
-function getNotificationMobileSummary(event, schedule) {
-  const reminderTime = getNotificationReminderTime(event.event_key, schedule);
-  return reminderTime || '';
 }
 
 function BrowserWindowIcon({ className = '', size = 16, ...props }) {
@@ -255,30 +130,16 @@ function BrowserWindowIcon({ className = '', size = 16, ...props }) {
   );
 }
 
-function renderNotificationChannelVisual(channelConfig, className, size = 16) {
-  if (channelConfig.logoSrc) {
-    return (
-      <img
-        src={channelConfig.logoSrc}
-        alt=""
-        aria-hidden="true"
-        className={className}
-      />
-    );
-  }
-
-  const Icon = channelConfig.Icon;
-  return <Icon size={size} className={className} />;
-}
-
-const SettingsScreen = ({ onLogout }) => {
+const SettingsScreen = ({ onLogout, inPanel = false }) => {
   const isTabActive = useIsTabActive('/settings');
+  const [panelCat, setPanelCat] = useState(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { api, updateUser, user: currentUser } = useAuthStore();
+  const { api, updateUser, user: currentUser, logout } = useAuthStore();
   const tabFromUrl = searchParams.get('tab');
   const activeTab = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : 'profile';
-  const settingsTabsRef = useRef(null);
+  // В панели навигация локальная (panelCat) — load-эффекты ориентируем на неё.
+  const effectiveTab = inPanel ? (catById(panelCat)?.tab || 'profile') : activeTab;
   const settingsPanelsRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -295,14 +156,15 @@ const SettingsScreen = ({ onLogout }) => {
   const [pinDisabling, setPinDisabling] = useState(false);
   const [showPinSetupModal, setShowPinSetupModal] = useState(false);
   const [pinSetupTokens, setPinSetupTokens] = useState(null);
-  const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false, garmin: false, coros: false });
+  const [integrationsStatus, setIntegrationsStatus] = useState({ huawei: false, strava: false, polar: false, garmin: false, coros: false, suunto: false });
   const [huaweiSyncing, setHuaweiSyncing] = useState(false);
   const [stravaSyncing, setStravaSyncing] = useState(false);
   const [polarSyncing, setPolarSyncing] = useState(false);
   const [garminSyncing, setGarminSyncing] = useState(false);
   const [corosSyncing, setCorosSyncing] = useState(false);
+  const [suuntoSyncing, setSuuntoSyncing] = useState(false);
+  const [suuntoMirror, setSuuntoMirrorState] = useState({ available: false, enabled: false, saving: false });
   const [stravaDebug, setStravaDebug] = useState(null);
-  const [settingsTabPillStyle, setSettingsTabPillStyle] = useState({ left: 0, width: 0 });
   const [telegramLinkCode, setTelegramLinkCode] = useState(null);
   const [telegramLinkCodeLoading, setTelegramLinkCodeLoading] = useState(false);
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
@@ -314,9 +176,8 @@ const SettingsScreen = ({ onLogout }) => {
   const [browserNotificationsSupported, setBrowserNotificationsSupported] = useState(false);
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState('default');
   const [currentBrowserWebPushSubscribed, setCurrentBrowserWebPushSubscribed] = useState(false);
-  const [currentBrowserWebPushEndpoint, setCurrentBrowserWebPushEndpoint] = useState('');
+  const [, setCurrentBrowserWebPushEndpoint] = useState('');
   const [notificationActionLoading, setNotificationActionLoading] = useState('');
-  const [expandedNotificationEventKey, setExpandedNotificationEventKey] = useState('');
   const isMobileWebsiteViewport = useMediaQuery('(max-width: 1023px)');
   const isStandaloneDisplayMode = useMediaQuery('(display-mode: standalone)');
   const isNativeApp = isNativeCapacitor();
@@ -332,7 +193,14 @@ const SettingsScreen = ({ onLogout }) => {
   // ВАЖНО: Все поля должны быть инициализированы как строки/массивы, а не null
   // чтобы React правильно обрабатывал контролируемые компоненты
   const [formData, setFormData] = useState(createInitialFormData);
+  const [slugStatus, setSlugStatus] = useState(null); // null | 'free' | 'taken'
+  const [slugChecking, setSlugChecking] = useState(false);
   const { myCoaches, myCoachesLoading, removingCoachId, loadMyCoaches, handleRemoveCoach } = useMyCoaches(api, setMessage);
+  // Health Connect (Android, нативно): состояние подключён/отключён + действия.
+  const hc = useHealthConnect(api, (type, text) => {
+    setMessage({ type, text });
+    window.setTimeout(() => setMessage({ type: '', text: '' }), 3500);
+  });
   const {
     coachPricing,
     coachPricingLoading,
@@ -355,6 +223,29 @@ const SettingsScreen = ({ onLogout }) => {
     setMessage,
     skipNextAutoSaveRef,
   });
+
+  // Проверка доступности адреса профиля (slug) — переиспользуем validate_field('username').
+  const checkSlugAvailability = async () => {
+    const value = (formData.username || '').trim();
+    if (value.length < 3) return;
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    setSlugChecking(true);
+    setSlugStatus(null);
+    try {
+      // Свой текущий slug считаем свободным (не ошибка «занят самим собой»).
+      if (value === (currentUser?.username || '')) {
+        setSlugStatus('free');
+        return;
+      }
+      const res = await currentApi.validateField('username', value);
+      setSlugStatus(res?.valid ? 'free' : 'taken');
+    } catch {
+      setSlugStatus(null);
+    } finally {
+      setSlugChecking(false);
+    }
+  };
   const {
     handleAddFingerprint,
     handleAvatarUpload,
@@ -363,7 +254,6 @@ const SettingsScreen = ({ onLogout }) => {
     handleGenerateTelegramLinkCode,
     handlePinSetupSuccess,
     handleRemoveAvatar,
-    handleStartTelegramLogin,
     handleUnlinkTelegram,
     runHuaweiSync,
     runStravaSync,
@@ -503,6 +393,11 @@ const SettingsScreen = ({ onLogout }) => {
       setMessage({ type: 'success', text: 'COROS успешно подключен' });
       setSearchParams({ tab: 'integrations' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } else if (connected === 'suunto') {
+      setIntegrationsStatus(prev => ({ ...prev, suunto: true }));
+      setMessage({ type: 'success', text: 'Suunto успешно подключен' });
+      setSearchParams({ tab: 'integrations' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     } else if (connected === 'telegram') {
       setSearchParams({ tab: 'integrations' });
       handleTelegramConnected();
@@ -523,16 +418,19 @@ const SettingsScreen = ({ onLogout }) => {
   }, [api, handleTelegramConnected, runHuaweiSync, runStravaSync, searchParams, stopTelegramLoginPolling]);
 
   useEffect(() => {
-    if (activeTab !== 'integrations') return;
+    if (effectiveTab !== 'integrations') return;
     const currentApi = api || useAuthStore.getState().api;
     if (!currentApi) return;
     currentApi.getIntegrationsStatus()
       .then((res) => {
         const data = res?.data?.integrations ?? res?.integrations ?? {};
         setIntegrationsStatus(prev => ({ ...prev, ...data }));
+        const avail = res?.data?.suunto_mirror_available ?? res?.suunto_mirror_available ?? false;
+        const en = res?.data?.suunto_mirror_enabled ?? res?.suunto_mirror_enabled ?? false;
+        setSuuntoMirrorState(prev => ({ ...prev, available: !!avail, enabled: !!en }));
       })
       .catch(() => {});
-  }, [activeTab, api]);
+  }, [effectiveTab, api]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -649,7 +547,8 @@ const SettingsScreen = ({ onLogout }) => {
   // Загрузка профиля
   const hasLoadedProfileRef = useRef(false);
   useEffect(() => {
-    if (!isTabActive && !hasLoadedProfileRef.current) return;
+    // В выезжающей панели грузим всегда (роут != /settings, isTabActive=false).
+    if (!isTabActive && !inPanel && !hasLoadedProfileRef.current) return;
     const loadProfileData = async () => {
       if (!api) {
         // api ещё не готов — useEffect перезапустится когда api появится в сторе
@@ -658,61 +557,10 @@ const SettingsScreen = ({ onLogout }) => {
       hasLoadedProfileRef.current = true;
       await loadProfile(api);
     };
-    
+
     loadProfileData();
-  }, [api, isTabActive, loadProfile]);
+  }, [api, isTabActive, inPanel, loadProfile]);
   
-
-  const updateSettingsTabPill = useCallback(() => {
-    const tabs = settingsTabsRef.current;
-    if (!tabs) return;
-
-    const activeButton = tabs.querySelector('.settings-tab.active');
-    if (!activeButton) {
-      setSettingsTabPillStyle({ left: 0, width: 0 });
-      return;
-    }
-
-    setSettingsTabPillStyle({
-      left: activeButton.offsetLeft,
-      width: activeButton.offsetWidth,
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (loading) return;
-    updateSettingsTabPill();
-  }, [activeTab, loading, updateSettingsTabPill]);
-
-  useLayoutEffect(() => {
-    if (loading) return undefined;
-    let frameId = 0;
-    const scheduleUpdate = () => {
-      cancelAnimationFrame(frameId);
-      frameId = window.requestAnimationFrame(updateSettingsTabPill);
-    };
-
-    const tabs = settingsTabsRef.current;
-    const resizeObserver = typeof ResizeObserver !== 'undefined' && tabs
-      ? new ResizeObserver(scheduleUpdate)
-      : null;
-
-    if (tabs && resizeObserver) {
-      resizeObserver.observe(tabs);
-      tabs.querySelectorAll('.settings-tab').forEach((item) => resizeObserver.observe(item));
-    }
-
-    window.addEventListener('resize', scheduleUpdate);
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(scheduleUpdate).catch(() => {});
-    }
-
-    return () => {
-      cancelAnimationFrame(frameId);
-      window.removeEventListener('resize', scheduleUpdate);
-      resizeObserver?.disconnect();
-    };
-  }, [loading, updateSettingsTabPill]);
 
   const handleTabChange = (tab) => {
     setSearchParams({ tab });
@@ -720,41 +568,6 @@ const SettingsScreen = ({ onLogout }) => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
-
-  const handleTelegramLoginConnect = useCallback(async () => {
-    setTelegramLoginLoading(true);
-
-    const result = await handleStartTelegramLogin({ fromApp: isNativeCapacitor() });
-    if (!result?.authUrl) {
-      setTelegramLoginLoading(false);
-      return;
-    }
-
-    if (isNativeCapacitor()) {
-      try {
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: result.authUrl });
-        startTelegramLoginPolling();
-        return;
-      } catch (_) {
-        // Fallback ниже
-      }
-    }
-
-    const popup = window.open(result.authUrl, 'planrunTelegramLogin', 'width=480,height=720');
-    if (!popup) {
-      window.location.href = result.authUrl;
-      return;
-    }
-
-    try {
-      popup.focus();
-    } catch (_) {
-      // Ignore focus errors
-    }
-
-    startTelegramLoginPolling();
-  }, [handleStartTelegramLogin, startTelegramLoginPolling]);
 
   const openTelegramBot = useCallback(async () => {
     if (telegramLinkCodeLoading || telegramLoginLoading) {
@@ -846,7 +659,7 @@ const SettingsScreen = ({ onLogout }) => {
   }, [hasUnsavedChanges, saving]);
 
   const handleLogout = async () => {
-    await onLogout();
+    await (onLogout || logout)();
     if (isNativeCapacitor()) {
       window.location.href = '/landing';
     } else {
@@ -1451,10 +1264,6 @@ const SettingsScreen = ({ onLogout }) => {
     }))
     .filter((group) => group.key !== 'system' && group.events.length > 0);
 
-  const toggleNotificationEventExpanded = (eventKey) => {
-    setExpandedNotificationEventKey((currentEventKey) => (currentEventKey === eventKey ? '' : eventKey));
-  };
-
   const getEventChannelState = (event, channelKey) => {
     const supportsChannel = (event.channels || []).includes(channelKey);
     const channel = effectiveNotificationSettings.channels?.[channelKey] || {};
@@ -1478,97 +1287,14 @@ const SettingsScreen = ({ onLogout }) => {
     };
   };
 
-  const isNotificationChannelEffectivelyActive = useCallback((event, channelKey, checked) => {
-    if (event.locked) {
-      return channelKey === 'email';
-    }
-
-    if (!checked) {
-      return false;
-    }
-
-    if (channelKey === 'web_push') {
-      return getWebPushSetupState().key === 'connected';
-    }
-
-    if (channelKey === 'mobile_push') {
-      return !isNativeApp || Boolean(effectiveNotificationSettings.channels?.mobile_push?.available);
-    }
-
-    if (channelKey === 'telegram') {
-      return Boolean(effectiveNotificationSettings.channels?.telegram?.linked);
-    }
-
-    if (channelKey === 'email') {
-      return Boolean(effectiveNotificationSettings.channels?.email?.available);
-    }
-
-    return true;
-  }, [effectiveNotificationSettings.channels, getWebPushSetupState, isNativeApp]);
-
-  const getEventMobileChannels = (event, channelKeys) => channelKeys.reduce((items, channelKey) => {
-    const state = getEventChannelState(event, channelKey);
-    if (!state.supportsChannel) {
-      return items;
-    }
-
-    items.push({
-      channelKey,
-      ...state,
-      isActive: isNotificationChannelEffectivelyActive(event, channelKey, state.checked),
-    });
-    return items;
-  }, []);
-
-  const getNotificationChannelStatusText = useCallback((event, channelKey, checked) => {
-    if (event.locked) {
-      return 'Обязательный канал';
-    }
-
-    if (channelKey === 'web_push') {
-      const state = getWebPushSetupState();
-
-      if (state.key === 'install_required') {
-        return 'Добавьте на экран Домой';
-      }
-      if (state.key === 'unsupported') {
-        return 'Браузер не поддерживает';
-      }
-      if (state.key === 'server_unavailable') {
-        return 'Пока недоступно';
-      }
-      if (state.key === 'denied') {
-        return 'Заблокировано в браузере';
-      }
-      if (state.key === 'requesting_permission' || state.key === 'permission_required') {
-        return 'Нужно разрешение';
-      }
-      if (state.key === 'connecting' || state.key === 'subscription_required') {
-        return checked ? 'Подключаем браузер' : 'Нужно подключить браузер';
-      }
-
-      return checked ? 'Включено' : 'Доступно';
-    }
-
-    if (channelKey === 'mobile_push' && isNativeApp && !effectiveNotificationSettings.channels?.mobile_push?.available) {
-      return 'Нужно разрешение на устройстве';
-    }
-
-    return checked ? 'Включено' : 'Выключено';
-  }, [
-    effectiveNotificationSettings.channels,
-    getWebPushSetupState,
-    isNativeApp,
-  ]);
-
   // Загрузка тренеров/цен при переходе на вкладку social
   useEffect(() => {
-    if (activeTab === 'social' && api) {
+    if (effectiveTab === 'social' && api) {
       loadMyCoaches();
       const role = currentUser?.role;
       if (role === 'coach' || role === 'admin') loadCoachPricing();
     }
-  }, [activeTab, api]);
+  }, [effectiveTab, api]);
 
   useEffect(() => {
     if (formData.telegram_id) {
@@ -1578,6 +1304,193 @@ const SettingsScreen = ({ onLogout }) => {
       clearTelegramLinkPending();
     }
   }, [formData.telegram_id, stopTelegramLoginPolling]);
+
+  // ── Редизайн v3: собираем ctx из существующего состояния/хендлеров (логику не дублируем) ──
+  const avatarSrc = formData.avatar_path
+    ? getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api', 'md')
+    : null;
+
+  const onThemeChange = (value) => {
+    setThemePreference(value);
+    if (value === 'system') {
+      localStorage.removeItem('theme');
+      applyTheme(getSystemTheme());
+    } else {
+      localStorage.setItem('theme', value);
+      applyTheme(value);
+    }
+  };
+
+  const syncingSetters = {
+    strava: setStravaSyncing, polar: setPolarSyncing, garmin: setGarminSyncing,
+    coros: setCorosSyncing, suunto: setSuuntoSyncing, huawei: setHuaweiSyncing,
+  };
+  const syncingFlags = {
+    strava: stravaSyncing, polar: polarSyncing, garmin: garminSyncing,
+    coros: corosSyncing, suunto: suuntoSyncing, huawei: huaweiSyncing,
+  };
+  const PROVIDER_LABELS = { strava: 'Strava', polar: 'Polar', garmin: 'Garmin', coros: 'COROS', suunto: 'Suunto', huawei: 'Huawei Health' };
+
+  const connectProvider = async (id) => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    try {
+      const native = isNativeCapacitor();
+      const supportsNative = id === 'strava' || id === 'suunto' || id === 'huawei';
+      const res = await currentApi.getIntegrationOAuthUrl(id, (supportsNative && native) ? { from_app: '1' } : {});
+      const url = res?.data?.auth_url ?? res?.auth_url;
+      if (!url) { setMessage({ type: 'error', text: 'Провайдер не настроен' }); return; }
+      if (supportsNative && native) {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url });
+        return;
+      }
+      if (id === 'strava') {
+        window.open(url, '_blank');
+        if (stravaPollRef.current) clearInterval(stravaPollRef.current);
+        if (stravaPollTimeoutRef.current) clearTimeout(stravaPollTimeoutRef.current);
+        stravaPollRef.current = setInterval(async () => {
+          try {
+            const statusRes = await currentApi.getIntegrationsStatus();
+            const isConnected = statusRes?.data?.integrations?.strava ?? statusRes?.integrations?.strava ?? false;
+            if (isConnected) {
+              clearInterval(stravaPollRef.current);
+              stravaPollRef.current = null;
+              setIntegrationsStatus((prev) => ({ ...prev, strava: true }));
+              runStravaSync(currentApi);
+            }
+          } catch { /* ignore */ }
+        }, 3000);
+        stravaPollTimeoutRef.current = setTimeout(() => {
+          if (stravaPollRef.current) clearInterval(stravaPollRef.current);
+          stravaPollRef.current = null;
+        }, 300000);
+        return;
+      }
+      window.location.href = url;
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
+    }
+  };
+
+  const syncProvider = async (id) => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    if (id === 'huawei') { await runHuaweiSync(currentApi); return; }
+    syncingSetters[id]?.(true);
+    try {
+      const res = await currentApi.syncWorkouts(id);
+      setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
+      useWorkoutRefreshStore.getState().triggerRefresh();
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
+    } finally {
+      syncingSetters[id]?.(false);
+    }
+  };
+
+  const unlinkProvider = async (id) => {
+    if (!window.confirm(`Отвязать ${PROVIDER_LABELS[id] || id}?`)) return;
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    try {
+      await currentApi.unlinkIntegration(id);
+      setIntegrationsStatus((prev) => ({ ...prev, [id]: false }));
+      setMessage({ type: 'success', text: `${PROVIDER_LABELS[id] || id} отключен` });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+    }
+  };
+
+  const onSetSuuntoMirror = async (enabled) => {
+    const currentApi = api || useAuthStore.getState().api;
+    if (!currentApi) return;
+    setSuuntoMirrorState((prev) => ({ ...prev, enabled, saving: true }));
+    try {
+      await currentApi.setSuuntoMirror(enabled);
+      setMessage({ type: 'success', text: enabled ? 'Тренировки будут улетать в Suunto' : 'Зеркалирование в Suunto выключено' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } catch (err) {
+      setSuuntoMirrorState((prev) => ({ ...prev, enabled: !enabled }));
+      setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
+    } finally {
+      setSuuntoMirrorState((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  const onTestNotification = async () => {
+    if (!api) return;
+    try {
+      const result = await api.request('send_test_notification', { channel: '' }, 'POST');
+      if (result?.success || result?.sent) {
+        alert('Тестовое уведомление отправлено в активные каналы. Проверьте их.');
+      } else {
+        alert(result?.error || 'Не удалось отправить тестовое уведомление');
+      }
+    } catch (e) {
+      alert(e.message || 'Не удалось отправить тестовое уведомление');
+    }
+  };
+
+  const onResetNotifications = () => {
+    if (window.confirm('Сбросить настройки уведомлений к умолчаниям? Все события и расписание вернутся к стандартным значениям.')) {
+      setFormData((prev) => ({
+        ...prev,
+        notification_settings: ensureNotificationChannelsEnabled(
+          createInitialNotificationSettings(prev.timezone || 'Europe/Moscow')
+        ),
+      }));
+    }
+  };
+
+  const v3AvailableChannels = NOTIFICATION_CHANNELS.filter((key) => {
+    const ch = effectiveNotificationSettings.channels?.[key] || {};
+    if (key === 'telegram') return true;
+    if (key === 'mobile_push' && isMobileWeb) return false;
+    if (key === 'web_push' && isNativeApp) return false;
+    if (key === 'web_push') return true;
+    if (key === 'mobile_push') return isNativeApp || ch.available;
+    return true;
+  });
+
+  const isCoachRole = currentUser?.role === 'coach' || currentUser?.role === 'admin';
+  const v3ActiveCat = tabFromUrl ? (catByTab(tabFromUrl)?.id || null) : null;
+  const setCat = (idOrNull) => {
+    if (!idOrNull) { setSearchParams({}); return; }
+    const c = catById(idOrNull);
+    setSearchParams(c ? { tab: c.tab } : {});
+  };
+
+  const settingsCtx = {
+    formData, setFormData, onField: handleInputChange, api, currentUser,
+    avatarSrc, avatarInitials, onAvatarUpload: handleAvatarUpload, onRemoveAvatar: handleRemoveAvatar,
+    slugStatus, slugChecking, onCheckSlug: checkSlugAvailability, setSlugStatus,
+    onToggleRunDay: (v) => toggleDay('preferred_days', v),
+    onToggleOfpDay: (v) => toggleDay('preferred_ofp_days', v),
+    themePreference, onThemeChange,
+    showBiometricSection, pinEnabled, biometricEnabled, biometricAvailable, biometricEnabling, pinDisabling,
+    onEnableLock: handleEnableLock, onDisableLock: handleDisableLock, onAddFingerprint: handleAddFingerprint,
+    onChangePassword: () => navigate('/forgot-password'), onLogout: handleLogout,
+    notificationSettings, effectiveNotificationSettings, availableChannels: v3AvailableChannels,
+    channelMeta, visibleNotificationGroups, getEventChannelState,
+    onToggleNotification: handleNotificationPreferenceToggle,
+    updatePaused, updateNotificationTime, updateQuietHours,
+    webPushSetupState: getWebPushSetupState(), showWebPushSetup: !isNativeApp,
+    telegramNotLinked: !effectiveNotificationSettings.channels?.telegram?.linked,
+    onResetNotifications, onTestNotification, goToTab: handleTabChange,
+    myCoaches, myCoachesLoading, removingCoachId, onRemoveCoach: handleRemoveCoach,
+    onFindTrainer: () => navigate('/trainers'),
+    onEditCoachPage: () => navigate('/trainers/page'),
+    isCoachRole, coachPricing, coachPricingLoading, savingPricing,
+    onAddPricing: handleAddPricingItem, onPricingChange: handlePricingChange,
+    onRemovePricing: handleRemovePricingItem, onSavePricing: handleSavePricing,
+    integrationsStatus, syncingFlags, connectProvider, syncProvider, unlinkProvider,
+    isTelegramConnecting, onConnectTelegram: openTelegramBot, onUnlinkTelegram: handleUnlinkTelegram,
+    hc, suuntoMirror, onSetSuuntoMirror,
+    activeCat: inPanel ? panelCat : v3ActiveCat, setCat: inPanel ? setPanelCat : setCat, onSave: handleSave, saving,
+  };
 
   if (loading) {
     return (
@@ -1590,7 +1503,7 @@ const SettingsScreen = ({ onLogout }) => {
   }
 
   return (
-    <div className="settings-container settings-page">
+    <div className={`settings-container ${inPanel ? 'settings-in-panel' : 'settings-page'}`}>
       <div className="settings-content">
         {message.type === 'error' && message.text && (
           <div className="settings-message settings-message--error" role="alert">
@@ -1610,7 +1523,7 @@ const SettingsScreen = ({ onLogout }) => {
             <span>{message.text}</span>
           </div>
         )}
-        {stravaDebug && activeTab === 'integrations' && (
+        {stravaDebug && effectiveTab === 'integrations' && (
           <div className="settings-message settings-message--error settings-strava-debug">
             <strong>Отладка Strava:</strong>
             <pre>
@@ -1621,1806 +1534,7 @@ const SettingsScreen = ({ onLogout }) => {
             <button type="button" className="btn btn-secondary btn-sm settings-strava-debug-btn" onClick={() => setStravaDebug(null)}>Скрыть</button>
           </div>
         )}
-        <div
-          ref={settingsTabsRef}
-          className="settings-tabs"
-          style={{
-            '--settings-tabs-pill-left': `${settingsTabPillStyle.left}px`,
-            '--settings-tabs-pill-width': `${settingsTabPillStyle.width}px`,
-          }}
-        >
-          <span className="settings-tabs-pill" aria-hidden="true" />
-          <button
-            className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
-            type="button"
-            onClick={() => handleTabChange('profile')}
-          >
-            <UserIcon size={18} className="settings-tab-icon" aria-hidden /> Профиль
-          </button>
-          <button
-            className={`settings-tab ${activeTab === 'training' ? 'active' : ''}`}
-            type="button"
-            onClick={() => handleTabChange('training')}
-          >
-            <RunningIcon size={18} className="settings-tab-icon" aria-hidden /> Тренировки
-          </button>
-          <button
-            className={`settings-tab ${activeTab === 'notifications' ? 'active' : ''}`}
-            type="button"
-            onClick={() => handleTabChange('notifications')}
-          >
-            <BellIcon size={18} className="settings-tab-icon" aria-hidden /> Уведомления
-          </button>
-          <button
-            className={`settings-tab ${activeTab === 'social' ? 'active' : ''}`}
-            type="button"
-            onClick={() => handleTabChange('social')}
-          >
-            <LockIcon size={18} className="settings-tab-icon" aria-hidden /> Конфиденциальность
-          </button>
-          <button
-            className={`settings-tab ${activeTab === 'integrations' ? 'active' : ''}`}
-            type="button"
-            onClick={() => handleTabChange('integrations')}
-          >
-            <LinkIcon size={18} className="settings-tab-icon" aria-hidden /> Интеграции
-          </button>
-        </div>
-
-        <div ref={settingsPanelsRef} className="settings-tab-panels">
-        {/* Вкладка Профиль */}
-        {activeTab === 'profile' && (
-          <div className="tab-content active">
-            <div className="settings-section">
-              <h2><UserIcon size={22} className="section-icon" aria-hidden /> Личная информация</h2>
-
-              <div className="settings-personal-hero">
-                <input
-                  type="file"
-                  id="avatar-upload"
-                  className="settings-personal-hero__input"
-                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                  onChange={handleAvatarUpload}
-                />
-                <div className="settings-personal-hero__avatar-wrap">
-                  <label
-                    htmlFor="avatar-upload"
-                    className="settings-personal-hero__avatar-trigger"
-                    aria-label={formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}
-                    title={formData.avatar_path ? 'Изменить фото' : 'Загрузить фото'}
-                  >
-                    {formData.avatar_path ? (
-                      <img
-                        src={getAvatarSrc(formData.avatar_path, api?.baseUrl || '/api', 'md')}
-                        alt="Аватар"
-                        className="settings-personal-hero__avatar"
-                      />
-                    ) : (
-                      <div className="settings-personal-hero__avatar settings-personal-hero__avatar--placeholder" aria-hidden>
-                        {avatarInitials || <UserIcon size={40} />}
-                      </div>
-                    )}
-                    <span className="settings-personal-hero__avatar-overlay" aria-hidden>
-                      <CameraIcon size={32} />
-                      <span className="settings-personal-hero__avatar-overlay-text">
-                        {formData.avatar_path ? 'Изменить' : 'Загрузить'}
-                      </span>
-                    </span>
-                  </label>
-                  {formData.avatar_path && (
-                    <button
-                      type="button"
-                      className="settings-personal-hero__remove-x"
-                      onClick={handleRemoveAvatar}
-                      aria-label="Удалить фото"
-                      title="Удалить фото"
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  )}
-                </div>
-
-                <div className="settings-personal-hero__fields">
-                  <div className="form-group">
-                    <label>Имя пользователя <span className="required">*</span></label>
-                    <input
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => handleInputChange('username', e.target.value)}
-                      placeholder="Ваше имя"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Email <span className="required">*</span></label>
-                    <input
-                      type="email"
-                      value={formData.email || ''}
-                      onChange={(e) => handleInputChange('email', e.target.value)}
-                      placeholder="email@example.com"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="settings-fieldset-group">
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Пол</label>
-                    <div className="settings-segmented" role="radiogroup" aria-label="Пол">
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={formData.gender === 'male'}
-                        className={`settings-segmented__btn ${formData.gender === 'male' ? 'settings-segmented__btn--active' : ''}`}
-                        onClick={() => handleInputChange('gender', formData.gender === 'male' ? null : 'male')}
-                      >
-                        Мужской
-                      </button>
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={formData.gender === 'female'}
-                        className={`settings-segmented__btn ${formData.gender === 'female' ? 'settings-segmented__btn--active' : ''}`}
-                        onClick={() => handleInputChange('gender', formData.gender === 'female' ? null : 'female')}
-                      >
-                        Женский
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Дата рождения</label>
-                    <input
-                      type="month"
-                      min="1900-01"
-                      max={`${new Date().getFullYear()}-12`}
-                      value={formData.birth_year && formData.birth_month
-                        ? `${formData.birth_year}-${String(formData.birth_month).padStart(2, '0')}`
-                        : ''}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (!v) {
-                          handleInputChange('birth_year', '');
-                          handleInputChange('birth_month', '');
-                        } else {
-                          const [y, m] = v.split('-');
-                          handleInputChange('birth_year', y);
-                          handleInputChange('birth_month', String(parseInt(m, 10)));
-                        }
-                      }}
-                    />
-                    {(() => {
-                      const age = computeAge(formData.birth_year, formData.birth_month);
-                      return age !== null ? <small>{age} {pluralizeYears(age)}</small> : null;
-                    })()}
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Рост (см)</label>
-                    <input
-                      type="number"
-                      min="50"
-                      max="250"
-                      value={formData.height_cm || ''}
-                      onChange={(e) => handleInputChange('height_cm', e.target.value)}
-                      placeholder="175"
-                    />
-                    {(() => {
-                      const range = computeIdealWeightRange(formData.height_cm);
-                      return range ? <small>норма веса {range.min}–{range.max} кг</small> : null;
-                    })()}
-                  </div>
-
-                  <div className="form-group">
-                    <label>Вес (кг)</label>
-                    <input
-                      type="number"
-                      min="20"
-                      max="300"
-                      step="0.1"
-                      value={formData.weight_kg || ''}
-                      onChange={(e) => handleInputChange('weight_kg', e.target.value)}
-                      placeholder="70"
-                    />
-                    {(() => {
-                      const bmi = computeBmi(formData.height_cm, formData.weight_kg);
-                      return bmi ? (
-                        <small className="settings-bmi-hint">
-                          <span className="settings-bmi-hint__num">ИМТ {bmi.value}</span>
-                          <span className={`settings-bmi-hint__label settings-bmi-hint__label--${bmi.tone}`}>{bmi.label}</span>
-                        </small>
-                      ) : null;
-                    })()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="settings-fieldset-group">
-                <div className="form-group">
-                  <label>Заметки о здоровье</label>
-                  <textarea
-                    value={formData.health_notes || ''}
-                    onChange={(e) => handleInputChange('health_notes', e.target.value || null)}
-                    placeholder="Особенности здоровья, травмы, ограничения..."
-                    rows="4"
-                  />
-                  <small>AI-тренер учтёт это при составлении плана — например, обойдёт упражнения с нагрузкой на больное колено.</small>
-                </div>
-              </div>
-
-              <div className="settings-fieldset-group">
-                <div className="form-group">
-                  <label>Часовой пояс</label>
-                  <div className="settings-timezone-row">
-                    <select
-                      value={formData.timezone}
-                      onChange={(e) => handleInputChange('timezone', e.target.value)}
-                    >
-                      <option value="Europe/Moscow">Москва (UTC+3)</option>
-                      <option value="Europe/Kiev">Киев (UTC+2)</option>
-                      <option value="Europe/Minsk">Минск (UTC+3)</option>
-                      <option value="Asia/Almaty">Алматы (UTC+6)</option>
-                      <option value="Europe/London">Лондон (UTC+0)</option>
-                      <option value="America/New_York">Нью-Йорк (UTC-5)</option>
-                      {formData.timezone && !STATIC_TIMEZONES.includes(formData.timezone) && (
-                        <option value={formData.timezone}>{formatTimezoneLabel(formData.timezone)}</option>
-                      )}
-                    </select>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn--sm"
-                      onClick={() => {
-                        const tz = detectBrowserTimezone();
-                        if (tz) handleInputChange('timezone', tz);
-                      }}
-                      title="Подставить часовой пояс из браузера"
-                    >
-                      <GlobeIcon size={16} aria-hidden />
-                      <span>Определить</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="settings-section">
-              <h2><PaletteIcon size={22} className="section-icon" aria-hidden /> Внешний вид</h2>
-              <div className="theme-options" role="radiogroup" aria-label="Тема оформления">
-                {[
-                  { value: 'system', label: 'Как в системе' },
-                  { value: 'light', label: 'Светлая' },
-                  { value: 'dark', label: 'Тёмная' },
-                ].map(({ value, label }) => (
-                  <label key={value} className={`theme-option ${themePreference === value ? 'selected' : ''}`}>
-                    <input
-                      type="radio"
-                      name="theme"
-                      value={value}
-                      checked={themePreference === value}
-                      onChange={() => {
-                        setThemePreference(value);
-                        if (value === 'system') {
-                          localStorage.removeItem('theme');
-                          applyTheme(getSystemTheme());
-                        } else {
-                          localStorage.setItem('theme', value);
-                          applyTheme(value);
-                        }
-                      }}
-                    />
-                    <span className="theme-option-label">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {showBiometricSection && (
-              <div className="settings-section settings-app-lock-section">
-                <h2>Блокировка приложения</h2>
-                <p className="settings-app-lock-desc">
-                  PIN обязателен для разблокировки. Отпечаток пальца — опционально, для быстрого входа.
-                </p>
-                <div className="settings-biometric-row">
-                  <p>
-                    {!pinEnabled
-                      ? 'Блокировка выключена'
-                      : biometricEnabled
-                        ? 'Включена (PIN + отпечаток)'
-                        : 'Включена (PIN)'}
-                  </p>
-                  <div className="settings-app-lock-actions">
-                    {!pinEnabled ? (
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={handleEnableLock}
-                      >
-                        Включить
-                      </button>
-                    ) : (
-                      <>
-                        {!biometricEnabled && biometricAvailable && (
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={handleAddFingerprint}
-                            disabled={biometricEnabling}
-                          >
-                            {biometricEnabling ? '…' : 'Добавить отпечаток'}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleDisableLock}
-                          disabled={pinDisabling}
-                        >
-                          {pinDisabling ? '…' : 'Отключить'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {!biometricAvailable && pinEnabled && !biometricEnabled && (
-                  <p className="settings-biometric-hint">На этом устройстве отпечаток недоступен.</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Вкладка Уведомления */}
-        {activeTab === 'notifications' && (() => {
-          const webPushSetupState = getWebPushSetupState();
-          const availableChannels = NOTIFICATION_CHANNELS.filter((key) => {
-            const ch = effectiveNotificationSettings.channels?.[key] || {};
-            // Telegram теперь показываем всегда; если не подключён — disabled с CTA
-            if (key === 'telegram') return true;
-            if (key === 'mobile_push' && isMobileWeb) return false;
-            if (key === 'web_push' && isNativeApp) return false;
-            if (key === 'web_push') return true;
-            if (key === 'mobile_push') return isNativeApp || ch.available;
-            return true; // email always shown
-          });
-          const telegramNotLinked = !effectiveNotificationSettings.channels?.telegram?.linked;
-          const showWebPushSetup = !isNativeApp;
-
-          return (
-          <div className="tab-content active">
-            <div className="settings-section notification-center">
-              <h2><BellIcon size={22} className="section-icon" aria-hidden /> Уведомления</h2>
-
-              <label className={`settings-toggle notification-pause-toggle ${notificationSettings.paused ? 'is-paused' : ''}`}>
-                <span className="settings-toggle__label">
-                  Приостановить все уведомления
-                  <small className="settings-toggle__hint">
-                    {notificationSettings.paused
-                      ? 'Сейчас не приходит ничего — ни email, ни push. Включите снова чтобы возобновить.'
-                      : 'Глобальный kill-switch — отключает все уведомления, кроме обязательных писем. Удобно на отпуск.'}
-                  </small>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(notificationSettings.paused)}
-                  onChange={(e) => updatePaused(e.target.checked)}
-                  className="settings-toggle__input"
-                />
-                <span className="settings-toggle__track" aria-hidden>
-                  <span className="settings-toggle__thumb" />
-                </span>
-              </label>
-
-              {showWebPushSetup && (
-                <div className={`notification-inline-helper ${webPushSetupState.key === 'connected' ? 'is-connected' : ''}`}>
-                  <div className="notification-inline-helper-copy">
-                    <strong>Уведомления в браузере</strong>
-                    <span>{webPushSetupState.summary}</span>
-                  </div>
-                  {webPushSetupState.actionLabel && webPushSetupState.action && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={webPushSetupState.action}
-                      disabled={webPushSetupState.actionBusy}
-                    >
-                      {webPushSetupState.actionLabel}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Расписание напоминаний */}
-              <div className="notification-schedule-grid">
-                <div className="form-group">
-                  <label>Напоминание на сегодня</label>
-                  <input
-                    type="time"
-                    value={notificationSettings.schedule?.workout_today_time || '08:00'}
-                    onChange={(e) => updateNotificationTime('workout_today_time', '08:00', e.target.value)}
-                  />
-                  <div className="pace-quick" role="group" aria-label="Быстрый выбор времени">
-                    {['07:00', '08:00', '09:00'].map(t => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={`pace-quick__chip ${(notificationSettings.schedule?.workout_today_time || '08:00') === t ? 'pace-quick__chip--active' : ''}`}
-                        onClick={() => updateNotificationTime('workout_today_time', '08:00', t)}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                  <small>Утреннее уведомление о сегодняшней тренировке.</small>
-                </div>
-                <div className="form-group">
-                  <label>Напоминание на завтра</label>
-                  <input
-                    type="time"
-                    value={notificationSettings.schedule?.workout_tomorrow_time || '20:00'}
-                    onChange={(e) => updateNotificationTime('workout_tomorrow_time', '20:00', e.target.value)}
-                  />
-                  <div className="pace-quick" role="group" aria-label="Быстрый выбор времени">
-                    {['19:00', '20:00', '21:00'].map(t => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={`pace-quick__chip ${(notificationSettings.schedule?.workout_tomorrow_time || '20:00') === t ? 'pace-quick__chip--active' : ''}`}
-                        onClick={() => updateNotificationTime('workout_tomorrow_time', '20:00', t)}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                  <small>Вечернее напоминание о завтрашней тренировке.</small>
-                </div>
-              </div>
-
-              <div className="notification-quiet-hours">
-                <label className="settings-toggle">
-                  <span className="settings-toggle__label">
-                    Тихие часы
-                    <small className="settings-toggle__hint">В это время уведомления не приходят</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(notificationSettings.quiet_hours?.enabled)}
-                    onChange={(e) => updateQuietHours('enabled', e.target.checked)}
-                    className="settings-toggle__input"
-                  />
-                  <span className="settings-toggle__track" aria-hidden>
-                    <span className="settings-toggle__thumb" />
-                  </span>
-                </label>
-                {notificationSettings.quiet_hours?.enabled && (
-                  <div className="notification-schedule-grid">
-                    <div className="form-group">
-                      <label>С</label>
-                      <input
-                        type="time"
-                        value={notificationSettings.quiet_hours?.start || '22:00'}
-                        onChange={(e) => updateQuietHours('start', e.target.value || '22:00')}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>До</label>
-                      <input
-                        type="time"
-                        value={notificationSettings.quiet_hours?.end || '07:00'}
-                        onChange={(e) => updateQuietHours('end', e.target.value || '07:00')}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Матрица событий — только доступные каналы */}
-	              <div className="notification-groups">
-	                {visibleNotificationGroups.map((group) => (
-	                  <div key={group.key} className="notification-group">
-	                    <div className="notification-group-heading">
-	                      <h3>{group.label}</h3>
-	                    </div>
-	                    <div className="notification-matrix notification-matrix--desktop">
-	                      <div className="notification-matrix-header notification-matrix-row" style={{ '--channels-count': availableChannels.length }}>
-	                        <div className="notification-event-copy">Событие</div>
-	                        {availableChannels.map((channelKey) => (
-	                          <div
-                              key={`${group.key}-${channelKey}-head`}
-                              className="notification-channel-head"
-                              title={channelMeta[channelKey].label}
-                            >
-                              <span className="notification-channel-head-label">{channelMeta[channelKey].shortLabel}</span>
-                              {channelKey === 'telegram' && telegramNotLinked && (
-                                <button
-                                  type="button"
-                                  className="notification-channel-head__cta"
-                                  onClick={() => handleTabChange('integrations')}
-                                  title="Подключить Telegram в интеграциях"
-                                >
-                                  подключить
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                      </div>
-
-	                      {group.events.map((event) => (
-	                        <div key={event.event_key} className="notification-matrix-row" style={{ '--channels-count': availableChannels.length }}>
-	                          <div className="notification-event-copy">
-	                            <strong>{event.label}</strong>
-	                            {event.locked && <em>Обязательно</em>}
-	                          </div>
-	                          {availableChannels.map((channelKey) => {
-	                            const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
-
-	                            return (
-	                              <label
-                                key={`${event.event_key}-${channelKey}`}
-                                className={`notification-toggle notification-toggle--icon ${disabled ? 'is-disabled' : ''}`}
-                                title={supportsChannel ? channelMeta[channelKey].label : 'Канал недоступен'}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  disabled={disabled}
-                                  onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
-                                />
-                                {supportsChannel
-                                  ? renderNotificationChannelVisual(channelMeta[channelKey], 'notification-toggle-icon', 20)
-                                  : <span className="notification-toggle-dash">—</span>}
-                              </label>
-                            );
-	                          })}
-	                        </div>
-	                      ))}
-	                    </div>
-
-	                    <div className="notification-mobile-list">
-	                      {group.events.map((event) => {
-	                        const mobileChannels = getEventMobileChannels(event, availableChannels);
-	                        const summary = getNotificationMobileSummary(event, notificationSettings.schedule);
-	                        const isExpanded = expandedNotificationEventKey === event.event_key;
-
-	                        return (
-	                          <div
-	                            key={`${group.key}-${event.event_key}-mobile`}
-	                            className={`notification-mobile-item ${isExpanded ? 'is-expanded' : ''}`}
-	                          >
-	                            <button
-	                              type="button"
-	                              className="notification-mobile-item-head"
-	                              onClick={() => toggleNotificationEventExpanded(event.event_key)}
-	                              aria-expanded={isExpanded}
-	                            >
-	                              <div className="notification-mobile-item-copy">
-	                                <strong>{event.label}</strong>
-	                                {summary ? <span>{summary}</span> : null}
-	                              </div>
-	                              <div className="notification-mobile-item-meta">
-	                                <div className="notification-mobile-channel-icons" aria-hidden="true">
-	                                    {mobileChannels.map(({ channelKey, isActive }) => {
-	                                      return (
-	                                        <span
-	                                          key={`${event.event_key}-${channelKey}-icon`}
-	                                          className={`notification-mobile-channel-chip notification-mobile-channel-chip--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                          title={channelMeta[channelKey].label}
-	                                        >
-	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-chip-icon', 16)}
-	                                        </span>
-	                                      );
-	                                    })}
-	                                </div>
-	                                <span className={`notification-mobile-expand-indicator ${isExpanded ? 'is-open' : ''}`} aria-hidden="true" />
-	                              </div>
-	                            </button>
-
-	                            {isExpanded && (
-	                              <div className="notification-mobile-item-body">
-	                                {availableChannels.map((channelKey) => {
-	                                  const { supportsChannel, checked, disabled } = getEventChannelState(event, channelKey);
-	                                  if (!supportsChannel) {
-	                                    return null;
-	                                  }
-
-	                                  const isActive = isNotificationChannelEffectivelyActive(event, channelKey, checked);
-	                                  const statusText = getNotificationChannelStatusText(event, channelKey, checked);
-
-	                                  return (
-	                                    <label
-	                                      key={`${event.event_key}-${channelKey}-mobile-toggle`}
-	                                      className={`notification-mobile-channel-row ${disabled ? 'is-disabled' : ''} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                    >
-	                                      <div className="notification-mobile-channel-copy">
-	                                        <span
-	                                          className={`notification-mobile-channel-icon notification-mobile-channel-icon--${channelKey} ${isActive ? 'is-active' : 'is-inactive'}`}
-	                                          aria-hidden="true"
-	                                        >
-	                                          {renderNotificationChannelVisual(channelMeta[channelKey], 'notification-mobile-channel-row-icon', 18)}
-	                                        </span>
-	                                        <div className="notification-mobile-channel-text">
-	                                          <strong>{channelMeta[channelKey].label}</strong>
-	                                          <span>{statusText}</span>
-	                                        </div>
-	                                      </div>
-	                                      <input
-	                                        type="checkbox"
-	                                        checked={checked}
-	                                        disabled={disabled}
-	                                        onChange={(e) => handleNotificationPreferenceToggle(event.event_key, channelKey, e.target.checked)}
-	                                      />
-	                                    </label>
-	                                  );
-	                                })}
-	                              </div>
-	                            )}
-	                          </div>
-	                        );
-	                      })}
-	                    </div>
-	                  </div>
-	                ))}
-	              </div>
-
-              <div className="notification-section-actions">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn--sm"
-                  onClick={async () => {
-                    if (!api) return;
-                    try {
-                      const result = await api.request('send_test_notification', { channel: '' }, 'POST');
-                      if (result?.success || result?.sent) {
-                        alert('Тестовое уведомление отправлено в активные каналы. Проверьте их.');
-                      } else {
-                        alert(result?.error || 'Не удалось отправить тестовое уведомление');
-                      }
-                    } catch (e) {
-                      alert(e.message || 'Не удалось отправить тестовое уведомление');
-                    }
-                  }}
-                >
-                  <BellIcon size={16} aria-hidden /> Отправить тестовое
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn--sm notification-section-actions__reset"
-                  onClick={() => {
-                    if (window.confirm('Сбросить настройки уведомлений к умолчаниям? Все события и расписание вернутся к стандартным значениям.')) {
-                      setFormData(prev => ({
-                        ...prev,
-                        notification_settings: ensureNotificationChannelsEnabled(
-                          createInitialNotificationSettings(prev.timezone || 'Europe/Moscow')
-                        ),
-                      }));
-                    }
-                  }}
-                >
-                  Сбросить к умолчаниям
-                </button>
-              </div>
-            </div>
-          </div>
-          );
-        })()}
-
-        {/* Вкладка Тренировки (объединены Цели, Тренировки и Здоровье) */}
-        {activeTab === 'training' && (
-          <div className="tab-content active" key={`training-${formData.weekly_base_km}-${formData.preferred_days?.length}`}>
-            {/* Секция: Цели */}
-            <div className="settings-section" id="training-goals">
-              <h2><TargetIcon size={22} className="section-icon" aria-hidden /> Мои цели</h2>
-              <p>Расскажите о ваших целях для персонализированного плана</p>
-
-              <div className="form-group">
-                <label>Тип цели <span className="required">*</span></label>
-                <div className="goal-card-grid" role="radiogroup" aria-label="Тип цели">
-                  {[
-                    { value: 'health', Icon: HeartIcon, title: 'Здоровье', desc: 'Бегать для тонуса и формы' },
-                    { value: 'race', Icon: MedalIcon, title: 'Забег', desc: 'Подготовиться к дистанции' },
-                    { value: 'weight_loss', Icon: FlameIcon, title: 'Похудение', desc: 'Скинуть лишний вес' },
-                    { value: 'time_improvement', Icon: TimeIcon, title: 'Улучшить время', desc: 'Пробежать быстрее' },
-                  ].map(({ value, Icon, title, desc }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={formData.goal_type === value}
-                      className={`goal-card ${formData.goal_type === value ? 'goal-card--active' : ''}`}
-                      onClick={() => handleInputChange('goal_type', value)}
-                    >
-                      <Icon size={28} className="goal-card__icon" aria-hidden />
-                      <span className="goal-card__title">{title}</span>
-                      <span className="goal-card__desc">{desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {formData.goal_type === 'race' && (
-                <div className="goal-race-section">
-                  <h3>Параметры забега</h3>
-                  <div className="form-group">
-                    <label>Целевая дистанция забега</label>
-                    <select
-                      key={`race_distance-${formData.race_distance || 'empty'}`}
-                      value={formData.race_distance || ''}
-                      onChange={(e) => {
-                        const val = e.target.value || '';
-                        handleInputChange('race_distance', val);
-                      }}
-                    >
-                      <option value="">Выберите дистанцию</option>
-                      <option value="5k">5 км</option>
-                      <option value="10k">10 км</option>
-                      <option value="half">Полумарафон (21.1 км)</option>
-                      <option value="marathon">Марафон (42.2 км)</option>
-                    </select>
-                    <small>
-                      Какую дистанцию вы планируете пробежать?
-                    </small>
-                  </div>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Дата забега</label>
-                      <input
-                        type="date"
-                        value={formData.race_date ? String(formData.race_date) : ''}
-                        onChange={(e) => handleInputChange('race_date', e.target.value || null)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Целевое время</label>
-                      <input
-                        type="time"
-                        step="1"
-                        value={formData.race_target_time ? String(formData.race_target_time) : ''}
-                        onChange={(e) => handleInputChange('race_target_time', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="settings-toggle">
-                      <span className="settings-toggle__label">Первый забег на эту дистанцию</span>
-                      <input
-                        type="checkbox"
-                        checked={formData.is_first_race_at_distance === 1 || formData.is_first_race_at_distance === true}
-                        onChange={(e) => handleInputChange('is_first_race_at_distance', e.target.checked ? 1 : 0)}
-                        className="settings-toggle__input"
-                      />
-                      <span className="settings-toggle__track" aria-hidden>
-                        <span className="settings-toggle__thumb" />
-                      </span>
-                    </label>
-                  </div>
-
-                  {!(formData.is_first_race_at_distance === 1 || formData.is_first_race_at_distance === true) && (
-                    <>
-                      <div className="form-group">
-                        <label>Дистанция последнего забега</label>
-                        <select
-                          key={`last_race_distance-${formData.last_race_distance || 'empty'}`}
-                          value={formData.last_race_distance || ''}
-                          onChange={(e) => handleInputChange('last_race_distance', e.target.value || null)}
-                        >
-                          <option value="">Не указано</option>
-                          <option value="5k">5 км</option>
-                          <option value="10k">10 км</option>
-                          <option value="half">Полумарафон</option>
-                          <option value="marathon">Марафон</option>
-                          <option value="other">Другая</option>
-                        </select>
-                      </div>
-
-                      {formData.last_race_distance === 'other' && (
-                        <div className="form-group">
-                          <label>Дистанция последнего забега (км)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="200"
-                            step="0.1"
-                            value={formData.last_race_distance_km || ''}
-                            onChange={(e) => handleInputChange('last_race_distance_km', e.target.value)}
-                          />
-                        </div>
-                      )}
-
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label>Время последнего забега</label>
-                          <input
-                            type="time"
-                            step="1"
-                            value={formData.last_race_time || ''}
-                            onChange={(e) => handleInputChange('last_race_time', e.target.value || null)}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Дата последнего забега</label>
-                          <input
-                            type="date"
-                            value={formData.last_race_date || ''}
-                            onChange={(e) => handleInputChange('last_race_date', e.target.value || null)}
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {formData.goal_type === 'health' && (
-                <div className="goal-race-section">
-                  <h3>Программа здоровья</h3>
-                  <div className="form-group">
-                    <label>Программа</label>
-                    <select
-                      key={`health_program-${formData.health_program || 'empty'}`}
-                      value={formData.health_program || ''}
-                      onChange={(e) => handleInputChange('health_program', e.target.value || null)}
-                    >
-                      <option value="">Не указано</option>
-                      <option value="start_running">Начать бегать</option>
-                      <option value="couch_to_5k">Couch to 5K</option>
-                      <option value="regular_running">Регулярный бег</option>
-                      <option value="custom">Своя программа</option>
-                    </select>
-                  </div>
-
-                  {formData.health_program && (
-                    <div className="form-group">
-                      <label>Длительность программы (недели)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="52"
-                        value={formData.health_plan_weeks || ''}
-                        onChange={(e) => handleInputChange('health_plan_weeks', e.target.value)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {formData.goal_type === 'time_improvement' && (
-                <div className="goal-race-section">
-                  <h3>Улучшение результата</h3>
-                  <p className="settings-section-lead">
-                    Укажите дистанцию, дату и целевое время
-                  </p>
-                  <div className="form-group">
-                    <label>Целевая дистанция</label>
-                    <select
-                      key={`race_distance_ti-${formData.race_distance || 'empty'}`}
-                      value={formData.race_distance || ''}
-                      onChange={(e) => handleInputChange('race_distance', e.target.value || '')}
-                    >
-                      <option value="">Выберите дистанцию</option>
-                      <option value="5k">5 км</option>
-                      <option value="10k">10 км</option>
-                      <option value="half">Полумарафон (21.1 км)</option>
-                      <option value="marathon">Марафон (42.2 км)</option>
-                    </select>
-                  </div>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Дата целевого забега</label>
-                      <input
-                        type="date"
-                        value={formData.race_date || ''}
-                        onChange={(e) => handleInputChange('race_date', e.target.value || null)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Целевое время</label>
-                      <input
-                        type="time"
-                        step="1"
-                        value={formData.race_target_time || ''}
-                        onChange={(e) => handleInputChange('race_target_time', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {formData.goal_type === 'weight_loss' && (
-                <div className="goal-race-section">
-                  <h3>Цель по весу</h3>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Целевой вес (кг)</label>
-                      <input
-                        type="number"
-                        min="20"
-                        max="300"
-                        step="0.1"
-                        value={formData.weight_goal_kg || ''}
-                        onChange={(e) => handleInputChange('weight_goal_kg', e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Дата достижения</label>
-                      <input
-                        type="date"
-                        value={formData.weight_goal_date || ''}
-                        onChange={(e) => handleInputChange('weight_goal_date', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Секция: Настройки тренировок */}
-            <div className="settings-section" id="training-config">
-              <h2><RunningIcon size={22} className="section-icon" aria-hidden /> Настройки тренировок</h2>
-              <p>Параметры для создания персонализированного плана</p>
-
-              <div className="form-group">
-                <label>Уровень подготовки <span className="required">*</span></label>
-                <div className="experience-card-grid" role="radiogroup" aria-label="Уровень подготовки">
-                  {[
-                    { value: 'novice', Icon: LeafIcon, title: 'Новичок', period: '< 3 мес', desc: 'Не бегаю или менее 3 месяцев' },
-                    { value: 'beginner', Icon: WalkingIcon, title: 'Начинающий', period: '3–6 мес', desc: '3–6 месяцев регулярного бега' },
-                    { value: 'intermediate', Icon: RunningIcon, title: 'Средний', period: '6–12 мес', desc: '6–12 месяцев регулярного бега' },
-                    { value: 'advanced', Icon: ZapIcon, title: 'Продвинутый', period: '1–2 года', desc: '1–2 года регулярного бега' },
-                    { value: 'expert', Icon: TrophyIcon, title: 'Опытный', period: '2+ года', desc: 'Более 2 лет регулярного бега' },
-                  ].map(({ value, Icon, title, period, desc }) => {
-                    const active = (formData.experience_level || 'novice') === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        title={desc}
-                        className={`experience-card ${active ? 'experience-card--active' : ''}`}
-                        onClick={() => handleInputChange('experience_level', value)}
-                      >
-                        <Icon size={24} className="experience-card__icon" aria-hidden />
-                        <span className="experience-card__title">{title}</span>
-                        <span className="experience-card__period">{period}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {(() => {
-                  const lvl = formData.experience_level || 'novice';
-                  const descMap = {
-                    novice: 'Не бегаю или менее 3 месяцев — план начнётся с малых объёмов и с постепенным наращиванием.',
-                    beginner: '3–6 месяцев регулярного бега — основа есть, добавим темповые работы и длительные.',
-                    intermediate: '6–12 месяцев регулярного бега — план включит интервалы, темпо и более серьёзные длительные.',
-                    advanced: '1–2 года регулярного бега — структурированные блоки, специфика, периодизация.',
-                    expert: 'Более 2 лет регулярного бега — продвинутые тренировки, тонкая настройка, пиковые нагрузки.',
-                  };
-                  return <small>{descMap[lvl]}</small>;
-                })()}
-              </div>
-
-              <div className="form-group">
-                <label>Комфортный темп (мин:сек на км)</label>
-                <div className="pace-row">
-                  <input
-                    type="text"
-                    className="pace-input"
-                    value={formData.easy_pace_min || ''}
-                    onChange={(e) => {
-                      const formatted = formatPaceMask(e.target.value);
-                      handleInputChange('easy_pace_min', formatted);
-                      const totalSec = paceMaskToSeconds(formatted);
-                      if (totalSec !== null && totalSec >= 180 && totalSec <= 600) {
-                        handleInputChange('easy_pace_sec', String(totalSec));
-                      } else if (formatted === '') {
-                        handleInputChange('easy_pace_sec', '');
-                      }
-                    }}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    maxLength={5}
-                    placeholder="7:00"
-                  />
-                  <div className="pace-quick" role="group" aria-label="Быстрый выбор темпа">
-                    {['5:00', '6:00', '7:00', '8:00'].map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        className={`pace-quick__chip ${formData.easy_pace_min === p ? 'pace-quick__chip--active' : ''}`}
-                        onClick={() => {
-                          handleInputChange('easy_pace_min', p);
-                          const [min, sec] = p.split(':').map(Number);
-                          handleInputChange('easy_pace_sec', String(min * 60 + sec));
-                        }}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <small>Темп для разминки и восстановления. Ориентир: <strong>5:00</strong> опытный · <strong>6:00</strong> уверенный · <strong>7:00</strong> начинающий · <strong>8:00</strong> очень спокойный.</small>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Еженедельный объем (км)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="200"
-                    step="0.1"
-                    value={formData.weekly_base_km || ''}
-                    onChange={(e) => handleInputChange('weekly_base_km', e.target.value)}
-                    placeholder="20"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Дата начала тренировок</label>
-                  <input
-                    type="date"
-                    value={formData.training_start_date || ''}
-                    onChange={(e) => handleInputChange('training_start_date', e.target.value || null)}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Предпочитаемые дни для бега</label>
-                <div className="week-pills" role="group" aria-label="Дни для бега">
-                  {daysOfWeek.map(day => {
-                    const active = Array.isArray(formData.preferred_days) && formData.preferred_days.includes(day.value);
-                    return (
-                      <button
-                        key={day.value}
-                        type="button"
-                        aria-pressed={active}
-                        className={`week-pill ${active ? 'week-pill--active' : ''}`}
-                        onClick={() => {
-                          toggleDay('preferred_days', day.value);
-                          const currentDays = formData.preferred_days || [];
-                          const newDays = currentDays.includes(day.value)
-                            ? currentDays.filter(d => d !== day.value)
-                            : [...currentDays, day.value];
-                          setFormData(prev => ({ ...prev, sessions_per_week: String(newDays.length) }));
-                        }}
-                      >
-                        {day.short || day.label?.slice(0, 2) || day.value}
-                      </button>
-                    );
-                  })}
-                </div>
-                {(() => {
-                  const count = Array.isArray(formData.preferred_days) ? formData.preferred_days.length : 0;
-                  return count > 0 ? (
-                    <small>Тренировок в неделю: <strong>{count}</strong></small>
-                  ) : null;
-                })()}
-              </div>
-
-              <div className="form-group">
-                <label>Предпочитаемые дни для ОФП</label>
-                <div className="week-pills" role="group" aria-label="Дни для ОФП">
-                  {daysOfWeek.map(day => {
-                    const active = Array.isArray(formData.preferred_ofp_days) && formData.preferred_ofp_days.includes(day.value);
-                    return (
-                      <button
-                        key={day.value}
-                        type="button"
-                        aria-pressed={active}
-                        className={`week-pill ${active ? 'week-pill--active' : ''}`}
-                        onClick={() => toggleDay('preferred_ofp_days', day.value)}
-                      >
-                        {day.short || day.label?.slice(0, 2) || day.value}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Предпочтения по ОФП</label>
-                  <select
-                    key={`ofp_preference-${formData.ofp_preference || 'empty'}`}
-                    value={formData.ofp_preference || ''}
-                    onChange={(e) => handleInputChange('ofp_preference', e.target.value || null)}
-                  >
-                    <option value="">Не указано</option>
-                    <option value="gym">Тренажерный зал</option>
-                    <option value="home">Дома</option>
-                    <option value="both">И зал, и дома</option>
-                    <option value="group_classes">Групповые занятия</option>
-                    <option value="online">Онлайн</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Предпочтительное время тренировок</label>
-                  <select
-                    key={`training_time_pref-${formData.training_time_pref || 'empty'}`}
-                    value={formData.training_time_pref || ''}
-                    onChange={(e) => handleInputChange('training_time_pref', e.target.value || null)}
-                  >
-                    <option value="">Не указано</option>
-                    <option value="morning">Утро</option>
-                    <option value="day">День</option>
-                    <option value="evening">Вечер</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="settings-toggle">
-                  <span className="settings-toggle__label">Есть беговая дорожка</span>
-                  <input
-                    type="checkbox"
-                    key={`has_treadmill-${formData.has_treadmill}`}
-                    checked={formData.has_treadmill || false}
-                    onChange={(e) => handleInputChange('has_treadmill', e.target.checked)}
-                    className="settings-toggle__input"
-                  />
-                  <span className="settings-toggle__track" aria-hidden>
-                    <span className="settings-toggle__thumb" />
-                  </span>
-                </label>
-              </div>
-
-              <div className="form-group">
-                <label>Режим тренировок</label>
-                <select
-                  key={`training_mode-${formData.training_mode || 'ai'}`}
-                  value={formData.training_mode || 'ai'}
-                  onChange={(e) => handleInputChange('training_mode', e.target.value)}
-                >
-                  <option value="ai">AI план</option>
-                  <option value="coach">С тренером</option>
-                  <option value="both">AI + тренер</option>
-                  <option value="self">Самостоятельно</option>
-                </select>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* Вкладка Социальное */}
-        {activeTab === 'social' && (
-          <div className="tab-content active">
-            <div className="settings-section">
-              <h2><UsersIcon size={22} className="section-icon" aria-hidden /> Конфиденциальность</h2>
-              <p>Управляйте тем, как другие видят ваш тренировочный календарь</p>
-              <p className="form-hint">
-                <Link to="/privacy">Полная политика конфиденциальности</Link>
-              </p>
-
-              <div className="form-group">
-                <label>Уровень приватности</label>
-                <div className="privacy-options">
-                  <label className="privacy-option">
-                    <input
-                      type="radio"
-                      name="privacy_level"
-                      value="public"
-                      checked={formData.privacy_level === 'public'}
-                      onChange={(e) => handleInputChange('privacy_level', e.target.value)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Публичный</strong>
-                      <small>Ваш профиль и календарь видны всем</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="radio"
-                      name="privacy_level"
-                      value="private"
-                      checked={formData.privacy_level === 'private'}
-                      onChange={(e) => handleInputChange('privacy_level', e.target.value)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Приватный</strong>
-                      <small>Только вы видите свой профиль</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="radio"
-                      name="privacy_level"
-                      value="link"
-                      checked={formData.privacy_level === 'link'}
-                      onChange={(e) => handleInputChange('privacy_level', e.target.value)}
-                    />
-                    <div className="privacy-content">
-                      <strong>По ссылке</strong>
-                      <small>Доступ только по специальной ссылке</small>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginTop: 'var(--space-6)' }}>
-                <label>Что показывать на странице профиля</label>
-                <p className="form-hint">Выберите, какие данные видны на вашей публичной странице</p>
-                <div className="privacy-options privacy-options--checkboxes">
-                  <label className="privacy-option">
-                    <input
-                      type="checkbox"
-                      checked={formData.privacy_show_email}
-                      onChange={(e) => handleInputChange('privacy_show_email', e.target.checked)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Email</strong>
-                      <small>Адрес электронной почты</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="checkbox"
-                      checked={formData.privacy_show_trainer}
-                      onChange={(e) => handleInputChange('privacy_show_trainer', e.target.checked)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Тренер</strong>
-                      <small>Блок «Тренер» и planRUN AI</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="checkbox"
-                      checked={formData.privacy_show_calendar}
-                      onChange={(e) => handleInputChange('privacy_show_calendar', e.target.checked)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Календарь</strong>
-                      <small>Неделя с планом тренировок</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="checkbox"
-                      checked={formData.privacy_show_metrics}
-                      onChange={(e) => handleInputChange('privacy_show_metrics', e.target.checked)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Метрики</strong>
-                      <small>Статистика и быстрые метрики</small>
-                    </div>
-                  </label>
-                  <label className="privacy-option">
-                    <input
-                      type="checkbox"
-                      checked={formData.privacy_show_workouts}
-                      onChange={(e) => handleInputChange('privacy_show_workouts', e.target.checked)}
-                    />
-                    <div className="privacy-content">
-                      <strong>Тренировки</strong>
-                      <small>Последние тренировки</small>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {formData.privacy_level === 'link' && (formData.public_token || formData.username_slug) && (
-                <div className="form-group" style={{ marginTop: 'var(--space-6)' }}>
-                  <label>Ссылка на ваш профиль</label>
-                  <div className="profile-link-row">
-                    <input
-                      type="text"
-                      readOnly
-                      className="profile-link-input"
-                      value={
-                        typeof window !== 'undefined'
-                          ? `${window.location.origin}/${formData.username_slug || formData.username || ''}${formData.public_token ? `?token=${formData.public_token}` : ''}`
-                          : ''
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn--sm"
-                      onClick={async () => {
-                        const url =
-                          typeof window !== 'undefined'
-                            ? `${window.location.origin}/${formData.username_slug || formData.username || ''}${formData.public_token ? `?token=${formData.public_token}` : ''}`
-                            : '';
-                        try {
-                          await navigator.clipboard.writeText(url);
-                          setMessage({ type: 'success', text: 'Ссылка скопирована' });
-                          setTimeout(() => setMessage({ type: '', text: '' }), 2000);
-                        } catch {
-                          setMessage({ type: 'error', text: 'Не удалось скопировать' });
-                        }
-                      }}
-                    >
-                      Копировать
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Мои тренеры */}
-            <div className="settings-section">
-              <h2><GraduationCapIcon size={22} className="section-icon" aria-hidden /> Мои тренеры</h2>
-              {myCoachesLoading ? (
-                <p className="settings-loading-text">Загрузка...</p>
-              ) : myCoaches.length === 0 ? (
-                <p className="form-hint">У вас пока нет тренеров</p>
-              ) : (
-                <div className="settings-coaches-list">
-                  {myCoaches.map((coach) => (
-                    <div key={coach.id} className="settings-coach-item">
-                      <div className="settings-coach-info">
-                        <strong>{coach.username}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        disabled={removingCoachId === coach.id}
-                        onClick={() => handleRemoveCoach(coach.id)}
-                      >
-                        {removingCoachId === coach.id ? '...' : 'Отвязать'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Стоимость услуг (для тренеров) */}
-            {(currentUser?.role === 'coach' || currentUser?.role === 'admin') && (
-              <div className="settings-section">
-                <h2>Стоимость услуг</h2>
-                <p className="form-hint">Укажите ваши тарифы для учеников</p>
-                {coachPricingLoading ? (
-                  <p className="settings-loading-text">Загрузка...</p>
-                ) : (
-                  <>
-                    {coachPricing.map((item, idx) => (
-                      <div key={item.id || idx} className="settings-pricing-item">
-                        <div className="settings-pricing-row">
-                          <select
-                            value={item.type}
-                            onChange={(e) => handlePricingChange(idx, 'type', e.target.value)}
-                          >
-                            <option value="individual">Индивидуально</option>
-                            <option value="group">Группа</option>
-                            <option value="consultation">Консультация</option>
-                            <option value="custom">Другое</option>
-                          </select>
-                          <input
-                            type="text"
-                            placeholder="Название"
-                            value={item.label}
-                            onChange={(e) => handlePricingChange(idx, 'label', e.target.value)}
-                          />
-                        </div>
-                        <div className="settings-pricing-row">
-                          <input
-                            type="number"
-                            placeholder="Цена"
-                            value={item.price || ''}
-                            onChange={(e) => handlePricingChange(idx, 'price', e.target.value)}
-                            style={{ width: '120px' }}
-                          />
-                          <select
-                            value={item.period}
-                            onChange={(e) => handlePricingChange(idx, 'period', e.target.value)}
-                          >
-                            <option value="month">В месяц</option>
-                            <option value="week">В неделю</option>
-                            <option value="one_time">Разово</option>
-                            <option value="custom">Другое</option>
-                          </select>
-                          <button
-                            type="button"
-                            className="btn-icon-remove"
-                            onClick={() => handleRemovePricingItem(idx)}
-                            title="Удалить"
-                          >
-                            &times;
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="settings-pricing-actions">
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddPricingItem}>
-                        + Добавить тариф
-                      </button>
-                      {coachPricing.length > 0 && (
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          disabled={savingPricing}
-                          onClick={handleSavePricing}
-                        >
-                          {savingPricing ? 'Сохранение...' : 'Сохранить'}
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Вкладка Интеграции */}
-        {activeTab === 'integrations' && (
-          <div className="tab-content active">
-            <div className="settings-section">
-              <h2>Подключить</h2>
-
-              {/* Подключено — горизонтальные карточки: логотип | кнопки */}
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
-                <div className="integrations-connected-section">
-                  <p className="integrations-connected-label">Подключено:</p>
-                  <div className="integrations-connected-row">
-                    {formData.telegram_id && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/telegram.svg" alt="Telegram" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={handleUnlinkTelegram}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                    {integrationsStatus.huawei && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/huawei.svg" alt="Huawei Health" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-primary btn--sm" disabled={huaweiSyncing} onClick={async () => {
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            await runHuaweiSync(currentApi);
-                          }}>{huaweiSyncing ? '...' : 'Синхр.'}</button>
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
-                            if (!window.confirm('Отвязать Huawei Health?')) return;
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            try {
-                              await currentApi.unlinkIntegration('huawei');
-                              setIntegrationsStatus(prev => ({ ...prev, huawei: false }));
-                              setMessage({ type: 'success', text: 'Huawei Health отключен' });
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
-                            }
-                          }}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                    {integrationsStatus.strava && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/strava.svg" alt="Strava" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-primary btn--sm" disabled={stravaSyncing} onClick={async () => {
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            setStravaSyncing(true);
-                            try {
-                              const res = await currentApi.syncWorkouts('strava');
-                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
-                              useWorkoutRefreshStore.getState().triggerRefresh();
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
-                            } finally {
-                              setStravaSyncing(false);
-                            }
-                          }}>{stravaSyncing ? '...' : 'Синхр.'}</button>
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
-                            if (!window.confirm('Отвязать Strava?')) return;
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            try {
-                              await currentApi.unlinkIntegration('strava');
-                              setIntegrationsStatus(prev => ({ ...prev, strava: false }));
-                              setMessage({ type: 'success', text: 'Strava отключен' });
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
-                            }
-                          }}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                    {integrationsStatus.polar && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/polar.svg" alt="Polar" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-primary btn--sm" disabled={polarSyncing} onClick={async () => {
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            setPolarSyncing(true);
-                            try {
-                              const res = await currentApi.syncWorkouts('polar');
-                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
-                              useWorkoutRefreshStore.getState().triggerRefresh();
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
-                            } finally {
-                              setPolarSyncing(false);
-                            }
-                          }}>{polarSyncing ? '...' : 'Синхр.'}</button>
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
-                            if (!window.confirm('Отвязать Polar?')) return;
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            try {
-                              await currentApi.unlinkIntegration('polar');
-                              setIntegrationsStatus(prev => ({ ...prev, polar: false }));
-                              setMessage({ type: 'success', text: 'Polar отключен' });
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
-                            }
-                          }}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                    {integrationsStatus.garmin && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/garmin.svg" alt="Garmin" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-primary btn--sm" disabled={garminSyncing} onClick={async () => {
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            setGarminSyncing(true);
-                            try {
-                              const res = await currentApi.syncWorkouts('garmin');
-                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
-                              useWorkoutRefreshStore.getState().triggerRefresh();
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
-                            } finally {
-                              setGarminSyncing(false);
-                            }
-                          }}>{garminSyncing ? '...' : 'Синхр.'}</button>
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
-                            if (!window.confirm('Отвязать Garmin?')) return;
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            try {
-                              await currentApi.unlinkIntegration('garmin');
-                              setIntegrationsStatus(prev => ({ ...prev, garmin: false }));
-                              setMessage({ type: 'success', text: 'Garmin отключен' });
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
-                            }
-                          }}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                    {integrationsStatus.coros && (
-                      <div className="integration-connected-card">
-                        <div className="integration-connected-card__logo">
-                          <img src="/integrations/coros.svg" alt="COROS" />
-                        </div>
-                        <div className="integration-connected-card__actions">
-                          <button type="button" className="btn btn-primary btn--sm" disabled={corosSyncing} onClick={async () => {
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            setCorosSyncing(true);
-                            try {
-                              const res = await currentApi.syncWorkouts('coros');
-                              setMessage({ type: 'success', text: `Синхронизировано: ${res?.data?.imported ?? res?.imported ?? 0} новых тренировок` });
-                              useWorkoutRefreshStore.getState().triggerRefresh();
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка синхронизации: ' + (err?.message || '') });
-                            } finally {
-                              setCorosSyncing(false);
-                            }
-                          }}>{corosSyncing ? '...' : 'Синхр.'}</button>
-                          <button type="button" className="btn btn-secondary btn--sm" onClick={async () => {
-                            if (!window.confirm('Отвязать COROS?')) return;
-                            const currentApi = api || useAuthStore.getState().api;
-                            if (!currentApi) return;
-                            try {
-                              await currentApi.unlinkIntegration('coros');
-                              setIntegrationsStatus(prev => ({ ...prev, coros: false }));
-                              setMessage({ type: 'success', text: 'COROS отключен' });
-                              setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-                            } catch (err) {
-                              setMessage({ type: 'error', text: 'Ошибка: ' + (err?.message || '') });
-                            }
-                          }}>Отвязать</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Не подключено — логотипы-кнопки для подключения */}
-              {(!formData.telegram_id || !integrationsStatus.huawei || !integrationsStatus.strava || !integrationsStatus.polar || !integrationsStatus.garmin || !integrationsStatus.coros) && (
-              <>
-              {(formData.telegram_id || integrationsStatus.huawei || integrationsStatus.strava || integrationsStatus.polar || integrationsStatus.garmin || integrationsStatus.coros) && (
-                <p className="integrations-disconnected-label">Подключить:</p>
-              )}
-              <div className="integrations-logos">
-                {!formData.telegram_id && (
-                  <div
-                    className="integration-logo-btn"
-                    role="button"
-                    tabIndex={0}
-                    aria-disabled={isTelegramConnecting}
-                    onClick={() => {
-                      if (!isTelegramConnecting) {
-                        openTelegramBot();
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (isTelegramConnecting) return;
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        openTelegramBot();
-                      }
-                    }}
-                  >
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/telegram.svg" alt="Telegram" />
-                    </div>
-                    <span>{isTelegramConnecting ? 'Открываем...' : 'Telegram'}</span>
-                  </div>
-                )}
-                {!integrationsStatus.huawei && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
-                    const currentApi = api || useAuthStore.getState().api;
-                    if (!currentApi) return;
-                    try {
-                      const native = isNativeCapacitor();
-                      const res = await currentApi.getIntegrationOAuthUrl('huawei', native ? { from_app: '1' } : {});
-                      const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (!url) {
-                        setMessage({ type: 'error', text: 'Провайдер не настроен' });
-                        return;
-                      }
-                      if (native) {
-                        // Android/iOS: In-App Browser -> HTTPS callback -> deep link planrun://oauth-callback
-                        const { Browser } = await import('@capacitor/browser');
-                        await Browser.open({ url });
-                      } else {
-                        window.location.href = url;
-                      }
-                    } catch (e) {
-                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
-                    }
-                  }}>
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/huawei.svg" alt="Huawei Health" />
-                    </div>
-                    <span>Huawei Health</span>
-                  </div>
-                )}
-                {!integrationsStatus.strava && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
-                    const currentApi = api || useAuthStore.getState().api;
-                    if (!currentApi) return;
-                    try {
-                      const native = isNativeCapacitor();
-                      const res = await currentApi.getIntegrationOAuthUrl('strava', native ? { from_app: '1' } : {});
-                      const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (!url) { setMessage({ type: 'error', text: 'Провайдер не настроен' }); return; }
-                      if (native) {
-                        // Android: In-App Browser → OAuth → deep link planrun:// вернёт в приложение
-                        // Callback обработается через App.jsx → appUrlOpen → redirect на /settings?connected=...
-                        // → существующий useEffect OAuth callback в этом компоненте запустит runStravaSync
-                        const { Browser } = await import('@capacitor/browser');
-                        await Browser.open({ url });
-                      } else {
-                        // Web: новая вкладка + поллинг статуса подключения
-                        window.open(url, '_blank');
-                        if (stravaPollRef.current) clearInterval(stravaPollRef.current);
-                        if (stravaPollTimeoutRef.current) clearTimeout(stravaPollTimeoutRef.current);
-                        stravaPollRef.current = setInterval(async () => {
-                          try {
-                            const statusRes = await currentApi.getIntegrationsStatus();
-                            const isConnected = statusRes?.data?.integrations?.strava ?? statusRes?.integrations?.strava ?? false;
-                            if (isConnected) {
-                              clearInterval(stravaPollRef.current);
-                              stravaPollRef.current = null;
-                              setIntegrationsStatus(prev => ({ ...prev, strava: true }));
-                              runStravaSync(currentApi);
-                            }
-                          } catch {}
-                        }, 3000);
-                        stravaPollTimeoutRef.current = setTimeout(() => {
-                          if (stravaPollRef.current) clearInterval(stravaPollRef.current);
-                          stravaPollRef.current = null;
-                        }, 300000);
-                      }
-                    } catch (e) {
-                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
-                    }
-                  }}>
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/strava.svg" alt="Strava" />
-                    </div>
-                    <span>Strava</span>
-                  </div>
-                )}
-                {!integrationsStatus.polar && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
-                    const currentApi = api || useAuthStore.getState().api;
-                    if (!currentApi) return;
-                    try {
-                      const res = await currentApi.getIntegrationOAuthUrl('polar');
-                      const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (url) window.location.href = url;
-                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
-                    } catch (e) {
-                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
-                    }
-                  }}>
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/polar.svg" alt="Polar" />
-                    </div>
-                    <span>Polar</span>
-                  </div>
-                )}
-                {!integrationsStatus.garmin && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
-                    const currentApi = api || useAuthStore.getState().api;
-                    if (!currentApi) return;
-                    try {
-                      const res = await currentApi.getIntegrationOAuthUrl('garmin');
-                      const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (url) window.location.href = url;
-                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
-                    } catch (e) {
-                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
-                    }
-                  }}>
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/garmin.svg" alt="Garmin" />
-                    </div>
-                    <span>Garmin</span>
-                  </div>
-                )}
-                {!integrationsStatus.coros && (
-                  <div className="integration-logo-btn" role="button" tabIndex={0} onClick={async () => {
-                    const currentApi = api || useAuthStore.getState().api;
-                    if (!currentApi) return;
-                    try {
-                      const res = await currentApi.getIntegrationOAuthUrl('coros');
-                      const url = res?.data?.auth_url ?? res?.auth_url;
-                      if (url) window.location.href = url;
-                      else setMessage({ type: 'error', text: 'Провайдер не настроен' });
-                    } catch (e) {
-                      setMessage({ type: 'error', text: 'Ошибка: ' + (e?.message || '') });
-                    }
-                  }}>
-                    <div className="integration-logo-btn__icon">
-                      <img src="/integrations/coros.svg" alt="COROS" />
-                    </div>
-                    <span>COROS</span>
-                  </div>
-                )}
-              </div>
-
-              </>
-              )}
-            </div>
-          </div>
-        )}
-
-        </div>
+        <SettingsV3 ctx={settingsCtx} layout={inPanel ? 'drill' : 'auto'} />
       </div>
 
       <PinSetupModal

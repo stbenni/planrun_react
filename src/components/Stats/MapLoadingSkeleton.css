@@ -1,0 +1,26 @@
+.map-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  background: var(--card-surface-compact-bg, rgba(241, 245, 249, 0.85));
+  color: var(--text-tertiary, rgba(15, 23, 42, 0.4));
+  animation: map-loading-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.map-loading-skeleton svg { opacity: 0.45; }
+.map-loading-skeleton span { font-size: 0.82rem; font-weight: 600; letter-spacing: 0.01em; }
+
+[data-theme="dark"] .map-loading-skeleton {
+  background: rgba(30, 41, 59, 0.6);
+  color: rgba(226, 232, 240, 0.45);
+}
+
+@keyframes map-loading-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

@@ -60,7 +60,7 @@ class WorkoutRepository extends BaseRepository {
      */
     public function getWorkoutsByDate(int $userId, string $dateStart, string $dateEnd): array {
         return $this->fetchAll(
-            "SELECT id, user_id, activity_type, source, start_time,
+            "SELECT id, user_id, activity_type, detected_type, source, start_time,
                     duration_minutes, duration_seconds, distance_km,
                     avg_pace, avg_heart_rate, max_heart_rate, elevation_gain
              FROM workouts

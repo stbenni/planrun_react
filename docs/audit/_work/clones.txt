@@ -1,0 +1,555 @@
+Групп дублей (после слияния): 134
+
+[~30 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:87-116
+  src/components/Stats/PaceChart.jsx:205-234
+
+[~29 строк, 2 копий]
+  planrun-backend/services/TelegramLoginService.php:37-65
+  planrun-backend/services/TelegramMiniAppService.php:148-175
+
+[~29 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:780-808
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:842-870
+
+[~29 строк, 2 копий]
+  src/services/CredentialBackupService.js:36-64
+  src/services/PinAuthService.js:45-73
+
+[~28 строк, 3 копий]
+  planrun-backend/tests/Unit/PlanGenerationQueueServiceTest.php:60-87
+  planrun-backend/tests/Unit/RegistrationServiceTest.php:62-89
+  planrun-backend/tests/Unit/WorkoutPlanRecalculationServiceTest.php:57-84
+
+[~28 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:104-131
+  src/components/Stats/PaceChart.jsx:222-249
+
+[~27 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:219-245
+  planrun-backend/register_api.php:347-375
+
+[~27 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:234-260
+  planrun-backend/register_api.php:364-391
+
+[~27 строк, 2 копий]
+  planrun-backend/services/WeekService.php:289-315
+  planrun-backend/services/WeekService.php:373-399
+
+[~27 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTuneUpRaceTest.php:14-40
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTuneUpRaceTest.php:62-88
+
+[~26 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:204-229
+  planrun-backend/register_api.php:326-359
+
+[~26 строк, 2 копий]
+  planrun-backend/providers/CorosProvider.php:438-463
+  planrun-backend/providers/GarminProvider.php:358-383
+
+[~26 строк, 2 копий]
+  planrun-backend/scripts/live_plan_generation_batch.php:314-339
+  planrun-backend/scripts/live_recalculate_batch.php:150-175
+
+[~26 строк, 2 копий]
+  planrun-backend/scripts/migrate_executed_exercises.php:22-47
+  planrun-backend/services/ExecutedExerciseService.php:236-256
+
+[~26 строк, 2 копий]
+  src/components/Stats/CombinedWorkoutChart.jsx:65-90
+  src/components/Stats/PaceChart.jsx:29-54
+
+[~26 строк, 2 копий]
+  src/components/Stats/CombinedWorkoutChart.jsx:80-105
+  src/components/Stats/PaceChart.jsx:44-69
+
+[~26 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:178-203
+  src/components/Stats/PaceChart.jsx:299-324
+
+[~25 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:170-194
+  planrun-backend/register_api.php:266-291
+
+[~25 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:799-823
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:861-885
+
+[~24 строк, 2 копий]
+  planrun-backend/planrun_ai/plan_generator.php:351-374
+  planrun-backend/planrun_ai/plan_generator.php:708-731
+
+[~24 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:112-135
+  planrun-backend/services/NotificationSettingsService.php:58-81
+
+[~24 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:127-150
+  planrun-backend/services/NotificationSettingsService.php:73-96
+
+[~24 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:142-165
+  planrun-backend/services/NotificationSettingsService.php:88-111
+
+[~24 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:157-180
+  planrun-backend/services/NotificationSettingsService.php:103-126
+
+[~24 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:323-346
+  src/components/Stats/PaceChart.jsx:442-465
+
+[~23 строк, 2 копий]
+  planrun-backend/planrun_ai/plan_generator.php:366-388
+  planrun-backend/planrun_ai/plan_generator.php:723-745
+
+[~23 строк, 2 копий]
+  planrun-backend/providers/CorosProvider.php:273-295
+  planrun-backend/providers/GarminProvider.php:220-242
+
+[~23 строк, 2 копий]
+  planrun-backend/providers/CorosProvider.php:460-482
+  planrun-backend/providers/SuuntoProvider.php:668-690
+
+[~23 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanNormalizerTest.php:466-488
+  planrun-backend/tests/Unit/PlanNormalizerTest.php:503-525
+
+[~23 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:194-216
+  src/components/Stats/PaceChart.jsx:315-337
+
+[~23 строк, 2 копий]
+  src/services/CredentialBackupService.js:51-73
+  src/services/PinAuthService.js:60-82
+
+[~22 строк, 2 копий]
+  planrun-backend/planrun_ai/plan_validator.php:21-42
+  planrun-backend/services/PlanQualityGate.php:726-747
+
+[~22 строк, 2 копий]
+  planrun-backend/tests/test_chat_fixes.php:2-23
+  planrun-backend/tests/test_chat_tools.php:2-20
+
+[~22 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:59-80
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:114-135
+
+[~21 строк, 3 копий]
+  planrun-backend/planrun_ai/plan_generator.php:60-80
+  planrun-backend/planrun_ai/plan_generator.php:376-393
+  planrun-backend/planrun_ai/plan_generator.php:733-750
+
+[~21 строк, 2 копий]
+  planrun-backend/services/TelegramLoginService.php:309-329
+  planrun-backend/services/TelegramLoginService.php:363-383
+
+[~21 строк, 2 копий]
+  planrun-backend/tests/Unit/AthleteSignalsServiceTest.php:72-92
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:850-870
+
+[~21 строк, 3 копий]
+  planrun-backend/tests/Unit/AthleteSignalsServiceTest.php:93-113
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:553-573
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:871-891
+
+[~21 строк, 2 копий]
+  src/components/Calendar/WorkoutCard.jsx:288-308
+  src/components/Stats/WorkoutDetailsModal.jsx:114-134
+
+[~20 строк, 3 копий]
+  planrun-backend/providers/CorosProvider.php:451-470
+  planrun-backend/providers/GarminProvider.php:371-390
+  planrun-backend/providers/SuuntoProvider.php:659-678
+
+[~20 строк, 2 копий]
+  src/components/Dashboard/DashboardStatsWidget.jsx:25-44
+  src/components/Dashboard/ProfileQuickMetricsWidget.jsx:24-43
+
+[~20 строк, 2 копий]
+  src/components/Stats/CombinedWorkoutChart.jsx:117-136
+  src/components/Stats/PaceChart.jsx:80-99
+
+[~20 строк, 2 копий]
+  src/screens/ChatScreen.jsx:961-980
+  src/screens/ChatScreen.jsx:1073-1093
+
+[~19 строк, 2 копий]
+  api/coros_workout_push.php:75-93
+  api/suunto_webhook.php:103-120
+
+[~19 строк, 3 копий]
+  planrun-backend/scripts/daily_briefing.php:2-20
+  planrun-backend/scripts/proactive_coach.php:2-23
+  planrun-backend/scripts/weekly_digest.php:2-20
+
+[~19 строк, 3 копий]
+  planrun-backend/tests/Unit/PlanGenerationQueueServiceTest.php:30-48
+  planrun-backend/tests/Unit/RegistrationServiceTest.php:32-50
+  planrun-backend/tests/Unit/WorkoutPlanRecalculationServiceTest.php:27-45
+
+[~19 строк, 2 копий]
+  src/components/Stats/ActivityHeatmap.jsx:313-331
+  src/components/Stats/DistanceChart.jsx:143-162
+
+[~19 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:275-293
+  src/components/Stats/PaceChart.jsx:394-412
+
+[~18 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:118-135
+  planrun-backend/register_api.php:201-219
+
+[~18 строк, 2 копий]
+  planrun-backend/controllers/NoteController.php:57-74
+  planrun-backend/controllers/NoteController.php:155-171
+
+[~18 строк, 4 копий]
+  planrun-backend/tests/Unit/AthleteSignalsServiceTest.php:66-83
+  planrun-backend/tests/Unit/MetricsServiceTest.php:46-63
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:587-604
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:844-861
+
+[~18 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:957-974
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:1006-1023
+
+[~18 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:227-244
+  src/components/Stats/PaceChart.jsx:346-363
+
+[~17 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:32-48
+  planrun-backend/register_api.php:33-50
+
+[~17 строк, 3 копий]
+  planrun-backend/planrun_ai/plan_generator.php:36-52
+  planrun-backend/planrun_ai/plan_generator.php:355-370
+  planrun-backend/planrun_ai/plan_generator.php:712-727
+
+[~17 строк, 2 копий]
+  planrun-backend/repositories/UserRepository.php:349-365
+  planrun-backend/services/CoachService.php:24-40
+
+[~17 строк, 2 копий]
+  planrun-backend/scripts/ai_runtime_smoke.php:115-131
+  planrun-backend/tests/Unit/PlanGenerationProcessorServiceTest.php:471-487
+
+[~17 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:172-188
+  planrun-backend/services/NotificationSettingsService.php:118-134
+
+[~17 строк, 2 копий]
+  planrun-backend/services/TelegramLoginService.php:52-68
+  planrun-backend/services/TelegramMiniAppService.php:163-178
+
+[~17 строк, 2 копий]
+  src/components/Dashboard/v3/NextWorkoutSectionV3.jsx:9-25
+  src/components/Dashboard/v3/WeekSectionV3.jsx:13-31
+
+[~17 строк, 2 копий]
+  src/components/Stats/CombinedWorkoutChart.jsx:95-111
+  src/components/Stats/PaceChart.jsx:59-75
+
+[~16 строк, 2 копий]
+  planrun-backend/controllers/ChatController.php:344-359
+  planrun-backend/controllers/ChatController.php:584-599
+
+[~16 строк, 2 копий]
+  planrun-backend/providers/GarminProvider.php:93-108
+  planrun-backend/providers/GarminProvider.php:163-178
+
+[~16 строк, 2 копий]
+  planrun-backend/scripts/eval_plan_generation.php:133-148
+  planrun-backend/scripts/eval_plan_generation.php:190-205
+
+[~16 строк, 2 копий]
+  planrun-backend/services/ChatContextBuilder.php:580-595
+  planrun-backend/services/ChatContextBuilder.php:1241-1256
+
+[~16 строк, 2 копий]
+  planrun-backend/services/ProactiveCoachService.php:720-735
+  planrun-backend/services/WorkoutService.php:655-674
+
+[~16 строк, 2 копий]
+  src/components/Calendar/v3/InfoTip.jsx:6-21
+  src/components/Calendar/v3/PlanActionsMenuV3.jsx:15-30
+
+[~16 строк, 2 копий]
+  src/components/Dashboard/RacePredictionWidget.jsx:75-90
+  src/components/Dashboard/TrainingLoadWidget.jsx:132-146
+
+[~15 строк, 2 копий]
+  planrun-backend/planrun_ai/plan_generator.php:382-396
+  planrun-backend/scripts/dry_run_recalculate_prompt.php:57-69
+
+[~15 строк, 2 копий]
+  planrun-backend/scripts/dry_run_coaching_prompt.php:48-62
+  planrun-backend/scripts/live_generate_one_user.php:46-60
+
+[~15 строк, 2 копий]
+  planrun-backend/scripts/eval_plan_generation.php:180-194
+  planrun-backend/scripts/eval_plan_generation.php:228-242
+
+[~15 строк, 2 копий]
+  planrun-backend/scripts/live_plan_generation_batch.php:332-346
+  planrun-backend/scripts/live_recalculate_batch.php:168-182
+
+[~15 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:191-205
+  planrun-backend/services/NotificationSettingsService.php:137-151
+
+[~15 строк, 2 копий]
+  planrun-backend/services/PostWorkoutFollowupService.php:619-633
+  planrun-backend/services/WorkoutService.php:250-265
+
+[~15 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:237-251
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:274-288
+
+[~15 строк, 3 копий]
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:110-124
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:148-162
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:275-289
+
+[~15 строк, 2 копий]
+  src/components/Calendar/AddTrainingModal.jsx:704-718
+  src/components/Calendar/ResultModal.jsx:718-732
+
+[~15 строк, 2 копий]
+  src/screens/ChatScreen.jsx:813-827
+  src/screens/ChatScreen.jsx:866-880
+
+[~14 строк, 2 копий]
+  planrun-backend/controllers/AuthController.php:239-252
+  planrun-backend/controllers/AuthController.php:286-299
+
+[~14 строк, 2 копий]
+  planrun-backend/providers/HuaweiHealthProvider.php:56-69
+  planrun-backend/providers/HuaweiHealthProvider.php:99-112
+
+[~14 строк, 2 копий]
+  planrun-backend/scripts/daily_briefing.php:9-22
+  planrun-backend/scripts/weekly_digest.php:9-22
+
+[~14 строк, 2 копий]
+  planrun-backend/scripts/live_next_plan_batch.php:60-73
+  planrun-backend/scripts/live_recalculate_batch.php:73-86
+
+[~14 строк, 2 копий]
+  planrun-backend/scripts/live_next_plan_batch.php:197-210
+  planrun-backend/scripts/live_recalculate_batch.php:1002-1015
+
+[~14 строк, 2 копий]
+  planrun-backend/scripts/live_plan_generation_batch.php:876-889
+  planrun-backend/scripts/live_recalculate_batch.php:1047-1060
+
+[~14 строк, 2 копий]
+  planrun-backend/services/AiPlanGenerationEventLogger.php:141-154
+  planrun-backend/services/AiPlanGenerationEventLogger.php:453-466
+
+[~14 строк, 2 копий]
+  planrun-backend/services/ChatContextBuilder.php:553-566
+  planrun-backend/services/ChatContextBuilder.php:1214-1227
+
+[~14 строк, 2 копий]
+  planrun-backend/services/WeekService.php:304-317
+  planrun-backend/services/WeekService.php:388-401
+
+[~14 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanScenarioResolverTest.php:72-85
+  planrun-backend/tests/Unit/PlanScenarioResolverTest.php:110-123
+
+[~14 строк, 2 копий]
+  src/api/chatApi.js:91-104
+  src/workers/chatStream.worker.js:35-46
+
+[~14 строк, 2 копий]
+  src/components/Calendar/AddTrainingModal.jsx:112-125
+  src/components/Calendar/ResultModal.jsx:66-79
+
+[~14 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:120-133
+  src/components/Stats/PaceChart.jsx:238-251
+
+[~13 строк, 2 копий]
+  planrun-backend/complete_specialization_api.php:142-154
+  planrun-backend/register_api.php:223-237
+
+[~13 строк, 2 копий]
+  planrun-backend/controllers/ChatController.php:80-92
+  planrun-backend/controllers/ChatController.php:247-259
+
+[~13 строк, 3 копий]
+  planrun-backend/providers/CorosProvider.php:401-413
+  planrun-backend/providers/GarminProvider.php:321-333
+  planrun-backend/providers/SuuntoProvider.php:516-528
+
+[~13 строк, 2 копий]
+  planrun-backend/scripts/migrate_all.php:93-105
+  planrun-backend/services/NotificationSettingsService.php:38-50
+
+[~13 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanGenerationQueueServiceTest.php:29-41
+  planrun-backend/tests/Unit/WorkoutPlanRecalculationServiceTest.php:26-38
+
+[~13 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:541-553
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:591-603
+
+[~13 строк, 2 копий]
+  src/components/Dashboard/DashboardStatsWidget.jsx:36-48
+  src/screens/UserProfileScreen.jsx:160-172
+
+[~13 строк, 2 копий]
+  src/components/Stats/CombinedWorkoutChart.jsx:41-53
+  src/components/Stats/PaceChart.jsx:16-28
+
+[~13 строк, 2 копий]
+  src/screens/StatsScreen.jsx:131-143
+  src/screens/UserProfileScreen.jsx:311-322
+
+[~12 строк, 2 копий]
+  planrun-backend/providers/CorosProvider.php:218-229
+  planrun-backend/providers/GarminProvider.php:174-185
+
+[~12 строк, 2 копий]
+  planrun-backend/providers/CorosProvider.php:476-487
+  planrun-backend/providers/SuuntoProvider.php:684-695
+
+[~12 строк, 2 копий]
+  planrun-backend/services/PostWorkoutFollowupService.php:466-477
+  planrun-backend/services/WorkoutService.php:152-164
+
+[~12 строк, 2 копий]
+  planrun-backend/services/PostWorkoutFollowupService.php:603-614
+  planrun-backend/services/WorkoutService.php:227-238
+
+[~12 строк, 2 копий]
+  planrun-backend/services/WorkoutService.php:2221-2232
+  planrun-backend/services/WorkoutShareCardCacheService.php:532-544
+
+[~12 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanNormalizerTest.php:553-564
+  planrun-backend/tests/Unit/PlanNormalizerTest.php:609-620
+
+[~12 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:815-826
+  planrun-backend/tests/Unit/PlanQualityGateTest.php:877-888
+
+[~12 строк, 2 копий]
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:75-86
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:181-192
+
+[~12 строк, 3 копий]
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:144-155
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:187-198
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:259-270
+
+[~12 строк, 2 копий]
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:147-158
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:190-201
+
+[~12 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:296-307
+  src/components/Stats/PaceChart.jsx:415-426
+
+[~12 строк, 3 копий]
+  src/screens/ChatScreen.jsx:971-982
+  src/screens/ChatScreen.jsx:1083-1095
+  src/screens/ChatScreen.jsx:1240-1251
+
+[~11 строк, 2 копий]
+  planrun-backend/planrun_ai/prompt_builder.php:3262-3272
+  planrun-backend/planrun_ai/prompt_builder.php:3553-3563
+
+[~11 строк, 3 копий]
+  planrun-backend/providers/CorosProvider.php:474-484
+  planrun-backend/providers/GarminProvider.php:394-404
+  planrun-backend/providers/SuuntoProvider.php:682-692
+
+[~11 строк, 2 копий]
+  planrun-backend/tests/Unit/CoachEventsServiceTest.php:19-29
+  planrun-backend/tests/Unit/CoachTemplateServiceTest.php:18-28
+
+[~11 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanGenerationProcessorServiceTest.php:90-100
+  planrun-backend/tests/Unit/PlanGenerationProcessorServiceTest.php:171-181
+
+[~11 строк, 3 копий]
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:74-84
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:180-190
+  planrun-backend/tests/Unit/PostWorkoutFollowupServiceTest.php:502-512
+
+[~11 строк, 2 копий]
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:337-347
+  planrun-backend/tests/Unit/TrainingStateBuilderTest.php:375-385
+
+[~11 строк, 3 копий]
+  src/components/Coach/BulkAssignModal.jsx:71-81
+  src/components/Coach/CompareAthletesPanel.jsx:30-40
+  src/components/Dashboard/v3/DashCustomizerV3.jsx:64-74
+
+[~11 строк, 2 копий]
+  src/components/Coach/ConfirmConflictDialog.jsx:15-25
+  src/components/Coach/TemplateEditorModal.jsx:89-99
+
+[~11 строк, 3 копий]
+  src/components/Dashboard/DashboardStatsWidget.jsx:35-45
+  src/components/Dashboard/ProfileQuickMetricsWidget.jsx:34-44
+  src/screens/UserProfileScreen.jsx:159-169
+
+[~11 строк, 2 копий]
+  src/components/Dashboard/RacePredictionWidget.jsx:153-163
+  src/components/Dashboard/RacePredictionWidget.jsx:311-321
+
+[~11 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:338-348
+  src/components/Stats/PaceChart.jsx:457-467
+
+[~11 строк, 2 копий]
+  src/components/Stats/HeartRateChart.jsx:358-368
+  src/components/Stats/PaceChart.jsx:477-487
+
+[~11 строк, 2 копий]
+  src/components/Stats/WorkoutShareCard.jsx:710-720
+  src/components/Stats/WorkoutShareCard.jsx:924-934
+
+[~11 строк, 2 копий]
+  src/screens/CalendarScreen.jsx:688-698
+  src/screens/CalendarScreen.jsx:715-725
+
+[~10 строк, 2 копий]
+  planrun-backend/planrun_ai/plan_normalizer.php:1076-1085
+  planrun-backend/planrun_ai/plan_normalizer.php:1095-1104
+
+[~10 строк, 2 копий]
+  planrun-backend/scripts/live_recalculate_batch.php:685-694
+  planrun-backend/scripts/live_recalculate_batch.php:1201-1210
+
+[~10 строк, 2 копий]
+  planrun-backend/services/AthleteSignalsService.php:94-103
+  planrun-backend/services/AthleteSignalsService.php:378-387
+
+[~10 строк, 2 копий]
+  planrun-backend/tests/Fixtures/golden_plan_policy_cases.php:336-345
+  planrun-backend/tests/Fixtures/golden_plan_policy_cases.php:564-573
+
+[~10 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:76-85
+  planrun-backend/tests/Unit/PlanGeneratorCorrectivePassTest.php:149-158
+
+[~10 строк, 3 копий]
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:33-42
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:74-83
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:258-267
+
+[~10 строк, 2 копий]
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:75-84
+  planrun-backend/tests/Unit/PlanSkeletonBuilderTest.php:259-268
+
+[~10 строк, 2 копий]
+  src/screens/UserProfileScreen.jsx:385-394
+  src/screens/UserProfileScreen.jsx:417-426

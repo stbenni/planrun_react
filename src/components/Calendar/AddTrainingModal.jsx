@@ -4,21 +4,51 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import Modal from '../common/Modal';
+import { createPortal } from 'react-dom';
 import LogoLoading from '../common/LogoLoading';
-import { RunningIcon, OtherIcon, SbuIcon } from '../common/Icons';
 import './AddTrainingModal.css';
+import { typeColorVar } from './v3/calV3';
+import { WORKOUT_TYPE_LABEL as TYPE_NAMES } from '../../utils/workoutTypes';
+import useSheetFocus from './v3/useSheetFocus';
 import {
   parseTime, formatTime, parsePace, formatPace,
   maskTimeInput, maskPaceInput,
   RUN_TYPES, SIMPLE_RUN_TYPES,
 } from '../../utils/workoutFormUtils';
 
-const CATEGORIES = [
-  { id: 'running', label: 'Бег', Icon: RunningIcon, desc: 'Лёгкий, темповый, интервалы, фартлек, длительный' },
-  { id: 'ofp', label: 'ОФП', Icon: OtherIcon, desc: 'Общая физическая подготовка' },
-  { id: 'sbu', label: 'СБУ', Icon: SbuIcon, desc: 'Специальные беговые упражнения' },
-];
+/* Поля калькулятора/конструктора — визуал из прототипа v3 EditWorkoutSheet */
+function CalcFieldV3({ label, unit, value, onChange, accent, placeholder, inputMode = 'decimal' }) {
+  return (
+    <div className="atv3-calc">
+      <div className="atv3-calc-lbl">{label}</div>
+      <div className="atv3-calc-box">
+        <input
+          className={`atv3-calc-input${accent ? ' is-accent' : ''}`}
+          value={value}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          onChange={(e) => onChange?.(e.target.value)}
+        />
+        {unit && <span className="atv3-calc-unit">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function NumFieldV3({ value, onChange, unit, placeholder }) {
+  return (
+    <div className="atv3-numfield">
+      <input
+        className="atv3-numfield-input"
+        value={value}
+        placeholder={placeholder}
+        inputMode="decimal"
+        onChange={(e) => onChange?.(e.target.value)}
+      />
+      <span className="atv3-numfield-unit">{unit}</span>
+    </div>
+  );
+}
 
 const TYPES_BY_CATEGORY = {
   running: [
@@ -34,7 +64,19 @@ const TYPES_BY_CATEGORY = {
   sbu: [{ value: 'sbu', label: 'СБУ' }],
 };
 
-const TYPE_NAMES = { easy: 'Легкий бег', tempo: 'Темповый бег', long: 'Длительный бег', control: 'Контрольный забег', race: 'Соревнование' };
+/* Единый ряд чипов всех типов (как в прототипе v3 EditWorkoutSheet) — без шага категории. */
+const ALL_TYPE_CHIPS = [
+  { value: 'easy', label: 'Лёгкий', cat: 'running' },
+  { value: 'tempo', label: 'Темповый', cat: 'running' },
+  { value: 'interval', label: 'Интервалы', cat: 'running' },
+  { value: 'long', label: 'Длительный', cat: 'running' },
+  { value: 'fartlek', label: 'Фартлек', cat: 'running' },
+  { value: 'control', label: 'Контрольный', cat: 'running' },
+  { value: 'race', label: 'Соревнование', cat: 'running' },
+  { value: 'sbu', label: 'СБУ', cat: 'sbu' },
+  { value: 'other', label: 'ОФП', cat: 'ofp' },
+];
+
 
 const TYPE_TO_CATEGORY = {
   easy: 'running', tempo: 'running', long: 'running', 'long-run': 'running',
@@ -49,8 +91,9 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
     ? editResultData.date
     : (isEdit ? (initialData.date || date) : date);
 
-  const [step, setStep] = useState(1);
-  const [category, setCategory] = useState(null);
+  // step сохранён для гейтов эффектов (всегда 2 — шага категории больше нет, единый ряд чипов)
+  const [step, setStep] = useState(2);
+  const [category, setCategory] = useState('running');
   const [type, setType] = useState('easy');
   const [description, setDescription] = useState('');
   const [isKeyWorkout, setIsKeyWorkout] = useState(false);
@@ -63,6 +106,7 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
   const [runPace, setRunPace] = useState('');
   const [runHR, setRunHR] = useState('');
   const prevRunDurationRef = useRef('');
+  const sheetRef = useRef(null);
 
   // Интервалы
   const [warmupKm, setWarmupKm] = useState('');
@@ -101,8 +145,8 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
   const initializedEditRunRef = useRef(null);
 
   const resetForm = useCallback(() => {
-    setStep(1);
-    setCategory(null);
+    setStep(2);
+    setCategory('running');
     setType('easy');
     setDescription('');
     setRunDistance('');
@@ -305,6 +349,14 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
       }
       const hrMatch = raw.match(/пульс[:\s]+(\d+)/i);
       if (hrMatch && !runHR) setRunHR(hrMatch[1]);
+      const warmupMatch = raw.match(/Разминка[:\s]*([\d.,]+)\s*км/i);
+      if (warmupMatch) setWarmupKm(warmupMatch[1].replace(',', '.'));
+      const warmupPaceMatch = raw.match(/Разминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i);
+      if (warmupPaceMatch) setWarmupPace(warmupPaceMatch[1]);
+      const cdMatch = raw.match(/Заминка[:\s]*([\d.,]+)\s*км/i);
+      if (cdMatch) setCooldownKm(cdMatch[1].replace(',', '.'));
+      const cdPaceMatch = raw.match(/Заминка[^.]*в темпе\s+(\d{1,2}:\d{2})/i);
+      if (cdPaceMatch) setCooldownPace(cdPaceMatch[1]);
     } else if (type === 'interval') {
       const warmupMatch = raw.match(/Разминка[:\s]*([\d.,]+)\s*км/i);
       if (warmupMatch) setWarmupKm(warmupMatch[1].replace(',', '.'));
@@ -360,17 +412,20 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
     return () => { cancelled = true; };
   }, [isOpen, step, category, api]);
 
-  const selectCategory = (cat) => {
-    setCategory(cat);
-    const types = TYPES_BY_CATEGORY[cat] || [];
-    setType(types[0]?.value || 'easy');
+  // Выбор типа из единого ряда чипов: тип + производная категория (без шага категории)
+  const selectType = (t) => {
+    const meta = ALL_TYPE_CHIPS.find((x) => x.value === t);
+    const cat = meta?.cat || TYPE_TO_CATEGORY[t] || 'running';
+    if (cat !== category) {
+      setCategory(cat);
+      // при переходе на/с силовой сбрасываем выбранные упражнения
+      setSelectedExerciseIds(new Set());
+      setExerciseDistanceOverrides({});
+      setExerciseOfpOverrides({});
+      setCustomExercises([]);
+    }
+    setType(t);
     setStep(2);
-  };
-
-  const backToCategory = () => {
-    setStep(1);
-    setCategory(null);
-    setDescription('');
   };
 
   // Калькулятор: при изменении одного поля пересчитывается ровно одно другое.
@@ -411,8 +466,12 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
     }
     if (runPace) text += ', темп ' + runPace;
     if (runHR) text += ', пульс ' + runHR;
+    const extra = [];
+    if (warmupKm || warmupPace) extra.push('Разминка: ' + (warmupKm ? warmupKm + ' км' : '') + (warmupPace ? ' в темпе ' + warmupPace : ''));
+    if (cooldownKm || cooldownPace) extra.push('Заминка: ' + (cooldownKm ? cooldownKm + ' км' : '') + (cooldownPace ? ' в темпе ' + cooldownPace : ''));
+    if (extra.length) text += '. ' + extra.join('. ');
     return text;
-  }, [type, runDistance, runDuration, runPace, runHR]);
+  }, [type, runDistance, runDuration, runPace, runHR, warmupKm, warmupPace, cooldownKm, cooldownPace]);
 
   const generateIntervalDescription = useCallback(() => {
     const parts = [];
@@ -641,263 +700,218 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
     }
   };
 
+  // ESC + блокировка прокрутки фона, пока шторка открыта (общий Modal не используется)
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, onClose]);
+
+  useSheetFocus(sheetRef, isOpen);
+
   if (!isOpen) return null;
 
   const dateLabel = effectiveDate
     ? new Date(effectiveDate + 'T12:00:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
     : '';
 
-  const types = category ? (TYPES_BY_CATEGORY[category] || []) : [];
   const showSimpleRun = category === 'running' && SIMPLE_RUN_TYPES.includes(type);
   const showInterval = category === 'running' && type === 'interval';
   const showFartlek = category === 'running' && type === 'fartlek';
   const showLibrary = (category === 'ofp' || category === 'sbu') && step === 2;
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEditResult ? 'Редактировать результат' : (isEdit ? 'Редактировать тренировку' : 'Добавить тренировку')} size="medium" variant="modern" mobilePresentation="fullscreen">
-      <p className="add-training-date">{dateLabel}</p>
-
-      {step === 1 && !isEdit && !isEditResult && (
-        <div className="add-training-categories">
-          <p className="add-training-step-title">Выберите категорию тренировки</p>
-          <div className="add-training-cards">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className="card card--compact card--interactive add-training-category-card"
-                onClick={() => selectCategory(c.id)}
-              >
-                <span className="add-training-category-icon" aria-hidden>{c.Icon && <c.Icon size={24} />}</span>
-                <span className="add-training-category-label">{c.label}</span>
-                <span className="add-training-category-desc">{c.desc}</span>
-              </button>
-            ))}
+  return createPortal(
+    <div className="atv3-modal-root" role="presentation">
+      <div className="atv3-scrim" onClick={onClose} />
+      <div className="atv3-sheet" role="dialog" aria-modal="true" aria-label="Редактор тренировки" ref={sheetRef}>
+        <div className="atv3-grip" aria-hidden />
+        <div className="atv3-sheet-top">
+          <div className="atv3-sheet-titles">
+            <div className="atv3-sheet-kicker">{dateLabel ? dateLabel.toUpperCase() : 'РЕДАКТИРОВАНИЕ'}</div>
+            <div className="atv3-sheet-title">{isEditResult ? 'Результат тренировки' : (isEdit ? 'Изменить тренировку' : 'Новая тренировка')}</div>
           </div>
+          <button type="button" className="atv3-sheet-x" onClick={onClose} aria-label="Закрыть">✕</button>
         </div>
-      )}
 
-      {step === 2 && (
-        <form onSubmit={handleSubmit} className="add-training-form">
-          {!isEditResult && (
-          <div className="form-group">
-            <button type="button" className="btn btn-secondary add-training-back" onClick={backToCategory}>
-              ← Назад к выбору категории
-            </button>
-          </div>
-          )}
-          <div className="form-group">
-            <label htmlFor="add-training-type">Тип тренировки</label>
-            <select
-              id="add-training-type"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="add-training-select"
-            >
-              {types.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </div>
+        <form onSubmit={handleSubmit} className="atv3-sheet-form">
+          <div className="atv3-sheet-scroll">
+            {!isEditResult && (
+              <>
+                <div className="atv3-label">ТИП ТРЕНИРОВКИ</div>
+                <div className="atv3-type-chips" role="radiogroup" aria-label="Тип тренировки">
+                  {ALL_TYPE_CHIPS.map((t) => {
+                    const active = type === t.value;
+                    const col = typeColorVar(t.value);
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        className={`atv3-type-chip${active ? ' is-active' : ''}`}
+                        style={active ? { borderColor: col, background: `color-mix(in srgb, ${col} 12%, transparent)` } : undefined}
+                        onClick={() => selectType(t.value)}
+                      >
+                        <span className="atv3-type-dot" style={{ background: col }} />
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
-          {/* Калькулятор простого бега */}
+          {/* Калькулятор простого бега — введи 2 из 3 (v3 EditWorkoutSheet) */}
           {showSimpleRun && (
-            <div className="add-training-run-calc">
-              <p className="add-training-block-title">Параметры бега</p>
-              <div className="add-training-calc-grid">
-                <div className="form-group">
-                  <label>Дистанция (км)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    placeholder="5"
-                    value={runDistance}
-                    onChange={(e) => { const v = e.target.value; setRunDistance(v); recalcSimpleRun('runDistance', v); }}
-                    className="add-training-input"
-                  />
+            <div className="atv3-section">
+              <div className="atv3-label">ПАРАМЕТРЫ · введи 2 из 3, третий посчитается</div>
+              <div className="atv3-calc-row">
+                <CalcFieldV3
+                  label="Дистанция" unit="км" accent placeholder="5"
+                  value={runDistance}
+                  onChange={(v) => { setRunDistance(v); recalcSimpleRun('runDistance', v); }}
+                />
+                <CalcFieldV3
+                  label="Темп" unit="/км" placeholder="5:30" inputMode="numeric"
+                  value={runPace}
+                  onChange={(v) => { const m = maskPaceInput(v); setRunPace(m); recalcSimpleRun('runPace', m); }}
+                />
+                <CalcFieldV3
+                  label="Время" unit="" placeholder="0:30:00" inputMode="numeric"
+                  value={runDuration}
+                  onChange={(raw) => {
+                    const prevDigits = prevRunDurationRef.current.replace(/\D/g, '');
+                    const newDigits = raw.replace(/\D/g, '').slice(0, 6);
+                    let masked = maskTimeInput(raw);
+                    if (prevDigits.length === 5 && newDigits.length === 6 && newDigits.slice(0, 5) === prevDigits) {
+                      const match = prevRunDurationRef.current.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+                      if (match) masked = `${match[1]}:${match[2].padStart(2, '0')}:${(match[3].padStart(2, '0').slice(0, 1) + newDigits[5])}`;
+                    }
+                    prevRunDurationRef.current = masked;
+                    setRunDuration(masked);
+                    recalcSimpleRun('runDuration', masked);
+                  }}
+                />
+              </div>
+              {runDistance && runPace && runDuration && (
+                <div className="atv3-calc-hint">
+                  <span aria-hidden>🧮</span>
+                  <span>≈ {runDuration} в темпе {runPace} /км</span>
                 </div>
-                <div className="form-group">
-                  <label>Время (чч:мм:сс)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0:30:00"
-                    value={runDuration}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const prevDigits = prevRunDurationRef.current.replace(/\D/g, '');
-                      const newDigits = raw.replace(/\D/g, '').slice(0, 6);
-                      let masked = maskTimeInput(raw);
-                      // Если было 5 цифр (например 1:30:00) и добавили одну — редактируем секунды, а не сдвигаем часы
-                      if (prevDigits.length === 5 && newDigits.length === 6 && newDigits.slice(0, 5) === prevDigits) {
-                        const match = prevRunDurationRef.current.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
-                        if (match) masked = `${match[1]}:${match[2].padStart(2, '0')}:${(match[3].padStart(2, '0').slice(0, 1) + newDigits[5])}`;
-                      }
-                      prevRunDurationRef.current = masked;
-                      setRunDuration(masked);
-                      recalcSimpleRun('runDuration', masked);
-                    }}
-                    className="add-training-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Темп (мм:сс / км)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="5:30"
-                    value={runPace}
-                    onChange={(e) => {
-                      const masked = maskPaceInput(e.target.value);
-                      setRunPace(masked);
-                      recalcSimpleRun('runPace', masked);
-                    }}
-                    className="add-training-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Пульс</label>
-                  <input
-                    type="text"
-                    placeholder="140-150"
-                    value={runHR}
-                    onChange={(e) => setRunHR(e.target.value)}
-                    className="add-training-input"
-                  />
-                </div>
+              )}
+              <div className="atv3-label atv3-label--mt">ПУЛЬС (ОПЦИОНАЛЬНО)</div>
+              <input
+                className="atv3-box atv3-box--full"
+                placeholder="140-150"
+                value={runHR}
+                onChange={(e) => setRunHR(e.target.value)}
+              />
+
+              <div className="atv3-label atv3-label--mt">РАЗМИНКА (ОПЦИОНАЛЬНО)</div>
+              <div className="atv3-row">
+                <NumFieldV3 value={warmupKm} unit="км" placeholder="2" onChange={setWarmupKm} />
+                <NumFieldV3 value={warmupPace} unit="темп" placeholder="6:00" onChange={(v) => setWarmupPace(maskPaceInput(v))} />
+              </div>
+
+              <div className="atv3-label atv3-label--mt">ЗАМИНКА (ОПЦИОНАЛЬНО)</div>
+              <div className="atv3-row">
+                <NumFieldV3 value={cooldownKm} unit="км" placeholder="1" onChange={setCooldownKm} />
+                <NumFieldV3 value={cooldownPace} unit="темп" placeholder="6:00" onChange={(v) => setCooldownPace(maskPaceInput(v))} />
               </div>
             </div>
           )}
 
-          {/* Конструктор интервалов */}
+          {/* Конструктор интервалов — компактный layout (v3 EditWorkoutSheet) */}
           {showInterval && (
-            <div className="add-training-interval">
-              <p className="add-training-block-title">Интервалы</p>
-              <div className="add-training-calc-grid">
-                <div className="form-group">
-                  <label>Разминка (км)</label>
-                  <input type="text" placeholder="2" value={warmupKm} onChange={(e) => setWarmupKm(e.target.value)} className="add-training-input" />
-                </div>
-                <div className="form-group">
-                  <label>Темп разминки (мм:сс)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="6:00"
-                    value={warmupPace}
-                    onChange={(e) => setWarmupPace(maskPaceInput(e.target.value))}
-                    className="add-training-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Повторов</label>
-                  <input type="number" min="1" placeholder="5" value={intervalReps} onChange={(e) => setIntervalReps(e.target.value)} className="add-training-input" />
-                </div>
-                <div className="form-group">
-                  <label>Дистанция интервала (м)</label>
-                  <input type="number" min="0" placeholder="1000" value={intervalDistM} onChange={(e) => setIntervalDistM(e.target.value)} className="add-training-input" />
-                </div>
-                <div className="form-group">
-                  <label>Темп интервала (мм:сс)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="4:00"
-                    value={intervalPace}
-                    onChange={(e) => setIntervalPace(maskPaceInput(e.target.value))}
-                    className="add-training-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Пауза (м)</label>
-                  <input type="number" min="0" placeholder="400" value={restDistM} onChange={(e) => setRestDistM(e.target.value)} className="add-training-input" />
-                </div>
-                <div className="form-group">
-                  <label>Тип паузы</label>
-                  <select value={restType} onChange={(e) => setRestType(e.target.value)} className="add-training-select">
-                    <option value="jog">трусцой</option>
-                    <option value="walk">ходьбой</option>
-                    <option value="rest">отдых</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Заминка (км)</label>
-                  <input type="text" placeholder="2" value={cooldownKm} onChange={(e) => setCooldownKm(e.target.value)} className="add-training-input" />
-                </div>
-                <div className="form-group">
-                  <label>Темп заминки (мм:сс)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="6:00"
-                    value={cooldownPace}
-                    onChange={(e) => setCooldownPace(maskPaceInput(e.target.value))}
-                    className="add-training-input"
-                  />
-                </div>
+            <div className="atv3-section">
+              <div className="atv3-label">РАЗМИНКА</div>
+              <div className="atv3-row">
+                <NumFieldV3 value={warmupKm} unit="км" placeholder="2" onChange={setWarmupKm} />
+                <NumFieldV3 value={warmupPace} unit="темп" placeholder="6:00" onChange={(v) => setWarmupPace(maskPaceInput(v))} />
               </div>
+
+              <div className="atv3-label atv3-label--mt">ИНТЕРВАЛЫ</div>
+              <div className="atv3-inline">
+                <input className="atv3-box atv3-box--xs" value={intervalReps} placeholder="6" inputMode="numeric" onChange={(e) => setIntervalReps(e.target.value)} />
+                <span className="atv3-inline-x">×</span>
+                <input className="atv3-box atv3-box--sm" value={intervalDistM} placeholder="800" inputMode="numeric" onChange={(e) => setIntervalDistM(e.target.value)} />
+                <span className="atv3-inline-sep">м @</span>
+                <input className="atv3-box atv3-box--sm atv3-box--accent" value={intervalPace} placeholder="3:55" inputMode="numeric" onChange={(e) => setIntervalPace(maskPaceInput(e.target.value))} />
+              </div>
+
+              <div className="atv3-label atv3-label--mt">ВОССТАНОВЛЕНИЕ МЕЖДУ</div>
+              <div className="atv3-inline">
+                <input className="atv3-box atv3-box--sm" value={restDistM} placeholder="200" inputMode="numeric" onChange={(e) => setRestDistM(e.target.value)} />
+                <span className="atv3-inline-sep">м</span>
+                <select className="atv3-box atv3-box--grow" value={restType} onChange={(e) => setRestType(e.target.value)}>
+                  <option value="jog">трусцой</option>
+                  <option value="walk">ходьбой</option>
+                  <option value="rest">отдых</option>
+                </select>
+              </div>
+
+              <div className="atv3-label atv3-label--mt">ЗАМИНКА</div>
+              <div className="atv3-row">
+                <NumFieldV3 value={cooldownKm} unit="км" placeholder="2" onChange={setCooldownKm} />
+                <NumFieldV3 value={cooldownPace} unit="темп" placeholder="6:00" onChange={(v) => setCooldownPace(maskPaceInput(v))} />
+              </div>
+
               {intervalTotalKm != null && (
-                <p className="add-training-calc-total">Всего: ~{intervalTotalKm.toFixed(2)} км</p>
+                <div className="atv3-total">Всего: ~{intervalTotalKm.toFixed(2)} км</div>
               )}
             </div>
           )}
 
-          {/* Конструктор фартлека */}
+          {/* Конструктор фартлека — карточки сегментов (v3 EditWorkoutSheet) */}
           {showFartlek && (
-            <div className="add-training-fartlek">
-              <p className="add-training-block-title">Фартлек</p>
-              <div className="form-group">
-                <label>Разминка (км)</label>
-                <input type="text" placeholder="2" value={fartlekWarmupKm} onChange={(e) => setFartlekWarmupKm(e.target.value)} className="add-training-input" />
-              </div>
-              {fartlekSegments.map((seg) => (
-                <div key={seg.id} className="add-training-fartlek-segment">
-                  <div className="add-training-calc-grid">
-                    <div className="form-group">
-                      <label>Повторов</label>
-                      <input type="number" min="1" placeholder="4" value={seg.reps} onChange={(e) => updateFartlekSegment(seg.id, 'reps', e.target.value)} className="add-training-input" />
+            <div className="atv3-section">
+              <div className="atv3-label">РАЗМИНКА</div>
+              <NumFieldV3 value={fartlekWarmupKm} unit="км" placeholder="2" onChange={setFartlekWarmupKm} />
+
+              <div className="atv3-label atv3-label--mt">СЕГМЕНТЫ ФАРТЛЕКА</div>
+              <div className="atv3-segs">
+                {fartlekSegments.map((seg, i) => (
+                  <div key={seg.id} className="atv3-seg">
+                    <div className="atv3-seg-head">
+                      <span>СЕГМЕНТ {i + 1}</span>
+                      <span className="atv3-seg-spacer" />
+                      {fartlekSegments.length > 1 && (
+                        <button type="button" className="atv3-del" onClick={() => removeFartlekSegment(seg.id)} aria-label="Удалить сегмент">✕</button>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Ускорение (м)</label>
-                      <input type="number" min="0" placeholder="200" value={seg.accelDistM} onChange={(e) => updateFartlekSegment(seg.id, 'accelDistM', e.target.value)} className="add-training-input" />
+                    <div className="atv3-inline">
+                      <input className="atv3-box atv3-box--xs" value={seg.reps} placeholder="4" inputMode="numeric" onChange={(e) => updateFartlekSegment(seg.id, 'reps', e.target.value)} />
+                      <span className="atv3-inline-sep">× ускор.</span>
+                      <input className="atv3-box atv3-box--sm" value={seg.accelDistM} placeholder="200" inputMode="numeric" onChange={(e) => updateFartlekSegment(seg.id, 'accelDistM', e.target.value)} />
+                      <span className="atv3-inline-sep">м @</span>
+                      <input className="atv3-box atv3-box--sm atv3-box--accent" value={seg.accelPace} placeholder="4:00" inputMode="numeric" onChange={(e) => updateFartlekSegment(seg.id, 'accelPace', maskPaceInput(e.target.value))} />
                     </div>
-                    <div className="form-group">
-                      <label>Темп (мм:сс)</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="4:00"
-                        value={seg.accelPace}
-                        onChange={(e) => updateFartlekSegment(seg.id, 'accelPace', maskPaceInput(e.target.value))}
-                        className="add-training-input"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Восстановление (м)</label>
-                      <input type="number" min="0" placeholder="200" value={seg.recoveryDistM} onChange={(e) => updateFartlekSegment(seg.id, 'recoveryDistM', e.target.value)} className="add-training-input" />
-                    </div>
-                    <div className="form-group">
-                      <label>Тип восстановления</label>
-                      <select value={seg.recoveryType} onChange={(e) => updateFartlekSegment(seg.id, 'recoveryType', e.target.value)} className="add-training-select">
+                    <div className="atv3-inline atv3-inline--mt">
+                      <span className="atv3-inline-sep">восст.</span>
+                      <input className="atv3-box atv3-box--sm" value={seg.recoveryDistM} placeholder="200" inputMode="numeric" onChange={(e) => updateFartlekSegment(seg.id, 'recoveryDistM', e.target.value)} />
+                      <span className="atv3-inline-sep">м</span>
+                      <select className="atv3-box atv3-box--grow" value={seg.recoveryType} onChange={(e) => updateFartlekSegment(seg.id, 'recoveryType', e.target.value)}>
                         <option value="jog">трусцой</option>
                         <option value="walk">ходьбой</option>
                         <option value="easy">лёгкий бег</option>
                       </select>
                     </div>
-                    <div className="form-group add-training-segment-remove">
-                      <button type="button" className="btn btn-secondary" onClick={() => removeFartlekSegment(seg.id)}>Удалить</button>
-                    </div>
                   </div>
-                </div>
-              ))}
-              <button type="button" className="btn btn-secondary" onClick={addFartlekSegment}>+ Добавить сегмент</button>
-              <div className="form-group">
-                <label>Заминка (км)</label>
-                <input type="text" placeholder="2" value={fartlekCooldownKm} onChange={(e) => setFartlekCooldownKm(e.target.value)} className="add-training-input" />
+                ))}
               </div>
+              <button type="button" className="atv3-addrow" onClick={addFartlekSegment}>+ Добавить сегмент</button>
+
+              <div className="atv3-label atv3-label--mt">ЗАМИНКА</div>
+              <NumFieldV3 value={fartlekCooldownKm} unit="км" placeholder="2" onChange={setFartlekCooldownKm} />
+
               {fartlekTotalKm != null && (
-                <p className="add-training-calc-total">Всего: ~{fartlekTotalKm.toFixed(2)} км</p>
+                <div className="atv3-total">Всего: ~{fartlekTotalKm.toFixed(2)} км</div>
               )}
             </div>
           )}
@@ -1154,33 +1168,36 @@ const AddTrainingModal = ({ isOpen, onClose, date, api, onSuccess, initialData, 
             </div>
           )}
 
-          <div className="form-group">
-            <label htmlFor="add-training-desc">Описание</label>
+            <div className="atv3-label atv3-label--mt">{isEditResult ? 'ЗАМЕТКА' : 'ОПИСАНИЕ (ОПЦИОНАЛЬНО)'}</div>
             <textarea
               id="add-training-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="add-training-textarea"
+              className="atv3-area"
               rows={3}
-              placeholder="Например: 5 км в лёгком темпе или выберите упражнения выше"
+              placeholder={isEditResult ? 'Комментарий…' : 'Например: 5 км в лёгком темпе или выберите упражнения выше'}
             />
+
+            {!isEditResult && (
+              <label className="atv3-key">
+                <input type="checkbox" checked={isKeyWorkout} onChange={(e) => setIsKeyWorkout(e.target.checked)} />
+                <span>Ключевая тренировка</span>
+              </label>
+            )}
+
+            {error && <div className="atv3-error">{error}</div>}
           </div>
-          {!isEditResult && (
-          <div className="form-group form-group--row">
-            <input type="checkbox" id="add-training-key" checked={isKeyWorkout} onChange={(e) => setIsKeyWorkout(e.target.checked)} />
-            <label htmlFor="add-training-key">Ключевая тренировка</label>
-          </div>
-          )}
-          {error && <div className="add-training-error">{error}</div>}
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Сохранение…' : (isEditResult ? 'Сохранить' : 'Добавить')}
+
+          <div className="atv3-footer">
+            <button type="button" className="atv3-cancel" onClick={onClose}>Отмена</button>
+            <button type="submit" className="atv3-save" disabled={loading}>
+              {loading ? 'Сохранение…' : 'Сохранить'}
             </button>
           </div>
         </form>
-      )}
-    </Modal>
+      </div>
+    </div>,
+    document.body
   );
 };
 

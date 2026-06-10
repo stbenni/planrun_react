@@ -78,6 +78,30 @@
   color: var(--text-tertiary);
 }
 
+/* Бейдж «выполнено» — справа в ribbon выполненной карточки */
+.today-v3__done-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success-500) 14%, transparent);
+  color: var(--success-600);
+  border: 1px solid color-mix(in srgb, var(--success-500) 30%, transparent);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+[data-theme="dark"] .today-v3__done-badge {
+  background: color-mix(in srgb, var(--success-500) 22%, transparent);
+  color: var(--success-100, #d1fae5);
+}
+
+/* В выполненной карточке акцент-тип приглушаем — фокус на результате */
+.today-v3--done .today-v3__accent { opacity: 0.5; }
+
 /* Title */
 .today-v3__title {
   position: relative;
@@ -108,10 +132,11 @@
 .today-v3__metric-n {
   font-family: var(--font-stats), 'Jost', sans-serif;
   font-weight: 800;
-  font-size: 36px;
+  font-size: 32px;
   color: var(--text-primary);
   letter-spacing: -0.03em;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .today-v3__metric-n--accent { color: var(--primary-500); }
@@ -170,6 +195,14 @@
   font-size: 10px;
   color: var(--text-tertiary);
   font-weight: 600;
+}
+
+.today-v3__interval-note {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 /* AI quote */
@@ -352,7 +385,7 @@
     background: var(--card-border);
     opacity: 0.6;
   }
-  .today-v3__metric-n { font-size: 44px; letter-spacing: -0.04em; }
+  .today-v3__metric-n { font-size: 30px; letter-spacing: -0.04em; }
   .today-v3__metric-l { font-size: 11.5px; margin-top: 2px; }
 }
 
@@ -360,6 +393,6 @@
 @media (min-width: 1024px) {
   .today-v3 { padding: 28px; }
   .today-v3__title { font-size: 56px; line-height: 1; }
-  .today-v3__metric-n { font-size: 44px; }
+  .today-v3__metric-n { font-size: 40px; }
   .today-v3__accent { width: 240px; height: 240px; }
 }

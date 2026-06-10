@@ -40,18 +40,18 @@ function acwrLabel(status) {
   return { text: '—', color: 'var(--text-tertiary)' };
 }
 
-export default function FormSectionV3({ api }) {
+export default function FormSectionV3({ api, viewContext = null }) {
   const [data, setData] = useState(null);
   const [days, setDays] = useState(28);
 
   useEffect(() => {
     if (!api?.getTrainingLoad) return undefined;
     let cancelled = false;
-    api.getTrainingLoad(null, days)
+    api.getTrainingLoad(viewContext, days)
       .then((res) => { if (!cancelled) setData(res?.data || res); })
       .catch(() => { if (!cancelled) setData(null); });
     return () => { cancelled = true; };
-  }, [api, days]);
+  }, [api, viewContext, days]);
 
   if (!data?.available) {
     return (

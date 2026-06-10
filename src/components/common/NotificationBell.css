@@ -2,71 +2,74 @@
  * NotificationBell — кнопка-колокольчик + панель (поповер на десктопе, bottom-sheet на мобиле).
  */
 
-/* ── Кнопка ─────────────────────────────────────────────── */
+/* ── Кнопка — 1-в-1 с кнопкой чата (.header-chat-btn) ─────── */
 .notif-bell {
   position: relative;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: var(--glass-card-bg, rgba(255, 255, 255, 0.78));
-  border: 1px solid var(--glass-card-border, rgba(252, 76, 2, 0.08));
-  cursor: pointer;
-  flex-shrink: 0;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--primary-500) 8%, var(--surface-glass-border));
+  border-radius: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-500) 2%, var(--surface-glass-control-strong)) 0%, var(--surface-glass-control-bg) 100%);
   color: var(--text-secondary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+  box-shadow: var(--surface-glass-inset), 0 8px 18px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.16);
+  -webkit-backdrop-filter: blur(calc(var(--surface-glass-blur) * 0.72)) saturate(1.16);
   -webkit-tap-highlight-color: transparent;
 }
 
-.notif-bell:active { transform: scale(0.94); }
+.notif-bell:hover {
+  border-color: var(--primary-400);
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.16), rgba(255, 255, 255, 0.56));
+  transform: scale(1.05);
+}
+
+.notif-bell:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-50);
+}
+
 .notif-bell.is-active {
-  border-color: color-mix(in srgb, var(--primary-500) 40%, transparent);
+  border-color: var(--primary-400);
   color: var(--primary-500);
 }
 
-@media (min-width: 1024px) {
-  .notif-bell { width: 48px; height: 48px; }
-}
-
 [data-theme="dark"] .notif-bell {
-  background: rgba(30, 41, 59, 0.85);
-  border-color: rgba(255, 255, 255, 0.06);
+  border-color: color-mix(in srgb, var(--primary-500) 10%, var(--surface-glass-border));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
   color: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
-[data-theme="dark"] .notif-bell.is-active {
-  border-color: color-mix(in srgb, var(--primary-500) 50%, transparent);
-  color: var(--primary-400);
+[data-theme="dark"] .notif-bell:hover {
+  border-color: var(--primary-500);
+  background: linear-gradient(180deg, rgba(255, 107, 61, 0.18), rgba(255, 255, 255, 0.08));
 }
 
+/* Единый бейдж непрочитанных — в стиле чат-бейджа (.header-chat-badge). */
 .notif-bell__badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -4px;
+  right: -4px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
   box-sizing: border-box;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   background: var(--primary-500);
   color: #fff;
-  font-family: 'Jost', sans-serif;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1;
-  border-radius: 999px;
-  border: 2px solid var(--glass-card-bg, #fff);
-}
-
-[data-theme="dark"] .notif-bell__badge {
-  border-color: rgba(30, 41, 59, 1);
-  box-shadow: 0 0 8px rgba(252, 76, 2, 0.5);
+  border-radius: 9px;
 }
 
 /* ── Корневой контейнер панели ──────────────────────────── */

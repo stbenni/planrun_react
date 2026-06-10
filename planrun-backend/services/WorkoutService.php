@@ -124,6 +124,19 @@ class WorkoutService extends BaseService {
         }
     }
 
+    /**
+     * Публичная точка входа в post-workout coach flow для внешних импортёров,
+     * которые сохраняют тренировку в БД напрямую, минуя importWorkouts()
+     * (например, Telegram-бот при загрузке FIT/GPX). Планирует follow-up и
+     * генерирует разбор тренера так же, как импорт через приложение.
+     */
+    public function triggerPostWorkoutCoachFlow(int $userId, string $workoutDate, int $workoutId, string $sourceKind = 'workout'): void {
+        if ($userId <= 0 || $workoutId <= 0) {
+            return;
+        }
+        $this->handlePostWorkoutCoachFlow($userId, $workoutDate, $sourceKind, $workoutId);
+    }
+
     private function isPostWorkoutAnalysisEnabled(): bool {
         $explicit = env('POST_WORKOUT_ANALYSIS_ENABLED', null);
         if ((string) ($_ENV['APP_ENV'] ?? '') === 'testing' && $explicit === null) {
@@ -552,6 +565,15 @@ class WorkoutService extends BaseService {
                     $lines[] = $line;
                 }
             }
+            if (!empty($structure['detected']['reps'])) {
+                $d = $structure['detected'];
+                $lines[] = '- автодетект интервалов по треку (точнее лап-данных): ' . (string) ($d['pattern'] ?? '');
+                foreach ($d['reps'] as $i => $rep) {
+                    $rl = sprintf('  отрезок %d: %d м · %s мин/км', $i + 1, (int) ($rep['distance_m'] ?? 0), (string) ($rep['pace'] ?? '—'));
+                    if (!empty($rep['avg_hr'])) $rl .= ' · HR ' . (int) $rep['avg_hr'];
+                    $lines[] = $rl;
+                }
+            }
         }
 
         return trim(implode("\n", $lines));
@@ -923,10 +945,11 @@ SYSTEM;
                 // Проверяем, есть ли соответствующая автоматическая тренировка
                 $hasAutomaticWorkout = false;
                 if ($logRow['distance_km'] && $logRow['distance_km'] > 0) {
+                    $dupTol = max(1.5, (float)$logRow['distance_km'] * 0.1);
                     foreach ($workouts as $workout) {
                         $workoutDate = date('Y-m-d', strtotime($workout['start_time']));
-                        if ($workoutDate === $date && 
-                            abs($workout['distance_km'] - $logRow['distance_km']) < 0.1) {
+                        if ($workoutDate === $date &&
+                            abs($workout['distance_km'] - $logRow['distance_km']) <= $dupTol) {
                             $hasAutomaticWorkout = true;
                             break;
                         }
@@ -1111,7 +1134,33 @@ SYSTEM;
             ]);
         }
     }
-    
+
+    /**
+     * Batch-загрузка деталей нескольких дней за один вызов (для префетча недели).
+     * Переиспользует getDay; возвращает карту date => day. Проблемный день пропускаем.
+     *
+     * @param string[] $dates  список 'YYYY-MM-DD' (макс. 42)
+     * @return array{days: array<string, array>}
+     */
+    public function getDays($dates, $userId) {
+        $out = [];
+        if (!is_array($dates)) {
+            return ['days' => $out];
+        }
+        $count = 0;
+        foreach ($dates as $date) {
+            if (!is_string($date) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) continue;
+            if (isset($out[$date])) continue;
+            if (++$count > 42) break;
+            try {
+                $out[$date] = $this->getDay($date, $userId);
+            } catch (Exception $e) {
+                // пропускаем проблемный день, остальные отдаём
+            }
+        }
+        return ['days' => $out];
+    }
+
     /**
      * Сохранить результат тренировки
      * 
@@ -1264,10 +1313,11 @@ SYSTEM;
         $imported = 0;
         $skipped = 0;
         $shareQueueJobs = 0;
+        $mirrorQueued = false;
         $importedDetails = [];
         $insertStmt = $this->db->prepare("
-            INSERT INTO workouts (user_id, session_id, source, external_id, activity_type, start_time, end_time, duration_minutes, duration_seconds, distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain)
-            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO workouts (user_id, session_id, source, external_id, activity_type, start_time, end_time, duration_minutes, duration_seconds, distance_km, avg_pace, avg_heart_rate, max_heart_rate, elevation_gain, detected_type)
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $checkByExternalStmt = $this->db->prepare("SELECT id, avg_heart_rate, elevation_gain FROM workouts WHERE user_id = ? AND external_id = ? AND source = ? LIMIT 1");
         $checkByTimeStmt = $this->db->prepare("SELECT id, avg_heart_rate, elevation_gain FROM workouts WHERE user_id = ? AND start_time = ? AND source = ? AND (external_id IS NULL OR external_id = '') LIMIT 1");
@@ -1277,9 +1327,33 @@ SYSTEM;
             WHERE user_id = ? AND start_time BETWEEN DATE_SUB(?, INTERVAL 14 HOUR) AND DATE_ADD(?, INTERVAL 14 HOUR) LIMIT 10
         ");
         $updateStmt = $this->db->prepare("
-            UPDATE workouts SET activity_type = ?, end_time = ?, duration_minutes = ?, duration_seconds = ?, distance_km = ?, avg_pace = ?, avg_heart_rate = ?, max_heart_rate = ?, elevation_gain = ?
+            UPDATE workouts SET activity_type = ?, end_time = ?, duration_minutes = ?, duration_seconds = ?, distance_km = ?, avg_pace = ?, avg_heart_rate = ?, max_heart_rate = ?, elevation_gain = ?, detected_type = ?
             WHERE id = ?
         ");
+
+        $classifyPaces = null;
+        $classifyMaxHr = 0;
+        try {
+            require_once __DIR__ . '/TrainingStateBuilder.php';
+            require_once __DIR__ . '/../planrun_ai/prompt_builder.php';
+            require_once __DIR__ . '/WorkoutClassifier.php';
+            $state = (new TrainingStateBuilder($this->db))->buildForUserId($userId);
+            $vdot = !empty($state['vdot']) ? (float)$state['vdot'] : null;
+            if ($vdot) {
+                $classifyPaces = getTrainingPaces($vdot);
+            }
+            $byRow = $this->db->prepare("SELECT birth_year FROM users WHERE id = ? LIMIT 1");
+            if ($byRow) {
+                $byRow->bind_param("i", $userId);
+                $byRow->execute();
+                $byUser = $byRow->get_result()->fetch_assoc();
+                $byRow->close();
+                $classifyMaxHr = WorkoutClassifier::maxHrFromBirthYear(isset($byUser['birth_year']) ? (int)$byUser['birth_year'] : null);
+            }
+        } catch (\Throwable $e) {
+            $classifyPaces = null;
+        }
+
         foreach ($workouts as $w) {
             $activityType = $w['activity_type'] ?? 'running';
             $startTime = $w['start_time'] ?? null;
@@ -1296,6 +1370,16 @@ SYSTEM;
                 $skipped++;
                 continue;
             }
+            $detectedType = WorkoutClassifier::classify([
+                'activity_type' => $activityType,
+                'distance_km' => $distanceKm,
+                'duration_seconds' => $durationSeconds,
+                'duration_minutes' => $durationMinutes,
+                'avg_heart_rate' => $avgHeartRate,
+                'max_hr' => $classifyMaxHr,
+                'paces' => $classifyPaces,
+                'laps' => $w['laps'] ?? null,
+            ]);
             $existing = null;
             if ($externalId) {
                 $checkByExternalStmt->bind_param("iss", $userId, $externalId, $source);
@@ -1307,10 +1391,11 @@ SYSTEM;
                 $existing = $checkByTimeStmt->get_result()->fetch_assoc();
             }
             if ($existing) {
-                $updateStmt->bind_param("ssiidsiiii",
+                $existingId = (int)$existing['id'];
+                $updateStmt->bind_param("ssiidsiiisi",
                     $activityType, $endTime, $durationMinutes, $durationSeconds, $distanceKm, $avgPace,
-                    $avgHeartRate, $maxHeartRate, $elevationGain,
-                    $existing['id']
+                    $avgHeartRate, $maxHeartRate, $elevationGain, $detectedType,
+                    $existingId
                 );
                 if ($updateStmt->execute()) {
                     $imported++;
@@ -1373,16 +1458,17 @@ SYSTEM;
                 $skipped++;
                 continue;
             }
-            $insertStmt->bind_param("isssssiidsiii",
+            $insertStmt->bind_param("isssssiidsiiis",
                 $userId, $source, $externalId,
                 $activityType, $startTime, $endTime, $durationMinutes, $durationSeconds, $distanceKm, $avgPace,
-                $avgHeartRate, $maxHeartRate, $elevationGain
+                $avgHeartRate, $maxHeartRate, $elevationGain, $detectedType
             );
             if ($insertStmt->execute()) {
                 $workoutId = (int)$this->db->insert_id;
                 $imported++;
                 $this->saveWorkoutTimeline($workoutId, $w['timeline'] ?? null);
                 $this->saveWorkoutLaps($workoutId, $w['laps'] ?? null);
+                if ($this->maybeEnqueueSuuntoMirror((int)$userId, $workoutId, (string)$source)) { $mirrorQueued = true; }
                 $shareQueueJobs += $this->queueWorkoutShareCards((int) $userId, $workoutId, WorkoutShareCardCacheService::KIND_WORKOUT);
                 $workoutDateStr = (string) date('Y-m-d', strtotime($endTime ?: $startTime));
                 $this->handlePostWorkoutCoachFlow((int) $userId, $workoutDateStr, 'workout', $workoutId);
@@ -1405,6 +1491,11 @@ SYSTEM;
 
         if ($shareQueueJobs > 0) {
             $this->launchWorkoutShareWorkerAsync();
+        }
+
+        // Зеркалирование в Suunto: сразу пинаем фоновый воркер (без ожидания cron)
+        if ($mirrorQueued) {
+            $this->launchSuuntoUploadWorkerAsync();
         }
 
         // In-app уведомления: загрузка из Strava + личные рекорды. Никогда не ломаем импорт.
@@ -1769,6 +1860,89 @@ SYSTEM;
      * @param int $workoutId ID тренировки
      * @param array|null $laps Массив кругов [['lap_index', 'name', 'distance_km', ...], ...]
      */
+    /**
+     * Ставит тренировку в очередь на заливку в Suunto, если включено зеркалирование.
+     * Гейт: юзер в SUUNTO_MIRROR_USERS + users.suunto_mirror_enabled=1 + Suunto подключён.
+     * Источник 'suunto' не зеркалим (иначе петля). Идемпотентно (UNIQUE user_id+workout_id).
+     */
+    private function maybeEnqueueSuuntoMirror(int $userId, int $workoutId, string $source): bool {
+        if ($source === 'suunto' || $userId <= 0 || $workoutId <= 0) {
+            return false;
+        }
+        $allow = trim((string)(function_exists('env') ? env('SUUNTO_MIRROR_USERS', '') : ''));
+        if ($allow === '') {
+            return false; // фича выключена глобально
+        }
+        $users = array_values(array_filter(array_map('trim', explode(',', $allow)), fn($u) => $u !== ''));
+        if (empty($users) || !$this->tableExists('suunto_upload_queue')) {
+            return false;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT u.username, u.suunto_mirror_enabled,
+                    (SELECT 1 FROM integration_tokens it WHERE it.user_id = u.id AND it.provider = 'suunto' LIMIT 1) AS has_suunto
+             FROM users u WHERE u.id = ? LIMIT 1"
+        );
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row || (int)($row['suunto_mirror_enabled'] ?? 0) !== 1 || empty($row['has_suunto'])) {
+            return false;
+        }
+        if (!in_array((string)$row['username'], $users, true)) {
+            return false;
+        }
+        $enqueued = false;
+        $q = $this->db->prepare("INSERT IGNORE INTO suunto_upload_queue (user_id, workout_id, status) VALUES (?, ?, 'pending')");
+        if ($q) {
+            $q->bind_param('ii', $userId, $workoutId);
+            $q->execute();
+            $enqueued = $q->affected_rows > 0;
+            $q->close();
+        }
+        return $enqueued;
+    }
+
+    /**
+     * Запускает фоновый (detached) воркер заливки в Suunto — чтобы тренировка уезжала
+     * сразу после импорта, без ожидания cron. Не блокирует запрос. Из CLI не запускаем.
+     */
+    private function launchSuuntoUploadWorkerAsync(): void {
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+        $scriptPath = dirname(__DIR__) . '/scripts/suunto_upload_worker.php';
+        if (!is_file($scriptPath)) {
+            return;
+        }
+        $phpBinary = defined('PHP_BINARY') && PHP_BINARY ? PHP_BINARY : 'php';
+        if (stripos($phpBinary, 'fpm') !== false) {
+            $phpBinary = 'php'; // под FPM PHP_BINARY = php-fpm, нужен CLI
+        }
+        $override = (string)(function_exists('env') ? env('SUUNTO_PHP_BIN', '') : '');
+        if ($override !== '') {
+            $phpBinary = $override;
+        }
+        $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($scriptPath) . ' > /dev/null 2>&1 &';
+        try {
+            if (function_exists('popen') && function_exists('pclose')) {
+                $process = @popen($command, 'r');
+                if (is_resource($process)) {
+                    @pclose($process);
+                    return;
+                }
+            }
+            if (function_exists('exec')) {
+                @exec($command);
+            }
+        } catch (\Throwable $e) {
+            // best-effort: упадёт — подберёт cron/следующий импорт
+        }
+    }
+
     private function saveWorkoutLaps(int $workoutId, ?array $laps): void {
         if (!$workoutId || empty($laps) || !$this->tableExists('workout_laps')) {
             return;
@@ -1793,8 +1967,11 @@ SYSTEM;
             $startTime = isset($lap['start_time']) && trim((string)$lap['start_time']) !== ''
                 ? "'" . $this->db->real_escape_string(trim((string)$lap['start_time'])) . "'"
                 : 'NULL';
-            $elapsedSeconds = isset($lap['elapsed_seconds']) ? max(0, (int)$lap['elapsed_seconds']) : 'NULL';
-            $movingSeconds = isset($lap['moving_seconds']) ? max(0, (int)$lap['moving_seconds']) : 'NULL';
+            // FitParser и синтетические сплиты дают duration_seconds — используем как фолбэк,
+            // иначе moving/elapsed_seconds остаются NULL и анализатор структуры отбрасывает все круги.
+            $durationSeconds = isset($lap['duration_seconds']) ? max(0, (int)$lap['duration_seconds']) : null;
+            $elapsedSeconds = isset($lap['elapsed_seconds']) ? max(0, (int)$lap['elapsed_seconds']) : ($durationSeconds ?? 'NULL');
+            $movingSeconds = isset($lap['moving_seconds']) ? max(0, (int)$lap['moving_seconds']) : ($durationSeconds ?? 'NULL');
             $distanceKm = isset($lap['distance_km']) && $lap['distance_km'] !== null ? (float)$lap['distance_km'] : 'NULL';
             $averageSpeed = isset($lap['average_speed']) && $lap['average_speed'] !== null ? (float)$lap['average_speed'] : 'NULL';
             $maxSpeed = isset($lap['max_speed']) && $lap['max_speed'] !== null ? (float)$lap['max_speed'] : 'NULL';
@@ -2059,18 +2236,31 @@ SYSTEM;
      * Получить версию данных (для polling).
      */
     public function getDataVersion(int $userId): string {
+        // Версия охватывает всё, что отображается в виджетах/календаре:
+        // тренировки (новые/удалённые), правки результатов, план (правка/удаление/регенерация),
+        // упражнения ОФП/СБУ. users.updated_at НЕ берём — его дёргает last_activity (был бы churn).
         $stmt = $this->db->prepare(
             "SELECT
                 (SELECT COALESCE(MAX(id), 0) FROM workouts WHERE user_id = ?) AS w_max,
+                (SELECT COUNT(*) FROM workouts WHERE user_id = ?) AS w_cnt,
                 (SELECT COALESCE(MAX(id), 0) FROM workout_log WHERE user_id = ?) AS l_max,
-                (SELECT COUNT(*) FROM workouts WHERE user_id = ?) AS w_cnt"
+                (SELECT COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0) FROM workout_log WHERE user_id = ?) AS l_upd,
+                (SELECT COUNT(*) FROM training_plan_days WHERE user_id = ?) AS pd_cnt,
+                (SELECT COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0) FROM training_plan_days WHERE user_id = ?) AS pd_upd,
+                (SELECT COUNT(*) FROM training_day_exercises WHERE user_id = ?) AS ex_cnt,
+                (SELECT COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0) FROM training_day_exercises WHERE user_id = ?) AS ex_upd"
         );
-        $stmt->bind_param('iii', $userId, $userId, $userId);
+        $stmt->bind_param('iiiiiiii', $userId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        return ($row['w_max'] ?? 0) . '_' . ($row['l_max'] ?? 0) . '_' . ($row['w_cnt'] ?? 0);
+        return implode('_', [
+            $row['w_max'] ?? 0, $row['w_cnt'] ?? 0,
+            $row['l_max'] ?? 0, $row['l_upd'] ?? 0,
+            $row['pd_cnt'] ?? 0, $row['pd_upd'] ?? 0,
+            $row['ex_cnt'] ?? 0, $row['ex_upd'] ?? 0,
+        ]);
     }
 
     /**

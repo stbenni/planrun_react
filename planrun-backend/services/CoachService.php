@@ -7,6 +7,18 @@ require_once __DIR__ . '/BaseService.php';
 
 class CoachService extends BaseService {
 
+    /** Поля отображаемого имени из строки users (first_name/last_name/name) для ответа клиенту. */
+    private function nameFields(array $row): array {
+        $first = isset($row['first_name']) ? trim((string) $row['first_name']) : '';
+        $last = isset($row['last_name']) ? trim((string) $row['last_name']) : '';
+        $full = trim($first . ' ' . $last);
+        return [
+            'first_name' => $first !== '' ? $first : null,
+            'last_name' => $last !== '' ? $last : null,
+            'name' => $full !== '' ? $full : null,
+        ];
+    }
+
     // ==================== КАТАЛОГ ====================
 
     public function listCoaches(array $filters, int $limit, int $offset): array {
@@ -41,9 +53,10 @@ class CoachService extends BaseService {
         }
 
         // List
-        $sql = "SELECT u.id, u.username, u.username_slug, u.avatar_path, u.coach_bio,
+        $sql = "SELECT u.id, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path, u.coach_bio,
                        u.coach_specialization, u.coach_accepts, u.coach_prices_on_request,
-                       u.coach_experience_years, u.coach_philosophy, u.last_activity
+                       u.coach_experience_years, u.coach_philosophy, u.last_activity,
+                       (SELECT COUNT(*) FROM user_coaches uc WHERE uc.coach_id = u.id) AS athletes_count
                 FROM users u
                 WHERE $whereClause
                 ORDER BY u.last_activity DESC
@@ -66,6 +79,7 @@ class CoachService extends BaseService {
                 'id' => $coachId,
                 'username' => $row['username'],
                 'username_slug' => $row['username_slug'],
+                ...$this->nameFields($row),
                 'avatar_path' => $row['avatar_path'],
                 'coach_bio' => $row['coach_bio'],
                 'coach_specialization' => json_decode($row['coach_specialization'] ?? '[]', true) ?: [],
@@ -73,6 +87,8 @@ class CoachService extends BaseService {
                 'coach_prices_on_request' => (bool)$row['coach_prices_on_request'],
                 'coach_experience_years' => $row['coach_experience_years'] ? (int)$row['coach_experience_years'] : null,
                 'coach_philosophy' => $row['coach_philosophy'],
+                'athletes_count' => (int)$row['athletes_count'],
+                'last_activity' => $row['last_activity'],
                 'pricing' => $pricing,
             ];
         }
@@ -137,7 +153,8 @@ class CoachService extends BaseService {
     public function getRequests(int $coachId, string $status, int $limit, int $offset): array {
         $stmt = $this->db->prepare("
             SELECT cr.id, cr.user_id, cr.status, cr.message, cr.created_at,
-                   u.username, u.username_slug, u.avatar_path
+                   u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path,
+                   u.goal_type, u.race_distance, u.race_target_time, u.experience_level
             FROM coach_requests cr
             JOIN users u ON cr.user_id = u.id
             WHERE cr.coach_id = ? AND cr.status = ?
@@ -155,10 +172,15 @@ class CoachService extends BaseService {
                 'user_id' => (int)$row['user_id'],
                 'username' => $row['username'],
                 'username_slug' => $row['username_slug'],
+                ...$this->nameFields($row),
                 'avatar_path' => $row['avatar_path'],
                 'message' => $row['message'],
                 'status' => $row['status'],
                 'created_at' => $row['created_at'],
+                'goal_type' => $row['goal_type'],
+                'race_distance' => $row['race_distance'],
+                'race_target_time' => $row['race_target_time'],
+                'experience_level' => $row['experience_level'],
             ];
         }
         $stmt->close();
@@ -198,6 +220,34 @@ class CoachService extends BaseService {
         $stmt->execute();
         $stmt->close();
 
+        // Связь принята → атлет переходит в режим тренера (план ведёт тренер).
+        $stmt = $this->db->prepare("UPDATE users SET training_mode = 'coach' WHERE id = ?");
+        $stmt->bind_param("i", $athleteId);
+        $stmt->execute();
+        $stmt->close();
+
+        // Уведомление атлету о принятии заявки (необязательно — не валим основной поток).
+        try {
+            $coachName = '';
+            $stmt = $this->db->prepare("SELECT first_name, last_name, username FROM users WHERE id = ?");
+            $stmt->bind_param("i", $coachId);
+            $stmt->execute();
+            if ($crow = $stmt->get_result()->fetch_assoc()) {
+                $coachName = trim(trim(($crow['first_name'] ?? '') . ' ' . ($crow['last_name'] ?? ''))) ?: ($crow['username'] ?? '');
+            }
+            $stmt->close();
+            require_once __DIR__ . '/NotificationService.php';
+            (new NotificationService($this->db))->create(
+                $athleteId,
+                'coach.request_accepted',
+                'Тренер принял вашу заявку',
+                ($coachName !== '' ? "$coachName теперь ваш тренер" : 'Вы перешли в режим тренера') . ' — план ведёт тренер.',
+                ['ref_key' => 'coach_accepted:' . $coachId, 'category' => 'coach', 'link' => '/']
+            );
+        } catch (\Throwable $e) {
+            /* уведомление необязательно */
+        }
+
         return $athleteId;
     }
 
@@ -222,7 +272,7 @@ class CoachService extends BaseService {
 
     public function getUserCoaches(int $userId): array {
         $stmt = $this->db->prepare("
-            SELECT u.id, u.username, u.username_slug, u.avatar_path, u.coach_bio, u.coach_specialization
+            SELECT u.id, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path, u.coach_bio, u.coach_specialization
             FROM user_coaches uc
             JOIN users u ON uc.coach_id = u.id
             WHERE uc.user_id = ?
@@ -237,6 +287,7 @@ class CoachService extends BaseService {
                 'id' => (int)$row['id'],
                 'username' => $row['username'],
                 'username_slug' => $row['username_slug'],
+                ...$this->nameFields($row),
                 'avatar_path' => $row['avatar_path'],
                 'coach_bio' => $row['coach_bio'],
                 'coach_specialization' => json_decode($row['coach_specialization'] ?? '[]', true) ?: [],
@@ -264,6 +315,16 @@ class CoachService extends BaseService {
 
         if ($affected === 0) {
             $this->throwNotFoundException('Связь не найдена');
+        }
+
+        // Атлет в связи: при разрыве откатываем режим тренера в «Сам» (план остаётся, но ручной).
+        // Покинул тренера — пользователь в self, пока сам не выберет AI.
+        $athleteToRevert = $coachId ? $currentUserId : $athleteId;
+        if ($athleteToRevert) {
+            $stmt = $this->db->prepare("UPDATE users SET training_mode = 'self' WHERE id = ? AND training_mode = 'coach'");
+            $stmt->bind_param("i", $athleteToRevert);
+            $stmt->execute();
+            $stmt->close();
         }
     }
 
@@ -339,6 +400,95 @@ class CoachService extends BaseService {
         return $applicationId;
     }
 
+    public function getMyCoachProfile(int $userId): array {
+        $stmt = $this->db->prepare("
+            SELECT coach_bio, coach_philosophy, coach_specialization, coach_experience_years,
+                   coach_accepts, coach_prices_on_request, coach_certifications,
+                   coach_runner_achievements, coach_athlete_achievements, coach_contacts_extra
+            FROM users WHERE id = ?
+        ");
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            $this->throwNotFoundException('Профиль не найден');
+        }
+
+        return [
+            'coach_bio' => $row['coach_bio'],
+            'coach_philosophy' => $row['coach_philosophy'],
+            'coach_specialization' => json_decode($row['coach_specialization'] ?? '[]', true) ?: [],
+            'coach_experience_years' => $row['coach_experience_years'] ? (int)$row['coach_experience_years'] : null,
+            'coach_accepts' => (bool)$row['coach_accepts'],
+            'coach_prices_on_request' => (bool)$row['coach_prices_on_request'],
+            'coach_certifications' => $row['coach_certifications'],
+            'coach_runner_achievements' => $row['coach_runner_achievements'],
+            'coach_athlete_achievements' => $row['coach_athlete_achievements'],
+            'coach_contacts_extra' => $row['coach_contacts_extra'],
+            'pricing' => $this->loadPricing($userId),
+        ];
+    }
+
+    public function updateCoachProfile(int $userId, array $input): void {
+        $sets = [];
+        $params = [];
+        $types = '';
+
+        if (array_key_exists('coach_bio', $input)) {
+            $bio = trim((string)$input['coach_bio']);
+            if (mb_strlen($bio) < 100 || mb_strlen($bio) > 500) {
+                $this->throwValidationException('Описание должно быть от 100 до 500 символов');
+            }
+            $sets[] = 'coach_bio = ?'; $params[] = $bio; $types .= 's';
+        }
+        if (array_key_exists('coach_philosophy', $input)) {
+            $sets[] = 'coach_philosophy = ?'; $params[] = trim((string)$input['coach_philosophy']) ?: null; $types .= 's';
+        }
+        if (array_key_exists('coach_specialization', $input)) {
+            $spec = $input['coach_specialization'];
+            if (is_array($spec) && count($spec) === 0) {
+                $this->throwValidationException('Выберите хотя бы одну специализацию');
+            }
+            $sets[] = 'coach_specialization = ?';
+            $params[] = json_encode(is_array($spec) ? array_values($spec) : [], JSON_UNESCAPED_UNICODE);
+            $types .= 's';
+        }
+        if (array_key_exists('coach_experience_years', $input)) {
+            $years = $input['coach_experience_years'] === '' || $input['coach_experience_years'] === null
+                ? null : (int)$input['coach_experience_years'];
+            if ($years !== null && ($years < 1 || $years > 50)) {
+                $this->throwValidationException('Опыт должен быть от 1 до 50 лет');
+            }
+            $sets[] = 'coach_experience_years = ?'; $params[] = $years; $types .= 'i';
+        }
+        if (array_key_exists('coach_accepts', $input)) {
+            $sets[] = 'coach_accepts = ?'; $params[] = (int)(bool)$input['coach_accepts']; $types .= 'i';
+        }
+        if (array_key_exists('coach_certifications', $input)) {
+            $sets[] = 'coach_certifications = ?'; $params[] = trim((string)$input['coach_certifications']) ?: null; $types .= 's';
+        }
+        if (array_key_exists('coach_runner_achievements', $input)) {
+            $sets[] = 'coach_runner_achievements = ?'; $params[] = trim((string)$input['coach_runner_achievements']) ?: null; $types .= 's';
+        }
+        if (array_key_exists('coach_athlete_achievements', $input)) {
+            $sets[] = 'coach_athlete_achievements = ?'; $params[] = trim((string)$input['coach_athlete_achievements']) ?: null; $types .= 's';
+        }
+        if (array_key_exists('coach_contacts_extra', $input)) {
+            $sets[] = 'coach_contacts_extra = ?'; $params[] = trim((string)$input['coach_contacts_extra']) ?: null; $types .= 's';
+        }
+
+        if (!$sets) return;
+
+        $params[] = $userId; $types .= 'i';
+        $sql = "UPDATE users SET " . implode(', ', $sets) . " WHERE id = ? AND role IN ('coach', 'admin')";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $stmt->close();
+    }
+
     // ==================== АТЛЕТЫ ТРЕНЕРА ====================
 
     public function getCoachAthletes(int $coachId): array {
@@ -355,7 +505,7 @@ class CoachService extends BaseService {
         // UNION делает дедупликацию по дате внутри week_completed, поэтому
         // если в один день есть и ручная отметка, и Strava-импорт — это 1 тренировка.
         $stmt = $this->db->prepare("
-            SELECT u.id, u.username, u.username_slug, u.avatar_path,
+            SELECT u.id, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path,
                    u.goal_type, u.race_date, u.race_distance, u.race_target_time,
                    (SELECT MAX(d) FROM (
                        SELECT MAX(training_date) AS d
@@ -420,10 +570,16 @@ class CoachService extends BaseService {
 
         $athletes = [];
         while ($row = $result->fetch_assoc()) {
+            $aFirst = isset($row['first_name']) ? trim((string)$row['first_name']) : '';
+            $aLast = isset($row['last_name']) ? trim((string)$row['last_name']) : '';
+            $aName = trim($aFirst . ' ' . $aLast);
             $athlete = [
                 'id' => (int)$row['id'],
                 'username' => $row['username'],
                 'username_slug' => $row['username_slug'],
+                'first_name' => $aFirst !== '' ? $aFirst : null,
+                'last_name' => $aLast !== '' ? $aLast : null,
+                'name' => $aName !== '' ? $aName : null,
                 'avatar_path' => $row['avatar_path'],
                 'last_activity' => $row['last_activity'],
                 'week_total' => (int)$row['week_total'],
@@ -929,7 +1085,7 @@ class CoachService extends BaseService {
         $this->requireGroupOwnership($coachId, $groupId);
 
         $stmt = $this->db->prepare("
-            SELECT u.id, u.username, u.username_slug, u.avatar_path
+            SELECT u.id, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path
             FROM coach_group_members gm
             JOIN users u ON gm.user_id = u.id
             WHERE gm.group_id = ?
@@ -945,6 +1101,7 @@ class CoachService extends BaseService {
                 'id' => (int)$row['id'],
                 'username' => $row['username'],
                 'username_slug' => $row['username_slug'],
+                ...$this->nameFields($row),
                 'avatar_path' => $row['avatar_path'],
             ];
         }
@@ -1022,7 +1179,7 @@ class CoachService extends BaseService {
      */
     public function getApplications(string $status, int $limit, int $offset): array {
         $stmt = $this->db->prepare("
-            SELECT ca.*, u.username, u.username_slug, u.avatar_path, u.email
+            SELECT ca.*, u.username, u.username_slug, u.first_name, u.last_name, u.avatar_path, u.email
             FROM coach_applications ca
             JOIN users u ON ca.user_id = u.id
             WHERE ca.status = ?
@@ -1042,6 +1199,7 @@ class CoachService extends BaseService {
             $row['coach_accepts_new'] = (bool)$row['coach_accepts_new'];
             $row['coach_prices_on_request'] = (bool)$row['coach_prices_on_request'];
             $row['coach_experience_years'] = $row['coach_experience_years'] ? (int)$row['coach_experience_years'] : null;
+            $row = array_merge($row, $this->nameFields($row));
             $applications[] = $row;
         }
         $stmt->close();

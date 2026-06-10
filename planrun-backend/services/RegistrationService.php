@@ -64,12 +64,12 @@ class RegistrationService extends BaseService {
     }
 
     public function registerMinimal(array $input): array {
-        $username = trim((string) ($input['username'] ?? ''));
+        // username больше не вводится пользователем — генерируется автоматически (user_<id>).
         $password = trim((string) ($input['password'] ?? ''));
         $email = trim((string) ($input['email'] ?? ''));
 
-        if ($username === '' || $password === '') {
-            return ['success' => false, 'error' => 'Имя пользователя и пароль обязательны'];
+        if ($password === '') {
+            return ['success' => false, 'error' => 'Пароль обязателен'];
         }
         if (strlen($password) < 6) {
             return ['success' => false, 'error' => 'Пароль должен быть не менее 6 символов'];
@@ -89,19 +89,25 @@ class RegistrationService extends BaseService {
             return $verificationResult;
         }
 
-        $identity = $this->prepareRegistrationIdentity($username, $email);
-        if (empty($identity['success'])) {
-            return $identity;
+        if (!$this->isRegistrationEnabled()) {
+            return ['success' => false, 'error' => 'Регистрация отключена администратором'];
+        }
+        if ($this->userExistsByEmail($email)) {
+            return ['success' => false, 'error' => 'Этот email уже используется'];
         }
 
-        $usernameSlug = (string) $identity['username_slug'];
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-        $emailVal = $identity['email'];
         $onboardingCompleted = 0;
         $trainingModePlaceholder = 'self';
         $goalTypeHealth = 'health';
         $genderMale = 'male';
         $timezone = $this->sanitizeTimezone($input['timezone'] ?? null) ?? 'Europe/Moscow';
+
+        // Временный уникальный username/slug — финальный (user_<id>) проставим после INSERT,
+        // когда станет известен автоинкрементный id. Колонки username/username_slug — NOT NULL/UNIQUE.
+        $tmpToken = 'reg_' . bin2hex(random_bytes(8));
+        $tmpUsername = $tmpToken;
+        $tmpSlug = $tmpToken;
 
         $stmt = $this->db->prepare(
             "INSERT INTO users (username, username_slug, password, email, onboarding_completed, training_mode, goal_type, gender, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -112,10 +118,10 @@ class RegistrationService extends BaseService {
 
         $stmt->bind_param(
             'ssssissss',
-            $username,
-            $usernameSlug,
+            $tmpUsername,
+            $tmpSlug,
             $hashedPassword,
-            $emailVal,
+            $email,
             $onboardingCompleted,
             $trainingModePlaceholder,
             $goalTypeHealth,
@@ -136,14 +142,24 @@ class RegistrationService extends BaseService {
             throw new RuntimeException('Не удалось получить ID нового пользователя', 500);
         }
 
+        // Финальный username/slug по id (детерминированно и уникально, коллизий не бывает).
+        $finalUsername = 'user_' . $userId;
+        $finalSlug = 'user_' . $userId;
+        $upd = $this->db->prepare("UPDATE users SET username = ?, username_slug = ? WHERE id = ?");
+        if ($upd) {
+            $upd->bind_param('ssi', $finalUsername, $finalSlug, $userId);
+            $upd->execute();
+            $upd->close();
+        }
+
         return [
             'success' => true,
             'message' => 'Регистрация успешна',
             'plan_message' => null,
             'user' => [
                 'id' => $userId,
-                'username' => $username,
-                'email' => $emailVal,
+                'username' => $finalUsername,
+                'email' => $email,
                 'onboarding_completed' => 0,
             ],
         ];
@@ -492,15 +508,17 @@ class RegistrationService extends BaseService {
             $planDate = $data['weight_goal_date'] ?? null;
         }
 
+        // ai активируется завершившимся job генерации; self/coach — план активен сразу.
+        $isActive = ((string) ($data['training_mode'] ?? 'ai') === 'ai') ? 0 : 1;
         $stmt = $this->db->prepare('
             INSERT INTO user_training_plans (user_id, start_date, marathon_date, target_time, is_active)
-            VALUES (?, CURDATE(), ?, ?, FALSE)
+            VALUES (?, CURDATE(), ?, ?, ?)
         ');
         if (!$stmt) {
             return;
         }
 
-        $stmt->bind_param('iss', $userId, $planDate, $planTime);
+        $stmt->bind_param('issi', $userId, $planDate, $planTime, $isActive);
         $stmt->execute();
         $stmt->close();
     }
@@ -509,8 +527,12 @@ class RegistrationService extends BaseService {
         if ($trainingMode === 'self') {
             return 'Календарь готов. Добавляйте тренировки на любую дату.';
         }
+        if ($trainingMode === 'coach') {
+            // Живой тренер сам составит план — AI-генерацию не запускаем.
+            return 'Календарь готов. Ваш тренер составит план.';
+        }
 
-        if ($trainingMode !== 'ai' && $trainingMode !== 'both') {
+        if ($trainingMode !== 'ai') {
             return null;
         }
 

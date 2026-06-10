@@ -39,8 +39,20 @@ export async function unlinkIntegration(client, provider) {
   return client.request('unlink_integration', { provider, csrf_token: csrfToken }, 'POST');
 }
 
+export async function setSuuntoMirror(client, enabled) {
+  const csrfRes = await client.request('get_csrf_token', {}, 'GET');
+  const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+  return client.request('set_suunto_mirror', { enabled: !!enabled, csrf_token: csrfToken }, 'POST');
+}
+
 export function getStravaTokenError(client) {
   return client.request('strava_token_error', {}, 'GET');
+}
+
+export async function importHealthConnectWorkouts(client, workouts) {
+  const csrfRes = await client.request('get_csrf_token', {}, 'GET');
+  const csrfToken = csrfRes?.csrf_token ?? csrfRes?.data?.csrf_token;
+  return client.request('health_connect_import', { workouts, csrf_token: csrfToken }, 'POST');
 }
 
 export function getWorkoutTimeline(client, workoutId) {

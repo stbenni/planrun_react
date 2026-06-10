@@ -52,6 +52,14 @@ export function updateCoachPricing(client, pricing, pricesOnRequest = false) {
   return client.request('update_coach_pricing', { pricing, prices_on_request: pricesOnRequest ? 1 : 0 }, 'POST');
 }
 
+export function getMyCoachProfile(client) {
+  return client.request('get_my_coach_profile', {}, 'GET');
+}
+
+export function updateCoachProfile(client, data) {
+  return client.request('update_coach_profile', data, 'POST');
+}
+
 export function getCoachGroups(client) {
   return client.request('get_coach_groups', {}, 'GET');
 }

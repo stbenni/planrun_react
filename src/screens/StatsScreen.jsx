@@ -1,36 +1,17 @@
-/**
- * StatsScreen - Экран статистики в стиле Strava
- * Графики, метрики, прогресс, достижения
- */
-
-import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import usePreloadStore from '../stores/usePreloadStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
 import { useIsTabActive } from '../hooks/useIsTabActive';
-import { useSwipeableTabs } from '../hooks/useSwipeableTabs';
 import { isNativeCapacitor } from '../services/TokenStorageService';
-import {
-  ActivityHeatmap,
-  DistanceChart,
-  WeeklyProgressChart,
-  RecentWorkoutsList,
-  AchievementCard,
-  WorkoutDetailsModal,
-  processStatsData,
-  processProgressData,
-  processAchievementsData
-} from '../components/Stats';
+import WorkoutSheet from '../components/Stats/WorkoutSheet';
+import StatsV3 from '../components/Stats/v3/StatsV3';
 import SkeletonScreen from '../components/common/SkeletonScreen';
-import { MetricDistanceIcon, MetricActivityIcon, MetricTimeIcon, MetricPaceIcon } from '../components/Dashboard/DashboardMetricIcons';
-import { BarChartIcon, TrophyIcon, TargetIcon, FlameIcon, OtherIcon } from '../components/common/Icons';
+import { BarChartIcon } from '../components/common/Icons';
 import AthleteSelect from '../components/common/AthleteSelect';
 import ResultModal from '../components/Calendar/ResultModal';
-import '../components/Dashboard/Dashboard.css';
 import './StatsScreen.css';
-
-const STATS_TABS = ['overview', 'progress', 'achievements'];
 
 const StatsScreen = () => {
   const location = useLocation();
@@ -43,35 +24,27 @@ const StatsScreen = () => {
   const isCoach = role === 'coach' || role === 'admin';
   const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('month');
-  const [activeTab, setActiveTab] = useState('overview');
-  const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
+  const [sheet, setSheet] = useState({ open: false, workout: null, date: null });
   const [editModal, setEditModal] = useState({ isOpen: false, date: null });
-  const statsTabsRef = useRef(null);
-  const statsPanelsRef = useRef(null);
-  const [statsTabPillStyle, setStatsTabPillStyle] = useState({ left: 0, width: 0 });
 
-  // Coach: athlete selector via ?athlete=slug
   const athleteSlug = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get('athlete') || null;
   }, [location.search]);
 
-  const viewContext = useMemo(() => {
-    return athleteSlug ? { slug: athleteSlug } : null;
-  }, [athleteSlug]);
+  const viewContext = useMemo(() => (athleteSlug ? { slug: athleteSlug } : null), [athleteSlug]);
 
   const [coachAthletes, setCoachAthletes] = useState([]);
   useEffect(() => {
     if (!isCoach || !api) return;
-    api.getCoachAthletes().then(res => {
+    api.getCoachAthletes().then((res) => {
       setCoachAthletes(res?.data?.athletes || res?.athletes || []);
     }).catch(() => {});
   }, [isCoach, api]);
 
   useEffect(() => {
     const isStats = location.pathname === '/stats' || location.pathname.startsWith('/stats');
-    if (!isStats) setWorkoutModal((prev) => (prev.isOpen ? { ...prev, isOpen: false } : prev));
+    if (!isStats) setSheet((prev) => (prev.open ? { ...prev, open: false } : prev));
   }, [location.pathname]);
 
   const loadRawData = useCallback(async (options = {}) => {
@@ -83,7 +56,7 @@ const StatsScreen = () => {
 
     try {
       if (!silent) setLoading(true);
-      
+
       const [summaryRes, listRes, resultsRes, planRes] = await Promise.allSettled([
         api.getAllWorkoutsSummary(viewContext),
         api.getAllWorkoutsList(viewContext, 500),
@@ -123,27 +96,15 @@ const StatsScreen = () => {
     }
   }, [api, viewContext]);
 
-  const stats = React.useMemo(() => {
-    if (!rawData) return null;
-    const { workoutsData, workoutsList, allResults, plan } = rawData;
-    if (activeTab === 'overview') {
-      return processStatsData(workoutsData, allResults, plan, timeRange, workoutsList);
-    }
-    if (activeTab === 'progress') {
-      return processProgressData(workoutsData, allResults, plan);
-    }
-    return processAchievementsData(workoutsData, allResults);
-  }, [rawData, activeTab, timeRange]);
-  const hasStatsTabs = !!api && !loading && !!stats;
-
   const hasLoadedRef = useRef(false);
   useEffect(() => {
     const isNative = isNativeCapacitor();
     const shouldPreload = isNative && preloadTriggered;
     if (!isTabActive && !hasLoadedRef.current && !shouldPreload) return;
     if (api && typeof api.getAllWorkoutsSummary === 'function') {
+      const alreadyLoaded = hasLoadedRef.current;
       hasLoadedRef.current = true;
-      const silent = (shouldPreload && !isTabActive) || !!rawData;
+      const silent = (shouldPreload && !isTabActive) || alreadyLoaded;
       loadRawData({ silent });
     } else {
       setLoading(false);
@@ -161,7 +122,7 @@ const StatsScreen = () => {
   }, [athleteSlug, api, loadRawData]);
 
   useEffect(() => {
-    if (workoutRefreshVersion <= 0 || !api) return;
+    if (workoutRefreshVersion <= 0 || !api) return undefined;
     const t = setTimeout(() => loadRawData({ silent: true }), 250);
     return () => clearTimeout(t);
   }, [workoutRefreshVersion, api, loadRawData]);
@@ -169,110 +130,39 @@ const StatsScreen = () => {
   const handleWorkoutClick = async (workout) => {
     const date = workout?.start_time ? workout.start_time.split('T')[0] : workout?.date;
     if (!api || !date) return;
-
-    const selectedWorkoutId = workout?.id ?? null;
-
-    const immediateDayData = {
-      planDays: [],
-      dayExercises: [],
-      workouts: [{ ...workout, start_time: workout.start_time || (date + 'T12:00:00') }],
-    };
-    setWorkoutModal({ isOpen: true, date, dayData: immediateDayData, loading: false, selectedWorkoutId });
-
+    // Мгновенно показываем sheet; затем обогащаем полными полями из getDay (по id).
+    setSheet({ open: true, workout, date });
     try {
-      const response = await api.getDay(date);
-      let raw = response;
-      if (response && typeof response === 'object' && (response.data != null)) {
-        raw = response.data;
-      }
-      if (raw && typeof raw === 'object') {
-        const fullDayData = {
-          ...raw,
-          planDays: raw.planDays ?? raw.plan_days ?? [],
-          dayExercises: raw.dayExercises ?? raw.day_exercises ?? [],
-          workouts: raw.workouts ?? [],
-        };
-        setWorkoutModal((prev) => prev.isOpen && prev.date === date ? { ...prev, dayData: fullDayData } : prev);
+      const response = await api.getDay(date, viewContext || undefined);
+      const raw = response?.data != null ? response.data : response;
+      const workouts = Array.isArray(raw?.workouts) ? raw.workouts : [];
+      const match = workouts.find((w) => String(w.id) === String(workout.id));
+      if (match) {
+        setSheet((prev) => (prev.open && prev.date === date ? { ...prev, workout: { ...workout, ...match } } : prev));
       }
     } catch {
       // Мгновенные данные уже отображены — ошибка enrichment не критична
     }
   };
 
-  const handleCloseWorkoutModal = () => {
-    setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
-  };
+  const handleCloseSheet = useCallback(() => setSheet({ open: false, workout: null, date: null }), []);
 
-  const handleEditWorkout = useCallback(() => {
-    if (!workoutModal.date) return;
-    const editDate = workoutModal.date;
-    setWorkoutModal((prev) => ({ ...prev, isOpen: false }));
-    setEditModal({ isOpen: true, date: editDate });
-  }, [workoutModal.date]);
+  const handleEditWorkout = useCallback((w) => {
+    const editDate = w?.start_time ? w.start_time.split('T')[0] : (w?.date || null);
+    handleCloseSheet();
+    if (editDate) setEditModal({ isOpen: true, date: editDate });
+  }, [handleCloseSheet]);
+
+  const handleDeleteWorkout = useCallback(async (w) => {
+    handleCloseSheet();
+    try { await api.deleteWorkout(w.id ?? w.workout_id, !!w.is_manual); } catch { /* ignore */ }
+    loadRawData({ silent: true });
+    useWorkoutRefreshStore.getState().triggerRefresh();
+  }, [api, handleCloseSheet, loadRawData]);
 
   const handleCloseEditModal = useCallback(() => {
     setEditModal({ isOpen: false, date: null });
   }, []);
-
-  const updateStatsTabPill = useCallback(() => {
-    const tabs = statsTabsRef.current;
-    if (!tabs) return;
-
-    const activeButton = tabs.querySelector('.stats-tab.active');
-    if (!activeButton) {
-      setStatsTabPillStyle({ left: 0, width: 0 });
-      return;
-    }
-
-    setStatsTabPillStyle({
-      left: activeButton.offsetLeft,
-      width: activeButton.offsetWidth,
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    updateStatsTabPill();
-  }, [activeTab, hasStatsTabs, updateStatsTabPill]);
-
-  useLayoutEffect(() => {
-    if (!hasStatsTabs) return undefined;
-
-    let frameId = 0;
-    const scheduleUpdate = () => {
-      cancelAnimationFrame(frameId);
-      frameId = window.requestAnimationFrame(updateStatsTabPill);
-    };
-
-    const tabs = statsTabsRef.current;
-    const resizeObserver = typeof ResizeObserver !== 'undefined' && tabs
-      ? new ResizeObserver(scheduleUpdate)
-      : null;
-
-    if (tabs && resizeObserver) {
-      resizeObserver.observe(tabs);
-      tabs.querySelectorAll('.stats-tab').forEach((item) => resizeObserver.observe(item));
-    }
-
-    window.addEventListener('resize', scheduleUpdate);
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(scheduleUpdate).catch(() => {});
-    }
-
-    return () => {
-      cancelAnimationFrame(frameId);
-      window.removeEventListener('resize', scheduleUpdate);
-      resizeObserver?.disconnect();
-    };
-  }, [hasStatsTabs, updateStatsTabPill]);
-
-  useSwipeableTabs({
-    containerRef: statsPanelsRef,
-    tabs: STATS_TABS,
-    activeTab,
-    onTabChange: setActiveTab,
-    enabled: hasStatsTabs,
-    ignoreSelector: '.heatmap-months-container, [data-swipe-lock="true"], input, textarea, select, [contenteditable="true"]',
-  });
 
   if (!api) {
     return (
@@ -293,7 +183,7 @@ const StatsScreen = () => {
     );
   }
 
-  if (!stats) {
+  if (!rawData) {
     return (
       <div className="stats-screen">
         <div className="stats-empty">
@@ -319,215 +209,27 @@ const StatsScreen = () => {
       {athleteSlug && (
         <div className="coach-mode-banner">
           <span className="coach-mode-banner__label">Режим тренера</span>
-          <span className="coach-mode-banner__name">{coachAthletes.find(a => a.username_slug === athleteSlug)?.username || athleteSlug}</span>
-        </div>
-      )}
-      <div
-        ref={statsTabsRef}
-        className="stats-tabs"
-        style={{
-          '--stats-tabs-pill-left': `${statsTabPillStyle.left}px`,
-          '--stats-tabs-pill-width': `${statsTabPillStyle.width}px`,
-        }}
-      >
-        <span className="stats-tabs-pill" aria-hidden="true" />
-        <button 
-          className={`stats-tab ${activeTab === 'overview' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setActiveTab('overview')}
-        >
-          Обзор
-        </button>
-        <button 
-          className={`stats-tab ${activeTab === 'progress' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setActiveTab('progress')}
-        >
-          Прогресс
-        </button>
-        <button 
-          className={`stats-tab ${activeTab === 'achievements' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setActiveTab('achievements')}
-        >
-          Достижения
-        </button>
-      </div>
-
-      <div ref={statsPanelsRef} className="stats-tab-panels">
-      {activeTab === 'overview' && (
-        <div className="stats-content">
-          {/* Выбор периода только для "Обзор" */}
-          <div className="stats-time-range">
-            <button 
-              className={`time-range-btn ${timeRange === 'week' ? 'active' : ''}`}
-              onClick={() => setTimeRange('week')}
-            >
-              Эта неделя
-            </button>
-            <button 
-              className={`time-range-btn ${timeRange === 'month' ? 'active' : ''}`}
-              onClick={() => setTimeRange('month')}
-            >
-              Месяц
-            </button>
-            <button 
-              className={`time-range-btn ${timeRange === 'quarter' ? 'active' : ''}`}
-              onClick={() => setTimeRange('quarter')}
-            >
-              3 мес
-            </button>
-            <button 
-              className={`time-range-btn ${timeRange === 'year' ? 'active' : ''}`}
-              onClick={() => setTimeRange('year')}
-            >
-              Год
-            </button>
-          </div>
-          <div className="dashboard-module-card stats-metrics-module">
-            <div className="dashboard-stats-widget">
-              <div className="dashboard-stats-metrics-grid">
-                <div className="metric-card">
-                  <div className="metric-card__label">
-                    <MetricDistanceIcon className="metric-card__icon" />
-                    <span>Дистанция</span>
-                  </div>
-                  <div className="metric-card__value">
-                    <span className="metric-card__number">{stats.totalDistance}</span>
-                    <span className="metric-card__unit">км</span>
-                  </div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-card__label">
-                    <MetricTimeIcon className="metric-card__icon" />
-                    <span>Время</span>
-                  </div>
-                  <div className="metric-card__value">
-                    <span className="metric-card__number">{Math.round(stats.totalTime / 60)}</span>
-                    <span className="metric-card__unit">часов</span>
-                  </div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-card__label">
-                    <MetricActivityIcon className="metric-card__icon" />
-                    <span>Активность</span>
-                  </div>
-                  <div className="metric-card__value">
-                    <span className="metric-card__number">{stats.totalWorkouts}</span>
-                    <span className="metric-card__unit">тренировок</span>
-                  </div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-card__label">
-                    <MetricPaceIcon className="metric-card__icon" />
-                    <span>Средний темп</span>
-                  </div>
-                  <div className="metric-card__value">
-                    <span className="metric-card__number">{stats.avgPace}</span>
-                    <span className="metric-card__unit">/км</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="stats-chart-section">
-            <h2 className="section-title">График активности</h2>
-            {/* Heatmap для мобильных, столбчатый график для десктопов */}
-            <div className="chart-mobile">
-              <ActivityHeatmap data={stats.chartData} />
-            </div>
-            <div className="chart-desktop">
-              <DistanceChart data={stats.chartData} />
-            </div>
-          </div>
-
-          <div className="stats-recent-workouts">
-            <h2 className="section-title">
-              <span className="section-title--mobile">Тренировки</span>
-              <span className="section-title--desktop">Последние тренировки</span>
-            </h2>
-            <RecentWorkoutsList 
-              workouts={stats.workouts} 
-              api={api}
-              onWorkoutClick={handleWorkoutClick}
-            />
-          </div>
+          <span className="coach-mode-banner__name">{coachAthletes.find((a) => a.username_slug === athleteSlug)?.username || athleteSlug}</span>
         </div>
       )}
 
-      {activeTab === 'progress' && (
-        <div className="stats-content">
-          {stats.planProgress && (
-            <div className="plan-progress-card">
-              <h2 className="section-title">Прогресс по плану</h2>
-              <div className="progress-info">
-                <div className="progress-stats">
-                  <span className="progress-value">{stats.planProgress.completed}</span>
-                  <span className="progress-separator">/</span>
-                  <span className="progress-total">{stats.planProgress.total}</span>
-                </div>
-                <div className="progress-percentage">{stats.planProgress.percentage}%</div>
-              </div>
-              <div className="progress-bar-large">
-                <div 
-                  className="progress-bar-fill-large"
-                  style={{ width: `${stats.planProgress.percentage}%` }}
-                />
-              </div>
-            </div>
-          )}
-          
-          {stats.chartData && stats.chartData.length > 0 && (
-            <div className="stats-chart-section">
-              <h2 className="section-title">Прогресс по неделям</h2>
-              <WeeklyProgressChart data={stats.chartData} />
-            </div>
-          )}
-        </div>
-      )}
+      <StatsV3
+        api={api}
+        viewContext={viewContext}
+        rawData={rawData}
+        user={user}
+        onWorkoutClick={handleWorkoutClick}
+      />
 
-      {activeTab === 'achievements' && (
-        <div className="stats-content">
-          <div className="achievements-grid">
-            <AchievementCard 
-              Icon={TrophyIcon}
-              title="Первая тренировка"
-              description="Выполните первую тренировку"
-              achieved={stats.totalWorkouts > 0}
-            />
-            <AchievementCard 
-              Icon={TargetIcon}
-              title="10 тренировок"
-              description="Выполните 10 тренировок"
-              achieved={stats.totalWorkouts >= 10}
-            />
-            <AchievementCard 
-              Icon={FlameIcon}
-              title="50 км"
-              description="Пробегите 50 километров"
-              achieved={stats.totalDistance >= 50}
-            />
-            <AchievementCard 
-              Icon={OtherIcon}
-              title="100 км"
-              description="Пробегите 100 километров"
-              achieved={stats.totalDistance >= 100}
-            />
-          </div>
-        </div>
-      )}
-      </div>
-      
-      <WorkoutDetailsModal
-        isOpen={workoutModal.isOpen}
-        onClose={handleCloseWorkoutModal}
-        date={workoutModal.date}
-        dayData={workoutModal.dayData}
-        loading={workoutModal.loading}
-        selectedWorkoutId={workoutModal.selectedWorkoutId}
+      <WorkoutSheet
+        open={sheet.open}
+        workout={sheet.workout}
+        date={sheet.date}
+        api={api}
+        canEdit={!viewContext}
+        onClose={handleCloseSheet}
         onEdit={handleEditWorkout}
-        onDelete={() => { handleCloseWorkoutModal(); loadRawData({ silent: true }); }}
+        onDelete={handleDeleteWorkout}
       />
 
       <ResultModal
@@ -535,7 +237,7 @@ const StatsScreen = () => {
         onClose={handleCloseEditModal}
         date={editModal.date}
         api={api}
-        onSave={() => { handleCloseEditModal(); loadRawData({ silent: true }); }}
+        onSave={() => { handleCloseEditModal(); loadRawData({ silent: true }); useWorkoutRefreshStore.getState().triggerRefresh(); }}
       />
     </div>
   );

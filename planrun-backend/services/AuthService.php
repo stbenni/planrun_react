@@ -340,14 +340,41 @@ class AuthService extends BaseService {
         
         $token = $matches[1];
         $payload = $this->jwtService->verifyToken($token);
-        
+
         if (!$payload || $payload['type'] !== 'access') {
             return null;
         }
-        
+
+        // Токен может быть валиден, но пользователь уже удалён. Без этой проверки
+        // запросы под таким токеном падали с 500 (FK-нарушение при вставке строк,
+        // ссылающихся на несуществующий user_id, напр. chat_conversations).
+        // Удалённый пользователь = не аутентифицирован → клиент получит 401 и разлогинится.
+        if (!$this->userExists((int)$payload['user_id'])) {
+            return null;
+        }
+
         return [
             'user_id' => $payload['user_id'],
             'username' => $payload['username']
         ];
+    }
+
+    /**
+     * Существует ли пользователь в БД. При сбое запроса считаем, что существует,
+     * чтобы временная ошибка БД не разлогинивала всех (fail-open по доступности).
+     */
+    private function userExists(int $userId): bool {
+        if ($userId <= 0) {
+            return false;
+        }
+        $stmt = $this->db->prepare('SELECT 1 FROM users WHERE id = ? LIMIT 1');
+        if (!$stmt) {
+            return true;
+        }
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $exists = $stmt->get_result()->fetch_row() !== null;
+        $stmt->close();
+        return $exists;
     }
 }

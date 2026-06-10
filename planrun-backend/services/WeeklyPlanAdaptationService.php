@@ -77,6 +77,11 @@ class WeeklyPlanAdaptationService {
             if (!$user) return ['adapted' => false, 'reason' => 'user_not_found'];
         }
 
+        // Адаптация плана через AI — только для режима 'ai'. self/coach ведут план сами/через тренера.
+        if (($user['training_mode'] ?? 'ai') !== 'ai') {
+            return ['adapted' => false, 'reason' => 'not_ai_mode'];
+        }
+
         if (!$forceIgnoreCooldown && $this->isOnCooldown($userId)) {
             return ['adapted' => false, 'reason' => 'cooldown'];
         }
@@ -130,18 +135,18 @@ class WeeklyPlanAdaptationService {
 
     private function getEligibleUsers(): array {
         $result = $this->db->query("
-            SELECT u.id, u.username, COALESCE(NULLIF(u.timezone, ''), 'Europe/Moscow') AS timezone,
+            SELECT u.id, u.username, u.training_mode, COALESCE(NULLIF(u.timezone, ''), 'Europe/Moscow') AS timezone,
                    u.race_date, u.race_distance, u.race_target_time, u.goal_type
             FROM users u
             INNER JOIN training_plan_weeks tpw ON tpw.user_id = u.id
-            WHERE EXISTS (
+            WHERE u.training_mode = 'ai' AND EXISTS (
                 SELECT 1 FROM workout_log wl
                 WHERE wl.user_id = u.id AND wl.training_date > DATE_SUB(CURDATE(), INTERVAL 14 DAY)
                 UNION
                 SELECT 1 FROM workouts w
                 WHERE w.user_id = u.id AND w.start_time > DATE_SUB(NOW(), INTERVAL 14 DAY)
             )
-            GROUP BY u.id, u.username, u.timezone, u.race_date, u.race_distance, u.race_target_time, u.goal_type
+            GROUP BY u.id, u.username, u.training_mode, u.timezone, u.race_date, u.race_distance, u.race_target_time, u.goal_type
             HAVING MAX(DATE_ADD(tpw.start_date, INTERVAL 6 DAY)) >= CURDATE()
         ");
         if (!$result) return [];
@@ -169,7 +174,7 @@ class WeeklyPlanAdaptationService {
 
     private function loadUser(int $userId): ?array {
         $stmt = $this->db->prepare("
-            SELECT id, username, COALESCE(NULLIF(timezone, ''), 'Europe/Moscow') AS timezone,
+            SELECT id, username, training_mode, COALESCE(NULLIF(timezone, ''), 'Europe/Moscow') AS timezone,
                    race_date, race_distance, race_target_time, goal_type
             FROM users
             WHERE id = ?

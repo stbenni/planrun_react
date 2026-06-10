@@ -142,7 +142,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($input['username'] ?? '');
     $password = trim($input['password'] ?? '');
     $email = trim($input['email'] ?? '');
-    
+
+    // ——— Минимальная регистрация (email + пароль; username генерируется автоматически) ———
+    // Обрабатываем ДО общей валидации username: у минимального флоу своя валидация в сервисе.
+    $registerMinimal = !empty($input['register_minimal']);
+    if ($registerMinimal) {
+        $db = getDBConnection();
+        if (!$db) {
+            echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        try {
+            $registrationService = new RegistrationService($db);
+            $result = $registrationService->registerMinimal($input);
+            if (empty($result['success'])) {
+                planrunRespondJson($result);
+            }
+        } catch (Throwable $e) {
+            $statusCode = (int) $e->getCode();
+            if ($statusCode < 400 || $statusCode > 599) {
+                $statusCode = 500;
+            }
+            planrunRespondJson(['success' => false, 'error' => $e->getMessage(), 'code_required' => true], $statusCode);
+        }
+        planrunAutoLoginRegisteredUser($result);
+        // JWT для native-клиента выдаём отдельным запросом на /login после успешной регистрации.
+        planrunRespondJson($result);
+    }
+
     // Цель и даты
     $goalType = $input['goal_type'] ?? 'health';
     $allowedGoalTypes = ['health', 'race', 'weight_loss', 'time_improvement'];
@@ -172,16 +199,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Режим тренировок — определяем сразу, чтобы условно требовать поля (conditional required fields)
     $trainingModeInput = $input['training_mode'] ?? 'ai';
-    $allowedTrainingModes = ['ai', 'coach', 'both', 'self'];
+    $allowedTrainingModes = ['ai', 'coach', 'self'];
     if (!in_array($trainingModeInput, $allowedTrainingModes, true)) {
         $trainingMode = 'ai';
     } else {
         $trainingMode = $trainingModeInput;
     }
-    if ($trainingMode === 'coach') {
-        $trainingMode = 'ai';
-    }
-    
     if ($trainingMode === 'self') {
         $goalType = 'health';
     }
@@ -295,33 +318,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         echo json_encode(['success' => false, 'error' => 'Некорректный формат email'], JSON_UNESCAPED_UNICODE);
         exit;
-    }
-    
-    // ——— Минимальная регистрация (только логин, email, пароль) ———
-    $registerMinimal = !empty($input['register_minimal']) || (isset($input['register_minimal']) && $input['register_minimal'] === true);
-    if ($registerMinimal) {
-        $db = getDBConnection();
-        if (!$db) {
-            echo json_encode(['success' => false, 'error' => 'Ошибка подключения к БД'], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        try {
-            $registrationService = new RegistrationService($db);
-            $result = $registrationService->registerMinimal($input);
-            if (empty($result['success'])) {
-                planrunRespondJson($result);
-            }
-        } catch (Throwable $e) {
-            $statusCode = (int) $e->getCode();
-            if ($statusCode < 400 || $statusCode > 599) {
-                $statusCode = 500;
-            }
-            planrunRespondJson(['success' => false, 'error' => $e->getMessage(), 'code_required' => true], $statusCode);
-        }
-        planrunAutoLoginRegisteredUser($result);
-        // JWT для native-клиента выдаём отдельным запросом на /login после успешной регистрации.
-        // Так регистрация не зависит от refresh_tokens/KeyStore-специфики и быстрее возвращает успех.
-        planrunRespondJson($result);
     }
     
     // ——— Полная регистрация (ниже) ———

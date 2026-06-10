@@ -1,0 +1,107 @@
+/* Состояние генерации плана на дашборде (после F5 во время генерации).
+   На токенах проекта, light/dark. Анимации согласованы с онбордингом. */
+
+.pg-state {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: calc(100vh - 64px);
+  padding: var(--space-8);
+  box-sizing: border-box;
+}
+
+.pg-state__inner {
+  width: min(100%, 420px);
+  text-align: center;
+}
+
+.pg-state__mark-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.pg-state__mark {
+  width: 96px;
+  height: 96px;
+  border-radius: 30px;
+  background: linear-gradient(135deg, #fc4c02, #ff6b3d);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 30px;
+  box-shadow: 0 16px 40px rgba(252, 76, 2, 0.4);
+}
+
+.pg-state__ring {
+  position: absolute;
+  inset: -6px;
+  border: 3px dashed rgba(252, 76, 2, 0.45);
+  border-radius: 36px;
+  animation: pg-spin 3s linear infinite;
+}
+
+.pg-state__title {
+  font-family: var(--font-stats), 'Montserrat', sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 24px 0 0;
+}
+
+.pg-state__sub {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.pg-state__bar {
+  margin-top: 28px;
+  height: 6px;
+  background: var(--border-light, rgba(15, 23, 42, 0.1));
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.pg-state__bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #fc4c02, #ff6b3d);
+  box-shadow: 0 0 12px rgba(252, 76, 2, 0.5);
+  width: 30%;
+  animation: pg-progress 3.2s ease-in-out infinite;
+}
+
+.pg-state__steps {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.pg-state__step {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  padding: 6px 0;
+  color: var(--text-secondary);
+}
+
+.pg-state__step-mark { width: 18px; font-weight: 700; }
+.pg-state__step--done .pg-state__step-mark { color: var(--success-500); }
+.pg-state__step--active { color: var(--text-primary); font-weight: 700; }
+.pg-state__step--active .pg-state__step-mark { color: var(--primary-500); }
+.pg-state__step--todo { color: var(--text-tertiary); }
+
+@keyframes pg-spin { to { transform: rotate(360deg); } }
+@keyframes pg-progress {
+  0% { width: 12%; }
+  50% { width: 72%; }
+  100% { width: 96%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-state__ring, .pg-state__bar-fill { animation: none; }
+}

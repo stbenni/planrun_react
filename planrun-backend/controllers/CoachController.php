@@ -244,6 +244,32 @@ class CoachController extends BaseController {
         }
     }
 
+    /**
+     * GET get_my_coach_profile — все редактируемые поля анкеты текущего тренера
+     */
+    public function getMyCoachProfile() {
+        if (!$this->requireCoachOrAdmin()) return;
+        try {
+            $this->returnSuccess($this->coachService()->getMyCoachProfile($this->currentUserId));
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * POST update_coach_profile — сохранить анкету (bio/философия/специализация/опыт/приём)
+     */
+    public function updateCoachProfile() {
+        if (!$this->requireCoachOrAdmin()) return;
+        try {
+            $input = $this->getJsonBody() ?: $_POST;
+            $this->coachService()->updateCoachProfile($this->currentUserId, $input);
+            $this->returnSuccess(['updated' => true]);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
     // ==================== ГРУППЫ АТЛЕТОВ ====================
 
     /**

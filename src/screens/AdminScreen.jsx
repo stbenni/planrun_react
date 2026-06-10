@@ -29,7 +29,6 @@ const TRAINING_MODE_LABELS = {
   ai: 'AI',
   self: 'Самостоятельно',
   coach: 'Живой тренер',
-  both: 'AI + тренер',
 };
 
 const COACH_SPECIALIZATION_LABELS = {

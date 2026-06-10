@@ -331,7 +331,7 @@ class AuthController extends BaseController {
                 $role = 'user';
                 $onboardingCompleted = 1;
                 $row = null;
-                $stmt = $this->db->prepare('SELECT avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone, training_mode, goal_type, race_date, race_distance, race_target_time FROM users WHERE id = ? LIMIT 1');
+                $stmt = $this->db->prepare('SELECT username_slug, avatar_path, role, COALESCE(onboarding_completed, 1) AS onboarding_completed, timezone, training_mode, goal_type, race_date, race_distance, race_target_time, first_name, last_name FROM users WHERE id = ? LIMIT 1');
                 if ($stmt) {
                     $stmt->bind_param('i', $userId);
                     $stmt->execute();
@@ -351,10 +351,17 @@ class AuthController extends BaseController {
                 }
                 $timezone = (isset($row) && !empty($row['timezone'])) ? $row['timezone'] : 'Europe/Moscow';
                 $trainingMode = (isset($row['training_mode']) && $row['training_mode'] !== '' && $row['training_mode'] !== null) ? $row['training_mode'] : 'ai';
+                $firstName = isset($row['first_name']) ? trim((string) $row['first_name']) : '';
+                $lastName = isset($row['last_name']) ? trim((string) $row['last_name']) : '';
+                $displayName = trim($firstName . ' ' . $lastName);
                 $payload = [
                     'authenticated' => true,
                     'user_id' => $userId,
                     'username' => $username,
+                    'username_slug' => $row['username_slug'] ?? null,
+                    'first_name' => $firstName !== '' ? $firstName : null,
+                    'last_name' => $lastName !== '' ? $lastName : null,
+                    'name' => $displayName !== '' ? $displayName : null,
                     'avatar_path' => $avatarPath,
                     'role' => $role,
                     'auth_method' => $authMethod,

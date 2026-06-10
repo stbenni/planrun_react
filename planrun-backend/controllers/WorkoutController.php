@@ -225,6 +225,28 @@ class WorkoutController extends BaseController {
     }
 
     /**
+     * GET get_days — batch-детали нескольких дней (для префетча недели).
+     * Параметр dates — список дат через запятую (YYYY-MM-DD).
+     */
+    public function getDays() {
+        $datesParam = (string) $this->getParam('dates');
+        if ($datesParam === '') {
+            $this->returnError('Параметр dates обязателен');
+            return;
+        }
+        $dates = array_values(array_filter(array_map('trim', explode(',', $datesParam))));
+        if (count($dates) > 42) {
+            $dates = array_slice($dates, 0, 42);
+        }
+        try {
+            $data = $this->workoutService()->getDays($dates, $this->calendarUserId);
+            $this->returnSuccess($data);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
      * POST save_result — сохранить результат тренировки
      */
     public function saveResult() {

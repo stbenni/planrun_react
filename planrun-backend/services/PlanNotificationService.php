@@ -19,51 +19,42 @@ class PlanNotificationService {
      * @param array|null $metadata - доп. данные (JSON)
      */
     public function notify($userId, $type, $message, $metadata = null) {
-        $sql = "INSERT INTO plan_notifications (user_id, type, message, metadata) VALUES (?, ?, ?, ?)";
-        $stmt = $this->db->prepare($sql);
-        if (!$stmt) return;
-        $metaJson = $metadata ? json_encode($metadata, JSON_UNESCAPED_UNICODE) : null;
-        $stmt->bind_param('isss', $userId, $type, $message, $metaJson);
-        $stmt->execute();
-        $stmt->close();
+        $metadata = is_array($metadata) ? $metadata : [];
+        $eventKey = $this->mapTypeToEventKey((string) $type, $metadata);
 
-        $eventKey = $this->mapTypeToEventKey((string) $type, is_array($metadata) ? $metadata : []);
-        if ($eventKey === null) {
-            return;
-        }
-
-        try {
-            require_once __DIR__ . '/NotificationDispatcher.php';
-            $dispatcher = new NotificationDispatcher($this->db);
-            $metadata = is_array($metadata) ? $metadata : [];
-            $link = '/calendar';
-            if ($eventKey === 'coach.athlete_result_logged' && !empty($metadata['athlete_slug'])) {
-                $params = [
-                    'athlete' => (string) $metadata['athlete_slug'],
-                ];
-                if (!empty($metadata['date'])) {
-                    $params['date'] = (string) $metadata['date'];
-                }
-                $link .= '?' . http_build_query($params);
-            } elseif (!empty($metadata['date'])) {
-                $link .= '?date=' . rawurlencode((string) $metadata['date']);
-            } elseif (!empty($metadata['athlete_slug'])) {
-                $link = '/calendar?athlete=' . rawurlencode((string) $metadata['athlete_slug']);
+        $link = '/calendar';
+        if ($eventKey === 'coach.athlete_result_logged' && !empty($metadata['athlete_slug'])) {
+            $params = ['athlete' => (string) $metadata['athlete_slug']];
+            if (!empty($metadata['date'])) {
+                $params['date'] = (string) $metadata['date'];
             }
-            $dispatcher->dispatchToUser((int) $userId, $eventKey, 'Обновление плана', (string) $message, [
-                'link' => $link,
-                'plan_action' => (string) ($metadata['action'] ?? ''),
-                'plan_date' => (string) ($metadata['date'] ?? ''),
-                'athlete_slug' => (string) ($metadata['athlete_slug'] ?? ''),
-                'athlete_name' => !empty($metadata['athlete_id']) ? $this->getUsername((int) $metadata['athlete_id']) : '',
-                'push_data' => [
-                    'type' => 'plan',
-                    'link' => $link,
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            // Внешняя доставка не должна ломать in-app уведомление.
+            $link .= '?' . http_build_query($params);
+        } elseif (!empty($metadata['date'])) {
+            $link .= '?date=' . rawurlencode((string) $metadata['date']);
+        } elseif (!empty($metadata['athlete_slug'])) {
+            $link = '/calendar?athlete=' . rawurlencode((string) $metadata['athlete_slug']);
         }
+
+        require_once __DIR__ . '/NotificationService.php';
+        (new NotificationService($this->db))->create(
+            (int) $userId,
+            $eventKey ?? (string) $type,
+            'Обновление плана',
+            (string) $message,
+            [
+                'type' => (string) $type,         // храним внутренний type для обратной совместимости (categoryForType)
+                'link' => $link,
+                'metadata' => $metadata,
+                'dispatch' => $eventKey !== null, // как раньше: незамапленные типы — только in-app, без доставки
+                'dispatch_options' => [
+                    'plan_action' => (string) ($metadata['action'] ?? ''),
+                    'plan_date' => (string) ($metadata['date'] ?? ''),
+                    'athlete_slug' => (string) ($metadata['athlete_slug'] ?? ''),
+                    'athlete_name' => !empty($metadata['athlete_id']) ? $this->getUsername((int) $metadata['athlete_id']) : '',
+                    'push_data' => ['type' => 'plan', 'link' => $link],
+                ],
+            ]
+        );
     }
 
     /**

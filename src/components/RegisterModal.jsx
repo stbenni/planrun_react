@@ -28,6 +28,7 @@ const RegisterModal = ({ isOpen, onClose, onRegister, returnTo }) => {
       size="small"
       hideHeader
       centerBody
+      disableBackdropClose
     >
       <RegisterScreen
         embedInModal

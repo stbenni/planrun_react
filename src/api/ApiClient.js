@@ -33,6 +33,7 @@ import {
 import {
   getUserBySlug as performGetUserBySlug,
   getDay as performGetDay,
+  getDays as performGetDays,
   saveResult as performSaveResult,
   getResult as performGetResult,
   uploadWorkout as performUploadWorkout,
@@ -67,6 +68,8 @@ import {
   syncWorkouts as performSyncWorkouts,
   getIntegrationsStatus as performGetIntegrationsStatus,
   unlinkIntegration as performUnlinkIntegration,
+  setSuuntoMirror as performSetSuuntoMirror,
+  importHealthConnectWorkouts as performImportHealthConnectWorkouts,
   getStravaTokenError as performGetStravaTokenError,
   getWorkoutTimeline as performGetWorkoutTimeline,
   getWorkoutShareMap as performGetWorkoutShareMap,
@@ -125,6 +128,8 @@ import {
   getAthleteDetails as performGetAthleteDetails,
   getCoachPricing as performGetCoachPricing,
   updateCoachPricing as performUpdateCoachPricing,
+  getMyCoachProfile as performGetMyCoachProfile,
+  updateCoachProfile as performUpdateCoachProfile,
   getCoachGroups as performGetCoachGroups,
   saveCoachGroup as performSaveCoachGroup,
   deleteCoachGroup as performDeleteCoachGroup,
@@ -990,6 +995,8 @@ class ApiClient {
       const userId = data?.user_id;
       const username = data?.username;
       const name = data?.name ?? null;
+      const firstName = data?.first_name ?? null;
+      const lastName = data?.last_name ?? null;
       const avatarPath = data?.avatar_path ?? null;
       const role = data?.role ?? 'user';
       const onboardingCompleted = data?.onboarding_completed !== undefined ? !!data.onboarding_completed : false;
@@ -1008,7 +1015,10 @@ class ApiClient {
           role,
           onboarding_completed: onboardingCompleted,
           training_mode: trainingMode,
+          ...(data?.username_slug != null && { username_slug: data.username_slug }),
           ...(name != null && { name }),
+          ...(firstName != null && { first_name: firstName }),
+          ...(lastName != null && { last_name: lastName }),
           ...(avatarPath != null && avatarPath !== '' && { avatar_path: avatarPath }),
           ...(timezone != null && timezone !== '' && { timezone }),
           ...(goalType && { goal_type: goalType }),
@@ -1069,6 +1079,10 @@ class ApiClient {
 
   async getDay(date, viewContext = null) {
     return performGetDay(this, date, viewContext);
+  }
+
+  async getDays(dates, viewContext = null) {
+    return performGetDays(this, dates, viewContext);
   }
 
   /**
@@ -1174,6 +1188,14 @@ class ApiClient {
 
   async unlinkIntegration(provider) {
     return performUnlinkIntegration(this, provider);
+  }
+
+  async setSuuntoMirror(enabled) {
+    return performSetSuuntoMirror(this, enabled);
+  }
+
+  async importHealthConnectWorkouts(workouts) {
+    return performImportHealthConnectWorkouts(this, workouts);
   }
 
   async getStravaTokenError() {
@@ -1637,6 +1659,14 @@ class ApiClient {
 
   async updateCoachPricing(pricing, pricesOnRequest = false) {
     return performUpdateCoachPricing(this, pricing, pricesOnRequest);
+  }
+
+  async getMyCoachProfile() {
+    return performGetMyCoachProfile(this);
+  }
+
+  async updateCoachProfile(data) {
+    return performUpdateCoachProfile(this, data);
   }
 
   // Группы атлетов

@@ -3,6 +3,8 @@
  * Используются в AddTrainingModal, ResultModal, WorkoutDetailsModal и др.
  */
 
+import { WORKOUT_TYPE_LABEL } from './workoutTypes';
+
 // --- Время: парсинг ЧЧ:ММ:СС или ММ:СС → секунды ---
 
 export function parseTime(timeStr) {
@@ -83,38 +85,9 @@ export function maskPaceInput(value) {
 export const RUN_TYPES = ['easy', 'tempo', 'long', 'long-run', 'interval', 'fartlek', 'control', 'race'];
 export const SIMPLE_RUN_TYPES = ['easy', 'tempo', 'long', 'control', 'race'];
 
-export const TYPE_LABELS = {
-  easy: 'Легкий бег',
-  tempo: 'Темповый бег',
-  long: 'Длительный бег',
-  'long-run': 'Длительный бег',
-  interval: 'Интервалы',
-  fartlek: 'Фартлек',
-  control: 'Контрольный забег',
-  race: 'Соревнование',
-};
+export const TYPE_LABELS = WORKOUT_TYPE_LABEL;
 
-export const ACTIVITY_TYPE_LABELS = {
-  run: 'Бег',
-  running: 'Бег',
-  walking: 'Ходьба',
-  hiking: 'Поход',
-  cycling: 'Велосипед',
-  swimming: 'Плавание',
-  ofp: 'ОФП',
-  sbu: 'СБУ',
-  easy: 'Легкий бег',
-  long: 'Длительный бег',
-  'long-run': 'Длительный бег',
-  tempo: 'Темповый бег',
-  interval: 'Интервалы',
-  fartlek: 'Фартлек',
-  race: 'Соревнование',
-  control: 'Контрольный забег',
-  other: 'ОФП',
-  rest: 'Отдых',
-  free: 'Пустой день',
-};
+export const ACTIVITY_TYPE_LABELS = WORKOUT_TYPE_LABEL;
 
 export const SOURCE_LABELS = {
   strava: 'Strava',

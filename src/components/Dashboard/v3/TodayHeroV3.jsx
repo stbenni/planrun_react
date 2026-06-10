@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRightIcon, CheckIcon } from '../../common/Icons';
 import { WORKOUT_TYPE_COLOR } from '../../Coach/CoachPrimitives';
+import { buildRunSegments, suggestPaceByType, estimateTimeMin } from '../../Calendar/v3/calV3';
 import './TodayHeroV3.css';
 
 const TYPE_LABELS = {
@@ -38,6 +39,7 @@ const BRIEFING_MAX_AGE_HOURS = 36;
 
 export default function TodayHeroV3({
   workout,
+  plan = null,
   large = false,
   api,
   onOpenChat,
@@ -46,11 +48,16 @@ export default function TodayHeroV3({
   onMarkDone,
 }) {
   const [briefing, setBriefing] = useState(null);
+  const completed = !!workout?.completed;
+  const actual = workout?.actual || null;
 
   useEffect(() => {
     if (!api?.getLatestProactiveMessage) return undefined;
     let cancelled = false;
-    api.getLatestProactiveMessage('daily_briefing', BRIEFING_MAX_AGE_HOURS)
+    setBriefing(null);
+    // До тренировки показываем утренний брифинг, после выполнения — разбор результата.
+    const proactiveType = completed ? 'post_workout_analysis' : 'daily_briefing';
+    api.getLatestProactiveMessage(proactiveType, BRIEFING_MAX_AGE_HOURS)
       .then((res) => {
         if (cancelled) return;
         const msg = res?.data?.message ?? res?.message ?? null;
@@ -58,7 +65,7 @@ export default function TodayHeroV3({
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [api]);
+  }, [api, completed]);
 
   const type = workout?.type || workout?.planDays?.[0]?.type;
   const typeColor = type ? (WORKOUT_TYPE_COLOR[type] || 'var(--gray-400)') : 'var(--gray-400)';
@@ -96,27 +103,56 @@ export default function TodayHeroV3({
   const pace = workout?.pace ?? workout?.planDays?.[0]?.pace ?? parsed.pace ?? null;
   const dur = workout?.duration_minutes ?? workout?.duration_min ?? parsed.dur ?? null;
 
+  // Фолбэки, как в календаре: типичный темп типа из плана + оценка времени.
+  const paceSuggested = pace ? null : suggestPaceByType(plan, type, km);
+  const timeMin = estimateTimeMin(km, pace || paceSuggested);
+
+  // В выполненной карточке показываем фактические метрики вместо плановых.
+  const dispKm = completed && actual ? actual.distance_km : km;
+  const dispPace = completed && actual ? actual.pace : (pace || (paceSuggested ? `≈ ${paceSuggested}` : null));
+  const dispDur = completed && actual ? actual.duration_minutes : (dur ?? timeMin);
+  const dispHr = completed && actual ? actual.avg_heart_rate : null;
+
   // Сегменты для interval bar — из планируемых упражнений или описания
-  const segments = useMemo(() => parseSegments(workout, parsed, type), [workout, parsed, type]);
+  const seg = useMemo(() => {
+    const exercises = Array.isArray(workout?.exercises) ? workout.exercises : [];
+    if (exercises.length >= 2) {
+      const segs = exercises.slice(0, 14).map((ex) => ({
+        type: ex.category === 'run' ? (ex.type || type || 'easy') : 'easy',
+        w: Math.max(1, Number(ex.distance_m || ex.duration_sec || 1)),
+      }));
+      return { segs, caption: null };
+    }
+    return buildRunSegments({ type, text: description, km, pace });
+  }, [workout, type, description, km, pace]);
 
   return (
-    <div className={`today-v3 ${large ? 'today-v3--lg' : ''}`}>
+    <div className={`today-v3 ${large ? 'today-v3--lg' : ''} ${completed ? 'today-v3--done' : ''}`}>
       <span
         className="today-v3__accent"
         style={{ '--accent-color': typeColor }}
         aria-hidden
       />
 
-      {typeLabel && (
+      {(typeLabel || completed) && (
         <div className="today-v3__ribbon">
-          <span
-            className="today-v3__dot"
-            style={{ background: typeColor, '--dot-color': typeColor }}
-            aria-hidden
-          />
-          <span className="today-v3__type-label">
-            {typeLabel.toUpperCase()}{isKey && ' · КЛЮЧЕВАЯ'}
-          </span>
+          {typeLabel && (
+            <>
+              <span
+                className="today-v3__dot"
+                style={{ background: typeColor, '--dot-color': typeColor }}
+                aria-hidden
+              />
+              <span className="today-v3__type-label">
+                {typeLabel.toUpperCase()}{isKey && ' · КЛЮЧЕВАЯ'}
+              </span>
+            </>
+          )}
+          {completed && (
+            <span className="today-v3__done-badge">
+              <CheckIcon size={12} /> ВЫПОЛНЕНО
+            </span>
+          )}
         </div>
       )}
 
@@ -132,9 +168,13 @@ export default function TodayHeroV3({
 
       {isRunningType ? (
         <div className="today-v3__metrics">
-          <Metric n={formatKm(km)} l="км" />
-          <Metric n={pace || '—'} l="темп /км" accent />
-          <Metric n={dur ? `${dur}′` : '—'} l="время ~" />
+          <Metric n={formatKm(dispKm)} l="км" />
+          <Metric n={dispPace || '—'} l="темп /км" accent />
+          {completed && dispHr ? (
+            <Metric n={`${dispHr}`} l="ср. пульс" />
+          ) : (
+            <Metric n={dispDur ? `${dispDur}′` : '—'} l={completed ? 'время' : 'время ~'} />
+          )}
         </div>
       ) : description ? (
         <div className="today-v3__description">
@@ -147,24 +187,28 @@ export default function TodayHeroV3({
         </div>
       ) : null}
 
-      {segments.length >= 2 && (
+      {seg && seg.segs.length >= 1 && (
         <>
           <div className="today-v3__interval-bar" role="img" aria-label="Сегменты тренировки">
-            {segments.map((s, i) => (
+            {seg.segs.map((s, i) => (
               <div
                 key={i}
                 style={{
-                  flex: s.flex,
+                  flex: s.w,
                   background: WORKOUT_TYPE_COLOR[s.type] || typeColor,
                 }}
               />
             ))}
           </div>
-          <div className="today-v3__interval-labels">
-            <span>Разм</span>
-            <span>{segments[Math.floor(segments.length / 2)]?.label || 'Основная'}</span>
-            <span>Зам</span>
-          </div>
+          {seg.caption ? (
+            <div className="today-v3__interval-note">{seg.caption}</div>
+          ) : (
+            <div className="today-v3__interval-labels">
+              <span>Разм</span>
+              <span>Основная</span>
+              <span>Зам</span>
+            </div>
+          )}
         </>
       )}
 
@@ -177,7 +221,7 @@ export default function TodayHeroV3({
           <div className="today-v3__quote-head">
             <span className="today-v3__quote-avatar" aria-hidden>AI</span>
             <span className="today-v3__quote-speaker">
-              AI-ТРЕНЕР
+              {completed ? 'РАЗБОР ТРЕНЕРА' : 'AI-ТРЕНЕР'}
               {briefing.created_at && (
                 <span className="today-v3__quote-time"> · {formatTime(briefing.created_at)}</span>
               )}
@@ -188,21 +232,23 @@ export default function TodayHeroV3({
         </button>
       )}
 
-      <div className="today-v3__actions">
-        <button type="button" className="today-v3__cta-main" onClick={onStart}>
-          Начать тренировку →
-        </button>
-        {onReschedule && (
-          <button type="button" className="today-v3__cta-icon" onClick={onReschedule} title="Перенести">
-            <ArrowLeftRightIcon size={18} />
+      {!completed && (
+        <div className="today-v3__actions">
+          <button type="button" className="today-v3__cta-main" onClick={onStart}>
+            Начать тренировку →
           </button>
-        )}
-        {onMarkDone && (
-          <button type="button" className="today-v3__cta-icon" onClick={onMarkDone} title="Отметить выполненной">
-            <CheckIcon size={18} />
-          </button>
-        )}
-      </div>
+          {onReschedule && (
+            <button type="button" className="today-v3__cta-icon" onClick={onReschedule} title="Перенести">
+              <ArrowLeftRightIcon size={18} />
+            </button>
+          )}
+          {onMarkDone && (
+            <button type="button" className="today-v3__cta-icon" onClick={onMarkDone} title="Отметить выполненной">
+              <CheckIcon size={18} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -214,20 +260,6 @@ function Metric({ n, l, accent }) {
       <div className="today-v3__metric-l">{l}</div>
     </div>
   );
-}
-
-/** Разделяем заголовок на основной фрагмент + цветной акцент. */
-function splitTitle(text) {
-  if (!text) return { titleLead: '—', titleAccent: '' };
-  const t = String(text).trim();
-  if (t.length < 14) return { titleLead: t, titleAccent: '' };
-  const parts = t.split(/\s+/);
-  if (parts.length < 3) return { titleLead: parts[0], titleAccent: parts.slice(1).join(' ') };
-  const accentIdx = Math.max(0, parts.length - 2);
-  return {
-    titleLead: parts.slice(0, accentIdx).join(' '),
-    titleAccent: parts.slice(accentIdx).join(' '),
-  };
 }
 
 /**
@@ -303,38 +335,3 @@ function formatTime(iso) {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-/**
- * Строим interval bar:
- *  - Если есть exercises с distance_m — используем их.
- *  - Если в parsed.intervals = "4×1 км" — собираем синтетические сегменты:
- *      разминка (warmup) + N интервалов (тип) + (N−1) восстановлений + заминка (cooldown).
- */
-function parseSegments(workout, parsed, type) {
-  if (!workout) return [];
-  const exercises = Array.isArray(workout.exercises) ? workout.exercises : [];
-  if (exercises.length >= 2) {
-    return exercises.slice(0, 12).map((ex) => ({
-      flex: Math.max(1, Number(ex.distance_m || ex.duration_sec || 1)),
-      type: ex.category === 'run' ? (ex.type || type || 'easy') : 'easy',
-      label: ex.name || '',
-    }));
-  }
-
-  if (parsed?.intervals && (type === 'tempo' || type === 'interval' || type === 'fartlek')) {
-    const { reps, dist, unit } = parsed.intervals;
-    const segDist = unit === 'км' ? dist : dist / 1000; // приводим к км
-    const warmup = 1.5;
-    const cooldown = 1.5;
-    const recovery = 0.4;
-    const segments = [];
-    segments.push({ flex: warmup, type: 'easy', label: 'разм' });
-    for (let i = 0; i < reps; i++) {
-      segments.push({ flex: segDist, type: type, label: '' });
-      if (i < reps - 1) segments.push({ flex: recovery, type: 'easy', label: '' });
-    }
-    segments.push({ flex: cooldown, type: 'easy', label: 'зам' });
-    return segments;
-  }
-
-  return [];
-}

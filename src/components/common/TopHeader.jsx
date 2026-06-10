@@ -4,29 +4,22 @@
  * Справа: аватар с выпадающим меню (Профиль, Настройки тренировок, Уведомления, Конфиденциальность, Интеграции, Выйти)
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuthStore from '../../stores/useAuthStore';
-import { isNativeCapacitor } from '../../services/TokenStorageService';
 import { getAvatarSrc } from '../../utils/avatarUrl';
 import ChatNotificationButton from './ChatNotificationButton';
+import NotificationBell from './NotificationBell';
 import {
   NavIconHome, NavIconCalendar, NavIconStats, NavIconTrainers,
   NavIconUsers, NavIconChat, NavIconStream, NavIconAnalytics, NavIconLibrary,
 } from './BottomNavIcons';
 import useCoachStore from '../../stores/useCoachStore';
-import { UserIcon, RunningIcon, BellIcon, LockIcon, LinkIcon, LogOutIcon, SettingsIcon } from './Icons';
+import { SettingsIcon } from './Icons';
+import { getInitials } from '../../utils/displayName';
 import './TopHeader.css';
 
-const initials = (user) => {
-  if (user?.name && typeof user.name === 'string') {
-    const parts = user.name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    if (parts[0].length) return parts[0].slice(0, 2).toUpperCase();
-  }
-  if (user?.username) return user.username.slice(0, 2).toUpperCase();
-  return '?';
-};
+const initials = (user) => getInitials(user);
 
 /** Узкий экран = мобильный хедер (только лого) и drawer. Широкий = полный хедер как на десктопе. */
 const isNarrowViewport = () => typeof window !== 'undefined' && window.innerWidth < 1024;
@@ -34,13 +27,10 @@ const isNarrowViewport = () => typeof window !== 'undefined' && window.innerWidt
 const TopHeader = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, api, setShowOnboardingModal } = useAuthStore();
+  const { user, api } = useAuthStore();
   const needsOnboarding = !!(user && !user.onboarding_completed);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const [isMobile, setIsMobile] = useState(() => isNarrowViewport());
-  const menuRef = useRef(null);
-  const triggerRef = useRef(null);
   const navRef = useRef(null);
   const [navPillStyle, setNavPillStyle] = useState({ left: 0, width: 0 });
 
@@ -98,7 +88,10 @@ const TopHeader = () => {
     { id: 'library', path: '/library', Icon: NavIconLibrary, label: 'Шаблоны' },
   ];
 
-  const navItems = isCoach ? navItemsCoach : navItemsUser;
+  const baseNav = isCoach ? navItemsCoach : navItemsUser;
+  const navItems = user?.role === 'admin'
+    ? [...baseNav, { id: 'admin', path: '/admin', Icon: SettingsIcon, label: 'Админка' }]
+    : baseNav;
 
   const isActive = (item) => {
     const path = item.path;
@@ -172,47 +165,10 @@ const TopHeader = () => {
     };
   }, [isMobile, location.pathname, location.search]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target) && triggerRef.current && !triggerRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
-    };
-    const handleEscape = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [menuOpen]);
-
-  const navigateToSettingsTab = (tab) => {
-    navigate({
-      pathname: '/settings',
-      search: `?tab=${tab}`,
-    });
+  const goToMyProfile = () => {
+    const slug = user?.username_slug || user?.username;
+    if (slug) navigate('/' + encodeURIComponent(slug));
   };
-
-  const handleMenuAction = async (action) => {
-    setMenuOpen(false);
-    if (action === 'profile') return navigateToSettingsTab('profile');
-    if (action === 'training') return navigateToSettingsTab('training');
-    if (action === 'notifications') return navigateToSettingsTab('notifications');
-    if (action === 'privacy') return navigateToSettingsTab('social');
-    if (action === 'integrations') return navigateToSettingsTab('integrations');
-    if (action === 'logout') {
-      await logout();
-      if (isNativeCapacitor()) {
-        window.location.href = '/landing';
-      } else {
-        navigate('/landing');
-      }
-    }
-  };
-
-  const onAvatarClick = () => setMenuOpen((o) => !o);
 
   // На мобильных хедер не рендерится — навигация полностью через BottomNav,
   // а профильное меню (drawer) рендерится отдельно через UserDrawer.
@@ -258,21 +214,20 @@ const TopHeader = () => {
         {user && (
         <div className="top-header-actions">
             {needsOnboarding && (
-              <button type="button" className="btn btn-primary btn--sm" onClick={() => setShowOnboardingModal(true)}>
+              <button type="button" className="btn btn-primary btn--sm" onClick={() => navigate('/onboarding')}>
                 Настроить план
               </button>
             )}
+            <NotificationBell api={api} isAdmin={user?.role === 'admin'} user={user} />
             <div className="header-chat-wrap">
               <ChatNotificationButton />
             </div>
-            <div className="header-avatar-wrap" ref={triggerRef}>
+            <div className="header-avatar-wrap">
               <button
                 type="button"
                 className="header-avatar-btn"
-                onClick={onAvatarClick}
-                aria-expanded={menuOpen}
-                aria-haspopup="true"
-                aria-label="Меню профиля"
+                onClick={goToMyProfile}
+                aria-label="Моя страница"
               >
                 {user.avatar_path && !avatarError ? (
                   <img
@@ -286,41 +241,6 @@ const TopHeader = () => {
                   <span className="header-avatar-initials">{initials(user)}</span>
                 )}
               </button>
-              {menuOpen && (
-                <div className="header-avatar-dropdown" ref={menuRef} role="menu">
-                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('profile')}>
-                    <span className="header-dropdown-icon" aria-hidden><UserIcon size={18} /></span>
-                    Профиль
-                  </button>
-                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('training')}>
-                    <span className="header-dropdown-icon" aria-hidden><RunningIcon size={18} /></span>
-                    Настройки тренировок
-                  </button>
-                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('notifications')}>
-                    <span className="header-dropdown-icon" aria-hidden><BellIcon size={18} /></span>
-                    Уведомления
-                  </button>
-                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('privacy')}>
-                    <span className="header-dropdown-icon" aria-hidden><LockIcon size={18} /></span>
-                    Конфиденциальность
-                  </button>
-                  <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => handleMenuAction('integrations')}>
-                    <span className="header-dropdown-icon" aria-hidden><LinkIcon size={18} /></span>
-                    Интеграции
-                  </button>
-                  {user?.role === 'admin' && (
-                    <button type="button" role="menuitem" className="header-dropdown-item" onClick={() => { setMenuOpen(false); navigate('/admin'); }}>
-                      <span className="header-dropdown-icon" aria-hidden><SettingsIcon size={18} /></span>
-                      Админка
-                    </button>
-                  )}
-                  <div className="header-dropdown-divider" />
-                  <button type="button" role="menuitem" className="header-dropdown-item header-dropdown-item-danger" onClick={() => handleMenuAction('logout')}>
-                    <span className="header-dropdown-icon" aria-hidden><LogOutIcon size={18} /></span>
-                    Выйти
-                  </button>
-                </div>
-              )}
             </div>
         </div>
         )}

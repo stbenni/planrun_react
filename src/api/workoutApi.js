@@ -22,6 +22,13 @@ export function getDay(client, date, viewContext = null) {
   return client.request('get_day', params, 'GET');
 }
 
+/** Batch-детали нескольких дней за один запрос (для префетча недели). dates — массив 'YYYY-MM-DD'. */
+export function getDays(client, dates, viewContext = null) {
+  const params = { dates: (Array.isArray(dates) ? dates : []).join(',') };
+  if (viewContext) Object.assign(params, client._viewParams(viewContext));
+  return client.request('get_days', params, 'GET');
+}
+
 export async function saveResult(client, data, viewContext = null) {
   const csrfToken = await getCsrfToken(client);
   const body = { ...data };

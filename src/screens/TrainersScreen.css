@@ -621,3 +621,107 @@
     margin-top: var(--space-2);
   }
 }
+
+/* ── v3 заявки (CoachApplications) ──────────────────────── */
+.treq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.treq-card {
+  padding: 16px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border, var(--gray-200));
+  border-radius: 16px;
+}
+
+[data-theme="dark"] .treq-card {
+  background: var(--glass-card-bg, rgba(28, 34, 43, 0.62));
+  border-color: var(--glass-card-border, rgba(252, 76, 2, 0.14));
+}
+
+.treq-top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.treq-main { flex: 1; min-width: 0; }
+
+.treq-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.treq-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.treq-name:hover { color: var(--primary-500); }
+
+.treq-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.treq-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.treq-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
+  color: var(--primary-500);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.treq-msg {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary, var(--gray-100));
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.treq-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.treq-btn {
+  flex: 1;
+  padding: 11px;
+  border-radius: 11px;
+  border: none;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.treq-btn--ghost {
+  background: var(--bg-tertiary, var(--gray-100));
+  color: var(--text-secondary);
+}
+.treq-btn--primary {
+  background: var(--primary-500);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(252, 76, 2, 0.28);
+}

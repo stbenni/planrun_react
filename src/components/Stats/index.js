@@ -25,7 +25,5 @@ export {
   getDaysFromRange,
   formatDateStr,
   formatPace,
-  processStatsData,
-  processProgressData,
-  processAchievementsData
+  processStatsData
 } from './StatsUtils';

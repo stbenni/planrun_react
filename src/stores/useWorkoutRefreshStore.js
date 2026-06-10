@@ -22,7 +22,8 @@ import useAuthStore from './useAuthStore';
 
 import { isNativeCapacitor } from '../services/TokenStorageService';
 
-const POLL_INTERVAL = 30000; // 30 секунд (только для браузера)
+const POLL_INTERVAL = 30000; // 30 секунд (браузер)
+const MOBILE_POLL_INTERVAL = 60000; // 60 секунд (мобилка, только пока приложение активно — в фоне ОС таймеры приостанавливает)
 
 const useWorkoutRefreshStore = create((set, get) => ({
   version: 0,
@@ -86,8 +87,19 @@ const useWorkoutRefreshStore = create((set, get) => ({
     };
 
     if (isNativeCapacitor()) {
-      // === МОБИЛКА: проверка при resume ===
-      initVersion();
+      // === МОБИЛКА: resume + push + лёгкий foreground-polling ===
+      // Polling работает, только пока приложение активно (в фоне ОС приостанавливает таймеры),
+      // поэтому изменения плана/результатов/упражнений (в т.ч. со стороны тренера/AI/Telegram)
+      // подхватываются в течение минуты без перезапуска приложения.
+      initVersion().then(() => {
+        const poll = async () => {
+          await get().checkForUpdates();
+          const timerId = setTimeout(poll, MOBILE_POLL_INTERVAL);
+          set({ _pollTimerId: timerId });
+        };
+        const timerId = setTimeout(poll, MOBILE_POLL_INTERVAL);
+        set({ _pollTimerId: timerId });
+      });
 
       const setupResumeListener = async () => {
         try {

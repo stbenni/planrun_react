@@ -67,7 +67,7 @@ class ChatRepository extends BaseRepository {
     public function getMessages(int $conversationId, int $limit = 20, int $offset = 0): array {
         $rows = $this->fetchAll(
             "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
-                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+                    u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name, u.avatar_path AS sender_avatar_path
              FROM chat_messages m
              LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
              WHERE m.conversation_id = ?
@@ -90,7 +90,7 @@ class ChatRepository extends BaseRepository {
 
         $rows = $this->fetchAll(
             "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
-                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+                    u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name, u.avatar_path AS sender_avatar_path
              FROM chat_messages m
              LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
              WHERE m.sender_type = 'user' AND (
@@ -113,7 +113,7 @@ class ChatRepository extends BaseRepository {
     public function getAdminTabMessages(int $conversationId, int $userId, int $limit = 20, int $offset = 0): array {
         return $this->fetchAll(
             "SELECT m.id, m.conversation_id, m.sender_type, m.sender_id, m.content, m.created_at, m.read_at, m.metadata,
-                    u.username AS sender_username, u.avatar_path AS sender_avatar_path
+                    u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name, u.avatar_path AS sender_avatar_path
              FROM chat_messages m
              LEFT JOIN users u ON u.id = m.sender_id AND m.sender_type = 'user'
              WHERE m.conversation_id = ? AND (m.sender_type = 'admin' OR (m.sender_type = 'user' AND m.sender_id = ?))
@@ -314,12 +314,12 @@ class ChatRepository extends BaseRepository {
      */
     public function getUsersWithAdminChat(): array {
         $rows = $this->fetchAll(
-            "SELECT u.id AS user_id, u.username, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
+            "SELECT u.id AS user_id, u.username, u.first_name, u.last_name, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
              FROM chat_conversations c
              INNER JOIN chat_messages m ON m.conversation_id = c.id
              INNER JOIN users u ON u.id = c.user_id
              WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = c.user_id
-             GROUP BY c.user_id, u.id, u.username, u.email, u.avatar_path
+             GROUP BY c.user_id, u.id, u.username, u.first_name, u.last_name, u.email, u.avatar_path
              ORDER BY last_message_at DESC",
             [],
             ''
@@ -332,22 +332,22 @@ class ChatRepository extends BaseRepository {
      */
     public function getUsersWhoWroteToMe(int $currentUserId): array {
         $rowsToMe = $this->fetchAll(
-            "SELECT u.id AS user_id, u.username, u.username_slug, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
+            "SELECT u.id AS user_id, u.username, u.username_slug, u.first_name, u.last_name, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
              FROM chat_conversations c
              INNER JOIN chat_messages m ON m.conversation_id = c.id
              INNER JOIN users u ON u.id = m.sender_id
              WHERE c.type = 'admin' AND c.user_id = ? AND m.sender_type = 'user' AND m.sender_id != ?
-             GROUP BY m.sender_id, u.id, u.username, u.username_slug, u.email, u.avatar_path",
+             GROUP BY m.sender_id, u.id, u.username, u.username_slug, u.first_name, u.last_name, u.email, u.avatar_path",
             [$currentUserId, $currentUserId],
             'ii'
         );
         $rowsFromMe = $this->fetchAll(
-            "SELECT u.id AS user_id, u.username, u.username_slug, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
+            "SELECT u.id AS user_id, u.username, u.username_slug, u.first_name, u.last_name, u.email, u.avatar_path, MAX(m.created_at) AS last_message_at
              FROM chat_conversations c
              INNER JOIN chat_messages m ON m.conversation_id = c.id
              INNER JOIN users u ON u.id = c.user_id
              WHERE c.type = 'admin' AND m.sender_type = 'user' AND m.sender_id = ? AND c.user_id != ?
-             GROUP BY c.user_id, u.id, u.username, u.username_slug, u.email, u.avatar_path",
+             GROUP BY c.user_id, u.id, u.username, u.username_slug, u.first_name, u.last_name, u.email, u.avatar_path",
             [$currentUserId, $currentUserId],
             'ii'
         );
@@ -435,7 +435,7 @@ class ChatRepository extends BaseRepository {
      */
     public function getUnreadUserMessagesForAdmin(int $limit = 10): array {
         return $this->fetchAll(
-            "SELECT m.id, m.conversation_id, m.content, m.created_at, c.user_id, u.username
+            "SELECT m.id, m.conversation_id, m.content, m.created_at, c.user_id, u.username, u.first_name, u.last_name
              FROM chat_messages m
              INNER JOIN chat_conversations c ON c.id = m.conversation_id
              INNER JOIN users u ON u.id = c.user_id

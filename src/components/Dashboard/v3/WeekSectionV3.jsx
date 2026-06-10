@@ -95,7 +95,7 @@ export default function WeekSectionV3({ plan, workoutsByDate, progressDataMap, c
                   <span className="week-v3__day-name">{d.label}</span>
                   {d.isKey && <span className="week-v3__day-key">КЛЮЧ</span>}
                 </div>
-                {d.km > 0 && <div className="week-v3__day-km">{d.km} км</div>}
+                {d.km > 0 && <div className="week-v3__day-km">{d.km} км{d.pace ? ` · ${d.pace}` : ''}</div>}
               </div>
               {done && (
                 <span className="week-v3__check" aria-label="Выполнено">
@@ -149,6 +149,8 @@ function buildWeek(plan) {
     const type = primary?.type || 'rest';
     const text = primary?.text || '';
     const { label, km } = buildDayLabel(type, text);
+    // Темп — только для беговых дней (как в календаре «8 км · 5:50»)
+    const pace = (type === 'other' || type === 'sbu' || type === 'rest' || type === 'free') ? null : extractPace(text);
     days.push({
       date: iso,
       dayOfWeek: d.getDay(),
@@ -156,6 +158,7 @@ function buildWeek(plan) {
       type,
       label,
       km,
+      pace,
       isKey: !!(primary?.is_key_workout || primary?.key),
     });
   }
@@ -208,6 +211,14 @@ function extractKm(text) {
     }
   }
   return 0;
+}
+
+function extractPace(text) {
+  if (!text) return null;
+  const plain = String(text);
+  const m = plain.match(/(\d{1,2}:\d{2})\s*(?:\/\s*км|мин\/км|\/км)/i)
+    || plain.match(/темп[:\s~]*(\d{1,2}:\d{2})/i);
+  return m ? m[1] : null;
 }
 
 function extractIntervals(text) {

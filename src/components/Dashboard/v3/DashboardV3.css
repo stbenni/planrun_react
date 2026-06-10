@@ -88,8 +88,8 @@
   .dashboard-v3 {
     max-width: var(--page-max-width, 1440px);
     margin: 0 auto;
-    padding: 24px 32px;
-    padding-bottom: 32px;
+    /* Отбиваем от фиксированного TopHeader (как .dashboard в старом Dashboard.css). */
+    padding: var(--page-top-desktop, 88px) 32px 32px;
   }
 
   .dashboard-v3__columns {

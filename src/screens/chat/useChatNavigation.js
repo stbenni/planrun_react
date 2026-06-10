@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { ADMIN_CHAT, dialogId, MessageCircle, SYSTEM_CHATS, TAB_ADMIN, TAB_ADMIN_MODE, TAB_AI, TAB_USER_DIALOG } from './chatConstants';
 import { formatListTime } from './chatTime';
+import { getDisplayName } from '../../utils/displayName';
 
 export function useChatNavigation({
   api,
@@ -71,6 +72,9 @@ export function useChatNavigation({
             id: nextUser.id,
             username: nextUser.username ?? nextUser.username_slug ?? contactSlugFromUrl,
             username_slug: nextUser.username_slug ?? contactSlugFromUrl,
+            first_name: nextUser.first_name,
+            last_name: nextUser.last_name,
+            name: nextUser.name,
             avatar_path: nextUser.avatar_path,
           });
         } else {
@@ -155,8 +159,8 @@ export function useChatNavigation({
   const userDialogChat = (contactUser || contactSlugFromUrl)
     ? {
       id: contactUser ? dialogId(contactUser.id) : TAB_USER_DIALOG,
-      label: `Диалог с ${contactUser?.username || 'пользователем'}`,
-      name: contactUser?.username || 'Пользователь',
+      label: `Диалог с ${(contactUser && getDisplayName(contactUser)) || 'пользователем'}`,
+      name: (contactUser && getDisplayName(contactUser)) || 'Пользователь',
       Icon: MessageCircle,
       description: 'Личный диалог',
       time: '',
@@ -167,8 +171,8 @@ export function useChatNavigation({
 
   const directDialogChats = directDialogs.map((dialog) => ({
     id: dialogId(dialog.user_id),
-    label: `Диалог с ${dialog.username || 'пользователем'}`,
-    name: dialog.username || 'Пользователь',
+    label: `Диалог с ${getDisplayName(dialog) || 'пользователем'}`,
+    name: getDisplayName(dialog) || 'Пользователь',
     Icon: MessageCircle,
     description: 'Личный диалог',
     time: formatListTime(dialog.last_message_at, userTimezone),
@@ -176,6 +180,8 @@ export function useChatNavigation({
       id: dialog.user_id,
       username: dialog.username,
       username_slug: dialog.username_slug,
+      first_name: dialog.first_name,
+      last_name: dialog.last_name,
       avatar_path: dialog.avatar_path,
     },
     unreadCount: dialog.unread_count ?? 0,
@@ -199,6 +205,8 @@ export function useChatNavigation({
           id: dialogUser.user_id,
           username: dialogUser.username,
           username_slug: dialogUser.username_slug,
+          first_name: dialogUser.first_name,
+          last_name: dialogUser.last_name,
           avatar_path: dialogUser.avatar_path,
         }
         : Number(contactUser?.id) === dialogUserId
@@ -216,6 +224,8 @@ export function useChatNavigation({
       setSelectedChatUser({
         id: chatUser.user_id,
         username: chatUser.username,
+        first_name: chatUser.first_name,
+        last_name: chatUser.last_name,
         email: chatUser.email,
         avatar_path: chatUser.avatar_path,
       });
@@ -282,6 +292,8 @@ export function useChatNavigation({
     setSelectedChatUser({
       id: nextUser.user_id,
       username: nextUser.username,
+      first_name: nextUser.first_name,
+      last_name: nextUser.last_name,
       email: nextUser.email,
       avatar_path: nextUser.avatar_path,
     });

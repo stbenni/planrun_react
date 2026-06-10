@@ -7,38 +7,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useLocation, Link, useNavigate } from 'react-router-dom';
 import useAuthStore from '../stores/useAuthStore';
 import useWorkoutRefreshStore from '../stores/useWorkoutRefreshStore';
-import { getAvatarSrc } from '../utils/avatarUrl';
 import PublicHeader from '../components/common/PublicHeader';
 import TopHeader from '../components/common/TopHeader';
 import BottomNav from '../components/common/BottomNav';
-import Notifications from '../components/common/Notifications';
 import LoginModal from '../components/LoginModal';
 import RegisterModal from '../components/RegisterModal';
-import DashboardWeekStrip from '../components/Dashboard/DashboardWeekStrip';
-import DashboardStatsWidget from '../components/Dashboard/DashboardStatsWidget';
-import ProfileQuickMetricsWidget from '../components/Dashboard/ProfileQuickMetricsWidget';
 import DayModal from '../components/Calendar/DayModal';
-import { RecentWorkoutsList, WorkoutDetailsModal } from '../components/Stats';
+import WorkoutSheet from '../components/Stats/WorkoutSheet';
 import LogoLoading from '../components/common/LogoLoading';
+import ProfileV3 from './profile/ProfileV3';
 import { processStatsData } from '../components/Stats/StatsUtils';
 import { getPlanDayForDate, getDayCompletionStatus, planTypeToCategory, workoutTypeToCategory } from '../utils/calendarHelpers';
-import { TargetIcon, SettingsIcon, GraduationCapIcon, MessageCircleIcon, BotIcon } from '../components/common/Icons';
 import '../components/Dashboard/Dashboard.css';
 import '../components/common/PageTransition.css';
 import './StatsScreen.css';
 import './UserProfileScreen.css';
 
-const SPEC_LABELS = {
-  marathon: 'Марафон',
-  half_marathon: 'Полумарафон',
-  '5k_10k': '5К / 10К',
-  ultra: 'Ультра',
-  trail: 'Трейл',
-  beginner: 'Новичкам',
-  injury_recovery: 'Восстановление',
-  nutrition: 'Питание',
-  mental: 'Ментальная подготовка',
-};
 
 const GOAL_TYPE_LABELS = {
   health: 'Здоровье',
@@ -69,7 +53,7 @@ function formatGoalText(user) {
 const UserProfileScreen = () => {
   const { username } = useParams();
   const location = useLocation();
-  const { api, user: currentUser, updateUser } = useAuthStore();
+  const { api, user: currentUser, updateUser, setSettingsPanelOpen } = useAuthStore();
   const navigate = useNavigate();
   const token = React.useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -81,11 +65,13 @@ const UserProfileScreen = () => {
   const [access, setAccess] = useState({ can_edit: false, can_view: false, is_owner: false });
   const [coaches, setCoaches] = useState([]);
   const [profileStats, setProfileStats] = useState(null);
+  const [workoutsListData, setWorkoutsListData] = useState([]);
+  const [records, setRecords] = useState(null);
   const [profilePlan, setProfilePlan] = useState(null);
   const [progressDataMap, setProgressDataMap] = useState({});
   const [weekProgress, setWeekProgress] = useState({ completed: 0, total: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
-  const [workoutModal, setWorkoutModal] = useState({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
+  const [sheet, setSheet] = useState({ open: false, workout: null, date: null });
   const [dayModal, setDayModal] = useState({ isOpen: false, date: null, week: null, day: null });
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
@@ -188,6 +174,16 @@ const UserProfileScreen = () => {
       const processed = processStatsData(workoutsData, allResults, plan, 'month', workoutsList);
       setProfileStats(processed);
       setProfilePlan(plan);
+      setWorkoutsListData(Array.isArray(workoutsList) ? workoutsList : []);
+      // Личные рекорды доступны только для своего профиля (API без viewContext).
+      if (access.is_owner && typeof api.getPersonalRecords === 'function') {
+        api.getPersonalRecords().then((res) => {
+          const list = res?.data?.records ?? res?.records ?? [];
+          const byKey = {};
+          list.forEach((r) => { if (r?.distance_label) byKey[r.distance_label] = r; });
+          setRecords(byKey);
+        }).catch(() => setRecords({}));
+      }
 
       const resultsData = {};
       (allResults?.results || []).forEach((r) => {
@@ -314,35 +310,27 @@ const UserProfileScreen = () => {
   const handleWorkoutClick = useCallback(async (workout) => {
     const date = workout?.start_time ? workout.start_time.split('T')[0] : workout?.date;
     if (!api || !date) return;
-    const selectedWorkoutId = workout?.id ?? null;
-
-    const immediateDayData = {
-      planDays: [],
-      dayExercises: [],
-      workouts: [{ ...workout, start_time: workout.start_time || (date + 'T12:00:00') }],
-    };
-    setWorkoutModal({ isOpen: true, date, dayData: immediateDayData, loading: false, selectedWorkoutId });
-
+    setSheet({ open: true, workout, date });
     try {
       const response = await api.getDay(date, viewContext || undefined);
-      const raw = response?.data ?? response;
-      if (raw && typeof raw === 'object') {
-        const fullDayData = {
-          ...raw,
-          planDays: raw.planDays ?? raw.plan_days ?? [],
-          dayExercises: raw.dayExercises ?? raw.day_exercises ?? [],
-          workouts: raw.workouts ?? [],
-        };
-        setWorkoutModal((prev) => prev.isOpen && prev.date === date ? { ...prev, dayData: fullDayData } : prev);
+      const raw = response?.data != null ? response.data : response;
+      const workouts = Array.isArray(raw?.workouts) ? raw.workouts : [];
+      const match = workouts.find((w) => String(w.id) === String(workout.id));
+      if (match) {
+        setSheet((prev) => (prev.open && prev.date === date ? { ...prev, workout: { ...workout, ...match } } : prev));
       }
     } catch {
       // Мгновенные данные уже отображены
     }
   }, [api, viewContext]);
 
-  const handleCloseWorkoutModal = useCallback(() => {
-    setWorkoutModal({ isOpen: false, date: null, dayData: null, loading: false, selectedWorkoutId: null });
-  }, []);
+  const handleCloseSheet = useCallback(() => setSheet({ open: false, workout: null, date: null }), []);
+
+  const handleDeleteWorkout = useCallback(async (w) => {
+    handleCloseSheet();
+    try { await api.deleteWorkout(w.id ?? w.workout_id, !!w.is_manual); } catch { /* ignore */ }
+    loadProfileStats({ silent: true });
+  }, [api, handleCloseSheet, loadProfileStats]);
 
   const handleDayClick = useCallback((date, week, day) => {
     setDayModal({ isOpen: true, date, week, day });
@@ -366,12 +354,25 @@ const UserProfileScreen = () => {
     }
   }, [api, profileUser?.id, requestingCoach]);
 
+  const handleMessage = useCallback(() => {
+    if (!profileUser) return;
+    if (currentUser) {
+      navigate(`/chat?contact=${encodeURIComponent(profileUser.username_slug || profileUser.username || profileUser.id)}`, {
+        state: {
+          contactUser: {
+            id: profileUser.id, username: profileUser.username, username_slug: profileUser.username_slug,
+            first_name: profileUser.first_name, last_name: profileUser.last_name, name: profileUser.name, avatar_path: profileUser.avatar_path,
+          },
+        },
+      });
+    } else {
+      setRegisterModalOpen(true);
+    }
+  }, [profileUser, currentUser, navigate]);
+
   const ProfileHeader = () =>
     currentUser ? (
-      <>
-        <TopHeader />
-        <Notifications api={api} isAdmin={currentUser?.role === 'admin'} />
-      </>
+      <TopHeader />
     ) : (
       <PublicHeader
         onLoginClick={() => setLoginModalOpen(true)}
@@ -427,10 +428,7 @@ const UserProfileScreen = () => {
   }
 
   const isOwner = access.is_owner;
-  const canView = access.can_view;
-  const canEdit = access.can_edit;
   const goalText = formatGoalText(profileUser);
-  const showEmail = isOwner || (profileUser.privacy_show_email !== 0 && profileUser.privacy_show_email !== '0');
   const showTrainer = isOwner || (profileUser.privacy_show_trainer !== 0 && profileUser.privacy_show_trainer !== '0');
   const showCalendar = isOwner || (profileUser.privacy_show_calendar !== 0 && profileUser.privacy_show_calendar !== '0');
   const showMetrics = isOwner || (profileUser.privacy_show_metrics !== 0 && profileUser.privacy_show_metrics !== '0');
@@ -441,291 +439,57 @@ const UserProfileScreen = () => {
       <ProfileHeader />
 
       <div className="page-transition-content">
-      <div className="dashboard">
-      <div className="profile-header">
-        <div className="profile-left">
-          <div className="profile-avatar">
-            {profileUser.avatar_path ? (
-              <img
-                src={getAvatarSrc(profileUser.avatar_path, api?.baseUrl || '/api', 'md')}
-                alt={profileUser.username}
-                className="avatar-large avatar-square"
-              />
-            ) : (
-              <div className="avatar-large avatar-square avatar-placeholder">
-                {profileUser.username ? profileUser.username.charAt(0).toUpperCase() : 'U'}
-              </div>
-            )}
-          </div>
-          {!isOwner && profileUser?.id !== currentUser?.id && (
-            <button
-              type="button"
-              className="btn btn-secondary profile-message-btn"
-              onClick={() => {
-                if (currentUser) {
-                  navigate(`/chat?contact=${encodeURIComponent(profileUser.username_slug || profileUser.username || profileUser.id)}`, {
-                    state: {
-                      contactUser: {
-                        id: profileUser.id,
-                        username: profileUser.username,
-                        username_slug: profileUser.username_slug,
-                        avatar_path: profileUser.avatar_path,
-                      },
-                    },
-                  });
-                } else {
-                  setRegisterModalOpen(true);
-                }
-              }}
-            >
-              <MessageCircleIcon size={18} aria-hidden />
-              Написать
-            </button>
-          )}
-        </div>
+      <ProfileV3
+        api={api}
+        currentUser={currentUser}
+        profileUser={profileUser}
+        access={access}
+        coaches={coaches}
+        profilePlan={profilePlan}
+        progressDataMap={progressDataMap}
+        weekProgress={weekProgress}
+        viewContext={viewContext}
+        statsLoading={statsLoading}
+        profileStats={profileStats}
+        workoutsList={workoutsListData}
+        records={records}
+        showCalendar={showCalendar}
+        showMetrics={showMetrics}
+        showWorkouts={showWorkouts}
+        showTrainer={showTrainer}
+        goalText={goalText}
+        onSettings={() => setSettingsPanelOpen(true)}
+        onMessage={handleMessage}
+        onRequestCoach={handleRequestCoach}
+        requestingCoach={requestingCoach}
+        coachRequested={coachRequested}
+        coachRequestError={coachRequestError}
+        onGuestAction={() => setRegisterModalOpen(true)}
+        onDayClick={handleDayClick}
+        onWorkoutClick={handleWorkoutClick}
+      />
 
-        <div className="profile-info">
-          <h1 className="profile-username">{profileUser.username}</h1>
-          {profileUser.email && showEmail && (
-            <p className="profile-email">{profileUser.email}</p>
-          )}
-          {goalText && (isOwner || canView) && (
-            <p className="profile-goal">
-              <TargetIcon size={18} className="profile-goal-icon" aria-hidden />
-              {goalText}
-            </p>
-          )}
-          <div className="profile-actions">
-            {isOwner && (
-              <Link to="/settings" className="btn btn-primary">
-                <SettingsIcon size={18} aria-hidden />
-                Настройки профиля
-              </Link>
-            )}
-            {access.is_coach && (
-              <div className="coach-badge">
-                Вы тренер этого спортсмена
-              </div>
-            )}
-            {access.is_coach && profileUser.username_slug && (
-              <button className="btn btn-primary btn--sm" onClick={() => navigate(`/calendar?athlete=${profileUser.username_slug}`)}>
-                Открыть календарь
-              </button>
-            )}
-          </div>
-        </div>
+      <DayModal
+        isOpen={dayModal.isOpen}
+        onClose={handleCloseDayModal}
+        date={dayModal.date}
+        weekNumber={dayModal.week}
+        dayKey={dayModal.day}
+        api={api}
+        canEdit={false}
+        viewContext={viewContext}
+      />
 
-        <div className="profile-right">
-          {canView && showTrainer && ((profileUser.training_mode === 'ai' || profileUser.training_mode === 'both') || coaches?.length > 0) && (
-            <div className="profile-coaches">
-              <h3 className="profile-coaches-title">
-                {(profileUser.training_mode === 'ai' || profileUser.training_mode === 'both') ? (
-                  <BotIcon size={18} aria-hidden />
-                ) : (
-                  <GraduationCapIcon size={18} aria-hidden />
-                )}
-                {coaches.length > 1 ? 'С кем занимается' : 'Тренер'}
-              </h3>
-              <div className="profile-coaches-list">
-                {(profileUser.training_mode === 'ai' || profileUser.training_mode === 'both') && (
-                  <span className="profile-ai-trainer">
-                    <span className="profile-ai-trainer-logo">
-                      <span className="logo-plan">plan</span><span className="logo-run">RUN</span> <span className="logo-ai">AI</span>
-                    </span>
-                  </span>
-                )}
-                {coaches.map((coach) => (
-                  <Link key={coach.id} to={`/${coach.username_slug}`} className="profile-coach-item">
-                    {coach.avatar_path ? (
-                      <img
-                        src={getAvatarSrc(coach.avatar_path, api?.baseUrl || '/api', 'sm')}
-                        alt={coach.username}
-                        className="profile-coach-avatar"
-                      />
-                    ) : (
-                      <div className="profile-coach-avatar profile-coach-avatar-placeholder">
-                        {coach.username ? coach.username.charAt(0).toUpperCase() : 'T'}
-                      </div>
-                    )}
-                    <span className="profile-coach-name">{coach.username}</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Блок тренера */}
-      {(profileUser.role === 'coach' || profileUser.role === 'admin') && profileUser.coach_bio && (
-        <div className="dashboard-section">
-          <div className="dashboard-module-card coach-profile-block">
-            <h2 className="coach-profile-title">
-              <GraduationCapIcon size={20} aria-hidden />
-              Тренер
-            </h2>
-            <p className="coach-profile-bio">{profileUser.coach_bio}</p>
-            {profileUser.coach_philosophy && (
-              <p className="coach-profile-philosophy">{profileUser.coach_philosophy}</p>
-            )}
-            {(() => {
-              let specs = [];
-              try { specs = JSON.parse(profileUser.coach_specialization || '[]'); } catch {}
-              return specs.length > 0 ? (
-                <div className="coach-profile-specs">
-                  {specs.map((s) => (
-                    <span key={s} className="coach-spec-tag">{SPEC_LABELS[s] || s}</span>
-                  ))}
-                </div>
-              ) : null;
-            })()}
-            {profileUser.coach_experience_years && (
-              <p className="coach-profile-detail">Опыт: {profileUser.coach_experience_years} лет</p>
-            )}
-            {profileUser.pricing && profileUser.pricing.length > 0 && !profileUser.coach_prices_on_request ? (
-              <div className="coach-profile-pricing">
-                <h3 className="coach-profile-pricing-title">Стоимость услуг</h3>
-                {profileUser.pricing.map((p) => (
-                  <div key={p.id} className="coach-profile-price-item">
-                    <span className="coach-profile-price-label">{p.label}</span>
-                    <span className="coach-profile-price-value">
-                      {p.price ? `${Number(p.price).toLocaleString('ru')} ${(p.currency === 'RUB' || !p.currency) ? 'руб.' : p.currency}` : 'Бесплатно'}
-                      {p.period === 'month' ? '/мес' : p.period === 'week' ? '/нед' : p.period === 'one_time' ? '' : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : profileUser.coach_prices_on_request ? (
-              <p className="coach-profile-detail">Стоимость: по запросу</p>
-            ) : null}
-            {currentUser && !isOwner && profileUser.coach_accepts && (
-              <div className="coach-profile-request">
-                {coachRequested ? (
-                  <p className="coach-profile-requested">Запрос отправлен</p>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleRequestCoach}
-                      disabled={requestingCoach}
-                    >
-                      {requestingCoach ? 'Отправка...' : 'Запросить тренера'}
-                    </button>
-                    {coachRequestError && <p className="coach-profile-error">{coachRequestError}</p>}
-                  </>
-                )}
-              </div>
-            )}
-            {!currentUser && profileUser.coach_accepts && (
-              <div className="coach-profile-request">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setRegisterModalOpen(true)}
-                >
-                  Запросить тренера
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {canView ? (
-        <>
-          {showCalendar && (
-            <div className="dashboard-section">
-              <h2 className="section-title">Календарь</h2>
-              <div className="dashboard-module-card">
-                {statsLoading && !profilePlan ? (
-                  <div className="profile-widget-loading"><LogoLoading size="sm" /></div>
-                ) : (
-                  <DashboardWeekStrip
-                    plan={profilePlan}
-                    progressDataMap={progressDataMap}
-                    onDayClick={handleDayClick}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {showMetrics && (
-            <div className="dashboard-row-two">
-              <div className="dashboard-section dashboard-section-inline">
-                <h2 className="section-title">Статистика</h2>
-                <div className="dashboard-module-card">
-                  <DashboardStatsWidget api={api} viewContext={viewContext} />
-                </div>
-              </div>
-              <div className="dashboard-section dashboard-section-inline">
-                <h2 className="section-title">Быстрые метрики</h2>
-                <ProfileQuickMetricsWidget
-                  api={api}
-                  viewContext={viewContext}
-                  plan={profilePlan}
-                  progressDataMap={progressDataMap}
-                  weekProgress={weekProgress}
-                />
-              </div>
-            </div>
-          )}
-
-          {showWorkouts && (
-            <div className="dashboard-section">
-              <h2 className="section-title">Последние тренировки</h2>
-              <div className="dashboard-module-card">
-                {statsLoading && !profileStats ? (
-                  <div className="profile-widget-loading"><LogoLoading size="sm" /></div>
-                ) : (
-                  <RecentWorkoutsList
-                    workouts={profileStats?.workouts || []}
-                    api={api}
-                    onWorkoutClick={handleWorkoutClick}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          <DayModal
-            isOpen={dayModal.isOpen}
-            onClose={handleCloseDayModal}
-            date={dayModal.date}
-            weekNumber={dayModal.week}
-            dayKey={dayModal.day}
-            api={api}
-            canEdit={false}
-            viewContext={viewContext}
-          />
-
-          <WorkoutDetailsModal
-            isOpen={workoutModal.isOpen}
-            onClose={handleCloseWorkoutModal}
-            date={workoutModal.date}
-            dayData={workoutModal.dayData}
-            loading={workoutModal.loading}
-            selectedWorkoutId={workoutModal.selectedWorkoutId}
-            onDelete={access.is_owner ? () => { handleCloseWorkoutModal(); loadProfileStats({ silent: true }); } : undefined}
-          />
-        </>
-      ) : (
-        <div className="profile-access-denied dashboard-module-card">
-          <h2>Доступ ограничен</h2>
-          <p>
-            {profileUser.privacy_level === 'private'
-              ? 'Этот календарь доступен только тренерам и владельцу.'
-              : 'Для доступа к этому календарю нужна специальная ссылка с токеном.'}
-          </p>
-          {!currentUser && (
-            <Link to="/login" className="btn">
-              Войти для доступа
-            </Link>
-          )}
-        </div>
-      )}
-      </div>
+      <WorkoutSheet
+        open={sheet.open}
+        workout={sheet.workout}
+        date={sheet.date}
+        api={api}
+        viewContext={viewContext}
+        canEdit={access.is_owner}
+        onClose={handleCloseSheet}
+        onDelete={access.is_owner ? handleDeleteWorkout : undefined}
+      />
       </div>
 
       {currentUser && <BottomNav />}
@@ -737,7 +501,7 @@ const UserProfileScreen = () => {
         isOpen={registerModalOpen}
         onClose={() => setRegisterModalOpen(false)}
         onRegister={(userData) => updateUser(userData && typeof userData === 'object' ? { ...userData, authenticated: true } : { authenticated: true })}
-        returnTo={profileUser ? { path: '/chat', state: { contactUser: { id: profileUser.id, username: profileUser.username, username_slug: profileUser.username_slug, avatar_path: profileUser.avatar_path } } } : undefined}
+        returnTo={profileUser ? { path: '/chat', state: { contactUser: { id: profileUser.id, username: profileUser.username, username_slug: profileUser.username_slug, first_name: profileUser.first_name, last_name: profileUser.last_name, name: profileUser.name, avatar_path: profileUser.avatar_path } } } : undefined}
       />
     </div>
   );

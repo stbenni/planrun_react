@@ -14,14 +14,14 @@ import NotificationCenter from './NotificationCenter';
 import './NotificationBell.css';
 import './NotificationCenter.css';
 
-export default function NotificationBell({ api, isAdmin, user }) {
+export default function NotificationBell({ api }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState({ top: 64, right: 16 });
   const btnRef = useRef(null);
   const panelRef = useRef(null);
 
-  const { items, counts, markRead, markAllRead, dismiss, dismissAll } = useNotificationFeed(api, user, isAdmin);
+  const { items, counts, markRead, markAllRead, dismiss, dismissAll } = useNotificationFeed(api);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -103,9 +103,9 @@ export default function NotificationBell({ api, isAdmin, user }) {
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <BellIcon size={18} />
+        <BellIcon size={20} />
         {counts.unread > 0 && (
-          <span className="notif-bell__badge" aria-hidden>{counts.unread > 9 ? '9+' : counts.unread}</span>
+          <span className="notif-bell__badge" aria-hidden>{counts.unread > 99 ? '99+' : counts.unread}</span>
         )}
       </button>
       {open && portalTarget && createPortal(panel, portalTarget)}

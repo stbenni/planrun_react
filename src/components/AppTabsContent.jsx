@@ -63,6 +63,7 @@ const importCoachWorkspace = () => import('../screens/CoachWorkspace');
 const importTemplatesScreen = () => import('../screens/TemplatesScreen');
 const importAdmin = () => import('../screens/AdminScreen');
 const importApplyCoach = () => import('./Trainers/ApplyCoachForm');
+const importCoachPage = () => import('../screens/coach/CoachPageEditor');
 
 // Предзагрузка: основные экраны сразу, второстепенные — после idle
 Promise.all([
@@ -102,6 +103,7 @@ const AppTabsContent = ({ onLogout }) => {
   const isAdmin = role === 'admin';
   const isCoach = role === 'coach';
   const isApplyCoach = pathname === '/trainers/apply';
+  const isCoachPage = pathname === '/trainers/page';
 
   const isActive = (path) => {
     if (path === '/') return pathname === '/' || pathname === '/dashboard';
@@ -174,7 +176,9 @@ const AppTabsContent = ({ onLogout }) => {
         isActive('/trainers'),
         isApplyCoach
           ? <LazyTab importFn={importApplyCoach} moduleKey="ApplyCoachForm" />
-          : <LazyTab importFn={importTrainers} moduleKey="TrainersScreen" />
+          : isCoachPage
+            ? <LazyTab importFn={importCoachPage} moduleKey="CoachPageEditor" />
+            : <LazyTab importFn={importTrainers} moduleKey="TrainersScreen" />
       )}
       {renderPane(TAB_KEYS.settings, isActive('/settings'),
         <LazyTab importFn={importSettings} moduleKey="SettingsScreen" props={{ onLogout }} />

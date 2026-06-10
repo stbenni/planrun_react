@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>PlanRun · интерактивный прототип</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: 'Jost', -apple-system, system-ui, sans-serif; }
+  #root { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="mocks/r3-shared.jsx"></script>
+<script type="text/babel" src="mocks/r3-b.jsx"></script>
+<script type="text/babel" src="mocks/r3b-calendar.jsx"></script>
+<script type="text/babel" src="mocks/r3b-workout.jsx"></script>
+<script type="text/babel" src="mocks/r3b-chat.jsx"></script>
+<script type="text/babel" src="mocks/r3b-extra.jsx"></script>
+<script type="text/babel" src="mocks/r3b-settings.jsx"></script>
+<script type="text/babel" src="mocks/r3b-social.jsx"></script>
+<script type="text/babel" src="mocks/r3b-coach2.jsx"></script>
+<script type="text/babel" src="mocks/r3b-extra2.jsx"></script>
+<script type="text/babel" src="mocks/r3b-landing.jsx"></script>
+<script type="text/babel" src="mocks/r3b-final.jsx"></script>
+<script type="text/babel" src="mocks/r3b-admin.jsx"></script>
+<script type="text/babel" src="mocks/r3b-modals.jsx"></script>
+<script type="text/babel" src="mocks/r3b-flow.jsx"></script>
+<script type="text/babel" src="mocks/tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "dark": false
+}/*EDITMODE-END*/;
+
+// ---------- реестр экранов: логический id → варианты ----------
+const SCREEN_GROUPS = [
+  ['Гость', [
+    ['landing', 'Лендинг'], ['login', 'Вход'], ['register', 'Регистрация'],
+    ['ob-goal', 'Онбординг · цель'], ['ob-gen', 'Онбординг · генерация'], ['ob-ready', 'Онбординг · готово'],
+    ['forgot', 'Забыли пароль'], ['reset', 'Новый пароль'], ['privacy', 'Политика'],
+  ]],
+  ['Бегун', [
+    ['home', 'Главная'], ['cal', 'План · неделя'], ['cal-month', 'План · месяц'],
+    ['chat', 'Чат'], ['stats', 'Прогресс'], ['workout', 'Разбор тренировки'],
+    ['result', 'Запись результата'], ['readiness', 'Опрос готовности'], ['planActions', 'Действия с планом'],
+    ['mode', 'Режим тренировок'], ['customizer', 'Кастомизатор'], ['profile', 'Мой профиль'],
+    ['notif', 'Уведомления'], ['settings', 'Настройки'], ['integrations', 'Интеграции'],
+    ['trainers', 'Тренеры'], ['coach-profile', 'Профиль тренера'],
+  ]],
+  ['Тренер', [
+    ['coach-home', 'Команда'], ['overlay', 'Атлет · drill-in'], ['assign', 'Назначить тренировку'],
+    ['templates', 'Шаблоны'], ['groups', 'Группы и заявки'], ['page-editor', 'Моя страница'], ['apply', 'Стать тренером'],
+  ]],
+  ['Админ', [['admin', 'Пользователи'], ['admin2', 'Модерация']]],
+];
+
+function getReg() {
+  return {
+    landing: { mob: BLandingMobile, mobH: 1560, desk: BLandingDesktop, deskW: 1280, deskH: 1000 },
+    login: { mob: BLoginMobile }, register: { mob: BRegisterMobile },
+    'ob-goal': { mob: BObGoal }, 'ob-gen': { mob: BObGenerating }, 'ob-ready': { mob: BObReady },
+    forgot: { mob: BForgotPassword }, reset: { mob: BResetPassword },
+    privacy: { desk: BPrivacy, deskW: 1280, deskH: 900 },
+    home: { mob: BRunnerMobile, desk: BRunnerDesktop },
+    'coach-home': { mob: BCoachMobile, desk: BCoachDesktop },
+    cal: { mob: BCalMobile, desk: BCalDesktop },
+    'cal-month': { mob: BCalMonthMobile, desk: BCalDesktop },
+    chat: { mob: BChatMobile, desk: BChatDesktop },
+    stats: { mob: BStatsMobile, desk: BStatsDesktop },
+    workout: { mob: BWorkoutDetails },
+    result: { mob: BResultModal }, readiness: { mob: BReadiness },
+    planActions: { mob: BPlanActions }, mode: { mob: BModeSwitch },
+    customizer: { mob: BDashCustomizer }, menu: { mob: BAthleteProfileMobile },
+    notif: { mob: BNotifMobile, desk: BNotifDropdown, deskW: 1000, deskH: 680 },
+    settings: { mob: BSettingsMobile, desk: BSettingsDesktop },
+    integrations: { mob: BSettingsIntegMobile, desk: BSettingsDesktop },
+    trainers: { mob: BTrainersMobile },
+    'coach-profile': { desk: BCoachProfileDesktop },
+    profile: { mob: BAthleteProfileMobile },
+    overlay: { desk: BAthleteOverlay }, assign: { desk: BAssignWizard },
+    templates: { desk: BTemplatesDesktop }, groups: { desk: BCoachGroups },
+    'page-editor': { desk: BCoachPageEditor }, apply: { desk: BApplyCoach },
+    admin: { desk: BAdminUsers }, admin2: { desk: BAdminCoachApps },
+  };
+}
+
+const LS_KEY = 'planrun-proto-state-v1';
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const dark = !!t.dark;
+
+  const saved = React.useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch (e) { return {}; }
+  }, []);
+  const [device, setDevice] = React.useState(saved.device || 'mobile');
+  const [role, setRole] = React.useState(saved.role || 'runner');
+  const [stack, setStack] = React.useState(saved.stack && saved.stack.length ? saved.stack : ['landing']);
+  const screen = stack[stack.length - 1];
+
+  React.useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ device, role, stack: stack.slice(-12) })); } catch (e) {}
+  }, [device, role, stack]);
+
+  // глобальный навигатор для компонентов
+  React.useEffect(() => {
+    window.__prNavigate = (id) => {
+      if (id === 'back') {
+        setStack((s) => (s.length > 1 ? s.slice(0, -1) : ['home']));
+        return;
+      }
+      let target = id;
+      if (id === 'home' && role === 'coach') target = 'coach-home';
+      setStack((s) => (s[s.length - 1] === target ? s : [...s, target]));
+    };
+    return () => { delete window.__prNavigate; };
+  }, [role]);
+
+  const go = (id) => window.__prNavigate(id);
+
+  const reg = getReg();
+  const entry = reg[screen] || reg.home;
+  // предпочитаем вариант устройства, иначе fallback на другой
+  const useMob = device === 'mobile' ? !!entry.mob : !entry.desk;
+  const C = useMob ? entry.mob : entry.desk;
+  const frameW = useMob ? 390 : (entry.deskW || 1440);
+  const frameH = useMob ? 844 : (entry.deskH || 900);
+  const innerH = useMob ? (entry.mobH || 844) : frameH;
+  const scroll = innerH > frameH;
+
+  // масштабирование под вьюпорт
+  const hostRef = React.useRef(null);
+  const [scale, setScale] = React.useState(1);
+  React.useEffect(() => {
+    const measure = () => {
+      const el = hostRef.current;
+      if (!el) return;
+      const pad = 28;
+      const aw = el.clientWidth - pad * 2;
+      const ah = el.clientHeight - pad * 2;
+      setScale(Math.min(aw / frameW, ah / frameH, 1));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [frameW, frameH, device, screen]);
+
+  const ui = {
+    bg: dark ? '#0D1117' : '#E8EAF0',
+    bar: dark ? '#161C26' : '#FFFFFF',
+    ink: dark ? '#EDF1F7' : '#0E1420',
+    sub: dark ? '#828B99' : '#5D6573',
+    line: dark ? 'rgba(255,255,255,0.1)' : 'rgba(14,20,32,0.1)',
+    accent: '#F4480A',
+  };
+
+  const seg = (options, value, onChange) => (
+    <div style={{ display: 'flex', gap: 2, background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(14,20,32,0.06)', borderRadius: 99, padding: 3 }}>
+      {options.map(([v, label]) => (
+        <button key={v} onClick={() => onChange(v)} style={{
+          border: 'none', cursor: 'pointer', borderRadius: 99, padding: '6px 14px',
+          fontFamily: 'Jost, sans-serif', fontSize: 12, fontWeight: 700,
+          background: v === value ? 'linear-gradient(90deg,#FF5A1F,#FF2D78)' : 'transparent',
+          color: v === value ? '#fff' : ui.sub,
+        }}>{label}</button>
+      ))}
+    </div>
+  );
+
+  const screenLabel = (() => {
+    for (const [, items] of SCREEN_GROUPS) for (const [id, l] of items) if (id === screen) return l;
+    return screen;
+  })();
+
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: ui.bg }}>
+      <TweaksPanel title="Тема">
+        <TweakSection label="Тема оформления" />
+        <TweakToggle label="Тёмная тема" value={dark} onChange={(v) => setTweak('dark', v)} />
+      </TweaksPanel>
+
+      {/* панель управления прототипом */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', height: 54, background: ui.bar, borderBottom: `1px solid ${ui.line}`, flexShrink: 0, zIndex: 50 }}>
+        <div style={{ fontFamily: "'Unbounded', sans-serif", fontSize: 13, fontWeight: 700, color: ui.ink }}>
+          plan<span style={{ background: 'linear-gradient(90deg,#FF5A1F,#FF2D78)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>run</span>
+          <span style={{ fontFamily: 'Jost', fontSize: 10, fontWeight: 600, color: ui.sub, marginLeft: 8, letterSpacing: '0.1em', textTransform: 'uppercase' }}>прототип</span>
+        </div>
+        {seg([['mobile', 'Мобилка'], ['desktop', 'Десктоп']], device, setDevice)}
+        {seg([['runner', 'Бегун'], ['coach', 'Тренер']], role, (r) => {
+          setRole(r);
+          setStack([r === 'coach' ? 'coach-home' : 'home']);
+        })}
+        <button onClick={() => go('back')} disabled={stack.length <= 1} style={{
+          border: `1px solid ${ui.line}`, background: 'transparent', color: stack.length > 1 ? ui.ink : ui.sub,
+          borderRadius: 99, padding: '6px 14px', fontFamily: 'Jost', fontSize: 12, fontWeight: 700, cursor: stack.length > 1 ? 'pointer' : 'default', opacity: stack.length > 1 ? 1 : 0.5,
+        }}>← Назад</button>
+        <div style={{ flex: 1 }}></div>
+        <select value={screen} onChange={(e) => setStack((s) => [...s, e.target.value])} style={{
+          fontFamily: 'Jost', fontSize: 12.5, fontWeight: 600, color: ui.ink, background: ui.bar,
+          border: `1px solid ${ui.line}`, borderRadius: 10, padding: '7px 10px', cursor: 'pointer', maxWidth: 240,
+        }}>
+          {SCREEN_GROUPS.map(([g, items]) => (
+            <optgroup key={g} label={g}>
+              {items.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <button onClick={() => setTweak('dark', !dark)} style={{
+          border: `1px solid ${ui.line}`, background: 'transparent', color: ui.ink,
+          borderRadius: 99, padding: '6px 12px', fontFamily: 'Jost', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+        }}>{dark ? '🌙' : '☀'}</button>
+      </div>
+
+      {/* сцена */}
+      <div ref={hostRef} style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: 10, left: 16, fontSize: 11, fontWeight: 700, color: ui.sub, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {screenLabel}{useMob ? ' · 390×' + innerH : ' · ' + frameW + '×' + frameH}
+          {device === 'mobile' && !entry.mob ? ' · только десктоп-версия' : ''}
+          {device === 'desktop' && !entry.desk ? ' · мобильный экран' : ''}
+        </div>
+        <div style={{
+          width: frameW, height: frameH, transform: `scale(${scale})`, flexShrink: 0,
+          borderRadius: useMob ? 34 : 14, overflow: 'hidden', position: 'relative',
+          border: useMob ? `7px solid ${dark ? '#2A323D' : '#1A202B'}` : `1px solid ${ui.line}`,
+          boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
+          background: dark ? '#0B0F16' : '#F2F4F9',
+        }}>
+          {scroll ? (
+            <div style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+              <div style={{ width: '100%', height: innerH }}>
+                {C ? <C dark={dark} /> : null}
+              </div>
+            </div>
+          ) : (C ? <C dark={dark} /> : null)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

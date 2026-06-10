@@ -5,7 +5,6 @@
  */
 
 import { CoachAvatar } from '../../Coach/CoachPrimitives';
-import NotificationBell from '../../common/NotificationBell';
 import './DashHeaderV3.css';
 
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -21,7 +20,9 @@ function formatEyebrowDesktop(d) {
   return `${w[0].toUpperCase()}${w.slice(1)} · ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
 }
 
-export default function DashHeaderV3({ user, mode = 'ai', weekSummary, api, isAdmin }) {
+const MODE_LABEL = { ai: 'AI-тренер', coach: 'Тренер', self: 'Сам' };
+
+export default function DashHeaderV3({ user, mode = 'ai', weekSummary, onModeClick }) {
   const now = new Date();
   // На мобиле формат «ВТ · 12 МАЯ», на десктопе «Вторник · 12 мая» —
   // выбираем сразу оба, CSS показывает нужный.
@@ -49,25 +50,31 @@ export default function DashHeaderV3({ user, mode = 'ai', weekSummary, api, isAd
         </div>
       </div>
 
-      <button type="button" className="dash-header-v3__mode" title={mode === 'ai' ? 'AI-тренер' : 'Тренер'}>
+      <button
+        type="button"
+        className="dash-header-v3__mode"
+        title={`Режим: ${MODE_LABEL[mode] || MODE_LABEL.ai} — сменить`}
+        onClick={onModeClick}
+      >
         <span className="dash-header-v3__mode-avatar-wrap">
           {mode === 'ai' ? (
             <span className="dash-header-v3__ai-avatar" aria-hidden>AI</span>
+          ) : mode === 'self' ? (
+            <span className="dash-header-v3__coach-avatar" aria-hidden>✎</span>
           ) : (
             <span className="dash-header-v3__coach-avatar" aria-hidden>МК</span>
           )}
-          <span className="dash-header-v3__mode-status" aria-hidden />
+          {mode !== 'self' && <span className="dash-header-v3__mode-status" aria-hidden />}
         </span>
         <span className="dash-header-v3__mode-text">
           <span className="dash-header-v3__mode-eyebrow">РЕЖИМ</span>
           <span className="dash-header-v3__mode-name">
-            {mode === 'ai' ? 'AI-тренер' : 'Тренер'}
-            <span className="dash-header-v3__mode-status-inline" aria-hidden />
+            {MODE_LABEL[mode] || MODE_LABEL.ai}
+            {mode !== 'self' && <span className="dash-header-v3__mode-status-inline" aria-hidden />}
           </span>
         </span>
+        <span className="dash-header-v3__mode-caret" aria-hidden>⌄</span>
       </button>
-
-      <NotificationBell api={api} isAdmin={isAdmin} user={user} />
     </div>
   );
 }

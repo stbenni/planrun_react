@@ -108,7 +108,7 @@ export default function AthleteGrid({
                 checked={isSelected}
                 onChange={() => onToggleSelected?.(a.id)}
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Выбрать ${a.username}`}
+                aria-label={`Выбрать ${shortName(a)}`}
               />
             </div>
 

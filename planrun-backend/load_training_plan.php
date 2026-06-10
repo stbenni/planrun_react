@@ -130,6 +130,7 @@ function loadTrainingPlanForUser($userId, $useCache = true) {
             'number' => $weekNumber,
             'start_date' => $week['start_date'],
             'total_volume' => $finalVolume,
+            'phase' => $week['phase'] ?? null,
             'days' => $days
         ];
     }
