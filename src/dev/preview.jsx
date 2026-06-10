@@ -196,14 +196,16 @@ const SCREENS = {
     </div>
   ),
   'dash-desktop': () => (
-    <div style={{ minHeight: '100vh', background: 'var(--pr-bg)' }}>
-      <DesktopDash
-        {...dashProps}
-        prediction={dashPrediction}
-        records={dashRecords}
-        syncedProvider="Garmin"
-        onNavigate={noop}
-      />
+    <div style={{ height: '100vh', background: 'var(--pr-bg)', overflow: 'hidden' }}>
+      <div style={{ maxWidth: 1720, margin: '0 auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <DesktopDash
+          {...dashProps}
+          prediction={dashPrediction}
+          records={dashRecords}
+          syncedProvider="Garmin"
+          onNavigate={noop}
+        />
+      </div>
     </div>
   ),
   'ob-mode': () => (

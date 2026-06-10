@@ -134,7 +134,10 @@ export function TodayCardLarge({ workout, plan, briefing, onStart, onReschedule,
     const parts = m.seg.caption.split('→').map((s) => s.trim()).filter(Boolean);
     if (parts.length < 2) return null;
     const names = parts.length === 3 ? ['Разминка', 'Основной блок', 'Заминка'] : parts.map((_, i) => `Блок ${i + 1}`);
-    return parts.slice(0, 3).map((p, i) => ({ n: String(i + 1).padStart(2, '0'), name: names[i], detail: p }));
+    return parts.slice(0, 3).map((p, i) => {
+      const detail = p.replace(/^(размин\w*|замин\w*)\s*/i, '');
+      return { n: String(i + 1).padStart(2, '0'), name: names[i], detail: detail || p };
+    });
   }, [m.seg]);
 
   return (

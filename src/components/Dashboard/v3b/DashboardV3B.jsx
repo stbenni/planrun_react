@@ -397,17 +397,30 @@ export default function DashboardV3B({
   };
 
   return (
-    <div ref={dashboardRef} style={{ fontFamily: 'var(--pr-font-body)', maxWidth: isMobile ? 560 : 'none', margin: '0 auto' }}>
+    <div
+      ref={dashboardRef}
+      style={{
+        fontFamily: 'var(--pr-font-body)',
+        background: 'var(--pr-bg)',
+        minHeight: isMobile ? '100vh' : undefined,
+        height: isMobile ? undefined : '100vh',
+        overflow: isMobile ? undefined : 'hidden',
+      }}
+    >
       {isMobile ? (
-        <MobileDash {...shared} vdot={prediction?.vdot ?? null} />
+        <div style={{ maxWidth: 560, margin: '0 auto', paddingBottom: 'calc(84px + env(safe-area-inset-bottom, 0px))' }}>
+          <MobileDash {...shared} vdot={prediction?.vdot ?? null} />
+        </div>
       ) : (
-        <DesktopDash
-          {...shared}
-          prediction={prediction}
-          records={records}
-          syncedProvider={syncedProvider}
-          onNavigate={onNavigate}
-        />
+        <div style={{ maxWidth: 1720, margin: '0 auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <DesktopDash
+            {...shared}
+            prediction={prediction}
+            records={records}
+            syncedProvider={syncedProvider}
+            onNavigate={onNavigate}
+          />
+        </div>
       )}
       <ModeSheet
         open={modeOpen}

@@ -194,7 +194,7 @@ export default function DesktopDash({
   const s30 = stats30d(workoutsByDate);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 0px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* верхняя панель */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 30, padding: '0 36px', height: 64, flexShrink: 0 }}>
         <PrLogo size={17} />
@@ -233,15 +233,15 @@ export default function DesktopDash({
         </button>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '320px 1fr 320px', gap: 16, padding: '4px 36px 24px', alignItems: 'start' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '320px minmax(0,1fr) 320px', gap: 16, padding: '4px 36px 24px' }}>
         {/* левая — цель */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
           <GoalCard user={user} plan={plan} prediction={prediction} />
           <PrRecords records={records} />
         </div>
 
         {/* центр — сегодня */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
           {todayWorkout ? (
             <TodayCardLarge
               workout={todayWorkout}
@@ -283,7 +283,7 @@ export default function DesktopDash({
         </div>
 
         {/* правая — телеметрия */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
           <FormCard trainingLoad={trainingLoad} onOpenStats={onOpenStats} />
           <MetricTile label="VDOT" value={vdot != null ? vdot : '—'} onClick={onOpenStats} />
           <MetricTile
