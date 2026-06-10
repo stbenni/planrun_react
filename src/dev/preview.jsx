@@ -92,13 +92,14 @@ function weeksAgoIso(weeks, dayShift = 0) {
   return d.toISOString().slice(0, 10);
 }
 
+// Форма как в проде (get_all_workouts_summary): объект-сводка на дату.
 const dashWorkoutsByDate = (() => {
   const out = {};
   const kms = [34, 42, 38, 51, 46, 55, 49, 58];
   kms.forEach((km, i) => {
     const w = kms.length - 1 - i;
-    out[weeksAgoIso(w, 0)] = [{ distance: km * 0.5, duration: km * 0.5 * 5.4 }];
-    out[weeksAgoIso(w, 2)] = [{ distance: km * 0.5, duration: km * 0.5 * 5.0 }];
+    out[weeksAgoIso(w, 0)] = { count: 1, distance: km * 0.5, duration: km * 0.5 * 5.4 };
+    out[weeksAgoIso(w, 2)] = { count: 1, distance: km * 0.5, duration: km * 0.5 * 5.0 };
   });
   return out;
 })();

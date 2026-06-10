@@ -87,10 +87,30 @@ export function extractKm(text) {
   return 0;
 }
 
+/**
+ * workoutsByDate[date] — это сводка-ОБЪЕКТ за день из get_all_workouts_summary:
+ * { count, distance (км), duration (минуты), duration_seconds, pace, hr, activity_type }.
+ * Нормализуем в массив на случай и старого (массивного) формата.
+ */
+function dayItems(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function itemKm(it) {
+  return Number(it?.distance ?? it?.distance_km) || 0;
+}
+
+function itemMinutes(it) {
+  if (!it) return 0;
+  if (it.duration_seconds) return (Number(it.duration_seconds) || 0) / 60;
+  return Number(it.duration ?? it.duration_minutes) || 0;
+}
+
 function isDayDone(dateIso, workoutsByDate, progressDataMap) {
   if (progressDataMap && progressDataMap[dateIso]) return true;
-  if (workoutsByDate && workoutsByDate[dateIso] && workoutsByDate[dateIso].length > 0) return true;
-  return false;
+  const items = dayItems(workoutsByDate?.[dateIso]);
+  return items.some((it) => (it.count ?? 1) > 0 || itemKm(it) > 0 || itemMinutes(it) > 0);
 }
 
 /**
@@ -123,8 +143,8 @@ export function buildWeekModel(plan, workoutsByDate, progressDataMap) {
     const isRest = type === 'rest' || type === 'free';
     const km = extractKm(primary?.text || primary?.description || '');
     const done = isDayDone(iso, workoutsByDate, progressDataMap);
-    if (done && workoutsByDate?.[iso]) {
-      for (const it of workoutsByDate[iso]) doneKm += Number(it.distance ?? it.distance_km) || 0;
+    if (done) {
+      for (const it of dayItems(workoutsByDate?.[iso])) doneKm += itemKm(it);
     }
     let state;
     if (done) state = 'done';
@@ -175,9 +195,9 @@ export function computeStreak(plan, workoutsByDate, progressDataMap) {
 
 // ---------- метрики / спарклайны ----------
 
-function kmOfItems(items) {
+function kmOfItems(value) {
   let km = 0;
-  for (const it of (items || [])) km += Number(it.distance ?? it.distance_km) || 0;
+  for (const it of dayItems(value)) km += itemKm(it);
   return km;
 }
 
@@ -207,9 +227,9 @@ export function weeklyPaceSeries(workoutsByDate, weeks = 8) {
     if (Number.isNaN(t)) continue;
     const w = Math.floor((now - t) / (7 * 86400000));
     if (w < 0 || w >= weeks) continue;
-    for (const it of (items || [])) {
-      const d = Number(it.distance ?? it.distance_km) || 0;
-      const m = Number(it.duration ?? it.duration_minutes) || 0;
+    for (const it of dayItems(items)) {
+      const d = itemKm(it);
+      const m = itemMinutes(it);
       if (d > 0 && m > 0) { km[weeks - 1 - w] += d; min[weeks - 1 - w] += m; }
     }
   }
@@ -229,9 +249,9 @@ export function stats30d(workoutsByDate) {
   for (const [date, items] of Object.entries(workoutsByDate)) {
     const t = Date.parse(date);
     if (Number.isNaN(t) || now - t > 30 * 86400000 || t > now) continue;
-    for (const it of (items || [])) {
-      km += Number(it.distance ?? it.distance_km) || 0;
-      minutes += Number(it.duration ?? it.duration_minutes) || 0;
+    for (const it of dayItems(items)) {
+      km += itemKm(it);
+      minutes += itemMinutes(it);
     }
   }
   let pace = null;
