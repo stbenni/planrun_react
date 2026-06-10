@@ -1,15 +1,17 @@
 /**
  * Шаг «AI-оценка цели». Данные приходят из api.assessGoal (вызывает оркестратор с debounce).
- * Контракт результата 1:1 с прежним RegisterScreen: verdict / messages / predictions / training_paces.
+ * Контракт результата прежний: verdict / messages / predictions / training_paces.
+ * Вёрстка — v3B: кольцо VDOT, вердикт-карта с бордер-акцентом, зоны темпа точками.
  */
 
-import { ClipboardListIcon, TimeIcon, CheckIcon, AlertTriangleIcon, XCircleIcon } from '../common/Icons';
+import { PrRing, PrLabel, PrLiveDot } from '../ui';
+import { ObHeading, ObSection, ObHint } from './obKit';
 
-const PACE_BARS = {
-  easy: 'var(--info-500)',
-  marathon: 'var(--primary-400)',
-  threshold: 'var(--warning-500)',
-  interval: 'var(--danger-500)',
+const PACE_DOTS = {
+  easy: 'var(--pr-sub)',
+  marathon: 'var(--pr-good)',
+  threshold: 'var(--pr-accent)',
+  interval: 'var(--pr-accent-2)',
 };
 const PACE_LABELS = { easy: 'Лёгкий', marathon: 'Марафонский', threshold: 'Пороговый', interval: 'Интервальный' };
 const DIST_LABELS = { '5k': '5 км', '10k': '10 км', half: 'Полумарафон', marathon: 'Марафон' };
@@ -26,101 +28,116 @@ function buildBasis(formData) {
   }
   return null;
 }
+
 const VERDICT = {
-  realistic: { cls: 'realistic', title: 'Цель реалистична', Icon: CheckIcon },
-  challenging: { cls: 'challenging', title: 'Амбициозная цель', Icon: AlertTriangleIcon },
+  realistic: { color: 'var(--pr-good)', title: 'Цель реалистична' },
+  challenging: { color: 'var(--pr-accent)', title: 'Амбициозная цель' },
   // caution — смягчённый registration-вердикт (бывший unrealistic): не блокирует, ободряет
-  caution: { cls: 'challenging', title: 'Очень амбициозная цель', Icon: AlertTriangleIcon },
-  unrealistic: { cls: 'unrealistic', title: 'Цель труднодостижима', Icon: XCircleIcon },
+  caution: { color: 'var(--pr-accent)', title: 'Очень амбициозная цель' },
+  unrealistic: { color: 'var(--pr-bad)', title: 'Цель труднодостижима' },
 };
 
 export default function StepAssessment({ formData, assessment, loading, onApplySuggestion }) {
   const v = assessment?.verdict ? VERDICT[assessment.verdict] : null;
 
   return (
-    <div className="ob-step">
-      <div className="ob-eyebrow">AI ПРОВЕРЯЕТ ЦЕЛЬ{assessment?.vdot ? ` · VDOT ${assessment.vdot}` : ''}</div>
-      <h1 className="ob-h1">Оценка цели</h1>
-      <p className="ob-sub">Реалистичность и тренировочные темпы</p>
+    <div>
+      <ObHeading title="Оценка цели" sub="Реалистичность и тренировочные темпы." />
 
-      <div className="ob-assess" style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
         {/* Нет данных */}
         {!assessment && !loading && (
-          <div className="ob-card">
-            <div className="ob-assess-loading">
-              <ClipboardListIcon size={18} aria-hidden />
-              <span>
-                {!formData.race_distance
-                  ? 'Укажите дистанцию забега на шаге «Цель».'
-                  : !formData.race_date
-                    ? 'Укажите дату забега на шаге «Цель».'
-                    : 'Заполните профиль — оценка появится автоматически.'}
-              </span>
-            </div>
+          <div className="pr-card" style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--pr-sub)', lineHeight: 1.5 }}>
+            {!formData.race_distance
+              ? 'Укажи дистанцию забега на шаге «Цель».'
+              : !formData.race_date
+                ? 'Укажи дату забега на шаге «Цель».'
+                : 'Заполни профиль — оценка появится автоматически.'}
           </div>
         )}
 
         {/* Загрузка */}
         {loading && (
-          <div className="ob-card">
-            <div className="ob-assess-loading">
-              <span className="ob-spin"><TimeIcon size={18} aria-hidden /></span>
-              <span>Оцениваем цель...</span>
-            </div>
+          <div className="pr-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <PrLiveDot label="ai проверяет цель" />
+            <span style={{ fontSize: 12.5, color: 'var(--pr-sub)' }}>Оцениваем…</span>
           </div>
         )}
 
         {/* Результат */}
         {assessment && !loading && v && (
           <>
-            <div className={`ob-verdict ob-verdict--${v.cls}`}>
-              <div className="ob-verdict__head">
-                <span className="ob-verdict__badge"><v.Icon size={22} aria-hidden /></span>
-                <span className="ob-verdict__title">{v.title}</span>
-              </div>
-              {assessment.messages?.map((msg, i) => (
-                <div key={i}>
-                  <p className="ob-verdict__msg">{msg.text}</p>
-                  {msg.suggestions?.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {msg.suggestions.map((s, j) => (
-                        s.action ? (
-                          <button key={j} type="button" className="ob-adjust"
-                            onClick={() => onApplySuggestion(s.action.field, s.action.value)}>
-                            <span className="ob-adjust__text">{s.text}</span>
-                            <span className="ob-adjust__tag">применить</span>
-                          </button>
-                        ) : (
-                          <p key={j} className="ob-hint">{s.text}</p>
-                        )
-                      ))}
+            <div className="pr-card" style={{ padding: '16px 18px', border: `1px solid ${v.color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                {assessment.vdot && (
+                  <PrRing pct={Math.min(1, assessment.vdot / 70)} size={84} stroke={8}>
+                    <div style={{ fontFamily: 'var(--pr-font-display)', fontSize: 20, fontWeight: 700, color: 'var(--pr-ink)', lineHeight: 1 }}>
+                      {assessment.vdot}
                     </div>
+                    <PrLabel size={7.5}>vdot</PrLabel>
+                  </PrRing>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--pr-font-display)', fontSize: 15, fontWeight: 700, color: v.color }}>
+                    {v.title}
+                  </div>
+                  {assessment.messages?.map((msg, i) => (
+                    <div key={i} style={{ fontSize: 12.5, color: 'var(--pr-ink)', opacity: 0.9, lineHeight: 1.5, marginTop: 6 }}>
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {assessment.messages?.some((m) => m.suggestions?.length > 0) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 12 }}>
+                  {assessment.messages.flatMap((msg, i) =>
+                    (msg.suggestions || []).map((s, j) =>
+                      s.action ? (
+                        <button
+                          key={`${i}-${j}`}
+                          type="button"
+                          className="pr-press"
+                          onClick={() => onApplySuggestion(s.action.field, s.action.value)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '10px 13px',
+                            borderRadius: 12,
+                            background: 'var(--pr-card-2)',
+                            border: '1px solid var(--pr-card-border)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--pr-ink)', fontFamily: 'var(--pr-font-body)' }}>{s.text}</span>
+                          <PrLabel size={8.5} color="var(--pr-accent)" style={{ border: '1px solid var(--pr-accent)', borderRadius: 999, padding: '4px 9px' }}>
+                            применить
+                          </PrLabel>
+                        </button>
+                      ) : (
+                        <div key={`${i}-${j}`} style={{ fontSize: 11.5, color: 'var(--pr-sub)', lineHeight: 1.45 }}>{s.text}</div>
+                      )
+                    )
                   )}
                 </div>
-              ))}
+              )}
             </div>
 
-            {assessment.vdot && (
-              <div className="ob-vdot">
-                VDOT: <strong>{assessment.vdot}</strong>
-                {assessment.vdot_source ? ` (на основе: ${assessment.vdot_source})` : ''}
-              </div>
-            )}
-
-            {/* Прозрачность: на чём построен прогноз — чтобы вердикт не выглядел «магией» */}
             {(() => {
               const basis = buildBasis(formData);
-              return basis ? <div className="ob-hint" style={{ marginTop: -6 }}>Прогноз учитывает {basis}.</div> : null;
+              const src = assessment.vdot_source ? `VDOT на основе: ${assessment.vdot_source}. ` : '';
+              return (basis || src) ? <ObHint style={{ marginTop: 0 }}>{src}{basis ? `Прогноз учитывает ${basis}.` : ''}</ObHint> : null;
             })()}
 
             {assessment.predictions && Object.keys(assessment.predictions).length > 0 && (
               <div>
-                <div className="ob-section-title">ПРОГНОЗ ПО ДИСТАНЦИЯМ</div>
-                <div className="ob-card">
-                  {Object.entries(assessment.predictions).map(([dist, time]) => (
-                    <div key={dist} className="ob-pred-row">
-                      <span className="ob-pred-row__label">{DIST_LABELS[dist] || dist.toUpperCase()}</span>
-                      <span className="ob-pred-row__value">{time}</span>
+                <ObSection style={{ margin: '8px 0 8px' }}>Прогноз по дистанциям</ObSection>
+                <div className="pr-card" style={{ padding: '4px 16px' }}>
+                  {Object.entries(assessment.predictions).map(([dist, time], i) => (
+                    <div key={dist} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderTop: i ? '1px solid var(--pr-line)' : 'none' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--pr-sub)' }}>{DIST_LABELS[dist] || dist.toUpperCase()}</span>
+                      <span style={{ fontFamily: 'var(--pr-font-display)', fontSize: 14, fontWeight: 700, color: 'var(--pr-ink)' }}>{time}</span>
                     </div>
                   ))}
                 </div>
@@ -129,19 +146,19 @@ export default function StepAssessment({ formData, assessment, loading, onApplyS
 
             {assessment.training_paces && (
               <div>
-                <div className="ob-section-title">ТРЕНИРОВОЧНЫЕ ТЕМПЫ /КМ</div>
-                <div className="ob-pace-grid">
-                  {['easy', 'marathon', 'threshold', 'interval'].map((zone) => (
+                <ObSection style={{ margin: '8px 0 8px' }}>Тренировочные темпы · /км</ObSection>
+                <div className="pr-card" style={{ padding: '4px 16px' }}>
+                  {['easy', 'marathon', 'threshold', 'interval'].map((zone, i) =>
                     assessment.training_paces[zone] ? (
-                      <div key={zone} className="ob-pace-cell">
-                        <span className="ob-pace-cell__bar" style={{ background: PACE_BARS[zone] }} />
-                        <div style={{ minWidth: 0 }}>
-                          <div className="ob-pace-cell__label">{PACE_LABELS[zone]}</div>
-                          <div className="ob-pace-cell__value">{assessment.training_paces[zone]}</div>
-                        </div>
+                      <div key={zone} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 0', borderTop: i ? '1px solid var(--pr-line)' : 'none' }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 999, background: PACE_DOTS[zone], flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--pr-sub)' }}>{PACE_LABELS[zone]}</span>
+                        <span style={{ fontFamily: 'var(--pr-font-display)', fontSize: 13.5, fontWeight: 700, color: 'var(--pr-ink)' }}>
+                          {assessment.training_paces[zone]}
+                        </span>
                       </div>
                     ) : null
-                  ))}
+                  )}
                 </div>
               </div>
             )}

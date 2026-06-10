@@ -1,8 +1,8 @@
 /**
- * OnboardingFlow — полноэкранный wizard специализации (v3 дизайн).
- * Заменяет SpecializationModal: режим → цель → профиль → (AI-оценка для забега) → генерация.
- * Вся логика данных перенесена 1:1 из прежнего RegisterScreen (specializationOnly):
- * те же поля, та же валидация по шагам, тот же debounce assessGoal и completeSpecialization.
+ * OnboardingFlow — полноэкранный wizard специализации (v3B «Телеметрия», мок BObShell).
+ * Режим → цель → профиль → (AI-оценка) → генерация → план готов.
+ * Логика данных 1:1 с прежней версией: те же поля, валидация по шагам,
+ * debounce assessGoal и completeSpecialization; добавлен поллинг готовности плана.
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -10,26 +10,22 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import useAuthStore from '../stores/useAuthStore';
 import getAuthClient from '../api/getAuthClient';
-import { CheckIcon, CloseIcon } from '../components/common/Icons';
+import { PrLogo, PrLabel, PrButton } from '../components/ui';
 import StepMode from '../components/Onboarding/StepMode';
 import StepGoal from '../components/Onboarding/StepGoal';
 import StepAssessment from '../components/Onboarding/StepAssessment';
 import StepProfile from '../components/Onboarding/StepProfile';
 import StepGenerating from '../components/Onboarding/StepGenerating';
+import StepReady from '../components/Onboarding/StepReady';
+import { ObError } from '../components/Onboarding/obKit';
+import { buildPlanSummary } from '../components/Onboarding/planSummary';
 import {
   createInitialOnboardingState,
   seedOnboardingFromUser,
   buildSpecializationPayload,
   isPlanGenerationMode,
+  HEALTH_PROGRAMS,
 } from '../components/Onboarding/onboardingForm';
-import './OnboardingFlow.css';
-
-const STEP_LABELS = { mode: 'Режим', goal: 'Цель', profile: 'Профиль', assess: 'Оценка' };
-const BRAND_FEATURES = [
-  'AI или сам — на выбор',
-  'Импорт из Strava, Polar, Coros',
-  'План подстраивается под прогресс',
-];
 
 /** Набор и порядок шагов зависят от режима и цели (как в старом RegisterScreen).
  *  При смене режима (skipMode) шаг выбора режима пропускаем — он уже выбран в попапе. */
@@ -43,6 +39,71 @@ function buildSteps(formData, skipMode) {
     }
   }
   return skipMode ? steps.filter((s) => s !== 'mode') : steps;
+}
+
+const DIST_FULL = { '5k': '5 км', '10k': '10 км', half: 'Полумарафон', marathon: 'Марафон' };
+
+/** Подзаголовок экрана генерации: «Марафон · 04.10 · цель 3:29:59». */
+function genSubtitle(formData, planMessage) {
+  if (formData.goal_type === 'race' || formData.goal_type === 'time_improvement') {
+    const parts = [
+      DIST_FULL[formData.race_distance],
+      formData.race_date
+        ? new Date(`${formData.race_date}T00:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+        : null,
+      formData.race_target_time ? `цель ${formData.race_target_time}` : null,
+    ].filter(Boolean);
+    if (parts.length) return `${parts.join(' · ')}.`;
+  }
+  if (formData.goal_type === 'health') {
+    const p = HEALTH_PROGRAMS.find((x) => x.value === formData.health_program);
+    if (p) return `Программа «${p.name}».`;
+  }
+  if (formData.goal_type === 'weight_loss' && formData.weight_kg && formData.weight_goal_kg) {
+    return `Цель: ${formData.weight_kg} → ${formData.weight_goal_kg} кг.`;
+  }
+  return planMessage || '';
+}
+
+export function Shell({ filled, total, onClose, children }) {
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--pr-bg)', display: 'flex', flexDirection: 'column', fontFamily: 'var(--pr-font-body)' }}>
+      <div style={{ width: '100%', maxWidth: 560, margin: '0 auto', flex: 1, display: 'flex', flexDirection: 'column', padding: '0 22px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))', flexShrink: 0 }}>
+          <PrLogo />
+          <div style={{ flex: 1, display: 'flex', gap: 5 }}>
+            {Array.from({ length: total }).map((_, i) => (
+              <div key={i} style={{ flex: 1, height: 4, borderRadius: 999, background: i < filled ? 'var(--pr-grad)' : 'var(--pr-track)' }} />
+            ))}
+          </div>
+          <PrLabel size={9}>{filled} / {total}</PrLabel>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Закрыть"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 999,
+                border: '1px solid var(--pr-card-border)',
+                background: 'var(--pr-card)',
+                color: 'var(--pr-sub)',
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export default function OnboardingFlow() {
@@ -65,8 +126,9 @@ export default function OnboardingFlow() {
   const [assessLoading, setAssessLoading] = useState(false);
   const assessTimer = useRef(null);
 
-  const [phase, setPhase] = useState('form'); // 'form' | 'generating'
+  const [phase, setPhase] = useState('form'); // 'form' | 'generating' | 'ready'
   const [planMessage, setPlanMessage] = useState(null);
+  const [summary, setSummary] = useState(null);
   const pendingUserRef = useRef(null);
 
   const steps = buildSteps(formData, !!switchMode);
@@ -167,12 +229,10 @@ export default function OnboardingFlow() {
 
   // На шаге оценки НЕ блокируем прохождение: бэк в registration-контексте отдаёт
   // вердикт 'caution' (blocks_registration:false) и собирает осторожный стартовый план.
-  // Раньше блокировка по 'unrealistic' оставляла юзера в тупике (мёртвый soften-флоу).
   const submitDisabled =
     loading ||
     (stepName === 'mode' && !formData.training_mode);
 
-  // Осторожный вердикт (амбициозно/нереально) — кнопка проходима, но с мягким акцентом.
   const cautionVerdict = ['caution', 'unrealistic', 'challenging'].includes(assessment?.verdict);
 
   const handleSubmit = async () => {
@@ -185,7 +245,7 @@ export default function OnboardingFlow() {
         try { userData = await client.getCurrentUser(); } catch { userData = null; }
         pendingUserRef.current = userData;
         setPlanMessage(result.plan_message || null);
-        setPhase('generating');
+        setPhase(planMode ? 'generating' : 'ready');
       } else {
         setError(result.error || 'Ошибка сохранения');
       }
@@ -211,7 +271,7 @@ export default function OnboardingFlow() {
     setIndex(Math.max(0, safeIndex - 1));
   };
 
-  const handleFinish = () => {
+  const handleFinish = (navTo = '/') => {
     const userData = pendingUserRef.current;
     if (userData) {
       updateUser(userData);
@@ -219,30 +279,52 @@ export default function OnboardingFlow() {
       const current = useAuthStore.getState().user || {};
       updateUser({ ...current, onboarding_completed: 1, authenticated: true });
     }
-    if (planMessage) setPlanGenerationMessage(planMessage);
-    navigate('/', { replace: true, state: { registrationSuccess: true } });
+    if (planMessage && navTo === '/') setPlanGenerationMessage(planMessage);
+    navigate(navTo, { replace: true, state: { registrationSuccess: true } });
   };
 
-  // Экран генерации/успеха
+  // План собран в очереди — забираем его и показываем сводку «План готов».
+  const handlePlanReady = useCallback(async () => {
+    let s = null;
+    try {
+      const raw = await client.getPlan();
+      const planData = raw?.data ?? raw;
+      s = buildPlanSummary(planData, formData);
+    } catch {
+      s = null;
+    }
+    setSummary(s);
+    setPhase('ready');
+  }, [client, formData]);
+
+  // Экран генерации
   if (phase === 'generating') {
     return (
-      <div className="ob-shell">
-        <div className="ob-brand" aria-hidden>
-          <div className="ob-brand__logo">
-            <span className="ob-brand__logo-mark">P</span>
-            <span className="ob-brand__logo-text">planrun</span>
-          </div>
-        </div>
-        <div className="ob-main">
-          <div className="ob-body">
-            <StepGenerating isPlanMode={planMode} planMessage={planMessage} onDone={handleFinish} />
-          </div>
-        </div>
-      </div>
+      <Shell filled={steps.length} total={steps.length}>
+        <StepGenerating
+          client={client}
+          subtitle={genSubtitle(formData, planMessage)}
+          onReady={handlePlanReady}
+          onDashboard={() => handleFinish('/')}
+        />
+      </Shell>
     );
   }
 
-  const eyebrow = `ШАГ ${safeIndex + 1} ИЗ ${steps.length}`;
+  // Экран «План готов» / «Календарь готов»
+  if (phase === 'ready') {
+    return (
+      <Shell filled={steps.length} total={steps.length}>
+        <StepReady
+          planMode={planMode}
+          summary={summary}
+          formData={formData}
+          planMessage={planMessage}
+          onOpenCalendar={() => handleFinish('/calendar')}
+        />
+      </Shell>
+    );
+  }
 
   const stepVariants = {
     enter: (d) => ({ opacity: 0, x: d > 0 ? 28 : -28 }),
@@ -251,106 +333,55 @@ export default function OnboardingFlow() {
   };
 
   return (
-    <div className="ob-shell">
-      {/* Бренд-панель (только desktop) */}
-      <div className="ob-brand">
-        <div>
-          <div className="ob-brand__logo">
-            <span className="ob-brand__logo-mark">P</span>
-            <span className="ob-brand__logo-text">planrun</span>
-          </div>
-          <h1 className="ob-brand__title">План бега,<br />который ведёт<br />к цели</h1>
-          <p className="ob-brand__lead">
-            AI построит персональный план под твою цель. Подключи Strava — анализируем каждую тренировку.
-          </p>
-          <div style={{ marginTop: 40, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {steps.map((s, i) => {
-              const done = i < safeIndex;
-              const active = i === safeIndex;
-              return (
-                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderRadius: 10, background: active ? 'rgba(255,255,255,0.16)' : 'transparent' }}>
-                  <span style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, fontFamily: '"Jost", sans-serif', background: done || active ? '#fff' : 'rgba(255,255,255,0.2)', color: done || active ? 'var(--primary-500)' : '#fff' }}>
-                    {done ? '✓' : i + 1}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: active ? 700 : 500, color: active || done ? '#fff' : 'rgba(255,255,255,0.6)' }}>{STEP_LABELS[s]}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="ob-brand__features">
-          {BRAND_FEATURES.map((t) => (
-            <div key={t} className="ob-brand__feature">
-              <span className="ob-brand__feature-icon"><CheckIcon size={17} /></span>
-              <span>{t}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Колонка формы */}
-      <div className="ob-main">
-        {switchMode && (
-          <button type="button" className="ob-close" onClick={() => navigate('/')} aria-label="Закрыть">
-            <CloseIcon size={20} />
-          </button>
-        )}
-        <div className="ob-stepper">
-          {steps.map((s, i) => (
-            <div key={s} className={`ob-stepper__seg ${i <= safeIndex ? 'ob-stepper__seg--done' : ''}`} />
-          ))}
-        </div>
-
-        <div className="ob-body">
-          <AnimatePresence mode="wait" custom={dir}>
-            <motion.div
-              key={stepName}
-              custom={dir}
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ duration: 0.26, ease: [0.33, 1, 0.68, 1] }}
-            >
-              {stepName === 'mode' && <StepMode formData={formData} onChange={handleChange} eyebrow={eyebrow} />}
-              {stepName === 'goal' && <StepGoal formData={formData} onChange={handleChange} eyebrow={eyebrow} />}
-              {stepName === 'profile' && (
-                <StepProfile formData={formData} onChange={handleChange} onToggleArray={handleToggleArray} eyebrow={eyebrow} />
-              )}
-              {stepName === 'assess' && (
-                <StepAssessment
-                  formData={formData}
-                  assessment={assessment}
-                  loading={assessLoading}
-                  onApplySuggestion={handleChange}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
-
-          {error && <div className="ob-error">{error}</div>}
-
-          <div className="ob-actions">
-            {safeIndex > 0 && (
-              <button type="button" className="ob-back-btn" onClick={handleBack} disabled={loading}>← Назад</button>
+    <Shell
+      filled={safeIndex + 1}
+      total={steps.length}
+      onClose={switchMode ? () => navigate('/') : undefined}
+    >
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <AnimatePresence mode="wait" custom={dir}>
+          <motion.div
+            key={stepName}
+            custom={dir}
+            variants={stepVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.26, ease: [0.33, 1, 0.68, 1] }}
+          >
+            {stepName === 'mode' && <StepMode formData={formData} onChange={handleChange} />}
+            {stepName === 'goal' && <StepGoal formData={formData} onChange={handleChange} />}
+            {stepName === 'profile' && (
+              <StepProfile formData={formData} onChange={handleChange} onToggleArray={handleToggleArray} />
             )}
-            <button
-              type="button"
-              className={`ob-cta ${stepName === 'assess' && cautionVerdict ? 'ob-cta--warning' : ''}`}
-              onClick={handleNext}
-              disabled={submitDisabled}
-            >
-              {loading
-                ? 'Сохраняю...'
-                : stepName === 'assess' && cautionVerdict
-                  ? 'Всё равно создать план →'
-                  : isLast
-                    ? (planMode ? 'Создать план →' : 'Создать календарь →')
-                    : 'Дальше →'}
-            </button>
-          </div>
+            {stepName === 'assess' && (
+              <StepAssessment
+                formData={formData}
+                assessment={assessment}
+                loading={assessLoading}
+                onApplySuggestion={handleChange}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {error && <ObError>{error}</ObError>}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 'auto', padding: '18px 0 calc(18px + env(safe-area-inset-bottom, 0px))' }}>
+          {safeIndex > 0 && (
+            <PrButton variant="secondary" onClick={handleBack} disabled={loading}>← Назад</PrButton>
+          )}
+          <PrButton onClick={handleNext} disabled={submitDisabled} style={{ flex: 1 }}>
+            {loading
+              ? 'Сохраняю…'
+              : stepName === 'assess' && cautionVerdict
+                ? 'Всё равно создать план →'
+                : isLast
+                  ? (planMode ? 'Создать план →' : 'Создать календарь →')
+                  : 'Дальше →'}
+          </PrButton>
         </div>
       </div>
-    </div>
+    </Shell>
   );
 }

@@ -1,23 +1,33 @@
 /**
  * Шаг «Профиль». Для self — минимум (дата старта + пол). Для AI — полный набор полей,
  * включая расширенный профиль бегуна (темп, последний результат) для race/time_improvement.
+ * Логика прежняя 1:1; вёрстка — v3B (поля pr-field, сегменты, круглые дни, тумблеры).
  */
 
-import {
-  LeafIcon, WalkingIcon, RunningIcon, ZapIcon, TrophyIcon,
-  CalendarIcon, GraduationCapIcon, PaceIcon, MedalIcon,
-} from '../common/Icons';
+import { PrField, PrToggle } from '../ui';
 import { formatPaceMask, paceMaskToSeconds } from '../../utils/paceMask';
 import { formatDurationMask, normalizeDuration } from '../../utils/durationMask';
 import {
   EXPERIENCE_LEVELS, DAY_LABELS, OFP_PREFERENCES, TRAINING_TIMES, LAST_RACE_DISTANCES, PACE_QUICK_CHIPS,
   WEEKLY_VOLUME_RANGES,
 } from './onboardingForm';
+import { ObHeading, ObSection, ObSeg, ObDayDot, ObDateCard, ObHint } from './obKit';
 
-const EXP_ICONS = { leaf: LeafIcon, walking: WalkingIcon, running: RunningIcon, zap: ZapIcon, trophy: TrophyIcon };
 const today = () => new Date().toISOString().split('T')[0];
 
-export default function StepProfile({ formData, onChange, onToggleArray, eyebrow }) {
+function ToggleRow({ title, hint, on, onChange }) {
+  return (
+    <div className="pr-card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--pr-ink)' }}>{title}</div>
+        {hint && <div style={{ fontSize: 11, color: 'var(--pr-sub)', marginTop: 2 }}>{hint}</div>}
+      </div>
+      <PrToggle on={on} onChange={onChange} />
+    </div>
+  );
+}
+
+export default function StepProfile({ formData, onChange, onToggleArray }) {
   const isSelf = formData.training_mode === 'self';
   const showExtended = formData.goal_type === 'race' || formData.goal_type === 'time_improvement';
 
@@ -30,29 +40,24 @@ export default function StepProfile({ formData, onChange, onToggleArray, eyebrow
 
   // Развилка истории забегов. Источник VDOT один и самый точный из доступных:
   // «нет» → комфортный темп (грубый fallback), «да» → последний результат (точно).
-  // is_first_race_at_distance выводим автоматически (не отдельным полем).
   const setRaceHistory = (val) => {
     onChange('has_race_history', val);
     if (val === 'no') {
-      // Не бегал на забегах → это первый забег; чистим поля результата
       onChange('is_first_race_at_distance', true);
       onChange('last_race_distance', '');
       onChange('last_race_time', '');
       onChange('last_race_date', '');
     } else {
-      // Бегал → первый ли это забег на ЦЕЛЕВОЙ дистанции выведем из выбора ниже; темп чистим
       onChange('easy_pace_min', '');
       onChange('easy_pace_sec', '');
     }
   };
 
-  // Дистанция последнего результата → первый ли это забег на целевой дистанции
   const setLastRaceDistance = (val) => {
     onChange('last_race_distance', val);
     onChange('is_first_race_at_distance', val !== '' && val !== formData.race_distance);
   };
 
-  // Выбор диапазона объёма: weekly_base_km = середина диапазона; для верхних — можно уточнить точно.
   const selectVolumeRange = (range) => {
     onChange('weekly_base_range', range.value);
     onChange('weekly_base_km', String(range.km));
@@ -61,371 +66,262 @@ export default function StepProfile({ formData, onChange, onToggleArray, eyebrow
   const showExactVolume = selectedRange?.exact;
 
   return (
-    <div className="ob-step">
-      <div className="ob-eyebrow">{eyebrow || (isSelf ? 'ШАГ 2 ИЗ 2' : 'ШАГ 3 ИЗ 3')}</div>
-      <h1 className="ob-h1">Твой профиль</h1>
-      <p className="ob-sub">{isSelf ? 'Для календаря нужен минимум' : 'Чем точнее — тем лучше план'}</p>
+    <div>
+      <ObHeading title="Твой профиль" sub={isSelf ? 'Для календаря нужен минимум.' : 'Чем точнее — тем лучше план.'} />
 
-      <div style={{ marginTop: 20 }}>
-        {/* Имя/Фамилия — для всех режимов; имя обязательно, фамилия опциональна */}
-        <div className="ob-row">
-          <div className="ob-field ob-field--inline">
-            <label className="ob-label">Имя <span className="ob-req">*</span></label>
-            <input
-              type="text"
-              className="ob-input"
-              placeholder="Иван"
-              autoComplete="given-name"
-              value={formData.first_name}
-              onChange={(e) => onChange('first_name', e.target.value)}
-            />
-          </div>
-          <div className="ob-field ob-field--inline">
-            <label className="ob-label">Фамилия</label>
-            <input
-              type="text"
-              className="ob-input"
-              placeholder="Петров"
-              autoComplete="family-name"
-              value={formData.last_name}
-              onChange={(e) => onChange('last_name', e.target.value)}
-            />
-          </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 16 }}>
+        <PrField
+          label="Имя *"
+          type="text"
+          placeholder="Иван"
+          autoComplete="given-name"
+          value={formData.first_name}
+          onChange={(e) => onChange('first_name', e.target.value)}
+        />
+        <PrField
+          label="Фамилия"
+          type="text"
+          placeholder="Петров"
+          autoComplete="family-name"
+          value={formData.last_name}
+          onChange={(e) => onChange('last_name', e.target.value)}
+        />
+      </div>
+
+      {isSelf && (
+        <div style={{ marginTop: 14 }}>
+          <ObDateCard
+            label="Дата начала тренировок"
+            value={formData.training_start_date}
+            min={today()}
+            onChange={(e) => onChange('training_start_date', e.target.value)}
+          />
+          <ObHint>С какой даты начинается календарь (по умолчанию — следующий понедельник).</ObHint>
         </div>
+      )}
 
-        {isSelf && (
-          <div className="ob-field">
-            <label className="ob-label">
-              <CalendarIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-              Дата начала тренировок
-            </label>
-            <input
-              type="date"
-              className="ob-input"
-              value={formData.training_start_date || ''}
-              min={today()}
-              onChange={(e) => onChange('training_start_date', e.target.value)}
+      <ObSection>Пол *</ObSection>
+      <div style={{ display: 'flex', gap: 6 }} role="radiogroup" aria-label="Пол">
+        {[['male', 'Мужской'], ['female', 'Женский']].map(([val, label]) => (
+          <ObSeg key={val} active={formData.gender === val} onClick={() => onChange('gender', val)} style={{ flex: 1 }}>
+            {label}
+          </ObSeg>
+        ))}
+      </div>
+
+      {!isSelf && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: formData.goal_type !== 'weight_loss' ? '1fr 1fr 1fr' : '1fr 1fr', gap: 9, marginTop: 14 }}>
+            <PrField
+              label="Год рожд."
+              type="number" min="1930" max={new Date().getFullYear()} placeholder="1990"
+              value={formData.birth_year}
+              onChange={(e) => onChange('birth_year', e.target.value)}
             />
-            <span className="ob-hint">С какой даты начинается календарь (по умолчанию — следующий понедельник).</span>
+            <PrField
+              label="Рост, см"
+              type="number" min="100" max="250" placeholder="178"
+              value={formData.height_cm}
+              onChange={(e) => onChange('height_cm', e.target.value)}
+            />
+            {/* Для «Похудение» вес уже собран в шаге «Цель» — не дублируем */}
+            {formData.goal_type !== 'weight_loss' && (
+              <PrField
+                label="Вес, кг"
+                type="number" min="30" max="250" step="0.1" placeholder="72"
+                value={formData.weight_kg}
+                onChange={(e) => onChange('weight_kg', e.target.value)}
+              />
+            )}
           </div>
-        )}
 
-        {/* Пол — обязателен всегда */}
-        <div className="ob-field">
-          <label className="ob-label">Пол <span className="ob-req">*</span></label>
-          <div className="ob-seg-group">
-            {[['male', 'Мужской'], ['female', 'Женский']].map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                className={`ob-bigseg ${formData.gender === val ? 'ob-bigseg--active' : ''}`}
-                onClick={() => onChange('gender', val)}
-              >
-                {label}
-              </button>
+          <ObSection>Опыт в беге *</ObSection>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }} role="radiogroup" aria-label="Уровень подготовки">
+            {EXPERIENCE_LEVELS.map((lvl) => {
+              const active = formData.experience_level === lvl.value;
+              return (
+                <ObSeg key={lvl.value} active={active} onClick={() => onChange('experience_level', lvl.value)} style={{ padding: '9px 4px' }}>
+                  <span style={{ display: 'block' }}>{lvl.title}</span>
+                  <span style={{ display: 'block', fontSize: 9.5, fontWeight: 600, opacity: 0.75, marginTop: 2 }}>{lvl.period}</span>
+                </ObSeg>
+              );
+            })}
+          </div>
+
+          <ObSection>Сколько бегаешь сейчас? · км/нед</ObSection>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }} role="radiogroup" aria-label="Текущий объём в неделю">
+            {WEEKLY_VOLUME_RANGES.map((r) => (
+              <ObSeg key={r.value} active={formData.weekly_base_range === r.value} onClick={() => selectVolumeRange(r)}>
+                {r.label}
+              </ObSeg>
             ))}
           </div>
-        </div>
+          <ObHint>В среднем за последние недели. Бегаешь нерегулярно — выбери ближайшее.</ObHint>
+          {showExactVolume && (
+            <PrField
+              label="Точный объём, км/нед"
+              type="number" min="0" max="400" step="1" placeholder="52"
+              value={formData.weekly_base_km}
+              onChange={(e) => onChange('weekly_base_km', e.target.value)}
+              style={{ marginTop: 9 }}
+            />
+          )}
 
-        {!isSelf && (
-          <>
-            <div className="ob-row">
-              <div className="ob-field ob-field--inline">
-                <label className="ob-label">Год рожд.</label>
-                <input type="number" min="1930" max={new Date().getFullYear()} placeholder="1990"
-                  className="ob-input" value={formData.birth_year}
-                  onChange={(e) => onChange('birth_year', e.target.value)} />
+          {/* Расширенный профиль — для race / time_improvement */}
+          {showExtended && (
+            <div className="pr-card" style={{ marginTop: 18, padding: '14px 16px', background: 'var(--pr-card-2)' }}>
+              <div style={{ fontFamily: 'var(--pr-font-display)', fontSize: 14, fontWeight: 700, color: 'var(--pr-ink)' }}>
+                Расскажи больше о своём беге
               </div>
-              <div className="ob-field ob-field--inline">
-                <label className="ob-label">Рост, см</label>
-                <input type="number" min="100" max="250" placeholder="178"
-                  className="ob-input" value={formData.height_cm}
-                  onChange={(e) => onChange('height_cm', e.target.value)} />
+              <div style={{ fontSize: 11.5, color: 'var(--pr-sub)', marginTop: 3 }}>
+                Эти данные помогут создать более точный план (необязательно).
               </div>
-              {/* Для «Похудение» вес уже собран в шаге «Цель» (текущий вес) — не дублируем */}
-              {formData.goal_type !== 'weight_loss' && (
-                <div className="ob-field ob-field--inline">
-                  <label className="ob-label">Вес, кг</label>
-                  <input type="number" min="30" max="250" step="0.1" placeholder="72"
-                    className="ob-input" value={formData.weight_kg}
-                    onChange={(e) => onChange('weight_kg', e.target.value)} />
-                </div>
-              )}
-            </div>
 
-            <div className="ob-field">
-              <label className="ob-label">
-                <GraduationCapIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                Опыт в беге <span className="ob-req">*</span>
-              </label>
-              <div className="ob-seg-group ob-seg-group--wrap" role="radiogroup" aria-label="Уровень подготовки">
-                {EXPERIENCE_LEVELS.map((lvl) => {
-                  const Icon = EXP_ICONS[lvl.iconKey];
-                  const active = formData.experience_level === lvl.value;
-                  return (
-                    <button
-                      key={lvl.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      className={`ob-seg ${active ? 'ob-seg--active' : ''}`}
-                      style={{ flex: '1 1 28%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 4px' }}
-                      onClick={() => onChange('experience_level', lvl.value)}
-                    >
-                      <Icon size={20} aria-hidden />
-                      <span>{lvl.title}</span>
-                      <span style={{ fontSize: 10, opacity: 0.75 }}>{lvl.period}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="ob-field">
-              <label className="ob-label">
-                <RunningIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                Сколько бегаешь сейчас?
-              </label>
-              <div className="ob-seg-group ob-seg-group--wrap" role="radiogroup" aria-label="Текущий объём в неделю">
-                {WEEKLY_VOLUME_RANGES.map((r) => (
-                  <button
-                    key={r.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={formData.weekly_base_range === r.value}
-                    className={`ob-seg ${formData.weekly_base_range === r.value ? 'ob-seg--active' : ''}`}
-                    style={{ flex: '1 1 30%' }}
-                    onClick={() => selectVolumeRange(r)}
-                  >
-                    {r.label}
-                  </button>
+              <ObSection>Бегал на официальном забеге?</ObSection>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[['yes', 'Да, есть результат'], ['no', 'Нет / не помню']].map(([val, label]) => (
+                  <ObSeg key={val} active={formData.has_race_history === val} onClick={() => setRaceHistory(val)} style={{ flex: 1 }}>
+                    {label}
+                  </ObSeg>
                 ))}
               </div>
-              <span className="ob-hint">В среднем за последние недели, км/нед. Бегаешь нерегулярно — выбери ближайшее.</span>
-              {showExactVolume && (
+
+              {/* Ветка «нет» — комфортный темп (грубая оценка уровня) */}
+              {formData.has_race_history === 'no' && (
                 <>
-                  <input
-                    type="number" min="0" max="400" step="1" placeholder="точно, км/нед"
-                    className="ob-input" style={{ marginTop: 8 }}
-                    value={formData.weekly_base_km}
-                    onChange={(e) => onChange('weekly_base_km', e.target.value)}
-                  />
-                  <span className="ob-hint">Можешь указать точный объём.</span>
+                  <ObSection>Комфортный темп · мин:сек/км</ObSection>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                    <PrField
+                      type="text" inputMode="numeric" autoComplete="off" maxLength={5} placeholder="7:00"
+                      value={formData.easy_pace_min || ''}
+                      onChange={(e) => setPace(formatPaceMask(e.target.value))}
+                      style={{ width: 86, flexShrink: 0 }}
+                    />
+                    {PACE_QUICK_CHIPS.map((p) => (
+                      <ObSeg
+                        key={p}
+                        active={formData.easy_pace_min === p}
+                        onClick={() => {
+                          onChange('easy_pace_min', p);
+                          const [m, s] = p.split(':').map(Number);
+                          onChange('easy_pace_sec', String(m * 60 + s));
+                        }}
+                        style={{ flex: 1, fontVariantNumeric: 'tabular-nums' }}
+                      >
+                        {p}
+                      </ObSeg>
+                    ))}
+                  </div>
+                  <ObHint>Ориентир: 5:00 опытный · 6:00 уверенный · 7:00 начинающий · 8:00 очень спокойный.</ObHint>
+                </>
+              )}
+
+              {/* Ветка «да» — последний официальный результат (точный источник VDOT) */}
+              {formData.has_race_history === 'yes' && (
+                <>
+                  <ObSection>Последний официальный результат</ObSection>
+                  <div style={{ display: 'grid', gridTemplateColumns: formData.last_race_distance === 'other' ? '1fr 1fr' : '1fr', gap: 9 }}>
+                    <select className="pr-field" value={formData.last_race_distance} onChange={(e) => setLastRaceDistance(e.target.value)}>
+                      {LAST_RACE_DISTANCES.map((d) => <option key={d.value || 'none'} value={d.value}>{d.label}</option>)}
+                    </select>
+                    {formData.last_race_distance === 'other' && (
+                      <PrField
+                        type="number" min="0" max="200" step="0.1" placeholder="км"
+                        value={formData.last_race_distance_km}
+                        onChange={(e) => onChange('last_race_distance_km', e.target.value)}
+                      />
+                    )}
+                  </div>
+                  {formData.last_race_distance && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 9 }}>
+                      <PrField
+                        label="Результат"
+                        type="text" inputMode="numeric" autoComplete="off" maxLength={8} placeholder="0:43:18"
+                        value={formData.last_race_time}
+                        onChange={(e) => onChange('last_race_time', formatDurationMask(e.target.value))}
+                        onBlur={(e) => onChange('last_race_time', normalizeDuration(e.target.value))}
+                      />
+                      <PrField
+                        label="Когда"
+                        type="month" max={new Date().toISOString().slice(0, 7)}
+                        value={formData.last_race_date}
+                        onChange={(e) => onChange('last_race_date', e.target.value)}
+                      />
+                    </div>
+                  )}
                 </>
               )}
             </div>
+          )}
 
-            {/* Расширенный профиль — для race / time_improvement */}
-            {showExtended && (
-              <div className="ob-extended">
-                <h3 className="ob-extended__title">Расскажи больше о своём беге</h3>
-                <p className="ob-extended__desc">Эти данные помогут создать более точный план (необязательно).</p>
+          <ObSection>Удобные дни для бега</ObSection>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }} role="group" aria-label="Дни для бега">
+            {Object.entries(DAY_LABELS).map(([key, label]) => (
+              <ObDayDot
+                key={key}
+                active={formData.preferred_days.includes(key)}
+                label={label}
+                onClick={() => onToggleArray('preferred_days', key, !formData.preferred_days.includes(key))}
+              />
+            ))}
+          </div>
+          {formData.preferred_days.length > 0 && (
+            <ObHint>Тренировок в неделю: <strong style={{ color: 'var(--pr-ink)' }}>{formData.preferred_days.length}</strong></ObHint>
+          )}
 
-                {/* Развилка: один самый точный источник фитнес-уровня (→ VDOT) */}
-                <div className="ob-field">
-                  <label className="ob-label">
-                    <MedalIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                    Бегал на официальном забеге?
-                  </label>
-                  <div className="ob-seg-group">
-                    {[['yes', 'Да, есть результат'], ['no', 'Нет / не помню']].map(([val, label]) => (
-                      <button
-                        key={val}
-                        type="button"
-                        className={`ob-bigseg ${formData.has_race_history === val ? 'ob-bigseg--active' : ''}`}
-                        onClick={() => setRaceHistory(val)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Ветка «нет» — комфортный темп (грубая оценка уровня) */}
-                {formData.has_race_history === 'no' && (
-                  <div className="ob-field">
-                    <label className="ob-label">
-                      <PaceIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                      Комфортный темп (мин:сек/км)
-                    </label>
-                    <div className="ob-pace-row">
-                      <input
-                        type="text" inputMode="numeric" autoComplete="off" maxLength={5} placeholder="7:00"
-                        className="ob-input ob-input--num ob-pace-input"
-                        value={formData.easy_pace_min || ''}
-                        onChange={(e) => setPace(formatPaceMask(e.target.value))}
-                      />
-                      <div className="ob-pace-quick" role="group" aria-label="Быстрый выбор темпа">
-                        {PACE_QUICK_CHIPS.map((p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            className={`ob-seg ob-seg--accent ob-seg--num ${formData.easy_pace_min === p ? 'ob-seg--active' : ''}`}
-                            onClick={() => {
-                              onChange('easy_pace_min', p);
-                              const [m, s] = p.split(':').map(Number);
-                              onChange('easy_pace_sec', String(m * 60 + s));
-                            }}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <span className="ob-hint">Ориентир: 5:00 опытный · 6:00 уверенный · 7:00 начинающий · 8:00 очень спокойный.</span>
-                  </div>
-                )}
-
-                {/* Ветка «да» — последний официальный результат (точный источник VDOT) */}
-                {formData.has_race_history === 'yes' && (
-                  <div className="ob-field">
-                    <label className="ob-label">
-                      <MedalIcon size={14} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                      Последний официальный результат
-                    </label>
-                    <div className="ob-row">
-                      <div className="ob-field ob-field--inline">
-                        <select
-                          className="ob-select"
-                          value={formData.last_race_distance}
-                          onChange={(e) => setLastRaceDistance(e.target.value)}
-                        >
-                          {LAST_RACE_DISTANCES.map((d) => <option key={d.value || 'none'} value={d.value}>{d.label}</option>)}
-                        </select>
-                      </div>
-                      {formData.last_race_distance === 'other' && (
-                        <div className="ob-field ob-field--inline">
-                          <input type="number" min="0" max="200" step="0.1" placeholder="км"
-                            className="ob-input" value={formData.last_race_distance_km}
-                            onChange={(e) => onChange('last_race_distance_km', e.target.value)} />
-                        </div>
-                      )}
-                    </div>
-                    {formData.last_race_distance && (
-                      <div className="ob-row">
-                        <div className="ob-field ob-field--inline">
-                          <label className="ob-label">Результат</label>
-                          <input type="text" inputMode="numeric" autoComplete="off" maxLength={8}
-                            placeholder="0:43:18"
-                            className="ob-input ob-input--num"
-                            value={formData.last_race_time}
-                            onChange={(e) => onChange('last_race_time', formatDurationMask(e.target.value))}
-                            onBlur={(e) => onChange('last_race_time', normalizeDuration(e.target.value))} />
-                        </div>
-                        <div className="ob-field ob-field--inline">
-                          <label className="ob-label">Когда</label>
-                          <input type="month" max={new Date().toISOString().slice(0, 7)} className="ob-input"
-                            value={formData.last_race_date}
-                            onChange={(e) => onChange('last_race_date', e.target.value)} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Дни для бега */}
-            <div className="ob-field">
-              <label className="ob-label">Удобные дни для бега</label>
-              <div className="ob-days" role="group" aria-label="Дни для бега">
-                {Object.entries(DAY_LABELS).map(([key, label]) => {
-                  const active = formData.preferred_days.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={active}
-                      className={`ob-day ${active ? 'ob-day--active' : ''}`}
-                      onClick={() => onToggleArray('preferred_days', key, !active)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              {formData.preferred_days.length > 0 && (
-                <span className="ob-hint">Тренировок в неделю: <strong>{formData.preferred_days.length}</strong></span>
-              )}
-            </div>
-
-            {/* ОФП */}
-            <div className="ob-field">
-              <label className="ob-toggle">
-                <span className="ob-toggle__label">
-                  <span>Планируете делать ОФП?</span>
-                  <span className="ob-toggle__hint">Общая физподготовка — силовые, растяжка</span>
-                </span>
-                <input
-                  type="checkbox"
-                  className="ob-toggle__input"
-                  checked={formData.will_do_ofp === 'yes'}
-                  onChange={(e) => onChange('will_do_ofp', e.target.checked ? 'yes' : 'no')}
-                />
-                <span className="ob-toggle__track" aria-hidden><span className="ob-toggle__thumb" /></span>
-              </label>
-            </div>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 18 }}>
+            <ToggleRow
+              title="Планируешь делать ОФП?"
+              hint="Общая физподготовка — силовые, растяжка"
+              on={formData.will_do_ofp === 'yes'}
+              onChange={(v) => onChange('will_do_ofp', v ? 'yes' : 'no')}
+            />
             {formData.will_do_ofp === 'yes' && (
               <>
-                <div className="ob-field">
-                  <label className="ob-label">Дни для ОФП</label>
-                  <div className="ob-days" role="group" aria-label="Дни для ОФП">
-                    {Object.entries(DAY_LABELS).map(([key, label]) => {
-                      const active = formData.preferred_ofp_days.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          aria-pressed={active}
-                          className={`ob-day ${active ? 'ob-day--active' : ''}`}
-                          onClick={() => onToggleArray('preferred_ofp_days', key, !active)}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <ObSection style={{ margin: '8px 0 0' }}>Дни для ОФП</ObSection>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }} role="group" aria-label="Дни для ОФП">
+                  {Object.entries(DAY_LABELS).map(([key, label]) => (
+                    <ObDayDot
+                      key={key}
+                      active={formData.preferred_ofp_days.includes(key)}
+                      label={label}
+                      onClick={() => onToggleArray('preferred_ofp_days', key, !formData.preferred_ofp_days.includes(key))}
+                    />
+                  ))}
                 </div>
-                <div className="ob-field">
-                  <label className="ob-label">Где удобно делать ОФП?</label>
-                  <select className="ob-select" value={formData.ofp_preference}
-                    onChange={(e) => onChange('ofp_preference', e.target.value)}>
+                <label style={{ display: 'block', marginTop: 4 }}>
+                  <div className="pr-field-label">Где удобно делать ОФП?</div>
+                  <select className="pr-field" value={formData.ofp_preference} onChange={(e) => onChange('ofp_preference', e.target.value)}>
                     {OFP_PREFERENCES.map((o) => <option key={o.value || 'any'} value={o.value}>{o.label}</option>)}
                   </select>
-                </div>
+                </label>
               </>
             )}
+            <ToggleRow
+              title="Есть беговая дорожка"
+              on={formData.has_treadmill}
+              onChange={(v) => onChange('has_treadmill', v)}
+            />
+          </div>
 
-            <div className="ob-row">
-              <div className="ob-field ob-field--inline">
-                <label className="ob-label">Время тренировок</label>
-                <select className="ob-select" value={formData.training_time_pref}
-                  onChange={(e) => onChange('training_time_pref', e.target.value)}>
-                  {TRAINING_TIMES.map((t) => <option key={t.value || 'any'} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-              <div className="ob-field ob-field--inline" style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <label className="ob-toggle" style={{ width: '100%', paddingBottom: 8 }}>
-                  <span className="ob-toggle__label"><span>Есть беговая дорожка</span></span>
-                  <input type="checkbox" className="ob-toggle__input"
-                    checked={formData.has_treadmill}
-                    onChange={(e) => onChange('has_treadmill', e.target.checked)} />
-                  <span className="ob-toggle__track" aria-hidden><span className="ob-toggle__thumb" /></span>
-                </label>
-              </div>
-            </div>
+          <label style={{ display: 'block', marginTop: 14 }}>
+            <div className="pr-field-label">Время тренировок</div>
+            <select className="pr-field" value={formData.training_time_pref} onChange={(e) => onChange('training_time_pref', e.target.value)}>
+              {TRAINING_TIMES.map((t) => <option key={t.value || 'any'} value={t.value}>{t.label}</option>)}
+            </select>
+          </label>
 
-            <div className="ob-field">
-              <label className="ob-label">Ограничения по здоровью</label>
-              <textarea rows="3" className="ob-textarea"
-                placeholder="Травмы, ограничения, рекомендации врача (необязательно)"
-                value={formData.health_notes}
-                onChange={(e) => onChange('health_notes', e.target.value)} />
-            </div>
-          </>
-        )}
-      </div>
+          <PrField
+            label="Ограничения по здоровью"
+            multiline
+            rows={3}
+            placeholder="Травмы, ограничения, рекомендации врача (необязательно)"
+            value={formData.health_notes}
+            onChange={(e) => onChange('health_notes', e.target.value)}
+            style={{ marginTop: 14 }}
+          />
+        </>
+      )}
     </div>
   );
 }
